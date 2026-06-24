@@ -1,0 +1,52 @@
+# ─── Environment files ───────────────────────────────────────────────────────
+.env
+.env.local_dev
+.env.production
+.env.staging
+*.env
+!.env.example
+
+# ─── Python / Django ─────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environment
+venv/
+.venv/
+env/
+ENV/
+
+# Django
+*.log
+db.sqlite3
+staticfiles/
+media/
+
+# ─── Node.js (whatsapp-worker) ────────────────────────────────────────────────
+whatsapp-worker/node_modules/
+whatsapp-worker/sessions/
+
+# ─── Claude Code ─────────────────────────────────────────────────────────────
+.claude/
+
+# ─── IDE ─────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# ─── OS ──────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
