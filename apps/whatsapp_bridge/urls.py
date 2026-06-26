@@ -14,4 +14,14 @@ urlpatterns = [
         views.internal_session_status,
         name='internal-session-status',
     ),
+    path(
+        'api/internal/whatsapp/contacts-update/',
+        views.internal_contacts_update,
+        name='internal-contacts-update',
+    ),
+    path(
+        'api/internal/whatsapp/account-settings/<str:session_id>/',
+        views.internal_account_settings,
+        name='internal-account-settings',
+    ),
 ]

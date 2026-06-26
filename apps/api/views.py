@@ -1,11 +1,14 @@
+import json
 import requests
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.http import JsonResponse, StreamingHttpResponse
+from django.core.serializers.json import DjangoJSONEncoder
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppChat, SyncLog
+from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppChat, WhatsAppMessage, SyncLog
 from .serializers import (
     WhatsAppAccountSerializer, ChatSerializer, MessageSerializer, SyncLogSerializer,
 )
@@ -25,13 +28,81 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
             owner = User.objects.filter(is_superuser=True).first()
         serializer.save(owner=owner)
 
+    def destroy(self, request, *args, **kwargs):
+        account = self.get_object()
+        # Soft-disconnect from worker (best-effort, don't block delete)
+        try:
+            requests.post(
+                f'{WORKER_BASE_URL}/sessions/{account.pk}/soft-disconnect',
+                timeout=5,
+            )
+        except Exception:
+            pass
+        account.delete()  # cascades to chats, messages, contacts, sync_logs
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['patch'], url_path='update-settings')
+    def update_settings(self, request, pk=None):
+        account = self.get_object()
+        allowed = ['sync_history', 'history_days', 'idle_disconnect_minutes', 'display_name']
+        update_fields = []
+        for field in allowed:
+            if field in request.data:
+                val = request.data[field]
+                # history_days: accept null/None to mean all-time
+                if field == 'history_days' and val == '':
+                    val = None
+                setattr(account, field, val)
+                update_fields.append(field)
+        if update_fields:
+            account.save(update_fields=update_fields)
+        return Response(WhatsAppAccountSerializer(account).data)
+
+    @action(detail=True, methods=['get'])
+    def export(self, request, pk=None):
+        account = self.get_object()
+
+        def generate():
+            yield '{"account_id":' + str(account.pk) + ','
+            yield '"phone_number":' + json.dumps(account.phone_number) + ','
+            yield '"display_name":' + json.dumps(account.display_name) + ','
+            yield '"chats":['
+            chats = list(account.chats.order_by('created_at'))
+            for chat_idx, chat in enumerate(chats):
+                msgs = list(
+                    chat.messages.order_by('message_time').values(
+                        'provider_message_id', 'sender_number', 'direction',
+                        'message_type', 'message_text', 'message_time',
+                        'has_media', 'media_url',
+                    )
+                )
+                chat_obj = {
+                    'wa_chat_id': chat.wa_chat_id,
+                    'chat_type': chat.chat_type,
+                    'name': chat.name,
+                    'messages': msgs,
+                }
+                yield json.dumps(chat_obj, cls=DjangoJSONEncoder)
+                if chat_idx < len(chats) - 1:
+                    yield ','
+            yield ']}'
+
+        resp = StreamingHttpResponse(generate(), content_type='application/json')
+        resp['Content-Disposition'] = f'attachment; filename="chatlens-{account.pk}.json"'
+        return resp
+
     @action(detail=True, methods=['post'], url_path='start-session')
     def start_session(self, request, pk=None):
         account = self.get_object()
         try:
             resp = requests.post(
                 f'{WORKER_BASE_URL}/sessions',
-                json={'session_id': str(account.pk)},
+                json={
+                    'session_id': str(account.pk),
+                    'sync_history': account.sync_history,
+                    'history_days': account.history_days,
+                    'idle_disconnect_minutes': account.idle_disconnect_minutes,
+                },
                 timeout=10,
             )
             return Response(resp.json(), status=resp.status_code)

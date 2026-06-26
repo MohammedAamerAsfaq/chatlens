@@ -40,5 +40,32 @@ export const useAccountsStore = defineStore('accounts', () => {
     if (idx !== -1) accounts.value[idx] = { ...accounts.value[idx], ...updated }
   }
 
-  return { accounts, loading, error, fetchAccounts, createAccount, startSession, disconnect, updateAccount }
+  async function updateSettings(id, data) {
+    const { data: updated } = await accountsApi.updateSettings(id, data)
+    updateAccount(updated)
+    return updated
+  }
+
+  async function deleteAccount(id) {
+    await accountsApi.delete(id)
+    accounts.value = accounts.value.filter(a => a.id !== id)
+  }
+
+  async function exportAccount(id, filename) {
+    const { data } = await accountsApi.export(id)
+    const url = URL.createObjectURL(data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename || `chatlens-${id}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  return {
+    accounts, loading, error,
+    fetchAccounts, createAccount, startSession, disconnect,
+    updateAccount, updateSettings, deleteAccount, exportAccount,
+  }
 })

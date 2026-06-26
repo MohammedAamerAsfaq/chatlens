@@ -2,9 +2,13 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { chatsApi, accountsApi } from '@/api'
 
-function clearUnread(chats, id) {
-  const chat = chats.find(c => c.id === id)
-  if (chat) chat.unread_count = 0
+function clearUnread(chats, accounts, chatId, accountId) {
+  const chat = chats.find(c => c.id === chatId)
+  if (!chat || !chat.unread_count) return
+  const delta = chat.unread_count
+  chat.unread_count = 0
+  const account = accounts?.find(a => a.id === accountId)
+  if (account) account.total_unread = Math.max(0, (account.total_unread || 0) - delta)
 }
 
 export const useConversationsStore = defineStore('conversations', () => {
@@ -58,8 +62,10 @@ export const useConversationsStore = defineStore('conversations', () => {
     try {
       const { data } = await chatsApi.list(params)
       chats.value = data
-      // If a chat is currently open, keep its badge cleared in the fresh list
-      if (selectedChatId.value) clearUnread(chats.value, selectedChatId.value)
+      // Keep the open chat's badge cleared in the refreshed list
+      if (selectedChatId.value) {
+        clearUnread(chats.value, accounts.value, selectedChatId.value, id)
+      }
     } catch {}
   }
 
@@ -106,7 +112,7 @@ export const useConversationsStore = defineStore('conversations', () => {
     hasMoreMessages.value = false
     loadingMessages.value = true
     clearInterval(messagePollTimer)
-    clearUnread(chats.value, id)
+    clearUnread(chats.value, accounts.value, id, selectedAccountId.value)
     // Fire markRead independently — don't let its failure block message loading
     chatsApi.markRead(id).catch(() => {})
     try {
@@ -120,7 +126,11 @@ export const useConversationsStore = defineStore('conversations', () => {
   }
 
   function startPolling() {
-    chatPollTimer = setInterval(() => fetchChats(selectedAccountId.value), 8000)
+    chatPollTimer = setInterval(async () => {
+      await fetchChats(selectedAccountId.value)
+      // Refresh all accounts so total_unread stays accurate for non-selected accounts
+      fetchAccounts()
+    }, 8000)
   }
 
   function stopPolling() {

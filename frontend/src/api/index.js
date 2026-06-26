@@ -24,6 +24,9 @@ export const accountsApi = {
   startSession: (id) => http.post(`/accounts/${id}/start-session/`),
   getQR: (id) => http.get(`/accounts/${id}/qr/`),
   disconnect: (id) => http.post(`/accounts/${id}/disconnect/`),
+  delete: (id) => http.delete(`/accounts/${id}/`),
+  updateSettings: (id, data) => http.patch(`/accounts/${id}/update-settings/`, data),
+  export: (id) => http.get(`/accounts/${id}/export/`, { responseType: 'blob' }),
 }
 
 export const chatsApi = {

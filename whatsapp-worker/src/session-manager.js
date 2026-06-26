@@ -70,25 +70,24 @@ class SessionManager {
     const sessionIds = entries.filter(e => e.isDirectory()).map(e => e.name);
     this.logger.info({ count: sessionIds.length }, 'Auto-restoring sessions from disk');
     for (const sessionId of sessionIds) {
-      // Check if credentials file exists — if not, session was logged out and cleared
       const credsFile = path.join(this.sessionStorePath, sessionId, 'creds.json');
       if (!fs.existsSync(credsFile)) {
         this.logger.info({ sessionId }, 'Skipping session — no credentials on disk (was logged out)');
         continue;
       }
       this.logger.info({ sessionId }, 'Restoring session');
-      await this.createSession(sessionId);
+      // Fetch account settings from Django so idle-disconnect and history rules are respected
+      const options = await this.djangoClient.getAccountSettings(sessionId);
+      await this.createSession(sessionId, options);
     }
   }
 
-  async createSession(sessionId) {
+  async createSession(sessionId, options = {}) {
     const existing = this.sessions.get(sessionId);
     if (existing?.sock) {
-      // Active socket exists — already connected or connecting
       return this._snapshot(sessionId);
     }
 
-    // If previously logged out, wipe credentials so Baileys starts fresh and generates a QR
     if (existing?.status === SESSION_STATUS.LOGGED_OUT) {
       const authDir = path.join(this.sessionStorePath, sessionId);
       if (fs.existsSync(authDir)) {
@@ -103,9 +102,28 @@ class SessionManager {
       qrDataUrl: null,
       phoneNumber: null,
       displayName: null,
+      // Sync settings
+      syncHistory: options.sync_history !== false,
+      historyDays: options.history_days || null,
+      // Idle disconnect (0 = disabled)
+      idleDisconnectMs: options.idle_disconnect_minutes
+        ? options.idle_disconnect_minutes * 60 * 1000
+        : 0,
+      lastActivityAt: Date.now(),
+      idleTimer: null,
+      preventReconnect: false,
     });
     await this._connect(sessionId);
     return this._snapshot(sessionId);
+  }
+
+  async softDisconnect(sessionId) {
+    const s = this.sessions.get(sessionId);
+    if (!s || !s.sock) return false;
+    s.preventReconnect = true;
+    if (s.idleTimer) { clearInterval(s.idleTimer); s.idleTimer = null; }
+    s.sock.end(new Error('Manual soft disconnect'));
+    return true;
   }
 
   getStatus(sessionId) {
@@ -145,6 +163,8 @@ class SessionManager {
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     const { version } = await fetchLatestBaileysVersion();
 
+    const session = this.sessions.get(sessionId);
+
     const sock = makeWASocket({
       version,
       auth: {
@@ -154,11 +174,10 @@ class SessionManager {
       printQRInTerminal: false,
       logger: pino({ level: 'silent' }),
       shouldIgnoreJid: jid => isJidBroadcast(jid),
-      syncFullHistory: true,
+      syncFullHistory: session.syncHistory,
       getMessage: async () => ({ conversation: '' }),
     });
 
-    const session = this.sessions.get(sessionId);
     session.sock = sock;
 
     sock.ev.on('creds.update', saveCreds);
@@ -181,17 +200,38 @@ class SessionManager {
         session.phoneNumber = me?.id?.split(':')[0] || null;
         session.displayName = me?.name || null;
         session.qrDataUrl = null;
+        session.lastActivityAt = Date.now();
         this.logger.info({ sessionId, phone: session.phoneNumber }, 'Session connected');
         await this.djangoClient.sendSessionStatus(sessionId, {
           status: SESSION_STATUS.CONNECTED,
           phone_number: session.phoneNumber,
           display_name: session.displayName,
         });
+
+        // Start idle disconnect timer if configured
+        if (session.idleDisconnectMs > 0) {
+          session.idleTimer = setInterval(async () => {
+            const s = this.sessions.get(sessionId);
+            if (!s || !s.sock) { clearInterval(session.idleTimer); return; }
+            const idleMs = Date.now() - (s.lastActivityAt || Date.now());
+            if (idleMs >= s.idleDisconnectMs) {
+              this.logger.info(
+                { sessionId, idleMinutes: Math.round(idleMs / 60000) },
+                'Idle timeout — soft-disconnecting',
+              );
+              clearInterval(session.idleTimer);
+              session.idleTimer = null;
+              await this.softDisconnect(sessionId);
+            }
+          }, 60 * 1000);
+        }
       }
 
       if (connection === 'close') {
         const code = lastDisconnect?.error?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
+
+        if (session.idleTimer) { clearInterval(session.idleTimer); session.idleTimer = null; }
 
         session.status = loggedOut ? SESSION_STATUS.LOGGED_OUT : SESSION_STATUS.DISCONNECTED;
         session.sock = null;
@@ -202,31 +242,74 @@ class SessionManager {
         });
 
         if (!loggedOut) {
-          this.logger.info({ sessionId }, 'Reconnecting in 5s');
-          setTimeout(() => this._connect(sessionId), 5000);
+          if (session.preventReconnect) {
+            session.preventReconnect = false;
+            this.logger.info({ sessionId }, 'Soft disconnect — staying offline');
+          } else {
+            this.logger.info({ sessionId }, 'Reconnecting in 5s');
+            setTimeout(() => this._connect(sessionId), 5000);
+          }
         }
       }
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-      // 'notify' = real-time new message
-      // 'append' = backfill of messages received while offline
       if (type !== 'notify' && type !== 'append') return;
-
-      for (const msg of messages) {
-        if (!msg.key?.remoteJid) continue;   // skip protocol stubs with no JID
-        if (!msg.message) continue;           // skip key-only stubs with no content
-        await this._forwardMessage(sessionId, msg);
-      }
-    });
-
-    sock.ev.on('messaging-history.set', async ({ messages, isLatest }) => {
-      this.logger.info({ sessionId, count: messages.length, isLatest }, 'History sync received');
+      session.lastActivityAt = Date.now();
       for (const msg of messages) {
         if (!msg.key?.remoteJid) continue;
         if (!msg.message) continue;
         await this._forwardMessage(sessionId, msg);
       }
+    });
+
+    sock.ev.on('messaging-history.set', async ({ messages, isLatest }) => {
+      let filtered = messages.filter(m => m.key?.remoteJid && m.message);
+
+      if (session.historyDays) {
+        const cutoffMs = Date.now() - session.historyDays * 24 * 60 * 60 * 1000;
+        filtered = filtered.filter(m => Number(m.messageTimestamp) * 1000 >= cutoffMs);
+      }
+
+      this.logger.info(
+        { sessionId, received: messages.length, processing: filtered.length, isLatest },
+        'History sync',
+      );
+      for (const msg of filtered) {
+        await this._forwardMessage(sessionId, msg);
+      }
+    });
+
+    // Sync contact names whenever Baileys provides them.
+    // contacts.set fires on initial connect with the full contacts list.
+    // contacts.upsert fires when individual contacts are updated.
+    const _sendNamedContacts = async (contacts) => {
+      const batch = (contacts || [])
+        .filter(c => c.notify || c.verifiedName || c.name)
+        .map(c => {
+          const normalizedId = jidNormalizedUser(c.id);
+          return {
+            wa_contact_id: normalizedId,
+            push_name: c.name || c.notify || c.verifiedName || '',
+            // Extract real phone number from JID when it's phone-based
+            phone_number: c.id.endsWith('@s.whatsapp.net') ? c.id.split('@')[0] : '',
+          };
+        })
+        .filter(c => c.wa_contact_id && c.push_name);
+      if (!batch.length) return;
+      // Send in chunks of 100 to avoid oversized payloads
+      for (let i = 0; i < batch.length; i += 100) {
+        await this.djangoClient.sendContactsUpdate(sessionId, batch.slice(i, i + 100));
+      }
+    };
+
+    sock.ev.on('contacts.set', async ({ contacts }) => {
+      this.logger.info({ sessionId, total: (contacts || []).length }, 'Contacts.set received');
+      await _sendNamedContacts(contacts);
+    });
+
+    sock.ev.on('contacts.upsert', async (contacts) => {
+      await _sendNamedContacts(contacts);
     });
   }
 

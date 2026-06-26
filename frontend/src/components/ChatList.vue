@@ -34,7 +34,8 @@ function avatarColor(name) {
   return avatarColors[(name || '?').charCodeAt(0) % avatarColors.length]
 }
 function avatarLetter(name) {
-  return (name || '?')[0].toUpperCase()
+  const clean = (name || '?').replace(/^\+/, '')
+  return (clean || '?')[0].toUpperCase()
 }
 
 function formatTime(dt) {
@@ -51,28 +52,6 @@ function formatTime(dt) {
 
 <template>
   <div class="flex flex-col bg-white border-r border-gray-200 overflow-hidden">
-
-    <!-- Account switcher -->
-    <div v-if="store.accounts.length > 1" class="border-b border-gray-200 bg-white">
-      <div class="flex overflow-x-auto">
-        <button
-          v-for="account in store.accounts"
-          :key="account.id"
-          @click="store.switchAccount(account.id)"
-          :class="[
-            'flex items-center gap-2 px-4 py-3 text-xs font-medium whitespace-nowrap border-b-2 transition-colors shrink-0',
-            store.selectedAccountId === account.id
-              ? 'border-green-500 text-green-700 bg-green-50'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50',
-          ]"
-        >
-          <span
-            :class="['w-2 h-2 rounded-full shrink-0', account.session_status === 'connected' ? 'bg-green-500' : 'bg-gray-300']"
-          />
-          {{ account.display_name || account.phone_number || `Account #${account.id}` }}
-        </button>
-      </div>
-    </div>
 
     <!-- Header -->
     <div class="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-200">

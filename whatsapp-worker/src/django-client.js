@@ -43,6 +43,34 @@ class DjangoClient {
       );
     }
   }
+
+  async getAccountSettings(sessionId) {
+    try {
+      const resp = await this.http.get(
+        `/api/internal/whatsapp/account-settings/${sessionId}/`,
+      );
+      return resp.data;
+    } catch (err) {
+      this.logger.warn({ sessionId, error: err.message }, 'Could not fetch account settings — using defaults');
+      return { sync_history: true, history_days: null, idle_disconnect_minutes: 0 };
+    }
+  }
+
+  async sendContactsUpdate(sessionId, contacts) {
+    if (!contacts.length) return;
+    try {
+      await this.http.post('/api/internal/whatsapp/contacts-update/', {
+        worker_session_id: sessionId,
+        contacts,
+      });
+      this.logger.info({ sessionId, count: contacts.length }, 'Contacts update sent to Django');
+    } catch (err) {
+      this.logger.warn(
+        { sessionId, error: err.message },
+        'Failed to send contacts update to Django',
+      );
+    }
+  }
 }
 
 module.exports = { DjangoClient };

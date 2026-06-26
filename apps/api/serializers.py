@@ -5,12 +5,20 @@ from apps.whatsapp_bridge.models import (
 
 
 class WhatsAppAccountSerializer(serializers.ModelSerializer):
+    total_unread = serializers.SerializerMethodField()
+
+    def get_total_unread(self, obj):
+        from django.db.models import Sum
+        result = obj.chats.aggregate(total=Sum('unread_count'))
+        return result['total'] or 0
+
     class Meta:
         model = WhatsAppAccount
         fields = [
             'id', 'display_name', 'phone_number', 'session_status',
             'worker_session_id', 'last_connected_at', 'last_disconnected_at',
-            'is_active', 'created_at',
+            'is_active', 'created_at', 'total_unread',
+            'sync_history', 'history_days', 'idle_disconnect_minutes',
         ]
         read_only_fields = [
             'id', 'session_status', 'worker_session_id',
@@ -43,13 +51,18 @@ class ChatSerializer(serializers.ModelSerializer):
         if obj.name:
             return obj.name
         if obj.contact:
-            return (
-                obj.contact.display_name
-                or obj.contact.push_name
-                or obj.contact.phone_number
-                or obj.wa_chat_id
-            )
-        return obj.wa_chat_id
+            name = obj.contact.display_name or obj.contact.push_name
+            if name:
+                return name
+        # Derive label from JID type
+        jid = obj.wa_chat_id
+        local, _, server = jid.partition('@')
+        if server == 's.whatsapp.net':
+            return f'+{local}'
+        if server == 'lid':
+            # WhatsApp privacy-mode contact — no phone number available until name syncs
+            return 'Unknown Contact'
+        return jid
 
     def get_last_message_preview(self, obj):
         msg = obj.messages.order_by('-message_time').first()
@@ -91,10 +104,10 @@ class MessageSerializer(serializers.ModelSerializer):
 
     def get_sender_name(self, obj):
         if obj.contact:
-            return (
-                obj.contact.display_name
-                or obj.contact.push_name
-                or obj.contact.phone_number
-                or obj.sender_number
-            )
-        return obj.sender_number
+            name = obj.contact.display_name or obj.contact.push_name
+            if name:
+                return name
+            phone = obj.contact.phone_number
+            if phone:
+                return f'+{phone}'
+        return f'+{obj.sender_number}' if obj.sender_number else ''

@@ -24,6 +24,9 @@ class WhatsAppAccount(models.Model):
     last_connected_at = models.DateTimeField(null=True, blank=True)
     last_disconnected_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    sync_history = models.BooleanField(default=True)
+    history_days = models.IntegerField(null=True, blank=True)  # null = all time
+    idle_disconnect_minutes = models.IntegerField(default=0)   # 0 = disabled
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

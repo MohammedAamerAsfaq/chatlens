@@ -9,13 +9,17 @@ module.exports = function sessionsRouter(sessionManager) {
   // Body: { session_id: string }
   // Creates (or re-attaches) a WhatsApp session and begins QR generation.
   router.post('/', async (req, res) => {
-    const { session_id } = req.body;
+    const { session_id, sync_history, history_days, idle_disconnect_minutes } = req.body;
     if (!session_id) {
       return res.status(400).json({ error: 'session_id is required' });
     }
 
     try {
-      const snapshot = await sessionManager.createSession(session_id);
+      const snapshot = await sessionManager.createSession(session_id, {
+        sync_history,
+        history_days,
+        idle_disconnect_minutes,
+      });
       return res.status(201).json(snapshot);
     } catch (err) {
       return res.status(500).json({ error: err.message });
@@ -53,13 +57,23 @@ module.exports = function sessionsRouter(sessionManager) {
     return res.json({ qr: qrDataUrl, status: snapshot.status });
   });
 
-  // POST /sessions/:id/disconnect
+  // POST /sessions/:id/disconnect  (full logout — requires QR on next connect)
   router.post('/:id/disconnect', async (req, res) => {
     const snapshot = sessionManager.getStatus(req.params.id);
     if (!snapshot) return res.status(404).json({ error: 'Session not found' });
 
     try {
       await sessionManager.disconnect(req.params.id);
+      return res.json({ success: true });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /sessions/:id/soft-disconnect  (stays offline but keeps credentials — no QR needed to reconnect)
+  router.post('/:id/soft-disconnect', async (req, res) => {
+    try {
+      await sessionManager.softDisconnect(req.params.id);
       return res.json({ success: true });
     } catch (err) {
       return res.status(500).json({ error: err.message });
