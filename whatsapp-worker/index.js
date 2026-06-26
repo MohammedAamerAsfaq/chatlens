@@ -2,6 +2,7 @@
 
 require('dotenv').config();
 
+const path = require('path');
 const express = require('express');
 const pino = require('pino');
 
@@ -13,6 +14,7 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 const DJANGO_BASE_URL = process.env.DJANGO_BASE_URL || 'http://localhost:8000';
 const INTERNAL_API_TOKEN = process.env.INTERNAL_API_TOKEN || '';
 const SESSION_STORE_PATH = process.env.SESSION_STORE_PATH || './sessions';
+const MEDIA_STORE_PATH = process.env.MEDIA_STORE_PATH || './media';
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 
 const logger = pino({ level: LOG_LEVEL });
@@ -35,6 +37,9 @@ app.use(express.json());
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
+// Media files (downloaded from WhatsApp)
+app.use('/media', express.static(path.resolve(MEDIA_STORE_PATH)));
+
 // Sessions API
 app.use('/sessions', sessionsRouter(sessionManager));
 
@@ -47,7 +52,8 @@ app.use((err, req, res, _next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   logger.info(`ChatLens WhatsApp Worker running on port ${PORT}`);
   logger.info(`Django base URL: ${DJANGO_BASE_URL}`);
+  await sessionManager.initialize();
 });

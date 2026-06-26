@@ -45,6 +45,7 @@ class WhatsAppMessage(models.Model):
     has_media = models.BooleanField(default=False)
     media_mime_type = models.CharField(max_length=255, blank=True)
     media_file_name = models.CharField(max_length=255, blank=True)
+    media_url = models.CharField(max_length=500, blank=True, default='')
     raw_payload = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

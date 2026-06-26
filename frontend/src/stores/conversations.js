@@ -1,0 +1,139 @@
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
+import { chatsApi, accountsApi } from '@/api'
+
+function clearUnread(chats, id) {
+  const chat = chats.find(c => c.id === id)
+  if (chat) chat.unread_count = 0
+}
+
+export const useConversationsStore = defineStore('conversations', () => {
+  const chats = ref([])
+  const accounts = ref([])
+  const selectedAccountId = ref(null)
+  const selectedChatId = ref(null)
+  const messages = ref([])
+  const loadingChats = ref(false)
+  const loadingMessages = ref(false)
+  const loadingOlderMessages = ref(false)
+  const hasMoreMessages = ref(false)
+  const searchQuery = ref('')
+
+  let chatPollTimer = null
+  let messagePollTimer = null
+
+  const selectedChat = computed(() => chats.value.find(c => c.id === selectedChatId.value))
+  const selectedAccount = computed(() => accounts.value.find(a => a.id === selectedAccountId.value))
+
+  const filteredChats = computed(() => {
+    if (!searchQuery.value) return chats.value
+    const q = searchQuery.value.toLowerCase()
+    return chats.value.filter(c =>
+      c.display_name?.toLowerCase().includes(q) ||
+      c.wa_chat_id?.toLowerCase().includes(q)
+    )
+  })
+
+  async function fetchAccounts() {
+    try {
+      const { data } = await accountsApi.list()
+      accounts.value = data.filter(a => a.session_status === 'connected' || a.phone_number)
+      if (accounts.value.length && !selectedAccountId.value) {
+        selectedAccountId.value = accounts.value[0].id
+      }
+    } catch {}
+  }
+
+  async function switchAccount(accountId) {
+    selectedAccountId.value = accountId
+    selectedChatId.value = null
+    messages.value = []
+    searchQuery.value = ''
+    await fetchChats(accountId)
+  }
+
+  async function fetchChats(accountId = null) {
+    const id = accountId ?? selectedAccountId.value
+    const params = id ? { account: id } : {}
+    try {
+      const { data } = await chatsApi.list(params)
+      chats.value = data
+      // If a chat is currently open, keep its badge cleared in the fresh list
+      if (selectedChatId.value) clearUnread(chats.value, selectedChatId.value)
+    } catch {}
+  }
+
+  async function fetchChatsInitial() {
+    loadingChats.value = true
+    await fetchAccounts()
+    await fetchChats(selectedAccountId.value)
+    loadingChats.value = false
+  }
+
+  async function refreshMessages(chatId) {
+    if (selectedChatId.value !== chatId) return
+    if (!messages.value.length) return
+    try {
+      const newest = messages.value[messages.value.length - 1]
+      const { data } = await chatsApi.messages(chatId, { after: newest.message_time, limit: 20 })
+      if (data.results.length) {
+        const existingIds = new Set(messages.value.map(m => m.id))
+        const fresh = data.results.filter(m => !existingIds.has(m.id))
+        if (fresh.length) messages.value = [...messages.value, ...fresh]
+      }
+    } catch {}
+  }
+
+  async function loadOlderMessages() {
+    if (!selectedChatId.value || loadingOlderMessages.value || !hasMoreMessages.value) return
+    if (!messages.value.length) return
+    loadingOlderMessages.value = true
+    try {
+      const oldest = messages.value[0]
+      const { data } = await chatsApi.messages(selectedChatId.value, {
+        before: oldest.message_time,
+        limit: 40,
+      })
+      messages.value = [...data.results, ...messages.value]
+      hasMoreMessages.value = data.has_more
+    } catch {}
+    finally { loadingOlderMessages.value = false }
+  }
+
+  async function selectChat(id) {
+    selectedChatId.value = id
+    messages.value = []
+    hasMoreMessages.value = false
+    loadingMessages.value = true
+    clearInterval(messagePollTimer)
+    clearUnread(chats.value, id)
+    // Fire markRead independently — don't let its failure block message loading
+    chatsApi.markRead(id).catch(() => {})
+    try {
+      const { data } = await chatsApi.messages(id, { limit: 40 })
+      messages.value = data.results
+      hasMoreMessages.value = data.has_more
+    } finally {
+      loadingMessages.value = false
+    }
+    messagePollTimer = setInterval(() => refreshMessages(id), 5000)
+  }
+
+  function startPolling() {
+    chatPollTimer = setInterval(() => fetchChats(selectedAccountId.value), 8000)
+  }
+
+  function stopPolling() {
+    clearInterval(chatPollTimer)
+    clearInterval(messagePollTimer)
+  }
+
+  return {
+    chats, accounts, selectedAccountId, selectedAccount,
+    selectedChatId, messages, loadingChats, loadingMessages,
+    loadingOlderMessages, hasMoreMessages,
+    searchQuery, selectedChat, filteredChats,
+    fetchChats, fetchChatsInitial, selectChat, switchAccount,
+    loadOlderMessages, startPolling, stopPolling,
+  }
+})

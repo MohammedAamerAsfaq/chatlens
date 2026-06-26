@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     'apps.chatlens_core',
     'apps.whatsapp_bridge',
     'apps.message_intelligence',
+    'apps.api',
 ]
 
 MIDDLEWARE = [
@@ -145,6 +146,9 @@ else:
             'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
         }
     }
+
+# --- WhatsApp Node.js worker ---
+WORKER_BASE_URL = os.getenv('WORKER_BASE_URL', 'http://localhost:3001')
 
 # --- Internal API Token (Node.js worker authentication) ---
 INTERNAL_API_TOKEN = os.getenv('INTERNAL_API_TOKEN', 'change-me-internal-token')

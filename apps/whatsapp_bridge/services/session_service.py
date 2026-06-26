@@ -12,9 +12,9 @@ class SessionService:
         status = payload['status']
         event_time = parse_datetime(payload.get('event_time', '')) if payload.get('event_time') else None
 
-        account = WhatsAppAccount.objects.get(worker_session_id=worker_session_id)
+        account = WhatsAppAccount.objects.get(pk=worker_session_id)
 
-        update_fields = {'session_status': status}
+        update_fields = {'session_status': status, 'worker_session_id': worker_session_id}
 
         if payload.get('phone_number'):
             update_fields['phone_number'] = payload['phone_number']
