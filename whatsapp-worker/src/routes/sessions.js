@@ -1,8 +1,25 @@
 'use strict';
 
+const path = require('path');
+const fs = require('fs');
 const { Router } = require('express');
 
-module.exports = function sessionsRouter(sessionManager) {
+function dirSizeSync(dir) {
+  let fileCount = 0;
+  let totalBytes = 0;
+  if (!fs.existsSync(dir)) return { fileCount, totalBytes };
+  const walk = (d) => {
+    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, entry.name);
+      if (entry.isDirectory()) { walk(full); }
+      else { fileCount++; totalBytes += fs.statSync(full).size; }
+    }
+  };
+  walk(dir);
+  return { fileCount, totalBytes };
+}
+
+module.exports = function sessionsRouter(sessionManager, mediaStorePath) {
   const router = Router();
 
   // POST /sessions
@@ -78,6 +95,13 @@ module.exports = function sessionsRouter(sessionManager) {
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
+  });
+
+  // GET /sessions/:id/storage  — media file count + total bytes on disk for this session
+  router.get('/:id/storage', (req, res) => {
+    const mediaDir = path.join(path.resolve(mediaStorePath), String(req.params.id));
+    const { fileCount, totalBytes } = dirSizeSync(mediaDir);
+    return res.json({ file_count: fileCount, total_bytes: totalBytes });
   });
 
   return router;

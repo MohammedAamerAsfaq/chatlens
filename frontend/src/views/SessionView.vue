@@ -22,7 +22,8 @@ function onQRClose() {
 </script>
 
 <template>
-  <div>
+  <div class="h-full w-full overflow-y-auto bg-gray-50 px-6 py-6">
+    <div class="max-w-5xl mx-auto">
     <div class="flex items-center justify-between mb-6">
       <div>
         <h1 class="text-2xl font-bold text-gray-900">Session Manager</h1>
@@ -66,5 +67,6 @@ function onQRClose() {
       :account-id="qrAccountId"
       @close="onQRClose"
     />
+    </div>
   </div>
 </template>

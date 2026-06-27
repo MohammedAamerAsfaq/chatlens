@@ -5,6 +5,9 @@ import { useConversationsStore } from '@/stores/conversations'
 const store = useConversationsStore()
 const activeFilter = ref('all')
 
+const totalUnread = computed(() => store.chats.reduce((sum, c) => sum + (c.unread_count || 0), 0))
+const unreadChatCount = computed(() => store.chats.filter(c => c.unread_count > 0).length)
+
 const tabs = [
   { key: 'all',    label: 'All' },
   { key: 'unread', label: 'Unread' },
@@ -58,7 +61,23 @@ function formatTime(dt) {
       <span class="font-semibold text-gray-800 text-sm">
         {{ store.selectedAccount?.display_name || store.selectedAccount?.phone_number || 'Chats' }}
       </span>
-      <span class="text-xs text-gray-400">{{ store.chats.length }} chats</span>
+      <div class="flex items-center gap-2">
+        <!-- Mark all read — only shown when there are unread messages -->
+        <button
+          v-if="totalUnread > 0"
+          @click="store.markAllRead()"
+          title="Mark all as read"
+          class="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 font-medium transition-colors"
+        >
+          <!-- Double-tick icon -->
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 12l5 5L17 5"/>
+            <path d="M9 12l5 5L22 5" stroke-opacity="0.5"/>
+          </svg>
+          Mark all read
+        </button>
+        <span class="text-xs text-gray-400">{{ store.chats.length }} chats</span>
+      </div>
     </div>
 
     <!-- Search -->
@@ -83,13 +102,19 @@ function formatTime(dt) {
         :key="tab.key"
         @click="activeFilter = tab.key"
         :class="[
-          'flex-1 text-xs py-2.5 font-medium transition-colors border-b-2',
+          'flex-1 text-xs py-2.5 font-medium transition-colors border-b-2 flex items-center justify-center gap-1',
           activeFilter === tab.key
             ? 'border-green-500 text-green-600'
             : 'border-transparent text-gray-400 hover:text-gray-600',
         ]"
       >
         {{ tab.label }}
+        <span
+          v-if="tab.key === 'unread' && unreadChatCount > 0"
+          class="bg-green-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 leading-none"
+        >
+          {{ unreadChatCount > 99 ? '99+' : unreadChatCount }}
+        </span>
       </button>
     </div>
 

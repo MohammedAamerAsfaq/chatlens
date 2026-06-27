@@ -8,9 +8,7 @@ class WhatsAppAccountSerializer(serializers.ModelSerializer):
     total_unread = serializers.SerializerMethodField()
 
     def get_total_unread(self, obj):
-        from django.db.models import Sum
-        result = obj.chats.aggregate(total=Sum('unread_count'))
-        return result['total'] or 0
+        return obj.chats.filter(unread_count__gt=0).count()
 
     class Meta:
         model = WhatsAppAccount

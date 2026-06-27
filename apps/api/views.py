@@ -1,14 +1,23 @@
+import io
 import json
+import os
+import shutil
+import tempfile
+import zipfile
+from pathlib import Path
+
 import requests
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
 from django.core.serializers.json import DjangoJSONEncoder
+from django.utils.dateparse import parse_datetime
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppChat, WhatsAppMessage, SyncLog
+from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact, SyncLog
 from .serializers import (
     WhatsAppAccountSerializer, ChatSerializer, MessageSerializer, SyncLogSerializer,
 )
@@ -73,7 +82,7 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
                     chat.messages.order_by('message_time').values(
                         'provider_message_id', 'sender_number', 'direction',
                         'message_type', 'message_text', 'message_time',
-                        'has_media', 'media_url',
+                        'has_media', 'media_mime_type', 'media_file_name', 'media_url',
                     )
                 )
                 chat_obj = {
@@ -90,6 +99,236 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
         resp = StreamingHttpResponse(generate(), content_type='application/json')
         resp['Content-Disposition'] = f'attachment; filename="chatlens-{account.pk}.json"'
         return resp
+
+    @action(detail=True, methods=['get'])
+    def storage(self, request, pk=None):
+        account = self.get_object()
+        message_count = WhatsAppMessage.objects.filter(chat__account=account).count()
+        media_message_count = WhatsAppMessage.objects.filter(chat__account=account, has_media=True).count()
+        chat_count = account.chats.count()
+        contact_count = WhatsAppContact.objects.filter(account=account).count()
+        sync_log_count = SyncLog.objects.filter(account=account).count()
+
+        media_stats = {'file_count': 0, 'total_bytes': 0, 'error': None}
+        try:
+            resp = requests.get(
+                f'{WORKER_BASE_URL}/sessions/{account.pk}/storage',
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                media_stats = resp.json()
+            else:
+                media_stats['error'] = f'Worker returned {resp.status_code}'
+        except Exception as e:
+            media_stats['error'] = str(e)
+
+        return Response({
+            'account_id': account.pk,
+            'display_name': account.display_name,
+            'phone_number': account.phone_number,
+            'session_status': account.session_status,
+            'db': {
+                'message_count': message_count,
+                'media_message_count': media_message_count,
+                'chat_count': chat_count,
+                'contact_count': contact_count,
+                'sync_log_count': sync_log_count,
+            },
+            'media': media_stats,
+        })
+
+    # ------------------------------------------------------------------ #
+    #  Message management                                                 #
+    # ------------------------------------------------------------------ #
+
+    @action(detail=True, methods=['post'], url_path='delete-messages')
+    def delete_messages(self, request, pk=None):
+        account = self.get_object()
+        deleted, _ = WhatsAppMessage.objects.filter(chat__account=account).delete()
+        account.chats.update(unread_count=0, last_message_at=None)
+        return Response({'deleted': deleted})
+
+    @action(detail=False, methods=['post'], url_path='delete-all-messages')
+    def delete_all_messages(self, request):
+        deleted, _ = WhatsAppMessage.objects.all().delete()
+        WhatsAppChat.objects.update(unread_count=0, last_message_at=None)
+        return Response({'deleted': deleted})
+
+    # ------------------------------------------------------------------ #
+    #  Media management                                                    #
+    # ------------------------------------------------------------------ #
+
+    @action(detail=True, methods=['post'], url_path='delete-media')
+    def delete_media(self, request, pk=None):
+        account = self.get_object()
+        media_dir = Path(settings.WORKER_MEDIA_PATH) / str(account.pk)
+        removed_bytes = 0
+        removed_files = 0
+        if media_dir.exists():
+            for f in media_dir.rglob('*'):
+                if f.is_file():
+                    removed_bytes += f.stat().st_size
+                    removed_files += 1
+            shutil.rmtree(media_dir)
+        # Clear media_url references in DB
+        WhatsAppMessage.objects.filter(chat__account=account, has_media=True).update(media_url='')
+        return Response({'removed_files': removed_files, 'removed_bytes': removed_bytes})
+
+    @action(detail=False, methods=['post'], url_path='delete-all-media')
+    def delete_all_media(self, request):
+        media_root = Path(settings.WORKER_MEDIA_PATH)
+        removed_bytes = 0
+        removed_files = 0
+        if media_root.exists():
+            for f in media_root.rglob('*'):
+                if f.is_file():
+                    removed_bytes += f.stat().st_size
+                    removed_files += 1
+            shutil.rmtree(media_root)
+            media_root.mkdir(parents=True, exist_ok=True)
+        WhatsAppMessage.objects.filter(has_media=True).update(media_url='')
+        return Response({'removed_files': removed_files, 'removed_bytes': removed_bytes})
+
+    # ------------------------------------------------------------------ #
+    #  Backup                                                              #
+    # ------------------------------------------------------------------ #
+
+    @action(detail=True, methods=['get'], url_path='backup-media')
+    def backup_media(self, request, pk=None):
+        account = self.get_object()
+        media_dir = Path(settings.WORKER_MEDIA_PATH) / str(account.pk)
+
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix='.zip')
+        os.close(tmp_fd)
+        try:
+            with zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                if media_dir.exists():
+                    for f in sorted(media_dir.rglob('*')):
+                        if f.is_file():
+                            zf.write(f, f.name)
+
+            def _stream(path):
+                try:
+                    with open(path, 'rb') as fh:
+                        while chunk := fh.read(65536):
+                            yield chunk
+                finally:
+                    os.unlink(path)
+
+            resp = StreamingHttpResponse(_stream(tmp_path), content_type='application/zip')
+            resp['Content-Disposition'] = f'attachment; filename="chatlens-media-{account.pk}.zip"'
+            return resp
+        except Exception:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise
+
+    # ------------------------------------------------------------------ #
+    #  Restore                                                             #
+    # ------------------------------------------------------------------ #
+
+    @action(detail=True, methods=['post'], url_path='restore-messages')
+    def restore_messages(self, request, pk=None):
+        account = self.get_object()
+        upload = request.FILES.get('file')
+        if not upload:
+            return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            data = json.load(upload)
+        except Exception as e:
+            return Response({'error': f'Invalid JSON: {e}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        restored_chats = 0
+        restored_messages = 0
+
+        for chat_data in data.get('chats', []):
+            chat, created = WhatsAppChat.objects.get_or_create(
+                account=account,
+                wa_chat_id=chat_data['wa_chat_id'],
+                defaults={
+                    'chat_type': chat_data.get('chat_type', 'individual'),
+                    'name': chat_data.get('name', ''),
+                },
+            )
+            if created:
+                restored_chats += 1
+
+            to_create = []
+            for msg in chat_data.get('messages', []):
+                pid = msg.get('provider_message_id')
+                if not pid:
+                    continue
+                mt = parse_datetime(str(msg['message_time'])) if msg.get('message_time') else None
+                to_create.append(WhatsAppMessage(
+                    account=account,
+                    chat=chat,
+                    provider_message_id=pid,
+                    sender_number=msg.get('sender_number', ''),
+                    direction=msg.get('direction', 'inbound'),
+                    message_type=msg.get('message_type', 'text'),
+                    message_text=msg.get('message_text', ''),
+                    message_time=mt,
+                    has_media=msg.get('has_media', False),
+                    media_mime_type=msg.get('media_mime_type', ''),
+                    media_file_name=msg.get('media_file_name', ''),
+                    media_url=msg.get('media_url', ''),
+                ))
+
+            if to_create:
+                created_objs = WhatsAppMessage.objects.bulk_create(
+                    to_create, ignore_conflicts=True,
+                )
+                restored_messages += len(created_objs)
+
+            # Refresh chat timestamps
+            latest = chat.messages.order_by('-message_time').first()
+            if latest:
+                chat.last_message_at = latest.message_time
+                chat.save(update_fields=['last_message_at'])
+
+        return Response({'restored_chats': restored_chats, 'restored_messages': restored_messages})
+
+    @action(detail=True, methods=['post'], url_path='restore-media')
+    def restore_media(self, request, pk=None):
+        account = self.get_object()
+        upload = request.FILES.get('file')
+        if not upload:
+            return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        media_dir = Path(settings.WORKER_MEDIA_PATH) / str(account.pk)
+        media_dir.mkdir(parents=True, exist_ok=True)
+
+        ALLOWED_EXT = {
+            '.jpg', '.jpeg', '.png', '.webp', '.gif',
+            '.mp4', '.3gp', '.mpeg', '.ogg', '.mp3', '.m4a', '.aac',
+            '.pdf', '.docx', '.xlsx', '.zip',
+        }
+        extracted = 0
+        skipped = 0
+
+        try:
+            with zipfile.ZipFile(upload) as zf:
+                for member in zf.namelist():
+                    member_name = Path(member).name
+                    if not member_name:
+                        continue
+                    ext = Path(member_name).suffix.lower()
+                    if ext not in ALLOWED_EXT:
+                        skipped += 1
+                        continue
+                    dest = media_dir / member_name
+                    # Security: only write inside media_dir
+                    if not str(dest.resolve()).startswith(str(media_dir.resolve())):
+                        skipped += 1
+                        continue
+                    with zf.open(member) as src, open(dest, 'wb') as dst:
+                        shutil.copyfileobj(src, dst)
+                    extracted += 1
+        except zipfile.BadZipFile:
+            return Response({'error': 'Invalid ZIP file'}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({'extracted': extracted, 'skipped': skipped})
 
     @action(detail=True, methods=['post'], url_path='start-session')
     def start_session(self, request, pk=None):
@@ -157,6 +396,15 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
         chat.save(update_fields=['unread_count'])
         return Response({'status': 'ok'})
 
+    @action(detail=False, methods=['post'], url_path='mark-all-read')
+    def mark_all_read(self, request):
+        account_id = request.query_params.get('account')
+        qs = WhatsAppChat.objects.all()
+        if account_id:
+            qs = qs.filter(account_id=account_id)
+        qs.update(unread_count=0)
+        return Response({'status': 'ok'})
+
     @action(detail=True, methods=['get'])
     def messages(self, request, pk=None):
         chat = self.get_object()
@@ -182,9 +430,17 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
         return Response({'results': MessageSerializer(msgs, many=True).data, 'has_more': has_more})
 
 
+class ActivityPagination(PageNumberPagination):
+    page_size = 25
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+    page_query_param = 'page'
+
+
 class SyncLogViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = SyncLogSerializer
     permission_classes = [AllowAny]
+    pagination_class = ActivityPagination
 
     def get_queryset(self):
         qs = SyncLog.objects.select_related('account').order_by('-created_at')
@@ -197,4 +453,13 @@ class SyncLogViewSet(viewsets.ReadOnlyModelViewSet):
         log_status = self.request.query_params.get('status')
         if log_status:
             qs = qs.filter(status=log_status)
-        return qs[:200]
+        return qs
+
+    @action(detail=False, methods=['post'], url_path='clear-all')
+    def clear_all(self, request):
+        qs = SyncLog.objects.all()
+        account_id = request.query_params.get('account')
+        if account_id:
+            qs = qs.filter(account_id=account_id)
+        deleted, _ = qs.delete()
+        return Response({'deleted': deleted})

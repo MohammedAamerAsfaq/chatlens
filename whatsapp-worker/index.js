@@ -41,7 +41,7 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }));
 app.use('/media', express.static(path.resolve(MEDIA_STORE_PATH)));
 
 // Sessions API
-app.use('/sessions', sessionsRouter(sessionManager));
+app.use('/sessions', sessionsRouter(sessionManager, MEDIA_STORE_PATH));
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));

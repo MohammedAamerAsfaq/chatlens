@@ -5,10 +5,10 @@ import { chatsApi, accountsApi } from '@/api'
 function clearUnread(chats, accounts, chatId, accountId) {
   const chat = chats.find(c => c.id === chatId)
   if (!chat || !chat.unread_count) return
-  const delta = chat.unread_count
   chat.unread_count = 0
+  // total_unread counts chats-with-unread, so decrement by 1 per chat cleared
   const account = accounts?.find(a => a.id === accountId)
-  if (account) account.total_unread = Math.max(0, (account.total_unread || 0) - delta)
+  if (account) account.total_unread = Math.max(0, (account.total_unread || 0) - 1)
 }
 
 export const useConversationsStore = defineStore('conversations', () => {
@@ -125,6 +125,14 @@ export const useConversationsStore = defineStore('conversations', () => {
     messagePollTimer = setInterval(() => refreshMessages(id), 5000)
   }
 
+  async function markAllRead() {
+    await chatsApi.markAllRead(selectedAccountId.value).catch(() => {})
+    // Zero all badge counts locally so the UI updates instantly
+    chats.value.forEach(c => { c.unread_count = 0 })
+    const account = accounts.value.find(a => a.id === selectedAccountId.value)
+    if (account) account.total_unread = 0
+  }
+
   function startPolling() {
     chatPollTimer = setInterval(async () => {
       await fetchChats(selectedAccountId.value)
@@ -144,6 +152,6 @@ export const useConversationsStore = defineStore('conversations', () => {
     loadingOlderMessages, hasMoreMessages,
     searchQuery, selectedChat, filteredChats,
     fetchChats, fetchChatsInitial, selectChat, switchAccount,
-    loadOlderMessages, startPolling, stopPolling,
+    loadOlderMessages, markAllRead, startPolling, stopPolling,
   }
 })

@@ -94,10 +94,29 @@ const senderColors = [
 function senderColor(name) {
   return senderColors[(name || '').charCodeAt(0) % senderColors.length]
 }
+
+// Lightbox
+const lightbox = ref(null) // { src, type: 'image'|'video' }
+
+function openLightbox(src, type = 'image') {
+  lightbox.value = { src, type }
+}
+function closeLightbox() {
+  lightbox.value = null
+}
+
+function onLightboxKey(e) {
+  if (e.key === 'Escape') closeLightbox()
+}
+
+watch(lightbox, (val) => {
+  if (val) window.addEventListener('keydown', onLightboxKey)
+  else window.removeEventListener('keydown', onLightboxKey)
+})
 </script>
 
 <template>
-  <div class="flex flex-col overflow-hidden bg-[#efeae2]">
+  <div class="flex flex-col overflow-hidden bg-[#efeae2] flex-1 min-w-0 h-full">
 
     <!-- Empty state -->
     <div v-if="!store.selectedChatId" class="flex-1 flex items-center justify-center bg-[#f0f2f5]">
@@ -195,9 +214,9 @@ function senderColor(name) {
                   <img
                     v-if="mediaSrc(msg.media_url)"
                     :src="mediaSrc(msg.media_url)"
-                    class="max-w-[240px] max-h-64 rounded-lg object-cover cursor-pointer"
+                    class="max-w-[240px] max-h-64 rounded-lg object-cover cursor-zoom-in hover:opacity-95 transition-opacity"
                     loading="lazy"
-                    @click="window.open(mediaSrc(msg.media_url), '_blank')"
+                    @click="openLightbox(mediaSrc(msg.media_url), 'image')"
                   />
                   <div v-else class="w-52 h-36 bg-gray-200 rounded-lg flex flex-col items-center justify-center gap-1 text-gray-400">
                     <svg class="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
@@ -208,13 +227,23 @@ function senderColor(name) {
 
                 <!-- Video -->
                 <div v-else-if="msg.message_type === 'video'" class="mb-1">
-                  <video
+                  <div
                     v-if="mediaSrc(msg.media_url)"
-                    :src="mediaSrc(msg.media_url)"
-                    controls
-                    class="max-w-[240px] max-h-64 rounded-lg"
-                    preload="metadata"
-                  />
+                    class="relative max-w-[240px] cursor-zoom-in group"
+                    @click="openLightbox(mediaSrc(msg.media_url), 'video')"
+                  >
+                    <video
+                      :src="mediaSrc(msg.media_url)"
+                      class="max-w-[240px] max-h-64 rounded-lg pointer-events-none"
+                      preload="metadata"
+                    />
+                    <!-- Play overlay hint -->
+                    <div class="absolute inset-0 flex items-center justify-center rounded-lg bg-black/20 group-hover:bg-black/30 transition-colors">
+                      <div class="w-12 h-12 rounded-full bg-black/50 flex items-center justify-center">
+                        <svg class="w-6 h-6 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                      </div>
+                    </div>
+                  </div>
                   <div v-else class="w-52 h-36 bg-gray-800 rounded-lg flex flex-col items-center justify-center gap-1 text-gray-300">
                     <svg class="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                     <span class="text-xs text-gray-400">Video</span>
@@ -275,8 +304,9 @@ function senderColor(name) {
                   <img
                     v-if="mediaSrc(msg.media_url)"
                     :src="mediaSrc(msg.media_url)"
-                    class="w-24 h-24 object-contain"
+                    class="w-24 h-24 object-contain cursor-zoom-in hover:opacity-90 transition-opacity"
                     loading="lazy"
+                    @click="openLightbox(mediaSrc(msg.media_url), 'image')"
                   />
                   <div v-else class="flex flex-col items-center justify-center w-24 h-24 text-gray-400">
                     <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -337,4 +367,41 @@ function senderColor(name) {
       </div>
     </template>
   </div>
+
+  <!-- Lightbox -->
+  <Teleport to="body">
+    <div
+      v-if="lightbox"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm"
+      @click.self="closeLightbox"
+    >
+      <!-- Close button -->
+      <button
+        @click="closeLightbox"
+        class="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+      >
+        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+
+      <!-- Image -->
+      <img
+        v-if="lightbox.type === 'image'"
+        :src="lightbox.src"
+        class="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+        @click.stop
+      />
+
+      <!-- Video -->
+      <video
+        v-else-if="lightbox.type === 'video'"
+        :src="lightbox.src"
+        controls
+        autoplay
+        class="max-w-[90vw] max-h-[90vh] rounded-lg shadow-2xl"
+        @click.stop
+      />
+    </div>
+  </Teleport>
 </template>

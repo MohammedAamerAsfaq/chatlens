@@ -31,6 +31,13 @@ const store = useConversationsStore()
       >
         Activity
       </RouterLink>
+      <RouterLink
+        to="/storage"
+        class="text-sm text-gray-300 hover:text-white transition-colors"
+        active-class="text-white font-medium"
+      >
+        Storage
+      </RouterLink>
 
       <!-- Account switcher — shown in nav when on Conversations page -->
       <div

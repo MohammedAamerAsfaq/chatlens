@@ -149,6 +149,8 @@ else:
 
 # --- WhatsApp Node.js worker ---
 WORKER_BASE_URL = os.getenv('WORKER_BASE_URL', 'http://localhost:3001')
+# Path where the worker saves downloaded media files: whatsapp-worker/media/{session_id}/
+WORKER_MEDIA_PATH = os.getenv('WORKER_MEDIA_PATH', str(BASE_DIR / 'whatsapp-worker' / 'media'))
 
 # --- Internal API Token (Node.js worker authentication) ---
 INTERNAL_API_TOKEN = os.getenv('INTERNAL_API_TOKEN', 'change-me-internal-token')
