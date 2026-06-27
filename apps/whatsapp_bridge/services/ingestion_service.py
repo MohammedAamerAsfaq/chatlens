@@ -31,6 +31,7 @@ class IngestionService:
             'message_text': (payload.get('message_text') or '')[:200] or None,
             'direction': payload.get('direction'),
             'group_name': payload.get('group_name') or None,
+            'raw_payload': payload.get('raw_payload') or None,
         }
         SyncLog.objects.create(
             account=account,
