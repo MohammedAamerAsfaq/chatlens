@@ -44,6 +44,11 @@ class DjangoClient {
     }
   }
 
+  async sendMessageIngestBatch(payloads) {
+    const resp = await this.http.post('/api/internal/whatsapp/message-ingest-batch/', { messages: payloads });
+    return resp.data;
+  }
+
   async getAccountSettings(sessionId) {
     try {
       const resp = await this.http.get(

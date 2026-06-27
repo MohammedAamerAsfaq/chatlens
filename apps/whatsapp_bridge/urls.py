@@ -10,6 +10,11 @@ urlpatterns = [
         name='internal-message-ingest',
     ),
     path(
+        'api/internal/whatsapp/message-ingest-batch/',
+        views.internal_message_ingest_batch,
+        name='internal-message-ingest-batch',
+    ),
+    path(
         'api/internal/whatsapp/session-status/',
         views.internal_session_status,
         name='internal-session-status',

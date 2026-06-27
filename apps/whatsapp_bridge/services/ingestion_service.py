@@ -43,6 +43,57 @@ class IngestionService:
 
         return message
 
+    def ingest_batch(self, payloads: list) -> dict:
+        """Process a list of messages (from history sync) in one call.
+
+        Skips per-message SyncLog and unread_count updates — history messages are
+        already-read messages from the user's phone. Creates one batch SyncLog entry.
+        """
+        if not payloads:
+            return {'total': 0, 'created': 0, 'skipped': 0, 'errors': 0}
+
+        worker_session_id = payloads[0].get('worker_session_id')
+        account = WhatsAppAccount.objects.get(pk=worker_session_id)
+
+        created_count = 0
+        skipped_count = 0
+        error_count = 0
+
+        for payload in payloads:
+            try:
+                contact = self._upsert_contact(account, payload)
+                chat = self._upsert_chat(account, contact, payload)
+                _, created = self._insert_message(account, chat, contact, payload)
+                if created:
+                    created_count += 1
+                else:
+                    skipped_count += 1
+            except Exception as e:
+                error_count += 1
+                logger.error(
+                    'Batch ingest error for msg %s: %s',
+                    payload.get('provider_message_id'), e,
+                )
+
+        SyncLog.objects.create(
+            account=account,
+            event_type='history_sync',
+            status='success' if not error_count else 'warning',
+            metadata={
+                'total': len(payloads),
+                'created': created_count,
+                'skipped': skipped_count,
+                'errors': error_count,
+            },
+        )
+
+        return {
+            'total': len(payloads),
+            'created': created_count,
+            'skipped': skipped_count,
+            'errors': error_count,
+        }
+
     def _upsert_contact(self, account: WhatsAppAccount, payload: dict) -> WhatsAppContact:
         sender_number = payload.get('sender_number', '')
         chat_type = payload.get('chat_type', ChatType.INDIVIDUAL)

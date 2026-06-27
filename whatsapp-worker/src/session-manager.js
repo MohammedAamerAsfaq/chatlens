@@ -284,9 +284,7 @@ class SessionManager {
         { sessionId, received: messages.length, processing: filtered.length, isLatest },
         'History sync',
       );
-      for (const msg of filtered) {
-        await this._forwardMessage(sessionId, msg);
-      }
+      await this._forwardHistoryBatch(sessionId, filtered);
     });
 
     // Sync contact names whenever Baileys provides them.
@@ -372,107 +370,111 @@ class SessionManager {
     }
   }
 
+  // Build a normalized payload + log-entry for a single Baileys message.
+  // Returns null if the message should be filtered (protocol/system messages).
+  // Pass isHistory:true to skip media download and mark the payload for the batch endpoint.
+  async _buildPayload(sessionId, msg, { isHistory = false } = {}) {
+    if (msg.key.remoteJid === 'status@broadcast') return null;
+    if (msg.messageStubType) return null;
+    if (msg.message?.protocolMessage) return null;
+    if (msg.message?.senderKeyDistributionMessage) return null;
+
+    const rawJid = msg.key.remoteJid;
+
+    // When WhatsApp privacy mode is active, remoteJid arrives as a LID (e.g. 249868530499648@lid).
+    // Baileys provides the real phone JID in msg.key.senderPn for 1-on-1 chats.
+    const isLidJid = rawJid?.endsWith('@lid');
+    const senderPn = msg.key.senderPn;
+    const resolvedJid = (isLidJid && senderPn) ? senderPn : rawJid;
+
+    const chatId = jidNormalizedUser(resolvedJid);
+    const isGroup = chatId?.endsWith('@g.us');
+    const rawSenderJid = msg.key.participant || resolvedJid;
+    const senderJid = jidNormalizedUser(rawSenderJid);
+    const senderNumber = senderJid?.split('@')[0] || '';
+    const fromMe = msg.key.fromMe;
+    const messageTimestamp = msg.messageTimestamp
+      ? new Date(Number(msg.messageTimestamp) * 1000).toISOString()
+      : new Date().toISOString();
+
+    const { messageType, messageText, hasMedia, mediaMimeType } = this._parseMessage(msg);
+
+    const session = this.sessions.get(sessionId);
+    const groupName = isGroup ? await this._getGroupName(session.sock, chatId) : '';
+
+    let safeRaw = null;
+    try { safeRaw = JSON.parse(JSON.stringify(msg)); } catch { safeRaw = null; }
+
+    const direction = (fromMe === true) ? 'outbound' : 'inbound';
+
+    // Media download is skipped for history messages — they are old and media may have
+    // expired on WhatsApp servers. Only download for live (real-time) messages.
+    let mediaUrl = null;
+    if (hasMedia && !isHistory && session.autoDownloadMedia) {
+      try {
+        const buffer = await downloadMediaMessage(msg, 'buffer', {}, {
+          logger: pino({ level: 'silent' }),
+          reuploadRequest: session.sock.updateMediaMessage,
+        });
+        const ext = this._mimeToExt(mediaMimeType);
+        const filename = `${msg.key.id}.${ext}`;
+        const mediaDir = path.join(this.mediaStorePath, String(sessionId));
+        fs.mkdirSync(mediaDir, { recursive: true });
+        fs.writeFileSync(path.join(mediaDir, filename), buffer);
+        mediaUrl = `/media/${sessionId}/${filename}`;
+      } catch (err) {
+        this.logger.warn({ sessionId, msgId: msg.key.id, err: err.message }, 'Media download failed — message saved without attachment');
+      }
+    }
+
+    const payload = {
+      worker_session_id: sessionId,
+      provider_message_id: msg.key.id,
+      chat_id: chatId,
+      chat_type: isGroup ? 'group' : 'individual',
+      sender_number: senderNumber,
+      push_name: msg.pushName || '',
+      group_name: groupName,
+      direction,
+      message_type: messageType,
+      message_text: messageText,
+      message_time: messageTimestamp,
+      has_media: hasMedia,
+      media_mime_type: mediaMimeType,
+      media_url: mediaUrl,
+      raw_payload: safeRaw,
+      ...(isHistory ? { is_history: true } : {}),
+    };
+
+    const logEntry = {
+      ts: new Date().toISOString(),
+      session_id: sessionId,
+      provider_message_id: msg.key.id,
+      chat_id: chatId,
+      chat_type: isGroup ? 'group' : 'individual',
+      direction,
+      message_type: messageType,
+      message_text: (messageText || '').slice(0, 500),
+      sender_number: senderNumber,
+      push_name: msg.pushName || '',
+      group_name: groupName,
+      has_media: hasMedia,
+      media_mime_type: mediaMimeType,
+      raw_payload: safeRaw,
+      forward_status: 'success',
+      forward_error: null,
+      ...(isHistory ? { is_history: true } : {}),
+    };
+
+    return { payload, logEntry };
+  }
+
   async _forwardMessage(sessionId, msg) {
     try {
-      // Skip non-user-content message types that Baileys emits alongside real messages.
-      // These carry protocol/system data and can have unexpected remoteJid values that
-      // would create spurious chat records.
-      if (msg.key.remoteJid === 'status@broadcast') return;
-      if (msg.messageStubType) return;
-      if (msg.message?.protocolMessage) return;
-      if (msg.message?.senderKeyDistributionMessage) return;
+      const built = await this._buildPayload(sessionId, msg);
+      if (!built) return;
 
-      // Normalize JID to strip device suffix (e.g. 971501234567:5@s.whatsapp.net → 971501234567@s.whatsapp.net)
-      // Without this, inbound and outbound for the same contact can land in two separate chat records.
-      const rawJid = msg.key.remoteJid;
-
-      // When WhatsApp privacy mode is active, remoteJid arrives as a LID (e.g. 249868530499648@lid).
-      // Baileys provides the real phone JID in msg.key.senderPn for 1-on-1 chats.
-      // Use it so the message lands in the correct phone-JID chat instead of creating a
-      // parallel LID-keyed chat that can never be resolved.
-      const isLidJid = rawJid?.endsWith('@lid');
-      const senderPn = msg.key.senderPn;  // e.g. "971529952966@s.whatsapp.net"
-      const resolvedJid = (isLidJid && senderPn) ? senderPn : rawJid;
-
-      const chatId = jidNormalizedUser(resolvedJid);
-      const isGroup = chatId?.endsWith('@g.us');
-      const rawSenderJid = msg.key.participant || resolvedJid;
-      const senderJid = jidNormalizedUser(rawSenderJid);
-      const senderNumber = senderJid?.split('@')[0] || '';
-      const fromMe = msg.key.fromMe;
-      const messageTimestamp = msg.messageTimestamp
-        ? new Date(Number(msg.messageTimestamp) * 1000).toISOString()
-        : new Date().toISOString();
-
-      const { messageType, messageText, hasMedia, mediaMimeType } = this._parseMessage(msg);
-
-      const session = this.sessions.get(sessionId);
-      const groupName = isGroup ? await this._getGroupName(session.sock, chatId) : '';
-
-      let safeRaw = null;
-      try { safeRaw = JSON.parse(JSON.stringify(msg)); } catch { safeRaw = null; }
-
-      // fromMe may be undefined for some Baileys message types — default to inbound
-      const direction = (fromMe === true) ? 'outbound' : 'inbound';
-
-      // Download media to disk only when auto-download is enabled for this session
-      let mediaUrl = null;
-      if (hasMedia && session.autoDownloadMedia) {
-        try {
-          const buffer = await downloadMediaMessage(msg, 'buffer', {}, {
-            logger: pino({ level: 'silent' }),
-            reuploadRequest: session.sock.updateMediaMessage,
-          });
-          const ext = this._mimeToExt(mediaMimeType);
-          const filename = `${msg.key.id}.${ext}`;
-          const mediaDir = path.join(this.mediaStorePath, String(sessionId));
-          fs.mkdirSync(mediaDir, { recursive: true });
-          fs.writeFileSync(path.join(mediaDir, filename), buffer);
-          mediaUrl = `/media/${sessionId}/${filename}`;
-        } catch (err) {
-          this.logger.warn({ sessionId, msgId: msg.key.id, err: err.message }, 'Media download failed — message saved without attachment');
-        }
-      }
-
-      const payload = {
-        worker_session_id: sessionId,
-        provider_message_id: msg.key.id,
-        chat_id: chatId,
-        chat_type: isGroup ? 'group' : 'individual',
-        sender_number: senderNumber,
-        push_name: msg.pushName || '',
-        group_name: groupName,
-        direction,
-        message_type: messageType,
-        message_text: messageText,
-        message_time: messageTimestamp,
-        has_media: hasMedia,
-        media_mime_type: mediaMimeType,
-        media_url: mediaUrl,
-        raw_payload: safeRaw,
-      };
-
-      // Write the node-level log entry before forwarding to Django.
-      // The finally block captures the forward outcome so the entry is always written.
-      const logEntry = {
-        ts: new Date().toISOString(),
-        session_id: sessionId,
-        provider_message_id: msg.key.id,
-        chat_id: chatId,
-        chat_type: isGroup ? 'group' : 'individual',
-        direction,
-        message_type: messageType,
-        message_text: (messageText || '').slice(0, 500),
-        sender_number: senderNumber,
-        push_name: msg.pushName || '',
-        group_name: groupName,
-        has_media: hasMedia,
-        media_mime_type: mediaMimeType,
-        raw_payload: safeRaw,
-        forward_status: 'success',
-        forward_error: null,
-      };
-
+      const { payload, logEntry } = built;
       try {
         await this.djangoClient.sendMessageIngest(payload);
       } catch (fwdErr) {
@@ -483,7 +485,51 @@ class SessionManager {
         this.messageLogger.write(sessionId, logEntry);
       }
     } catch (err) {
-      this.logger.error({ sessionId, msgId: msg.key.id, err: err.message }, 'Failed to forward message');
+      this.logger.error({ sessionId, msgId: msg.key?.id, err: err.message }, 'Failed to forward message');
+    }
+  }
+
+  async _forwardHistoryBatch(sessionId, msgs) {
+    const CHUNK_SIZE = 100;
+
+    // Build all payloads (filters protocol messages; fetches group names via cache)
+    const built = [];
+    for (const msg of msgs) {
+      try {
+        const result = await this._buildPayload(sessionId, msg, { isHistory: true });
+        if (result) built.push(result);
+      } catch (err) {
+        this.logger.warn({ sessionId, msgId: msg.key?.id, err: err.message }, 'Failed to build history payload — skipping');
+      }
+    }
+
+    if (!built.length) return;
+
+    this.logger.info({ sessionId, total: built.length, chunks: Math.ceil(built.length / CHUNK_SIZE) }, 'Sending history batch to Django');
+
+    for (let i = 0; i < built.length; i += CHUNK_SIZE) {
+      const chunk = built.slice(i, i + CHUNK_SIZE);
+      const payloads = chunk.map(b => b.payload);
+
+      let forwardStatus = 'success';
+      let forwardError = null;
+
+      try {
+        await this.djangoClient.sendMessageIngestBatch(payloads);
+      } catch (err) {
+        forwardStatus = 'error';
+        forwardError = err.message;
+        this.logger.error(
+          { sessionId, chunkIndex: Math.floor(i / CHUNK_SIZE), size: chunk.length, err: err.message },
+          'History batch chunk failed',
+        );
+      }
+
+      for (const { logEntry } of chunk) {
+        logEntry.forward_status = forwardStatus;
+        logEntry.forward_error  = forwardError;
+        this.messageLogger.write(sessionId, logEntry);
+      }
     }
   }
 

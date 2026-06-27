@@ -60,6 +60,32 @@ def internal_message_ingest(request):
 
 @csrf_exempt
 @require_POST
+def internal_message_ingest_batch(request):
+    if not _verify_internal_token(request):
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+
+    try:
+        data = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    messages = data.get('messages', [])
+    if not isinstance(messages, list) or not messages:
+        return JsonResponse({'error': 'messages must be a non-empty list'}, status=400)
+
+    try:
+        service = IngestionService()
+        result = service.ingest_batch(messages)
+        return JsonResponse({'success': True, **result})
+    except WhatsAppAccount.DoesNotExist:
+        return JsonResponse({'error': 'WhatsApp account not found'}, status=404)
+    except Exception as e:
+        logger.exception('Error in internal_message_ingest_batch')
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_POST
 def internal_session_status(request):
     if not _verify_internal_token(request):
         return JsonResponse({'error': 'Unauthorized'}, status=401)
