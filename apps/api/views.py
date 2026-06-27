@@ -447,16 +447,22 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='group-info')
     def group_info(self, request, pk=None):
+        from django.db.models import Count, Max
         chat = self.get_object()
         if not chat.wa_chat_id.endswith('@g.us'):
             return Response({'error': 'Not a group chat'}, status=status.HTTP_400_BAD_REQUEST)
 
         account = chat.account
-        participants = []
         description = ''
         member_count = 0
         announce = False
+        # LID JIDs of admins/superadmins from live metadata (used for admin badge)
+        admin_lids = set()
+        super_admin_lids = set()
 
+        # Fetch live metadata for description, count, and admin list.
+        # groupMetadata() returns @lid JIDs on linked devices — we DON'T use the
+        # participant list for display; we only use it for admin status + metadata.
         try:
             resp = requests.get(
                 f'{WORKER_BASE_URL}/sessions/{account.pk}/groups/{chat.wa_chat_id}',
@@ -468,44 +474,69 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
                 announce = meta.get('announce', False)
                 raw_parts = meta.get('participants', [])
                 member_count = len(raw_parts)
-
-                # Enrich with saved contact names from DB.
-                # groupMetadata() on a linked device returns @lid JIDs for participants,
-                # so we look up ALL JIDs (both @s.whatsapp.net and @lid).
-                all_jids = [p['id'] for p in raw_parts if p.get('id')]
-                contacts_qs = WhatsAppContact.objects.filter(
-                    account=account, wa_contact_id__in=all_jids,
-                ).values('wa_contact_id', 'display_name', 'push_name', 'phone_number')
-                jid_map = {c['wa_contact_id']: c for c in contacts_qs}
-
-                for p in raw_parts:
-                    jid = p.get('id', '')
-                    c = jid_map.get(jid, {})
-                    # For @s.whatsapp.net use the JID local part; for @lid use the resolved phone_number
-                    if jid.endswith('@s.whatsapp.net'):
-                        phone = jid.split('@')[0]
-                    else:
-                        phone = c.get('phone_number') or ''
-                    participants.append({
-                        'jid': jid,
-                        'phone': phone,
-                        'display_name': c.get('display_name') or c.get('push_name') or '',
-                        'is_admin': p.get('isAdmin', False),
-                        'is_super_admin': p.get('isSuperAdmin', False),
-                    })
-                # Admins first, then alphabetical by display_name/phone
-                participants.sort(key=lambda p: (
-                    0 if p['is_super_admin'] else 1 if p['is_admin'] else 2,
-                    (p['display_name'] or p['phone'] or '').lower(),
-                ))
+                admin_lids = {p['id'] for p in raw_parts if p.get('isAdmin')}
+                super_admin_lids = {p['id'] for p in raw_parts if p.get('isSuperAdmin')}
         except Exception:
             pass
 
+        # Build participant list from message history.
+        # Group messages always carry the sender's real phone JID in msg.key.participant,
+        # so sender_number in WhatsAppMessage is a real phone number regardless of LID mode.
+        sender_rows = (
+            chat.messages
+            .exclude(sender_number='')
+            .values('sender_number')
+            .annotate(msg_count=Count('id'), last_msg=Max('message_time'))
+            .order_by('-msg_count')
+        )
+
+        sender_phones = [r['sender_number'] for r in sender_rows]
+        phone_jids = [f"{ph}@s.whatsapp.net" for ph in sender_phones]
+
+        # Look up names from contacts table by phone JID
+        contacts_map = {
+            c['wa_contact_id']: c
+            for c in WhatsAppContact.objects.filter(
+                account=account, wa_contact_id__in=phone_jids,
+            ).values('wa_contact_id', 'display_name', 'push_name', 'phone_number')
+        }
+
+        # Reverse-map phone → admin LID so we can mark admins from the metadata list
+        # (requires contacts to have their phone_number resolved from LID mapping)
+        phone_to_lid = {}
+        if admin_lids or super_admin_lids:
+            for c in WhatsAppContact.objects.filter(
+                account=account,
+                wa_contact_id__in=list(admin_lids | super_admin_lids),
+                phone_number__gt='',
+            ).values('wa_contact_id', 'phone_number'):
+                phone_to_lid[c['phone_number']] = c['wa_contact_id']
+
+        participants = []
+        for r in sender_rows:
+            phone = r['sender_number']
+            jid = f"{phone}@s.whatsapp.net"
+            c = contacts_map.get(jid, {})
+            lid = phone_to_lid.get(phone, '')
+            participants.append({
+                'jid': jid,
+                'phone': phone,
+                'display_name': c.get('display_name') or c.get('push_name') or '',
+                'is_admin': lid in admin_lids,
+                'is_super_admin': lid in super_admin_lids,
+            })
+
+        participants.sort(key=lambda p: (
+            0 if p['is_super_admin'] else 1 if p['is_admin'] else 2,
+            (p['display_name'] or p['phone'] or '').lower(),
+        ))
+
         return Response({
             'description': description,
-            'member_count': member_count,
+            'member_count': member_count or len(participants),
             'announce': announce,
             'participants': participants,
+            'active_senders': len(participants),
         })
 
     @action(detail=True, methods=['post'], url_path='mark-read')

@@ -213,12 +213,15 @@ watch(() => [props.open, store.selectedChatId], async ([open, chatId]) => {
       <!-- ── Group members ──────────────────────────────────────── -->
       <div v-if="isGroup" class="px-5 py-4">
         <div class="flex items-center justify-between mb-3">
-          <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-            Members
-            <span v-if="groupInfo" class="normal-case font-normal text-gray-400">
-              ({{ groupInfo.member_count }})
-            </span>
-          </p>
+          <div>
+            <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              Active participants
+              <span v-if="groupInfo" class="normal-case font-normal">
+                ({{ groupInfo.active_senders }} of {{ groupInfo.member_count }})
+              </span>
+            </p>
+            <p class="text-xs text-gray-400 mt-0.5">People who have sent at least one message</p>
+          </div>
         </div>
 
         <!-- Loading members -->
