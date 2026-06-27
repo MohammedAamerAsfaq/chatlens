@@ -104,5 +104,16 @@ module.exports = function sessionsRouter(sessionManager, mediaStorePath) {
     return res.json({ file_count: fileCount, total_bytes: totalBytes });
   });
 
+  // GET /sessions/:id/groups/:groupJid — live group metadata (participants, description, etc.)
+  router.get('/:id/groups/:groupJid', async (req, res) => {
+    try {
+      const meta = await sessionManager.getGroupMetadata(req.params.id, req.params.groupJid);
+      if (!meta) return res.status(404).json({ error: 'Session not connected or group not found' });
+      return res.json(meta);
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   return router;
 };

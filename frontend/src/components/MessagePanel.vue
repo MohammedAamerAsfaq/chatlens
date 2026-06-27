@@ -13,6 +13,8 @@ function chatKind(waId) {
 
 const isGroup = computed(() => chatKind(store.selectedChat?.wa_chat_id) === 'group')
 
+const isAtBottom = ref(true)
+
 // The ID of the last message in the list — changes when a new message arrives
 // or when the chat is first loaded. Does NOT change when older messages are prepended.
 const lastMessageId = computed(() =>
@@ -36,12 +38,16 @@ watch(() => store.selectedChatId, async () => {
 function scrollToBottom() {
   if (messagesEl.value) {
     messagesEl.value.scrollTop = messagesEl.value.scrollHeight
+    isAtBottom.value = true
   }
 }
 
 async function onScroll() {
   const el = messagesEl.value
-  if (!el || store.loadingOlderMessages || !store.hasMoreMessages) return
+  if (!el) return
+  const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+  isAtBottom.value = distFromBottom < 80
+  if (store.loadingOlderMessages || !store.hasMoreMessages) return
   if (el.scrollTop < 80) {
     const prevHeight = el.scrollHeight
     await store.loadOlderMessages()
@@ -165,9 +171,10 @@ watch(lightbox, (val) => {
       </div>
 
       <!-- Messages -->
+      <div class="flex-1 relative overflow-hidden">
       <div
         ref="messagesEl"
-        class="flex-1 overflow-y-auto px-4 py-3"
+        class="h-full overflow-y-auto px-4 py-3"
         style="background-image: url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22><rect width=%2240%22 height=%2240%22 fill=%22%23e5ddd5%22/></svg>')"
         @scroll.passive="onScroll"
       >
@@ -364,6 +371,33 @@ watch(lightbox, (val) => {
 
           </template>
         </template>
+      </div>
+
+      <!-- Scroll-to-bottom button -->
+      <Transition
+        enter-active-class="transition-all duration-200"
+        enter-from-class="opacity-0 translate-y-2"
+        leave-active-class="transition-all duration-150"
+        leave-to-class="opacity-0 translate-y-2"
+      >
+        <button
+          v-if="!isAtBottom"
+          @click="scrollToBottom"
+          class="absolute bottom-4 right-4 w-10 h-10 rounded-full bg-white shadow-lg flex items-center justify-center hover:bg-gray-50 border border-gray-200 transition-colors z-10"
+          title="Go to latest message"
+        >
+          <!-- Unread badge -->
+          <span
+            v-if="store.selectedChat?.unread_count > 0"
+            class="absolute -top-2 left-1/2 -translate-x-1/2 bg-[#25d366] text-white text-[10px] font-bold leading-none px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
+          >
+            {{ store.selectedChat.unread_count > 99 ? '99+' : store.selectedChat.unread_count }}
+          </span>
+          <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </button>
+      </Transition>
       </div>
 
       <!-- Input bar (read-only indicator) -->

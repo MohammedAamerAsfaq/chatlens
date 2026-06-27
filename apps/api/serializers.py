@@ -17,6 +17,7 @@ class WhatsAppAccountSerializer(serializers.ModelSerializer):
             'worker_session_id', 'last_connected_at', 'last_disconnected_at',
             'is_active', 'created_at', 'total_unread',
             'sync_history', 'history_days', 'idle_disconnect_minutes',
+            'auto_download_media',
         ]
         read_only_fields = [
             'id', 'session_status', 'worker_session_id',

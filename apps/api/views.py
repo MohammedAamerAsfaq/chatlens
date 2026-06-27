@@ -148,6 +148,24 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
         account.chats.update(unread_count=0, last_message_at=None)
         return Response({'deleted': deleted})
 
+    @action(detail=True, methods=['post'], url_path='set-auto-download')
+    def set_auto_download(self, request, pk=None):
+        account = self.get_object()
+        enabled = request.data.get('enabled')
+        if not isinstance(enabled, bool):
+            return Response({'error': 'enabled must be a boolean'}, status=status.HTTP_400_BAD_REQUEST)
+        account.auto_download_media = enabled
+        account.save(update_fields=['auto_download_media'])
+        return Response({'id': account.pk, 'auto_download_media': account.auto_download_media})
+
+    @action(detail=False, methods=['post'], url_path='set-auto-download-all')
+    def set_auto_download_all(self, request):
+        enabled = request.data.get('enabled')
+        if not isinstance(enabled, bool):
+            return Response({'error': 'enabled must be a boolean'}, status=status.HTTP_400_BAD_REQUEST)
+        WhatsAppAccount.objects.update(auto_download_media=enabled)
+        return Response({'enabled': enabled})
+
     @action(detail=False, methods=['post'], url_path='delete-all-messages')
     def delete_all_messages(self, request):
         deleted, _ = WhatsAppMessage.objects.all().delete()
@@ -425,6 +443,69 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
             'last_message_at': agg['last_at'],
             'media_counts': media_counts,
             'contact': contact_data,
+        })
+
+    @action(detail=True, methods=['get'], url_path='group-info')
+    def group_info(self, request, pk=None):
+        chat = self.get_object()
+        if not chat.wa_chat_id.endswith('@g.us'):
+            return Response({'error': 'Not a group chat'}, status=status.HTTP_400_BAD_REQUEST)
+
+        account = chat.account
+        participants = []
+        description = ''
+        member_count = 0
+        announce = False
+
+        try:
+            resp = requests.get(
+                f'{WORKER_BASE_URL}/sessions/{account.pk}/groups/{chat.wa_chat_id}',
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                meta = resp.json()
+                description = meta.get('desc') or ''
+                announce = meta.get('announce', False)
+                raw_parts = meta.get('participants', [])
+                member_count = len(raw_parts)
+
+                # Enrich with saved contact names from DB.
+                # groupMetadata() on a linked device returns @lid JIDs for participants,
+                # so we look up ALL JIDs (both @s.whatsapp.net and @lid).
+                all_jids = [p['id'] for p in raw_parts if p.get('id')]
+                contacts_qs = WhatsAppContact.objects.filter(
+                    account=account, wa_contact_id__in=all_jids,
+                ).values('wa_contact_id', 'display_name', 'push_name', 'phone_number')
+                jid_map = {c['wa_contact_id']: c for c in contacts_qs}
+
+                for p in raw_parts:
+                    jid = p.get('id', '')
+                    c = jid_map.get(jid, {})
+                    # For @s.whatsapp.net use the JID local part; for @lid use the resolved phone_number
+                    if jid.endswith('@s.whatsapp.net'):
+                        phone = jid.split('@')[0]
+                    else:
+                        phone = c.get('phone_number') or ''
+                    participants.append({
+                        'jid': jid,
+                        'phone': phone,
+                        'display_name': c.get('display_name') or c.get('push_name') or '',
+                        'is_admin': p.get('isAdmin', False),
+                        'is_super_admin': p.get('isSuperAdmin', False),
+                    })
+                # Admins first, then alphabetical by display_name/phone
+                participants.sort(key=lambda p: (
+                    0 if p['is_super_admin'] else 1 if p['is_admin'] else 2,
+                    (p['display_name'] or p['phone'] or '').lower(),
+                ))
+        except Exception:
+            pass
+
+        return Response({
+            'description': description,
+            'member_count': member_count,
+            'announce': announce,
+            'participants': participants,
         })
 
     @action(detail=True, methods=['post'], url_path='mark-read')

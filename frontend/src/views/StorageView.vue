@@ -190,6 +190,33 @@ async function handleRestoreFile(accountId, type, file) {
   }
 }
 
+// ─── auto-download toggles ─────────────────────────────────────────────────────
+const globalAutoDownload = computed(() =>
+  accounts.value.length > 0 && accounts.value.every(a => a.auto_download_media)
+)
+
+async function toggleGlobalAutoDownload() {
+  const next = !globalAutoDownload.value
+  try {
+    await accountsApi.setAutoDownloadAll(next)
+    accounts.value = accounts.value.map(a => ({ ...a, auto_download_media: next }))
+  } catch {
+    globalResult.value = { msg: 'Failed to update setting', ok: false }
+    setTimeout(() => { globalResult.value = null }, 4000)
+  }
+}
+
+async function toggleAutoDownload(account) {
+  const next = !account.auto_download_media
+  try {
+    await accountsApi.setAutoDownload(account.id, next)
+    const idx = accounts.value.findIndex(a => a.id === account.id)
+    if (idx !== -1) accounts.value[idx] = { ...accounts.value[idx], auto_download_media: next }
+  } catch {
+    setRestoreResult(account.id, 'Failed to update setting', false)
+  }
+}
+
 // ─── global actions ────────────────────────────────────────────────────────────
 async function globalDeleteMessages() {
   setBusy('g-del-msg', true)
@@ -256,6 +283,33 @@ async function globalDeleteMedia() {
           'mx-5 mt-4 px-4 py-2.5 rounded-lg text-sm font-medium',
           globalResult.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200',
         ]">{{ globalResult.msg }}</div>
+
+        <!-- Global auto-download toggle -->
+        <div class="px-5 pt-4 pb-2 flex items-center justify-between">
+          <div>
+            <p class="text-sm font-medium text-gray-800">Auto-download media</p>
+            <p class="text-xs text-gray-500 mt-0.5">
+              {{ globalAutoDownload ? 'Media downloads automatically as messages arrive' : 'Media only downloaded when manually triggered' }}
+            </p>
+          </div>
+          <button
+            @click="toggleGlobalAutoDownload"
+            :class="[
+              'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none',
+              globalAutoDownload ? 'bg-green-500' : 'bg-gray-300',
+            ]"
+            role="switch"
+            :aria-checked="globalAutoDownload"
+          >
+            <span :class="[
+              'inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200',
+              globalAutoDownload ? 'translate-x-5' : 'translate-x-0',
+            ]"/>
+          </button>
+        </div>
+        <div class="px-5 py-1">
+          <div class="border-t border-gray-100"/>
+        </div>
 
         <div class="px-5 py-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <!-- Delete all messages -->
@@ -362,6 +416,35 @@ async function globalDeleteMedia() {
                 </svg>
               </button>
             </div>
+          </div>
+
+          <!-- Per-account auto-download toggle -->
+          <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-white">
+            <div class="flex items-center gap-2">
+              <svg class="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M19 9l-7 7-7-7" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M12 3v13M5 20h14" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+              <span class="text-sm text-gray-700">Auto-download media</span>
+              <span :class="[
+                'text-xs font-medium px-2 py-0.5 rounded-full',
+                account.auto_download_media ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500',
+              ]">{{ account.auto_download_media ? 'ON' : 'OFF' }}</span>
+            </div>
+            <button
+              @click="toggleAutoDownload(account)"
+              :class="[
+                'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none',
+                account.auto_download_media ? 'bg-green-500' : 'bg-gray-300',
+              ]"
+              role="switch"
+              :aria-checked="account.auto_download_media"
+            >
+              <span :class="[
+                'inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200',
+                account.auto_download_media ? 'translate-x-4' : 'translate-x-0',
+              ]"/>
+            </button>
           </div>
 
           <!-- Stats -->

@@ -41,6 +41,8 @@ export const accountsApi = {
     const fd = new FormData(); fd.append('file', file)
     return http.post(`/accounts/${id}/restore-media/`, fd)
   },
+  setAutoDownload: (id, enabled) => http.post(`/accounts/${id}/set-auto-download/`, { enabled }),
+  setAutoDownloadAll: (enabled) => http.post('/accounts/set-auto-download-all/', { enabled }),
 }
 
 export const chatsApi = {
@@ -49,6 +51,7 @@ export const chatsApi = {
   markRead: (id) => http.post(`/chats/${id}/mark-read/`),
   markAllRead: (accountId) => http.post('/chats/mark-all-read/', {}, { params: accountId ? { account: accountId } : {} }),
   info: (id) => http.get(`/chats/${id}/info/`),
+  groupInfo: (id) => http.get(`/chats/${id}/group-info/`),
 }
 
 export const activityApi = {

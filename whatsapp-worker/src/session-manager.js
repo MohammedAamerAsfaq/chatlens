@@ -105,6 +105,8 @@ class SessionManager {
       // Sync settings
       syncHistory: options.sync_history !== false,
       historyDays: options.history_days || null,
+      // Media auto-download (default on)
+      autoDownloadMedia: options.auto_download_media !== false,
       // Idle disconnect (0 = disabled)
       idleDisconnectMs: options.idle_disconnect_minutes
         ? options.idle_disconnect_minutes * 60 * 1000
@@ -136,6 +138,12 @@ class SessionManager {
     const s = this.sessions.get(sessionId);
     if (!s) return null;
     return s.qrDataUrl;
+  }
+
+  async getGroupMetadata(sessionId, groupJid) {
+    const s = this.sessions.get(sessionId);
+    if (!s?.sock) return null;
+    return await s.sock.groupMetadata(groupJid);
   }
 
   async disconnect(sessionId) {
@@ -389,9 +397,9 @@ class SessionManager {
       // fromMe may be undefined for some Baileys message types — default to inbound
       const direction = (fromMe === true) ? 'outbound' : 'inbound';
 
-      // Download media to disk and expose via the worker's /media route
+      // Download media to disk only when auto-download is enabled for this session
       let mediaUrl = null;
-      if (hasMedia) {
+      if (hasMedia && session.autoDownloadMedia) {
         try {
           const buffer = await downloadMediaMessage(msg, 'buffer', {}, {
             logger: pino({ level: 'silent' }),

@@ -95,6 +95,7 @@ def internal_account_settings(request, session_id):
             'sync_history': account.sync_history,
             'history_days': account.history_days,
             'idle_disconnect_minutes': account.idle_disconnect_minutes,
+            'auto_download_media': account.auto_download_media,
         })
     except WhatsAppAccount.DoesNotExist:
         return JsonResponse({'error': 'Not found'}, status=404)
@@ -125,19 +126,36 @@ def internal_contacts_update(request):
             push_name = (contact_data.get('push_name') or '').strip()
             if not wa_contact_id or not push_name:
                 continue
-            qs = WhatsAppContact.objects.filter(account=account, wa_contact_id=wa_contact_id)
-            update_data = {'push_name': push_name}
             phone_from_jid = contact_data.get('phone_number', '')
-            updated += qs.update(**update_data)
-            if phone_from_jid:
-                # For LID contacts: always update — phone was resolved via Baileys lid→phone mapping.
-                # For phone-JID contacts: only fill in when missing (phone is deterministic from JID).
-                if wa_contact_id.endswith('@lid'):
-                    qs.update(phone_number=phone_from_jid)
-                else:
-                    qs.filter(phone_number='').update(phone_number=phone_from_jid)
-            # Backfill display_name only when it was never set from a live message
-            qs.filter(display_name='').update(display_name=push_name)
+            is_lid = wa_contact_id.endswith('@lid')
+
+            # Create the contact if it doesn't exist yet (e.g. address-book contacts
+            # that have never sent a direct message or group message to this account).
+            # On update: refresh push_name (their WA display name may change).
+            # On create: also seed display_name and phone_number.
+            contact, created = WhatsAppContact.objects.update_or_create(
+                account=account,
+                wa_contact_id=wa_contact_id,
+                defaults={'push_name': push_name},
+                create_defaults={
+                    'display_name': push_name,
+                    'phone_number': phone_from_jid,
+                },
+            )
+
+            if not created:
+                extra = {}
+                # Backfill display_name if it was never set
+                if not contact.display_name:
+                    extra['display_name'] = push_name
+                # Update phone_number: always for LID (resolved mapping), fill-in-only for phone JIDs
+                if phone_from_jid:
+                    if is_lid or not contact.phone_number:
+                        extra['phone_number'] = phone_from_jid
+                if extra:
+                    WhatsAppContact.objects.filter(pk=contact.pk).update(**extra)
+
+            updated += 1
         return JsonResponse({'status': 'ok', 'updated': updated})
     except WhatsAppAccount.DoesNotExist:
         return JsonResponse({'error': 'Account not found'}, status=404)
