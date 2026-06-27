@@ -1,5 +1,5 @@
 import logging
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils.dateparse import parse_datetime
 from ..models import (
     WhatsAppAccount, WhatsAppContact, WhatsAppChat,
@@ -123,17 +123,29 @@ class IngestionService:
         defaults = {
             'chat_type': chat_type,
             'contact': contact if chat_type == ChatType.INDIVIDUAL else None,
-            'last_message_at': message_time,
         }
         group_name = payload.get('group_name', '')
         if group_name:
             defaults['name'] = group_name
 
-        chat, _ = WhatsAppChat.objects.update_or_create(
+        chat, created = WhatsAppChat.objects.update_or_create(
             account=account,
             wa_chat_id=wa_chat_id,
             defaults=defaults,
+            create_defaults={'last_message_at': message_time},
         )
+
+        # Only advance last_message_at — never let an older replayed message push it back.
+        # History sync delivers messages out of chronological order, so without this guard
+        # the chat sinks in the rail as stale timestamps overwrite fresh ones.
+        if not created:
+            WhatsAppChat.objects.filter(
+                pk=chat.pk
+            ).filter(
+                Q(last_message_at__isnull=True) | Q(last_message_at__lt=message_time)
+            ).update(last_message_at=message_time)
+            chat.refresh_from_db(fields=['last_message_at'])
+
         return chat
 
     def _insert_message(
