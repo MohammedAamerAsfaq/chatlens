@@ -385,9 +385,18 @@ class SessionManager {
       // Normalize JID to strip device suffix (e.g. 971501234567:5@s.whatsapp.net → 971501234567@s.whatsapp.net)
       // Without this, inbound and outbound for the same contact can land in two separate chat records.
       const rawJid = msg.key.remoteJid;
-      const chatId = jidNormalizedUser(rawJid);
+
+      // When WhatsApp privacy mode is active, remoteJid arrives as a LID (e.g. 249868530499648@lid).
+      // Baileys provides the real phone JID in msg.key.senderPn for 1-on-1 chats.
+      // Use it so the message lands in the correct phone-JID chat instead of creating a
+      // parallel LID-keyed chat that can never be resolved.
+      const isLidJid = rawJid?.endsWith('@lid');
+      const senderPn = msg.key.senderPn;  // e.g. "971529952966@s.whatsapp.net"
+      const resolvedJid = (isLidJid && senderPn) ? senderPn : rawJid;
+
+      const chatId = jidNormalizedUser(resolvedJid);
       const isGroup = chatId?.endsWith('@g.us');
-      const rawSenderJid = msg.key.participant || rawJid;
+      const rawSenderJid = msg.key.participant || resolvedJid;
       const senderJid = jidNormalizedUser(rawSenderJid);
       const senderNumber = senderJid?.split('@')[0] || '';
       const fromMe = msg.key.fromMe;
