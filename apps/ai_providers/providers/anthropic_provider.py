@@ -52,3 +52,11 @@ class AnthropicChatProvider(ChatProvider):
             return {'ok': True, 'response': result, 'model': self.model}
         except Exception as e:
             return {'ok': False, 'error': str(e)}
+
+    def list_models(self) -> list:
+        try:
+            resp = self.session.get(f'{self.base_url}/models', timeout=10)
+            resp.raise_for_status()
+            return [m['id'] for m in resp.json().get('data', [])]
+        except Exception:
+            return []

@@ -17,6 +17,10 @@ const saveError  = ref('')
 const testing    = ref({})         // { [id]: 'idle' | 'running' | { ok, ... } }
 const deleting   = ref({})
 
+const liveModels      = ref([])    // fetched from provider API
+const liveModelSource = ref('')    // 'api' | 'fallback' | ''
+const fetchingModels  = ref(false)
+
 const form = ref(emptyForm())
 
 function emptyForm() {
@@ -39,6 +43,7 @@ const chatProviders      = computed(() => providers.value.filter(p => p.capabili
 const agentProviders     = computed(() => providers.value.filter(p => p.capability === 'agent'))
 
 const availableModels = computed(() => {
+  if (liveModels.value.length) return liveModels.value
   const key = `${form.value.provider}_${form.value.capability}`
   return meta.value.models[key] || []
 })
@@ -69,6 +74,8 @@ onMounted(load)
 
 function openCreate() {
   form.value = emptyForm()
+  liveModels.value = []
+  liveModelSource.value = ''
   modalMode.value = 'create'
   saveError.value = ''
   showModal.value = true
@@ -85,9 +92,13 @@ function openEdit(p) {
     is_active:    p.is_active,
     _editId:      p.id,
   }
+  liveModels.value = []
+  liveModelSource.value = ''
   modalMode.value = 'edit'
   saveError.value = ''
   showModal.value = true
+  // Auto-fetch models for the existing provider
+  doFetchModels()
 }
 
 function closeModal() {
@@ -95,10 +106,43 @@ function closeModal() {
 }
 
 function onProviderChange() {
-  // Auto-select the first model when provider/capability changes
+  // Clear live models and reset model selection when provider/capability changes
+  liveModels.value = []
+  liveModelSource.value = ''
   const models = meta.value.models[`${form.value.provider}_${form.value.capability}`] || []
   if (models.length && !models.includes(form.value.model)) {
     form.value.model = models[0]
+  }
+}
+
+async function doFetchModels() {
+  if (!form.value.provider || !form.value.capability) return
+  // Need either a saved config id or an api_key entered in the form
+  const apiKey  = form.value.api_key
+  const editId  = form.value._editId
+  if (!apiKey && !editId) return
+
+  fetchingModels.value  = true
+  liveModels.value      = []
+  liveModelSource.value = ''
+  try {
+    const payload = {
+      provider:   form.value.provider,
+      capability: form.value.capability,
+      base_url:   form.value.base_url || '',
+      ...(apiKey ? { api_key: apiKey } : { config_id: editId }),
+    }
+    const res = await aiProvidersApi.fetchModels(payload)
+    liveModels.value      = res.data.models || []
+    liveModelSource.value = res.data.source || ''
+    // Keep current model if it's in the list; otherwise default to first
+    if (liveModels.value.length && !liveModels.value.includes(form.value.model)) {
+      form.value.model = liveModels.value[0]
+    }
+  } catch {
+    // Silent — fall back to hardcoded list
+  } finally {
+    fetchingModels.value = false
   }
 }
 
@@ -314,14 +358,28 @@ function capabilityBadge(cap) {
             </div>
 
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Model</label>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-sm font-medium text-gray-700">Model</label>
+                <div class="flex items-center gap-2">
+                  <span v-if="liveModelSource === 'api'" class="text-xs text-green-600">● live from API</span>
+                  <span v-else-if="liveModelSource === 'fallback'" class="text-xs text-amber-500">● suggested (provider has no models API)</span>
+                  <button
+                    type="button"
+                    @click="doFetchModels"
+                    :disabled="fetchingModels || !form.value.provider || !form.value.capability || (!form.value.api_key && !form.value._editId)"
+                    class="text-xs px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 text-gray-500 disabled:opacity-40 transition-colors"
+                  >
+                    {{ fetchingModels ? 'Fetching…' : '↻ Fetch Models' }}
+                  </button>
+                </div>
+              </div>
               <select v-if="availableModels.length" v-model="form.model" required
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
                 <option v-for="m in availableModels" :key="m" :value="m">{{ m }}</option>
               </select>
               <input v-else v-model="form.model" required
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="Model name" />
+                placeholder="Enter model name or fetch from provider" />
             </div>
 
             <div>

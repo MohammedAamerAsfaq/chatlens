@@ -65,13 +65,14 @@ export const messageLogsApi = {
 }
 
 export const aiProvidersApi = {
-  list:       ()         => http.get('/ai-providers/'),
-  get:        (id)       => http.get(`/ai-providers/${id}/`),
-  create:     (data)     => http.post('/ai-providers/', data),
-  update:     (id, data) => http.patch(`/ai-providers/${id}/`, data),
-  delete:     (id)       => http.delete(`/ai-providers/${id}/`),
-  activate:   (id)       => http.post(`/ai-providers/${id}/activate/`),
-  deactivate: (id)       => http.post(`/ai-providers/${id}/deactivate/`),
-  test:       (id)       => http.post(`/ai-providers/${id}/test/`),
-  meta:       ()         => http.get('/ai-providers/meta/'),
+  list:        ()              => http.get('/ai-providers/'),
+  get:         (id)            => http.get(`/ai-providers/${id}/`),
+  create:      (data)          => http.post('/ai-providers/', data),
+  update:      (id, data)      => http.patch(`/ai-providers/${id}/`, data),
+  delete:      (id)            => http.delete(`/ai-providers/${id}/`),
+  activate:    (id)            => http.post(`/ai-providers/${id}/activate/`),
+  deactivate:  (id)            => http.post(`/ai-providers/${id}/deactivate/`),
+  test:        (id)            => http.post(`/ai-providers/${id}/test/`),
+  meta:        ()              => http.get('/ai-providers/meta/'),
+  fetchModels: (data)          => http.post('/ai-providers/fetch-models/', data),
 }

@@ -14,6 +14,10 @@ class EmbeddingProvider(ABC):
     def test_connection(self) -> dict:
         pass
 
+    def list_models(self) -> list:
+        """Return available model IDs from the provider API. Empty list = not supported."""
+        return []
+
 
 class ChatProvider(ABC):
     @abstractmethod
@@ -23,3 +27,7 @@ class ChatProvider(ABC):
     @abstractmethod
     def test_connection(self) -> dict:
         pass
+
+    def list_models(self) -> list:
+        """Return available model IDs from the provider API. Empty list = not supported."""
+        return []
