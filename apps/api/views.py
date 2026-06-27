@@ -166,9 +166,18 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
         WhatsAppAccount.objects.update(auto_download_media=enabled)
         return Response({'enabled': enabled})
 
-    @action(detail=True, methods=['get'], url_path='message-logs')
+    @action(detail=True, methods=['get', 'delete'], url_path='message-logs')
     def message_logs(self, request, pk=None):
         account = self.get_object()
+        if request.method == 'DELETE':
+            try:
+                requests.delete(
+                    f'{WORKER_BASE_URL}/sessions/{account.pk}/message-logs',
+                    timeout=10,
+                )
+            except Exception:
+                pass
+            return Response({'ok': True})
         params = request.query_params.dict()
         try:
             resp = requests.get(
@@ -180,18 +189,6 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
             return Response(resp.json())
         except Exception as e:
             return Response({'count': 0, 'results': [], 'error': str(e)})
-
-    @action(detail=True, methods=['delete'], url_path='message-logs')
-    def clear_message_logs(self, request, pk=None):
-        account = self.get_object()
-        try:
-            requests.delete(
-                f'{WORKER_BASE_URL}/sessions/{account.pk}/message-logs',
-                timeout=10,
-            )
-        except Exception:
-            pass
-        return Response({'ok': True})
 
     @action(detail=False, methods=['post'], url_path='delete-all-messages')
     def delete_all_messages(self, request):
