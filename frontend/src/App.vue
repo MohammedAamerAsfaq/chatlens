@@ -45,6 +45,13 @@ const store = useConversationsStore()
       >
         Message Logs
       </RouterLink>
+      <RouterLink
+        to="/ai-providers"
+        class="text-sm text-gray-300 hover:text-white transition-colors"
+        active-class="text-white font-medium"
+      >
+        AI Providers
+      </RouterLink>
 
       <!-- Account switcher — shown in nav when on Conversations page -->
       <div

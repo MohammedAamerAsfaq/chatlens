@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     'apps.whatsapp_bridge',
     'apps.message_intelligence',
     'apps.api',
+    'apps.ai_providers',
 ]
 
 MIDDLEWARE = [
