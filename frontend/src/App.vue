@@ -38,6 +38,13 @@ const store = useConversationsStore()
       >
         Storage
       </RouterLink>
+      <RouterLink
+        to="/message-logs"
+        class="text-sm text-gray-300 hover:text-white transition-colors"
+        active-class="text-white font-medium"
+      >
+        Message Logs
+      </RouterLink>
 
       <!-- Account switcher — shown in nav when on Conversations page -->
       <div

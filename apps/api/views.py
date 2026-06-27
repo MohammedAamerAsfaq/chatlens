@@ -166,6 +166,33 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
         WhatsAppAccount.objects.update(auto_download_media=enabled)
         return Response({'enabled': enabled})
 
+    @action(detail=True, methods=['get'], url_path='message-logs')
+    def message_logs(self, request, pk=None):
+        account = self.get_object()
+        params = request.query_params.dict()
+        try:
+            resp = requests.get(
+                f'{WORKER_BASE_URL}/sessions/{account.pk}/message-logs',
+                params=params,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return Response(resp.json())
+        except Exception as e:
+            return Response({'count': 0, 'results': [], 'error': str(e)})
+
+    @action(detail=True, methods=['delete'], url_path='message-logs')
+    def clear_message_logs(self, request, pk=None):
+        account = self.get_object()
+        try:
+            requests.delete(
+                f'{WORKER_BASE_URL}/sessions/{account.pk}/message-logs',
+                timeout=10,
+            )
+        except Exception:
+            pass
+        return Response({'ok': True})
+
     @action(detail=False, methods=['post'], url_path='delete-all-messages')
     def delete_all_messages(self, request):
         deleted, _ = WhatsAppMessage.objects.all().delete()
@@ -603,6 +630,9 @@ class SyncLogViewSet(viewsets.ReadOnlyModelViewSet):
         log_status = self.request.query_params.get('status')
         if log_status:
             qs = qs.filter(status=log_status)
+        message_id = self.request.query_params.get('message_id')
+        if message_id:
+            qs = qs.filter(metadata__provider_message_id=message_id)
         return qs
 
     @action(detail=False, methods=['post'], url_path='clear-all')

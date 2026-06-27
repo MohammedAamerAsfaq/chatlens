@@ -81,10 +81,11 @@ class ChatSerializer(serializers.ModelSerializer):
 
 class SyncLogSerializer(serializers.ModelSerializer):
     account_name = serializers.SerializerMethodField()
+    account_id   = serializers.IntegerField(source='account.pk', read_only=True)
 
     class Meta:
         model = SyncLog
-        fields = ['id', 'event_type', 'status', 'message', 'metadata', 'created_at', 'account_name']
+        fields = ['id', 'event_type', 'status', 'message', 'metadata', 'created_at', 'account_name', 'account_id']
 
     def get_account_name(self, obj):
         return obj.account.display_name or obj.account.phone_number or f'Account #{obj.account.pk}'

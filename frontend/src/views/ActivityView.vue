@@ -1,6 +1,10 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { activityApi, accountsApi } from '@/api'
+
+const route  = useRoute()
+const router = useRouter()
 
 const logs        = ref([])
 const accounts    = ref([])
@@ -27,12 +31,23 @@ const pageEnd    = computed(() => Math.min(page.value * pageSize.value, totalCou
 
 let pollTimer = null
 
+// message_id filter — set by incoming cross-link from Message Logs page
+const filterMessageId = ref(route.query.message_id || '')
+
 function buildParams() {
   const p = { page: page.value, page_size: pageSize.value }
-  if (filterAccount.value !== 'all') p.account = filterAccount.value
-  if (filterStatus.value  !== 'all') p.status     = filterStatus.value
-  if (filterEvent.value   !== 'all') p.event_type  = filterEvent.value
+  if (filterAccount.value  !== 'all') p.account     = filterAccount.value
+  if (filterStatus.value   !== 'all') p.status       = filterStatus.value
+  if (filterEvent.value    !== 'all') p.event_type   = filterEvent.value
+  if (filterMessageId.value)          p.message_id   = filterMessageId.value
   return p
+}
+
+function goToMessageLogs(log) {
+  router.push({
+    name: 'message-logs',
+    query: { account_id: log.account_id, message_id: (log.metadata || {}).provider_message_id },
+  })
 }
 
 async function fetchLogs(showSpinner = false) {
@@ -52,7 +67,7 @@ async function fetchAccounts() {
   } catch {}
 }
 
-watch([filterAccount, filterStatus, filterEvent, pageSize], () => {
+watch([filterAccount, filterStatus, filterEvent, filterMessageId, pageSize], () => {
   page.value = 1
   fetchLogs()
 })
@@ -305,11 +320,23 @@ function metaRows(log) {
             <tr v-if="expandedId === log.id" :key="`${log.id}-detail`">
               <td colspan="6" class="px-6 py-4 bg-gray-50 border-t border-gray-100">
                 <div class="grid grid-cols-2 gap-x-8 gap-y-1.5 text-xs max-w-4xl">
-                  <div class="col-span-2 flex items-center gap-4 pb-2 mb-1 border-b border-gray-200">
+                  <div class="col-span-2 flex items-center gap-4 pb-2 mb-1 border-b border-gray-200 flex-wrap">
                     <span class="text-gray-500">{{ formatTime(log.created_at) }}</span>
                     <span class="font-semibold text-gray-800">{{ log.account_name }}</span>
                     <span :class="['font-medium px-2 py-0.5 rounded-full', eventStyle[log.event_type] || 'bg-gray-100 text-gray-600']">{{ log.event_type }}</span>
                     <span :class="['font-medium px-2 py-0.5 rounded-full', statusStyle[log.status] || 'bg-gray-100 text-gray-600']">{{ log.status }}</span>
+                    <!-- Cross-link → Message Logs (only for message_ingest events with a message ID) -->
+                    <button
+                      v-if="log.event_type === 'message_ingest' && log.metadata?.provider_message_id"
+                      @click.stop="goToMessageLogs(log)"
+                      class="ml-auto flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-green-200 text-green-700 hover:bg-green-50 transition-colors"
+                      title="View in Message Logs"
+                    >
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                      </svg>
+                      Message Logs
+                    </button>
                   </div>
                   <template v-if="metaRows(log).length">
                     <div v-for="row in metaRows(log)" :key="row.key" class="contents">

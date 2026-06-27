@@ -19,7 +19,7 @@ function dirSizeSync(dir) {
   return { fileCount, totalBytes };
 }
 
-module.exports = function sessionsRouter(sessionManager, mediaStorePath) {
+module.exports = function sessionsRouter(sessionManager, mediaStorePath, messageLogger) {
   const router = Router();
 
   // POST /sessions
@@ -113,6 +113,21 @@ module.exports = function sessionsRouter(sessionManager, mediaStorePath) {
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
+  });
+
+  // GET /sessions/:id/message-logs — paginated node-level message log
+  router.get('/:id/message-logs', (req, res) => {
+    const page       = Math.max(1, parseInt(req.query.page      || '1',  10));
+    const pageSize   = Math.min(200, Math.max(1, parseInt(req.query.page_size || '25', 10)));
+    const messageId  = req.query.message_id || null;
+    const result = messageLogger.read(req.params.id, { page, pageSize, messageId });
+    return res.json(result);
+  });
+
+  // DELETE /sessions/:id/message-logs — clear the log file for this session
+  router.delete('/:id/message-logs', (req, res) => {
+    messageLogger.clear(req.params.id);
+    return res.json({ ok: true });
   });
 
   return router;

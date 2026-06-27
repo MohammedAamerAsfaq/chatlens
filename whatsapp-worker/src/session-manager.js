@@ -36,10 +36,11 @@ const MIME_TO_EXT = {
 };
 
 class SessionManager {
-  constructor({ sessionStorePath, djangoClient, logger }) {
+  constructor({ sessionStorePath, djangoClient, messageLogger, logger }) {
     this.sessionStorePath = sessionStorePath;
     this.mediaStorePath = path.join(path.dirname(sessionStorePath), 'media');
     this.djangoClient = djangoClient;
+    this.messageLogger = messageLogger;
     this.logger = logger;
     // Map<sessionId, { sock, status, qrDataUrl, phoneNumber, displayName }>
     this.sessions = new Map();
@@ -442,7 +443,36 @@ class SessionManager {
         raw_payload: safeRaw,
       };
 
-      await this.djangoClient.sendMessageIngest(payload);
+      // Write the node-level log entry before forwarding to Django.
+      // The finally block captures the forward outcome so the entry is always written.
+      const logEntry = {
+        ts: new Date().toISOString(),
+        session_id: sessionId,
+        provider_message_id: msg.key.id,
+        chat_id: chatId,
+        chat_type: isGroup ? 'group' : 'individual',
+        direction,
+        message_type: messageType,
+        message_text: (messageText || '').slice(0, 500),
+        sender_number: senderNumber,
+        push_name: msg.pushName || '',
+        group_name: groupName,
+        has_media: hasMedia,
+        media_mime_type: mediaMimeType,
+        raw_payload: safeRaw,
+        forward_status: 'success',
+        forward_error: null,
+      };
+
+      try {
+        await this.djangoClient.sendMessageIngest(payload);
+      } catch (fwdErr) {
+        logEntry.forward_status = 'error';
+        logEntry.forward_error  = fwdErr.message;
+        throw fwdErr;
+      } finally {
+        this.messageLogger.write(sessionId, logEntry);
+      }
     } catch (err) {
       this.logger.error({ sessionId, msgId: msg.key.id, err: err.message }, 'Failed to forward message');
     }

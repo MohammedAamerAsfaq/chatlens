@@ -58,3 +58,8 @@ export const activityApi = {
   list: (params) => http.get('/activity/', { params }),
   clearAll: (params) => http.post('/activity/clear-all/', {}, { params }),
 }
+
+export const messageLogsApi = {
+  list:  (accountId, params) => http.get(`/accounts/${accountId}/message-logs/`, { params }),
+  clear: (accountId)         => http.delete(`/accounts/${accountId}/message-logs/`),
+}

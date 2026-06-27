@@ -8,6 +8,7 @@ const pino = require('pino');
 
 const { SessionManager } = require('./src/session-manager');
 const { DjangoClient } = require('./src/django-client');
+const { MessageLogger } = require('./src/message-logger');
 const sessionsRouter = require('./src/routes/sessions');
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -15,6 +16,7 @@ const DJANGO_BASE_URL = process.env.DJANGO_BASE_URL || 'http://localhost:8000';
 const INTERNAL_API_TOKEN = process.env.INTERNAL_API_TOKEN || '';
 const SESSION_STORE_PATH = process.env.SESSION_STORE_PATH || './sessions';
 const MEDIA_STORE_PATH = process.env.MEDIA_STORE_PATH || './media';
+const MESSAGE_LOGS_PATH = process.env.MESSAGE_LOGS_PATH || './message-logs';
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 
 const logger = pino({ level: LOG_LEVEL });
@@ -25,9 +27,12 @@ const djangoClient = new DjangoClient({
   logger,
 });
 
+const messageLogger = new MessageLogger(MESSAGE_LOGS_PATH);
+
 const sessionManager = new SessionManager({
   sessionStorePath: SESSION_STORE_PATH,
   djangoClient,
+  messageLogger,
   logger,
 });
 
@@ -41,7 +46,7 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }));
 app.use('/media', express.static(path.resolve(MEDIA_STORE_PATH)));
 
 // Sessions API
-app.use('/sessions', sessionsRouter(sessionManager, MEDIA_STORE_PATH));
+app.use('/sessions', sessionsRouter(sessionManager, MEDIA_STORE_PATH, messageLogger));
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
