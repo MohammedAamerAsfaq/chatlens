@@ -2,16 +2,36 @@ from django.db import models
 
 
 class AIProviderConfig(models.Model):
-    PROVIDER_VOYAGE = 'voyage'
-    PROVIDER_OPENAI = 'openai'
-    PROVIDER_ANTHROPIC = 'anthropic'
-    PROVIDER_COHERE = 'cohere'
+    PROVIDER_VOYAGE      = 'voyage'
+    PROVIDER_OPENAI      = 'openai'
+    PROVIDER_ANTHROPIC   = 'anthropic'
+    PROVIDER_GOOGLE      = 'google'
+    PROVIDER_DEEPSEEK    = 'deepseek'
+    PROVIDER_QWEN        = 'qwen'
+    PROVIDER_KIMI        = 'kimi'
+    PROVIDER_GROQ        = 'groq'
+    PROVIDER_MISTRAL     = 'mistral'
+    PROVIDER_GROK        = 'grok'
+    PROVIDER_PERPLEXITY  = 'perplexity'
+    PROVIDER_TOGETHER    = 'together'
+    PROVIDER_COHERE      = 'cohere'
+    PROVIDER_JINA        = 'jina'
 
     PROVIDER_CHOICES = [
-        (PROVIDER_VOYAGE, 'Voyage AI'),
-        (PROVIDER_OPENAI, 'OpenAI'),
-        (PROVIDER_ANTHROPIC, 'Anthropic'),
-        (PROVIDER_COHERE, 'Cohere'),
+        (PROVIDER_VOYAGE,     'Voyage AI'),
+        (PROVIDER_OPENAI,     'OpenAI'),
+        (PROVIDER_ANTHROPIC,  'Anthropic'),
+        (PROVIDER_GOOGLE,     'Google Gemini'),
+        (PROVIDER_DEEPSEEK,   'DeepSeek'),
+        (PROVIDER_QWEN,       'Qwen (Alibaba)'),
+        (PROVIDER_KIMI,       'Kimi (Moonshot)'),
+        (PROVIDER_GROQ,       'Groq'),
+        (PROVIDER_MISTRAL,    'Mistral AI'),
+        (PROVIDER_GROK,       'Grok (xAI)'),
+        (PROVIDER_PERPLEXITY, 'Perplexity'),
+        (PROVIDER_TOGETHER,   'Together AI'),
+        (PROVIDER_COHERE,     'Cohere'),
+        (PROVIDER_JINA,       'Jina AI'),
     ]
 
     CAPABILITY_EMBEDDING = 'embedding'

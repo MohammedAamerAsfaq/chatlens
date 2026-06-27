@@ -4,11 +4,28 @@ from .models import AIProviderConfig
 
 # Default model options surfaced to the UI for each provider+capability combination.
 PROVIDER_MODELS = {
-    ('voyage', 'embedding'): ['voyage-3-lite', 'voyage-3', 'voyage-3-large', 'voyage-code-3'],
-    ('openai', 'embedding'): ['text-embedding-3-small', 'text-embedding-3-large', 'text-embedding-ada-002'],
-    ('openai', 'chat'):      ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'],
-    ('anthropic', 'chat'):   ['claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'claude-opus-4-8'],
-    ('cohere', 'embedding'): ['embed-v4', 'embed-english-v3.0', 'embed-multilingual-v3.0'],
+    # ── Embedding ──────────────────────────────────────────────────────────────
+    ('voyage',    'embedding'): ['voyage-3-lite', 'voyage-3', 'voyage-3-large', 'voyage-code-3'],
+    ('openai',    'embedding'): ['text-embedding-3-small', 'text-embedding-3-large', 'text-embedding-ada-002'],
+    ('google',    'embedding'): ['text-embedding-004', 'text-multilingual-embedding-002'],
+    ('mistral',   'embedding'): ['mistral-embed'],
+    ('cohere',    'embedding'): ['embed-v4', 'embed-english-v3.0', 'embed-multilingual-v3.0'],
+    ('jina',      'embedding'): ['jina-embeddings-v3', 'jina-embeddings-v2-base-en', 'jina-embeddings-v2-base-code'],
+    ('together',  'embedding'): ['togethercomputer/m2-bert-80M-8k-retrieval', 'togethercomputer/m2-bert-80M-32k-retrieval'],
+
+    # ── Chat ───────────────────────────────────────────────────────────────────
+    ('openai',     'chat'): ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo', 'o1-mini', 'o3-mini'],
+    ('anthropic',  'chat'): ['claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'claude-opus-4-8'],
+    ('google',     'chat'): ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+    ('deepseek',   'chat'): ['deepseek-chat', 'deepseek-reasoner'],
+    ('qwen',       'chat'): ['qwen-max', 'qwen-plus', 'qwen-turbo', 'qwen-long', 'qwq-32b'],
+    ('kimi',       'chat'): ['moonshot-v1-128k', 'moonshot-v1-32k', 'moonshot-v1-8k'],
+    ('groq',       'chat'): ['llama-3.3-70b-versatile', 'llama-3.1-70b-versatile', 'llama3-8b-8192', 'mixtral-8x7b-32768', 'gemma2-9b-it'],
+    ('mistral',    'chat'): ['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest', 'codestral-latest', 'open-mistral-nemo'],
+    ('grok',       'chat'): ['grok-3-mini', 'grok-3', 'grok-2-1212', 'grok-2-vision-1212'],
+    ('perplexity', 'chat'): ['sonar-pro', 'sonar', 'sonar-reasoning-pro', 'sonar-reasoning'],
+    ('together',   'chat'): ['meta-llama/Llama-3.3-70B-Instruct-Turbo', 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', 'mistralai/Mistral-7B-Instruct-v0.3', 'Qwen/Qwen2.5-72B-Instruct-Turbo'],
+    ('cohere',     'chat'): ['command-r-plus-08-2024', 'command-r-08-2024', 'command-r7b-12-2024'],
 }
 
 

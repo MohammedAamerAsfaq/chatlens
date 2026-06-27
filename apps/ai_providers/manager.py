@@ -3,17 +3,45 @@ from .models import AIProviderConfig
 from .providers.voyage import VoyageEmbeddingProvider
 from .providers.openai_provider import OpenAIEmbeddingProvider, OpenAIChatProvider
 from .providers.anthropic_provider import AnthropicChatProvider
+from .providers.openai_compatible import (
+    DeepSeekChatProvider,
+    GoogleChatProvider, GoogleEmbeddingProvider,
+    QwenChatProvider,
+    KimiChatProvider,
+    GroqChatProvider,
+    MistralChatProvider, MistralEmbeddingProvider,
+    GrokChatProvider,
+    PerplexityChatProvider,
+    TogetherChatProvider, TogetherEmbeddingProvider,
+    CohereChatProvider, CohereEmbeddingProvider,
+    JinaEmbeddingProvider,
+)
 
 logger = logging.getLogger(__name__)
 
 _EMBEDDING_REGISTRY = {
-    AIProviderConfig.PROVIDER_VOYAGE: VoyageEmbeddingProvider,
-    AIProviderConfig.PROVIDER_OPENAI: OpenAIEmbeddingProvider,
+    'voyage':    VoyageEmbeddingProvider,
+    'openai':    OpenAIEmbeddingProvider,
+    'google':    GoogleEmbeddingProvider,
+    'mistral':   MistralEmbeddingProvider,
+    'cohere':    CohereEmbeddingProvider,
+    'jina':      JinaEmbeddingProvider,
+    'together':  TogetherEmbeddingProvider,
 }
 
 _CHAT_REGISTRY = {
-    AIProviderConfig.PROVIDER_OPENAI: OpenAIChatProvider,
-    AIProviderConfig.PROVIDER_ANTHROPIC: AnthropicChatProvider,
+    'openai':      OpenAIChatProvider,
+    'anthropic':   AnthropicChatProvider,
+    'google':      GoogleChatProvider,
+    'deepseek':    DeepSeekChatProvider,
+    'qwen':        QwenChatProvider,
+    'kimi':        KimiChatProvider,
+    'groq':        GroqChatProvider,
+    'mistral':     MistralChatProvider,
+    'grok':        GrokChatProvider,
+    'perplexity':  PerplexityChatProvider,
+    'together':    TogetherChatProvider,
+    'cohere':      CohereChatProvider,
 }
 
 
