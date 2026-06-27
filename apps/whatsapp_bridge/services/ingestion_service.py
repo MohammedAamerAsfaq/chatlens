@@ -78,6 +78,37 @@ class IngestionService:
             defaults=defaults,
             create_defaults=create_defaults,
         )
+
+        # Cross-link names between phone-JID and LID contacts for the same person.
+        # Group messages arrive with phone JIDs (sender_number = real phone), so when
+        # a push_name comes in for a phone-JID contact, also apply it to the LID contact
+        # whose resolved phone_number matches — and vice versa.
+        if push_name and direction == 'inbound':
+            if not is_lid and sender_number:
+                # Phone-JID contact got a name — propagate to any matching LID contact
+                WhatsAppContact.objects.filter(
+                    account=account,
+                    wa_contact_id__endswith='@lid',
+                    phone_number=sender_number,
+                ).update(push_name=push_name)
+                WhatsAppContact.objects.filter(
+                    account=account,
+                    wa_contact_id__endswith='@lid',
+                    phone_number=sender_number,
+                    display_name='',
+                ).update(display_name=push_name)
+            elif is_lid:
+                # LID contact got a name — propagate to the phone-JID contact if phone is resolved
+                resolved_phone = contact.phone_number
+                if resolved_phone:
+                    phone_jid = f"{resolved_phone}@s.whatsapp.net"
+                    WhatsAppContact.objects.filter(
+                        account=account, wa_contact_id=phone_jid
+                    ).update(push_name=push_name)
+                    WhatsAppContact.objects.filter(
+                        account=account, wa_contact_id=phone_jid, display_name=''
+                    ).update(display_name=push_name)
+
         return contact
 
     def _upsert_chat(

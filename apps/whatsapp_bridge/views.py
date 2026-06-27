@@ -145,15 +145,26 @@ def internal_contacts_update(request):
 
             if not created:
                 extra = {}
-                # Backfill display_name if it was never set
                 if not contact.display_name:
                     extra['display_name'] = push_name
-                # Update phone_number: always for LID (resolved mapping), fill-in-only for phone JIDs
                 if phone_from_jid:
                     if is_lid or not contact.phone_number:
                         extra['phone_number'] = phone_from_jid
                 if extra:
                     WhatsAppContact.objects.filter(pk=contact.pk).update(**extra)
+
+            # Cross-link: when a LID contact has a resolved phone number, also update
+            # the phone-JID contact (phone@s.whatsapp.net) with the name.
+            # Chats are linked to phone-JID contacts, so without this cross-link
+            # the chat list shows the phone number instead of the contact's name.
+            if is_lid and phone_from_jid:
+                phone_jid = f"{phone_from_jid}@s.whatsapp.net"
+                WhatsAppContact.objects.filter(
+                    account=account, wa_contact_id=phone_jid
+                ).update(push_name=push_name)
+                WhatsAppContact.objects.filter(
+                    account=account, wa_contact_id=phone_jid, display_name=''
+                ).update(display_name=push_name)
 
             updated += 1
         return JsonResponse({'status': 'ok', 'updated': updated})
