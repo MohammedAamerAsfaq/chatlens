@@ -36,6 +36,7 @@ function emptyForm() {
 
 const embeddingProviders = computed(() => providers.value.filter(p => p.capability === 'embedding'))
 const chatProviders      = computed(() => providers.value.filter(p => p.capability === 'chat'))
+const agentProviders     = computed(() => providers.value.filter(p => p.capability === 'agent'))
 
 const availableModels = computed(() => {
   const key = `${form.value.provider}_${form.value.capability}`
@@ -241,6 +242,27 @@ function capabilityBadge(cap) {
           />
         </div>
       </section>
+
+      <!-- General AI Agent section -->
+      <section>
+        <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">General AI Agent</h2>
+        <p class="text-xs text-gray-400 mb-3">Used for background tasks — enrichment, tagging, summarisation. Assign a faster or cheaper model independently of the user-facing chat provider.</p>
+        <div v-if="!agentProviders.length" class="text-sm text-gray-400 border border-dashed border-gray-200 rounded-lg px-4 py-8 text-center">
+          No agent providers configured yet
+        </div>
+        <div class="space-y-3">
+          <ProviderCard
+            v-for="p in agentProviders" :key="p.id"
+            :provider="p"
+            :test-result="testResult(p.id)"
+            :deleting="!!deleting[p.id]"
+            @edit="openEdit(p)"
+            @toggle-active="toggleActive(p)"
+            @test="testProvider(p)"
+            @delete="deleteProvider(p)"
+          />
+        </div>
+      </section>
     </div>
 
     <!-- Add / Edit Modal -->
@@ -286,6 +308,7 @@ function capabilityBadge(cap) {
                   <option value="" disabled>Select…</option>
                   <option value="embedding">Embeddings</option>
                   <option value="chat">Chat / Completion</option>
+                  <option value="agent">General AI Agent</option>
                 </select>
               </div>
             </div>

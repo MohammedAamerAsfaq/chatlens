@@ -44,11 +44,17 @@ _CHAT_REGISTRY = {
     'cohere':      CohereChatProvider,
 }
 
+# Agent uses the same ChatProvider interface — registered separately so
+# a different model/provider can be assigned for background AI tasks.
+_AGENT_REGISTRY = _CHAT_REGISTRY
+
 
 def build_provider(config: AIProviderConfig):
     """Instantiate the concrete provider class for a given config row."""
     if config.capability == AIProviderConfig.CAPABILITY_EMBEDDING:
         cls = _EMBEDDING_REGISTRY.get(config.provider)
+    elif config.capability == AIProviderConfig.CAPABILITY_AGENT:
+        cls = _AGENT_REGISTRY.get(config.provider)
     else:
         cls = _CHAT_REGISTRY.get(config.provider)
 
@@ -97,6 +103,14 @@ class AIManager:
 
     def chat(self, messages: list, **kwargs) -> str:
         return self._active(AIProviderConfig.CAPABILITY_CHAT).chat(messages, **kwargs)
+
+    # ── Agent ──────────────────────────────────────────────────────────────────
+    # Same interface as chat but routed to the active agent provider — typically
+    # a faster/cheaper model assigned for background tasks (enrichment, tagging,
+    # summarisation) independently of the user-facing chat model.
+
+    def agent(self, messages: list, **kwargs) -> str:
+        return self._active(AIProviderConfig.CAPABILITY_AGENT).chat(messages, **kwargs)
 
     # ── Utility ────────────────────────────────────────────────────────────────
 

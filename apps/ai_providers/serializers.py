@@ -26,6 +26,20 @@ PROVIDER_MODELS = {
     ('perplexity', 'chat'): ['sonar-pro', 'sonar', 'sonar-reasoning-pro', 'sonar-reasoning'],
     ('together',   'chat'): ['meta-llama/Llama-3.3-70B-Instruct-Turbo', 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', 'mistralai/Mistral-7B-Instruct-v0.3', 'Qwen/Qwen2.5-72B-Instruct-Turbo'],
     ('cohere',     'chat'): ['command-r-plus-08-2024', 'command-r-08-2024', 'command-r7b-12-2024'],
+
+    # ── General AI Agent (same providers as chat, tuned for speed/cost) ────────
+    ('openai',     'agent'): ['gpt-4o-mini', 'gpt-4o', 'o3-mini', 'gpt-3.5-turbo'],
+    ('anthropic',  'agent'): ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-8'],
+    ('google',     'agent'): ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash', 'gemini-1.5-pro'],
+    ('deepseek',   'agent'): ['deepseek-chat', 'deepseek-reasoner'],
+    ('qwen',       'agent'): ['qwen-turbo', 'qwen-plus', 'qwen-max', 'qwq-32b'],
+    ('kimi',       'agent'): ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+    ('groq',       'agent'): ['llama-3.3-70b-versatile', 'llama3-8b-8192', 'mixtral-8x7b-32768', 'gemma2-9b-it'],
+    ('mistral',    'agent'): ['mistral-small-latest', 'mistral-large-latest', 'open-mistral-nemo'],
+    ('grok',       'agent'): ['grok-3-mini', 'grok-3', 'grok-2-1212'],
+    ('perplexity', 'agent'): ['sonar', 'sonar-pro', 'sonar-reasoning'],
+    ('together',   'agent'): ['meta-llama/Llama-3.3-70B-Instruct-Turbo', 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', 'Qwen/Qwen2.5-72B-Instruct-Turbo'],
+    ('cohere',     'agent'): ['command-r7b-12-2024', 'command-r-08-2024', 'command-r-plus-08-2024'],
 }
 
 

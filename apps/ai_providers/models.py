@@ -35,11 +35,13 @@ class AIProviderConfig(models.Model):
     ]
 
     CAPABILITY_EMBEDDING = 'embedding'
-    CAPABILITY_CHAT = 'chat'
+    CAPABILITY_CHAT      = 'chat'
+    CAPABILITY_AGENT     = 'agent'
 
     CAPABILITY_CHOICES = [
         (CAPABILITY_EMBEDDING, 'Embeddings'),
-        (CAPABILITY_CHAT, 'Chat / Completion'),
+        (CAPABILITY_CHAT,      'Chat / Completion'),
+        (CAPABILITY_AGENT,     'General AI Agent'),
     ]
 
     display_name = models.CharField(max_length=100)
