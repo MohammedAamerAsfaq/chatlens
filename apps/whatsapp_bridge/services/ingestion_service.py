@@ -52,20 +52,31 @@ class IngestionService:
         else:
             wa_contact_id = f"{sender_number}@s.whatsapp.net" if sender_number else payload.get('chat_id', '')
 
-        defaults = {'phone_number': sender_number}
+        is_lid = wa_contact_id.endswith('@lid')
         push_name = payload.get('push_name', '')
         direction = payload.get('direction', 'inbound')
-        # push_name is the SENDER's display name in WhatsApp.
-        # For inbound messages that's the contact — safe to save.
-        # For outbound messages that's the account owner — do NOT save it as the contact's name.
+
+        # Fields to set on both create and update
+        defaults = {}
         if push_name and direction == 'inbound':
             defaults['push_name'] = push_name
             defaults['display_name'] = push_name
+
+        # For non-LID contacts, always keep phone_number current.
+        # For LID contacts, never overwrite phone_number on update — the contacts.set sync
+        # may have already resolved the real phone number via the Baileys lid→phone mapping,
+        # and the LID local part is NOT a real phone number.
+        if not is_lid:
+            defaults['phone_number'] = sender_number
+
+        # create_defaults: only applied when creating a new record, not on update.
+        create_defaults = {'phone_number': ''} if is_lid else {}
 
         contact, _ = WhatsAppContact.objects.update_or_create(
             account=account,
             wa_contact_id=wa_contact_id,
             defaults=defaults,
+            create_defaults=create_defaults,
         )
         return contact
 

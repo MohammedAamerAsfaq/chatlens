@@ -389,6 +389,44 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
                  qs.filter(wa_chat_id__icontains=search)
         return qs
 
+    @action(detail=True, methods=['get'])
+    def info(self, request, pk=None):
+        from django.db.models import Count, Min, Max
+        chat = self.get_object()
+        agg = chat.messages.aggregate(
+            total=Count('id'),
+            first_at=Min('message_time'),
+            last_at=Max('message_time'),
+        )
+        media_counts = {
+            mt: chat.messages.filter(message_type=mt).count()
+            for mt in ('image', 'video', 'audio', 'document', 'sticker')
+        }
+        media_counts['total'] = sum(media_counts.values())
+
+        contact_data = None
+        if chat.contact:
+            contact_data = {
+                'display_name': chat.contact.display_name,
+                'push_name': chat.contact.push_name,
+                'phone_number': chat.contact.phone_number,
+                'is_business': chat.contact.is_business,
+                'wa_contact_id': chat.contact.wa_contact_id,
+            }
+
+        return Response({
+            'id': chat.id,
+            'wa_chat_id': chat.wa_chat_id,
+            'chat_type': chat.chat_type,
+            'display_name': ChatSerializer(chat, context=self.get_serializer_context()).data['display_name'],
+            'name': chat.name,
+            'message_count': agg['total'] or 0,
+            'first_message_at': agg['first_at'],
+            'last_message_at': agg['last_at'],
+            'media_counts': media_counts,
+            'contact': contact_data,
+        })
+
     @action(detail=True, methods=['post'], url_path='mark-read')
     def mark_read(self, request, pk=None):
         chat = self.get_object()

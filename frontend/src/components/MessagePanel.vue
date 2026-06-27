@@ -96,6 +96,8 @@ function senderColor(name) {
 }
 
 // Lightbox
+const emit = defineEmits(['toggle-info'])
+
 const lightbox = ref(null) // { src, type: 'image'|'video' }
 
 function openLightbox(src, type = 'image') {
@@ -132,26 +134,31 @@ watch(lightbox, (val) => {
     </div>
 
     <template v-else>
-      <!-- Chat header -->
+      <!-- Chat header — click avatar/name area to open info panel -->
       <div class="bg-[#f0f2f5] border-b border-gray-200 px-4 py-2.5 flex items-center gap-3 shrink-0 shadow-sm">
-        <!-- Avatar -->
-        <div class="w-10 h-10 rounded-full bg-gray-400 flex items-center justify-center text-white font-semibold shrink-0">
-          <svg v-if="isGroup" class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
-          </svg>
-          <span v-else>{{ (store.selectedChat?.display_name || '?')[0].toUpperCase() }}</span>
-        </div>
+        <button
+          @click="emit('toggle-info')"
+          class="flex items-center gap-3 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity"
+        >
+          <!-- Avatar -->
+          <div class="w-10 h-10 rounded-full bg-gray-400 flex items-center justify-center text-white font-semibold shrink-0">
+            <svg v-if="isGroup" class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+            </svg>
+            <span v-else>{{ (store.selectedChat?.display_name || '?')[0].toUpperCase() }}</span>
+          </div>
 
-        <!-- Info -->
-        <div class="flex-1 min-w-0">
-          <p class="font-medium text-gray-900 text-sm truncate">{{ store.selectedChat?.display_name }}</p>
-          <p class="text-xs text-gray-500">
-            {{ isGroup ? 'Group' : 'Direct message' }} ·
-            {{ store.selectedChat?.message_count }} messages
-          </p>
-        </div>
+          <!-- Name + subtitle -->
+          <div class="flex-1 min-w-0">
+            <p class="font-medium text-gray-900 text-sm truncate">{{ store.selectedChat?.display_name }}</p>
+            <p class="text-xs text-gray-500">
+              {{ isGroup ? 'Group' : 'Direct message' }} ·
+              {{ store.selectedChat?.message_count }} messages
+            </p>
+          </div>
+        </button>
 
-        <!-- Message count badge -->
+        <!-- Loaded badge (not part of the clickable area) -->
         <div class="shrink-0 text-xs text-gray-400 bg-white rounded-full px-2 py-1 border border-gray-200">
           {{ store.messages.length }} loaded
         </div>

@@ -127,11 +127,15 @@ def internal_contacts_update(request):
                 continue
             qs = WhatsAppContact.objects.filter(account=account, wa_contact_id=wa_contact_id)
             update_data = {'push_name': push_name}
-            # Also set phone_number if derivable from a phone-based JID and currently missing
             phone_from_jid = contact_data.get('phone_number', '')
             updated += qs.update(**update_data)
             if phone_from_jid:
-                qs.filter(phone_number='').update(phone_number=phone_from_jid)
+                # For LID contacts: always update — phone was resolved via Baileys lid→phone mapping.
+                # For phone-JID contacts: only fill in when missing (phone is deterministic from JID).
+                if wa_contact_id.endswith('@lid'):
+                    qs.update(phone_number=phone_from_jid)
+                else:
+                    qs.filter(phone_number='').update(phone_number=phone_from_jid)
             # Backfill display_name only when it was never set from a live message
             qs.filter(display_name='').update(display_name=push_name)
         return JsonResponse({'status': 'ok', 'updated': updated})

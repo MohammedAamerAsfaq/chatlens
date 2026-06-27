@@ -48,6 +48,7 @@ export const chatsApi = {
   messages: (id, params = {}) => http.get(`/chats/${id}/messages/`, { params }),
   markRead: (id) => http.post(`/chats/${id}/mark-read/`),
   markAllRead: (accountId) => http.post('/chats/mark-all-read/', {}, { params: accountId ? { account: accountId } : {} }),
+  info: (id) => http.get(`/chats/${id}/info/`),
 }
 
 export const activityApi = {

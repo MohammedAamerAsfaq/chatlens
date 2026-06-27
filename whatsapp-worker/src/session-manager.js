@@ -284,27 +284,65 @@ class SessionManager {
     // contacts.set fires on initial connect with the full contacts list.
     // contacts.upsert fires when individual contacts are updated.
     const _sendNamedContacts = async (contacts) => {
-      const batch = (contacts || [])
-        .filter(c => c.notify || c.verifiedName || c.name)
-        .map(c => {
-          const normalizedId = jidNormalizedUser(c.id);
-          return {
-            wa_contact_id: normalizedId,
-            push_name: c.name || c.notify || c.verifiedName || '',
-            // Extract real phone number from JID when it's phone-based
-            phone_number: c.id.endsWith('@s.whatsapp.net') ? c.id.split('@')[0] : '',
-          };
-        })
-        .filter(c => c.wa_contact_id && c.push_name);
-      if (!batch.length) return;
+      // Build a LID→phone mapping from contacts that have both a phone JID and a lid field.
+      // e.g. { id: '923001234567@s.whatsapp.net', lid: '18806883308705@lid', notify: 'Mia' }
+      // tells us that '18806883308705@lid' maps to phone '923001234567'.
+      const lidToPhone = {};
+      const lidToPushName = {};
+      for (const c of contacts || []) {
+        if (c.id && c.id.endsWith('@s.whatsapp.net') && c.lid) {
+          try {
+            const lidJid = jidNormalizedUser(c.lid);
+            lidToPhone[lidJid] = c.id.split('@')[0];
+            const name = c.name || c.notify || c.verifiedName || '';
+            if (name) lidToPushName[lidJid] = name;
+          } catch { /* skip malformed LID */ }
+        }
+      }
+
+      const batch = [];
+      const seenLids = new Set();
+
+      for (const c of (contacts || [])) {
+        if (!c.notify && !c.verifiedName && !c.name) continue;
+        const wa_contact_id = jidNormalizedUser(c.id);
+        let phone_number = '';
+        if (c.id.endsWith('@s.whatsapp.net')) {
+          phone_number = c.id.split('@')[0];
+        } else if (c.id.endsWith('@lid')) {
+          seenLids.add(wa_contact_id);
+          phone_number = lidToPhone[wa_contact_id] || '';
+        }
+        batch.push({
+          wa_contact_id,
+          push_name: c.name || c.notify || c.verifiedName || '',
+          phone_number,
+        });
+      }
+
+      // Synthetic entries for LID contacts that only appeared as a phone contact's lid field.
+      // These are LID JIDs we found a phone for, but that didn't show up separately in the list.
+      for (const [lidJid, phone] of Object.entries(lidToPhone)) {
+        if (!seenLids.has(lidJid) && lidToPushName[lidJid]) {
+          batch.push({ wa_contact_id: lidJid, push_name: lidToPushName[lidJid], phone_number: phone });
+        }
+      }
+
+      const validBatch = batch.filter(c => c.wa_contact_id && c.push_name);
+      if (!validBatch.length) return;
       // Send in chunks of 100 to avoid oversized payloads
-      for (let i = 0; i < batch.length; i += 100) {
-        await this.djangoClient.sendContactsUpdate(sessionId, batch.slice(i, i + 100));
+      for (let i = 0; i < validBatch.length; i += 100) {
+        await this.djangoClient.sendContactsUpdate(sessionId, validBatch.slice(i, i + 100));
       }
     };
 
     sock.ev.on('contacts.set', async ({ contacts }) => {
-      this.logger.info({ sessionId, total: (contacts || []).length }, 'Contacts.set received');
+      const lidCount = (contacts || []).filter(c => c.id?.endsWith('@lid')).length;
+      const mappableCount = (contacts || []).filter(c => c.id?.endsWith('@s.whatsapp.net') && c.lid).length;
+      this.logger.info(
+        { sessionId, total: (contacts || []).length, lidContacts: lidCount, lidMappable: mappableCount },
+        'Contacts.set received',
+      );
       await _sendNamedContacts(contacts);
     });
 
