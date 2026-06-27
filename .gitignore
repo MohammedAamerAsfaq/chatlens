@@ -34,6 +34,7 @@ media/
 # ─── Node.js (whatsapp-worker) ────────────────────────────────────────────────
 whatsapp-worker/node_modules/
 whatsapp-worker/sessions/
+whatsapp-worker/message-logs/
 
 # ─── Claude Code ─────────────────────────────────────────────────────────────
 .claude/
