@@ -1,34 +1,37 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { activityApi } from '@/api'
+import { activityApi, accountsApi } from '@/api'
 
-const logs = ref([])
-const loading = ref(false)
-const clearing = ref(false)
+const logs        = ref([])
+const accounts    = ref([])
+const loading     = ref(false)
+const clearing    = ref(false)
 const showClearConfirm = ref(false)
-const expandedId = ref(null)
-const copiedId = ref(null)
+const expandedId  = ref(null)
+const copiedId    = ref(null)
 
 // Filters
-const filterStatus = ref('all')
-const filterEvent = ref('all')
+const filterAccount = ref('all')
+const filterStatus  = ref('all')
+const filterEvent   = ref('all')
 
 // Pagination
-const page = ref(1)
-const pageSize = ref(25)
-const totalCount = ref(0)
+const page            = ref(1)
+const pageSize        = ref(25)
+const totalCount      = ref(0)
 const pageSizeOptions = [10, 25, 50, 100]
 
 const totalPages = computed(() => Math.max(1, Math.ceil(totalCount.value / pageSize.value)))
-const pageStart = computed(() => totalCount.value === 0 ? 0 : (page.value - 1) * pageSize.value + 1)
-const pageEnd = computed(() => Math.min(page.value * pageSize.value, totalCount.value))
+const pageStart  = computed(() => totalCount.value === 0 ? 0 : (page.value - 1) * pageSize.value + 1)
+const pageEnd    = computed(() => Math.min(page.value * pageSize.value, totalCount.value))
 
 let pollTimer = null
 
 function buildParams() {
   const p = { page: page.value, page_size: pageSize.value }
-  if (filterStatus.value !== 'all') p.status = filterStatus.value
-  if (filterEvent.value !== 'all') p.event_type = filterEvent.value
+  if (filterAccount.value !== 'all') p.account = filterAccount.value
+  if (filterStatus.value  !== 'all') p.status     = filterStatus.value
+  if (filterEvent.value   !== 'all') p.event_type  = filterEvent.value
   return p
 }
 
@@ -36,21 +39,27 @@ async function fetchLogs(showSpinner = false) {
   if (showSpinner) loading.value = true
   try {
     const { data } = await activityApi.list(buildParams())
-    logs.value = data.results
+    logs.value       = data.results
     totalCount.value = data.count
   } catch {}
   finally { loading.value = false }
 }
 
-// Reset to page 1 when filters or page size change
-watch([filterStatus, filterEvent, pageSize], () => {
+async function fetchAccounts() {
+  try {
+    const { data } = await accountsApi.list()
+    accounts.value = data.results ?? data
+  } catch {}
+}
+
+watch([filterAccount, filterStatus, filterEvent, pageSize], () => {
   page.value = 1
   fetchLogs()
 })
-
 watch(page, () => fetchLogs())
 
 onMounted(() => {
+  fetchAccounts()
   fetchLogs(true)
   pollTimer = setInterval(() => fetchLogs(), 8000)
 })
@@ -59,7 +68,8 @@ onUnmounted(() => clearInterval(pollTimer))
 async function clearLogs() {
   clearing.value = true
   try {
-    await activityApi.clearAll()
+    const params = filterAccount.value !== 'all' ? { account: filterAccount.value } : {}
+    await activityApi.clearAll(params)
     page.value = 1
     await fetchLogs()
   } finally {
@@ -75,8 +85,8 @@ function formatTime(dt) {
 
 function relativeTime(dt) {
   const diff = Math.floor((Date.now() - new Date(dt)) / 1000)
-  if (diff < 60) return `${diff}s ago`
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 60)    return `${diff}s ago`
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
   return `${Math.floor(diff / 86400)}d ago`
 }
@@ -91,12 +101,25 @@ const eventStyle = {
   session_status: 'bg-purple-100 text-purple-700',
 }
 
+function senderDisplay(log) {
+  const m = log.metadata || {}
+  // sender_jid is stored as the raw phone number (digits only, no @suffix)
+  if (!m.sender_jid) return '—'
+  const local = String(m.sender_jid).split('@')[0]
+  return `+${local}`
+}
+
+function senderName(log) {
+  return (log.metadata || {}).push_name || '—'
+}
+
 function metaSummary(log) {
   const m = log.metadata || {}
   if (log.event_type === 'message_ingest') {
     const parts = []
     if (m.provider_message_id) parts.push(`msg: ${m.provider_message_id.slice(0, 12)}…`)
     if (m.chat_id) parts.push(`chat: ${String(m.chat_id).split('@')[0].slice(-8)}`)
+    if (m.direction) parts.push(m.direction)
     if (m.error) parts.push(`❌ ${m.error}`)
     return parts.join(' · ')
   }
@@ -120,7 +143,11 @@ async function copyPayload(log) {
 
 function metaRows(log) {
   const m = log.metadata || {}
-  const known = new Set(['provider_message_id','chat_id','sender_jid','push_name','message_type','message_text','direction','status','phone_number','error','raw_payload','group_name'])
+  const known = new Set([
+    'provider_message_id','chat_id','sender_jid','push_name',
+    'message_type','message_text','direction','status',
+    'phone_number','error','raw_payload','group_name',
+  ])
   const rows = []
   if (m.provider_message_id) rows.push({ key: 'Message ID', val: m.provider_message_id })
   if (m.chat_id)             rows.push({ key: 'Chat JID',   val: m.chat_id })
@@ -142,7 +169,7 @@ function metaRows(log) {
 
 <template>
   <div class="h-full w-full overflow-y-auto bg-gray-50">
-  <div class="max-w-6xl mx-auto px-6 py-6">
+  <div class="max-w-7xl mx-auto px-6 py-6">
 
     <!-- Header -->
     <div class="flex items-center justify-between mb-6">
@@ -157,17 +184,30 @@ function metaRows(log) {
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
         </svg>
-        Clear Logs
+        {{ filterAccount !== 'all' ? 'Clear Account Logs' : 'Clear All Logs' }}
       </button>
     </div>
 
     <!-- Filters + page size -->
-    <div class="flex items-center gap-3 mb-4">
+    <div class="flex items-center gap-3 mb-4 flex-wrap">
+
+      <!-- Account selector -->
+      <select
+        v-model="filterAccount"
+        class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[160px]"
+      >
+        <option value="all">All accounts</option>
+        <option v-for="acc in accounts" :key="acc.id" :value="acc.id">
+          {{ acc.display_name || acc.phone_number || `Account #${acc.id}` }}
+        </option>
+      </select>
+
       <select v-model="filterStatus" class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500">
         <option value="all">All statuses</option>
         <option value="success">Success</option>
         <option value="error">Error</option>
       </select>
+
       <select v-model="filterEvent" class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500">
         <option value="all">All events</option>
         <option value="message_ingest">Message Ingest</option>
@@ -206,10 +246,11 @@ function metaRows(log) {
       <table v-else class="w-full text-sm">
         <thead>
           <tr class="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
-            <th class="text-left px-4 py-3 w-36">Time</th>
-            <th class="text-left px-4 py-3 w-28">Account</th>
-            <th class="text-left px-4 py-3 w-32">Event</th>
+            <th class="text-left px-4 py-3 w-28">Time</th>
+            <th class="text-left px-4 py-3 w-28">Event</th>
             <th class="text-left px-4 py-3 w-24">Status</th>
+            <th class="text-left px-4 py-3 w-36">Sender ID</th>
+            <th class="text-left px-4 py-3 w-36">Sender Name</th>
             <th class="text-left px-4 py-3">Details</th>
           </tr>
         </thead>
@@ -227,12 +268,9 @@ function metaRows(log) {
               ]"
             >
               <td class="px-4 py-2.5">
-                <span class="text-gray-500" :title="formatTime(log.created_at)">
+                <span class="text-gray-500 text-xs" :title="formatTime(log.created_at)">
                   {{ relativeTime(log.created_at) }}
                 </span>
-              </td>
-              <td class="px-4 py-2.5">
-                <span class="text-gray-700 font-medium truncate block max-w-[112px]">{{ log.account_name }}</span>
               </td>
               <td class="px-4 py-2.5">
                 <span :class="['text-xs font-medium px-2 py-0.5 rounded-full', eventStyle[log.event_type] || 'bg-gray-100 text-gray-600']">
@@ -243,6 +281,12 @@ function metaRows(log) {
                 <span :class="['text-xs font-medium px-2 py-0.5 rounded-full', statusStyle[log.status] || 'bg-gray-100 text-gray-600']">
                   {{ log.status }}
                 </span>
+              </td>
+              <td class="px-4 py-2.5">
+                <span class="text-xs font-mono text-gray-700">{{ senderDisplay(log) }}</span>
+              </td>
+              <td class="px-4 py-2.5">
+                <span class="text-xs text-gray-700 truncate block max-w-[140px]">{{ senderName(log) }}</span>
               </td>
               <td class="px-4 py-2.5">
                 <div class="flex items-center justify-between gap-2">
@@ -259,7 +303,7 @@ function metaRows(log) {
 
             <!-- Expanded detail row -->
             <tr v-if="expandedId === log.id" :key="`${log.id}-detail`">
-              <td colspan="5" class="px-6 py-4 bg-gray-50 border-t border-gray-100">
+              <td colspan="6" class="px-6 py-4 bg-gray-50 border-t border-gray-100">
                 <div class="grid grid-cols-2 gap-x-8 gap-y-1.5 text-xs max-w-4xl">
                   <div class="col-span-2 flex items-center gap-4 pb-2 mb-1 border-b border-gray-200">
                     <span class="text-gray-500">{{ formatTime(log.created_at) }}</span>
@@ -340,7 +384,14 @@ function metaRows(log) {
       <div class="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 flex flex-col gap-4">
         <h2 class="text-lg font-semibold text-gray-900">Clear Activity Logs</h2>
         <p class="text-sm text-gray-600">
-          This will permanently delete all {{ totalCount.toLocaleString() }} log entries. This cannot be undone.
+          <template v-if="filterAccount !== 'all'">
+            This will permanently delete all {{ totalCount.toLocaleString() }} log entries for
+            <strong>{{ accounts.find(a => a.id == filterAccount)?.display_name || accounts.find(a => a.id == filterAccount)?.phone_number || 'this account' }}</strong>.
+          </template>
+          <template v-else>
+            This will permanently delete all {{ totalCount.toLocaleString() }} log entries across all accounts.
+          </template>
+          This cannot be undone.
         </p>
         <div class="flex gap-3">
           <button
@@ -354,7 +405,7 @@ function metaRows(log) {
             :disabled="clearing"
             class="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm py-2 rounded-lg transition-colors"
           >
-            {{ clearing ? 'Clearing…' : 'Clear All Logs' }}
+            {{ clearing ? 'Clearing…' : 'Clear Logs' }}
           </button>
         </div>
       </div>
