@@ -373,6 +373,14 @@ class SessionManager {
 
   async _forwardMessage(sessionId, msg) {
     try {
+      // Skip non-user-content message types that Baileys emits alongside real messages.
+      // These carry protocol/system data and can have unexpected remoteJid values that
+      // would create spurious chat records.
+      if (msg.key.remoteJid === 'status@broadcast') return;
+      if (msg.messageStubType) return;
+      if (msg.message?.protocolMessage) return;
+      if (msg.message?.senderKeyDistributionMessage) return;
+
       // Normalize JID to strip device suffix (e.g. 971501234567:5@s.whatsapp.net → 971501234567@s.whatsapp.net)
       // Without this, inbound and outbound for the same contact can land in two separate chat records.
       const rawJid = msg.key.remoteJid;

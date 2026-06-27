@@ -17,28 +17,29 @@ class IngestionService:
 
         contact = self._upsert_contact(account, payload)
         chat = self._upsert_chat(account, contact, payload)
-        message = self._insert_message(account, chat, contact, payload)
+        message, created = self._insert_message(account, chat, contact, payload)
 
-        if payload.get('direction') == 'inbound':
-            WhatsAppChat.objects.filter(pk=chat.pk).update(unread_count=F('unread_count') + 1)
+        if created:
+            if payload.get('direction') == 'inbound':
+                WhatsAppChat.objects.filter(pk=chat.pk).update(unread_count=F('unread_count') + 1)
 
-        _meta = {
-            'provider_message_id': payload.get('provider_message_id'),
-            'chat_id': payload.get('chat_id'),
-            'sender_jid': payload.get('sender_number') or None,
-            'push_name': payload.get('push_name') or None,
-            'message_type': payload.get('message_type'),
-            'message_text': (payload.get('message_text') or '')[:200] or None,
-            'direction': payload.get('direction'),
-            'group_name': payload.get('group_name') or None,
-            'raw_payload': payload.get('raw_payload') or None,
-        }
-        SyncLog.objects.create(
-            account=account,
-            event_type='message_ingest',
-            status='success',
-            metadata={k: v for k, v in _meta.items() if v is not None},
-        )
+            _meta = {
+                'provider_message_id': payload.get('provider_message_id'),
+                'chat_id': payload.get('chat_id'),
+                'sender_jid': payload.get('sender_number') or None,
+                'push_name': payload.get('push_name') or None,
+                'message_type': payload.get('message_type'),
+                'message_text': (payload.get('message_text') or '')[:200] or None,
+                'direction': payload.get('direction'),
+                'group_name': payload.get('group_name') or None,
+                'raw_payload': payload.get('raw_payload') or None,
+            }
+            SyncLog.objects.create(
+                account=account,
+                event_type='message_ingest',
+                status='success',
+                metadata={k: v for k, v in _meta.items() if v is not None},
+            )
 
         return message
 
@@ -173,4 +174,4 @@ class IngestionService:
             update_fields.append('media_url')
         if update_fields:
             message.save(update_fields=update_fields)
-        return message
+        return message, created
