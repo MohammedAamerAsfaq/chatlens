@@ -366,7 +366,7 @@ function capabilityBadge(cap) {
                   <button
                     type="button"
                     @click="doFetchModels"
-                    :disabled="fetchingModels || !form.value.provider || !form.value.capability || (!form.value.api_key && !form.value._editId)"
+                    :disabled="fetchingModels || !form.provider || !form.capability || (!form.api_key && !form._editId)"
                     class="text-xs px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 text-gray-500 disabled:opacity-40 transition-colors"
                   >
                     {{ fetchingModels ? 'Fetching…' : '↻ Fetch Models' }}
