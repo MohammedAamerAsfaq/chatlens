@@ -1,5 +1,5 @@
 import requests
-from .base import EmbeddingProvider, ChatProvider
+from .base import EmbeddingProvider, ChatProvider, friendly_error
 
 EMBEDDING_BASE_URL = 'https://api.openai.com/v1'
 CHAT_BASE_URL = 'https://api.openai.com/v1'
@@ -37,7 +37,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             vec = self.embed('connection test')
             return {'ok': True, 'dimensions': len(vec), 'model': self.model}
         except Exception as e:
-            return {'ok': False, 'error': str(e)}
+            return {'ok': False, 'error': friendly_error(e)}
 
     def list_models(self) -> list:
         try:
@@ -68,7 +68,7 @@ class OpenAIChatProvider(ChatProvider):
             result = self.chat([{'role': 'user', 'content': 'Reply with the single word: ok'}], max_tokens=5)
             return {'ok': True, 'response': result, 'model': self.model}
         except Exception as e:
-            return {'ok': False, 'error': str(e)}
+            return {'ok': False, 'error': friendly_error(e)}
 
     def list_models(self) -> list:
         try:

@@ -1,5 +1,5 @@
 import requests
-from .base import ChatProvider
+from .base import ChatProvider, friendly_error
 
 DEFAULT_BASE_URL = 'https://api.anthropic.com/v1'
 ANTHROPIC_VERSION = '2023-06-01'
@@ -51,7 +51,7 @@ class AnthropicChatProvider(ChatProvider):
             )
             return {'ok': True, 'response': result, 'model': self.model}
         except Exception as e:
-            return {'ok': False, 'error': str(e)}
+            return {'ok': False, 'error': friendly_error(e)}
 
     def list_models(self) -> list:
         try:

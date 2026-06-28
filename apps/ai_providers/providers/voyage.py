@@ -1,5 +1,5 @@
 import requests
-from .base import EmbeddingProvider
+from .base import EmbeddingProvider, friendly_error
 
 DEFAULT_BASE_URL = 'https://api.voyageai.com/v1'
 
@@ -31,4 +31,4 @@ class VoyageEmbeddingProvider(EmbeddingProvider):
             vec = self.embed('connection test')
             return {'ok': True, 'dimensions': len(vec), 'model': self.model}
         except Exception as e:
-            return {'ok': False, 'error': str(e)}
+            return {'ok': False, 'error': friendly_error(e)}
