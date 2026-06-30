@@ -115,6 +115,9 @@ class SessionManager {
       lastActivityAt: Date.now(),
       idleTimer: null,
       preventReconnect: false,
+      // LID → phone JID mapping built from contacts.set/upsert.
+      // Used to normalise outbound LID chat_ids (which have no senderPn).
+      lidToPhone: {},
     });
     await this._connect(sessionId);
     return this._snapshot(sessionId);
@@ -263,9 +266,30 @@ class SessionManager {
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-      if (type !== 'notify' && type !== 'append') return;
       session.lastActivityAt = Date.now();
+
+      // 'prepend' arrives when WhatsApp delivers missed messages after a reconnect.
+      // Route those through the history batch path (no media download, deduped by Django).
+      if (type === 'prepend') {
+        const valid = messages.filter(m => m.key?.remoteJid && m.message);
+        if (valid.length) {
+          this.logger.info({ sessionId, count: valid.length }, 'messages.upsert prepend — routing as history');
+          await this._forwardHistoryBatch(sessionId, valid);
+        }
+        return;
+      }
+
+      if (type !== 'notify' && type !== 'append') {
+        this.logger.debug({ sessionId, type, count: messages.length }, 'messages.upsert — unhandled type, skipping');
+        return;
+      }
+
       for (const msg of messages) {
+        // Log every incoming event so drops are traceable (before any filter)
+        this.logger.debug(
+          { sessionId, type, msgId: msg.key?.id, jid: msg.key?.remoteJid, hasMsg: !!msg.message },
+          'messages.upsert received',
+        );
         if (!msg.key?.remoteJid) continue;
         if (!msg.message) continue;
         await this._forwardMessage(sessionId, msg);
@@ -294,13 +318,18 @@ class SessionManager {
       // Build a LID→phone mapping from contacts that have both a phone JID and a lid field.
       // e.g. { id: '923001234567@s.whatsapp.net', lid: '18806883308705@lid', notify: 'Mia' }
       // tells us that '18806883308705@lid' maps to phone '923001234567'.
+      // lidToPhone (local): lid → digits only, used for Django's phone_number field.
+      // session.lidToPhone:  lid → full phone JID, used by _buildPayload for chat_id resolution.
+      // Both are populated here; they intentionally store different formats.
       const lidToPhone = {};
       const lidToPushName = {};
       for (const c of contacts || []) {
         if (c.id && c.id.endsWith('@s.whatsapp.net') && c.lid) {
           try {
             const lidJid = jidNormalizedUser(c.lid);
-            lidToPhone[lidJid] = c.id.split('@')[0];
+            lidToPhone[lidJid] = c.id.split('@')[0];            // digits only for Django
+            const sess = this.sessions.get(sessionId);
+            if (sess) sess.lidToPhone[lidJid] = jidNormalizedUser(c.id); // full JID for _buildPayload
             const name = c.name || c.notify || c.verifiedName || '';
             if (name) lidToPushName[lidJid] = name;
           } catch { /* skip malformed LID */ }
@@ -374,32 +403,70 @@ class SessionManager {
   // Returns null if the message should be filtered (protocol/system messages).
   // Pass isHistory:true to skip media download and mark the payload for the batch endpoint.
   async _buildPayload(sessionId, msg, { isHistory = false } = {}) {
-    if (msg.key.remoteJid === 'status@broadcast') return null;
-    if (msg.messageStubType) return null;
-    if (msg.message?.protocolMessage) return null;
-    if (msg.message?.senderKeyDistributionMessage) return null;
+    const _skip = (reason) => {
+      this.logger.info({ sessionId, msgId: msg.key?.id, jid: msg.key?.remoteJid, reason }, '_buildPayload filtered');
+      return null;
+    };
+    if (msg.key.remoteJid === 'status@broadcast') return _skip('status@broadcast');
+    if (msg.messageStubType) return _skip(`messageStubType:${msg.messageStubType}`);
+    if (msg.message?.protocolMessage) return _skip('protocolMessage');
+    if (msg.message?.senderKeyDistributionMessage) return _skip('senderKeyDistributionMessage');
 
     const rawJid = msg.key.remoteJid;
+    const fromMe = msg.key.fromMe;
 
-    // When WhatsApp privacy mode is active, remoteJid arrives as a LID (e.g. 249868530499648@lid).
-    // Baileys provides the real phone JID in msg.key.senderPn for 1-on-1 chats.
     const isLidJid = rawJid?.endsWith('@lid');
     const senderPn = msg.key.senderPn;
-    const resolvedJid = (isLidJid && senderPn) ? senderPn : rawJid;
+    const session = this.sessions.get(sessionId);
 
-    const chatId = jidNormalizedUser(resolvedJid);
+    // Resolve LID → canonical phone JID so that both outbound and inbound messages
+    // for the same contact share one chat_id, regardless of which direction provides senderPn.
+    //
+    // Priority for individual LID chats:
+    //   1. senderPn on inbound — Baileys' most reliable real-time resolution; also cache it.
+    //   2. session.lidToPhone  — built from contacts.set/upsert (available before history fires).
+    //   3. rawJid (LID)        — fallback for unknown contacts not yet in contacts list.
+    //
+    // Non-LID and group JIDs are passed through unchanged.
+    let resolvedChatJid = rawJid;
+    if (isLidJid) {
+      const rawLidJid = jidNormalizedUser(rawJid);
+      if (!fromMe && senderPn) {
+        // Inbound: senderPn is the definitive phone JID — update cache for future outbound.
+        const phoneJid = jidNormalizedUser(senderPn);
+        session.lidToPhone[rawLidJid] = phoneJid;
+        resolvedChatJid = phoneJid;
+      } else if (session.lidToPhone[rawLidJid]) {
+        // Outbound (or inbound without senderPn): use cached mapping from contacts.set.
+        resolvedChatJid = session.lidToPhone[rawLidJid];
+      }
+      // else: unknown contact — keep LID as fallback (no mapping available yet)
+    }
+
+    const chatId = jidNormalizedUser(resolvedChatJid);
     const isGroup = chatId?.endsWith('@g.us');
-    const rawSenderJid = msg.key.participant || resolvedJid;
+
+    // senderJid: who actually authored this message.
+    //   Group:          msg.key.participant (member's JID within the group)
+    //   Inbound LID:    senderPn (real phone number provided by Baileys)
+    //   Inbound normal: remoteJid (the other party IS the sender)
+    //   Outbound:       resolved chatId (placeholder — own JID not available here)
+    let rawSenderJid;
+    if (isGroup) {
+      rawSenderJid = msg.key.participant || rawJid;
+    } else if (!fromMe && isLidJid && senderPn) {
+      rawSenderJid = senderPn;
+    } else {
+      rawSenderJid = resolvedChatJid;
+    }
     const senderJid = jidNormalizedUser(rawSenderJid);
     const senderNumber = senderJid?.split('@')[0] || '';
-    const fromMe = msg.key.fromMe;
     const messageTimestamp = msg.messageTimestamp
       ? new Date(Number(msg.messageTimestamp) * 1000).toISOString()
       : new Date().toISOString();
 
     const { messageType, messageText, hasMedia, mediaMimeType } = this._parseMessage(msg);
 
-    const session = this.sessions.get(sessionId);
     const groupName = isGroup ? await this._getGroupName(session.sock, chatId) : '';
 
     let safeRaw = null;

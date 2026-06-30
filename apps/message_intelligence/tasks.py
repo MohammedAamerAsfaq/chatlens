@@ -25,13 +25,12 @@ def process_message_analysis(self, message_id: int):
 def generate_message_embedding(self, message_id: int):
     """Generate and store pgvector embedding for a message."""
     try:
-        from apps.whatsapp_bridge.models import WhatsAppMessage
-        message = WhatsAppMessage.objects.get(pk=message_id)
-        if not message.message_text:
-            return
-        logger.info(f'generate_message_embedding queued | message_id={message_id}')
+        from .services.embedding_service import embed_message
+        stored = embed_message(message_id)
+        if stored:
+            logger.info('generate_message_embedding | done | message_id=%s', message_id)
     except Exception as exc:
-        logger.exception(f'generate_message_embedding failed | message_id={message_id}')
+        logger.exception('generate_message_embedding | failed | message_id=%s', message_id)
         raise self.retry(exc=exc, countdown=60)
 
 

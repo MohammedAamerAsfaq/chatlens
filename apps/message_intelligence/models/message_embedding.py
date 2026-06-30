@@ -8,7 +8,7 @@ class MessageEmbedding(models.Model):
         on_delete=models.CASCADE,
         related_name='embedding',
     )
-    embedding = VectorField(dimensions=1536, null=True, blank=True)
+    embedding = VectorField(dimensions=512, null=True, blank=True)
     embedding_model = models.CharField(max_length=255)
     metadata = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

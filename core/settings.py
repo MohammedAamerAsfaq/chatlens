@@ -156,6 +156,10 @@ WORKER_MEDIA_PATH = os.getenv('WORKER_MEDIA_PATH', str(BASE_DIR / 'whatsapp-work
 # --- Internal API Token (Node.js worker authentication) ---
 INTERNAL_API_TOKEN = os.getenv('INTERNAL_API_TOKEN', 'change-me-internal-token')
 
+# --- Embeddings ---
+EMBEDDING_DIMENSIONS = 512  # voyage-3-lite fixed output size
+EMBEDDING_BATCH_SIZE = int(os.getenv('EMBEDDING_BATCH_SIZE', '128'))  # max texts per Voyage request
+
 # --- Read-first controls (Phase 1: no sending) ---
 SEND_MESSAGE_ENABLED = False
 AUTO_REPLY_ENABLED = False

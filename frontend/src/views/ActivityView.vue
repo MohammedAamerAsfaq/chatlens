@@ -114,6 +114,7 @@ const statusStyle = {
 const eventStyle = {
   message_ingest: 'bg-blue-100 text-blue-700',
   session_status: 'bg-purple-100 text-purple-700',
+  history_sync:   'bg-orange-100 text-orange-700',
 }
 
 function senderDisplay(log) {
@@ -135,7 +136,13 @@ function metaSummary(log) {
     if (m.provider_message_id) parts.push(`msg: ${m.provider_message_id.slice(0, 12)}…`)
     if (m.chat_id) parts.push(`chat: ${String(m.chat_id).split('@')[0].slice(-8)}`)
     if (m.direction) parts.push(m.direction)
+    if (m.embedded !== undefined) parts.push(m.embedded ? '⬡ embedded' : '○ not embedded')
     if (m.error) parts.push(`❌ ${m.error}`)
+    return parts.join(' · ')
+  }
+  if (log.event_type === 'history_sync') {
+    const parts = [`${m.created ?? 0} new / ${m.skipped ?? 0} skipped`]
+    if (m.embedded !== undefined) parts.push(`${m.embedded} embedded${m.embed_errors ? `, ${m.embed_errors} err` : ''}`)
     return parts.join(' · ')
   }
   if (log.event_type === 'session_status') return m.status || log.status
@@ -162,6 +169,7 @@ function metaRows(log) {
     'provider_message_id','chat_id','sender_jid','push_name',
     'message_type','message_text','direction','status',
     'phone_number','error','raw_payload','group_name',
+    'embedded','embed_errors','total','created','skipped','errors',
   ])
   const rows = []
   if (m.provider_message_id) rows.push({ key: 'Message ID', val: m.provider_message_id })
@@ -174,6 +182,12 @@ function metaRows(log) {
   if (m.status)              rows.push({ key: 'Status',     val: m.status })
   if (m.phone_number)        rows.push({ key: 'Phone',      val: m.phone_number })
   if (m.group_name)          rows.push({ key: 'Group',      val: m.group_name })
+  if (m.total      !== undefined) rows.push({ key: 'Total msgs',    val: String(m.total) })
+  if (m.created    !== undefined) rows.push({ key: 'Created',       val: String(m.created) })
+  if (m.skipped    !== undefined) rows.push({ key: 'Skipped',       val: String(m.skipped) })
+  if (m.errors     !== undefined) rows.push({ key: 'Ingest errors', val: String(m.errors), isError: m.errors > 0 })
+  if (m.embedded   !== undefined) rows.push({ key: 'Embedded',      val: m.embedded === true ? 'yes' : m.embedded === false ? 'no' : String(m.embedded) })
+  if (m.embed_errors !== undefined) rows.push({ key: 'Embed errors', val: String(m.embed_errors), isError: m.embed_errors > 0 })
   if (m.error)               rows.push({ key: 'Error',      val: m.error, isError: true })
   for (const k of Object.keys(m)) {
     if (!known.has(k)) rows.push({ key: k, val: typeof m[k] === 'object' ? JSON.stringify(m[k], null, 2) : String(m[k]) })
@@ -226,6 +240,7 @@ function metaRows(log) {
       <select v-model="filterEvent" class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500">
         <option value="all">All events</option>
         <option value="message_ingest">Message Ingest</option>
+        <option value="history_sync">History Sync</option>
         <option value="session_status">Session Status</option>
       </select>
 
@@ -289,7 +304,7 @@ function metaRows(log) {
               </td>
               <td class="px-4 py-2.5">
                 <span :class="['text-xs font-medium px-2 py-0.5 rounded-full', eventStyle[log.event_type] || 'bg-gray-100 text-gray-600']">
-                  {{ log.event_type === 'message_ingest' ? 'Ingest' : log.event_type === 'session_status' ? 'Session' : log.event_type }}
+                  {{ log.event_type === 'message_ingest' ? 'Ingest' : log.event_type === 'history_sync' ? 'History' : log.event_type === 'session_status' ? 'Session' : log.event_type }}
                 </span>
               </td>
               <td class="px-4 py-2.5">

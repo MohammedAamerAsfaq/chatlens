@@ -1,4 +1,6 @@
 import logging
+import threading
+from django.db import connection as _db_conn
 from django.db.models import F, Q
 from django.utils.dateparse import parse_datetime
 from ..models import (
@@ -7,6 +9,46 @@ from ..models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _embed_in_background(message_ids: list, sync_log_id: int = None):
+    """Fire-and-forget embedding in a daemon thread — never blocks the HTTP response.
+
+    After embedding completes, patches the SyncLog entry (if sync_log_id provided)
+    with { embedded: N, embed_errors: N } so the activity log reflects the result.
+    """
+    if not message_ids:
+        return
+
+    def _run():
+        embedded = errors = 0
+        try:
+            if len(message_ids) == 1:
+                from apps.message_intelligence.services.embedding_service import embed_message
+                ok = embed_message(message_ids[0])
+                embedded, errors = (1, 0) if ok else (0, 1)
+            else:
+                from apps.message_intelligence.services.embedding_service import embed_messages_batch
+                result = embed_messages_batch(message_ids)
+                embedded = result['embedded']
+                errors = result['errors']
+        except Exception:
+            logger.warning('Background embedding failed for %d message(s)', len(message_ids), exc_info=True)
+            errors = len(message_ids)
+        finally:
+            if sync_log_id:
+                try:
+                    log = SyncLog.objects.get(pk=sync_log_id)
+                    meta = log.metadata or {}
+                    meta['embedded'] = embedded
+                    meta['embed_errors'] = errors
+                    log.metadata = meta
+                    log.save(update_fields=['metadata'])
+                except Exception:
+                    logger.debug('Could not update SyncLog %s with embedding result', sync_log_id)
+            _db_conn.close()
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 class IngestionService:
@@ -34,12 +76,15 @@ class IngestionService:
                 'group_name': payload.get('group_name') or None,
                 'raw_payload': payload.get('raw_payload') or None,
             }
-            SyncLog.objects.create(
+            sync_log = SyncLog.objects.create(
                 account=account,
                 event_type='message_ingest',
                 status='success',
                 metadata={k: v for k, v in _meta.items() if v is not None},
             )
+
+            if message.message_text:
+                _embed_in_background([message.pk], sync_log_id=sync_log.pk)
 
         return message
 
@@ -59,13 +104,16 @@ class IngestionService:
         skipped_count = 0
         error_count = 0
 
+        new_message_ids = []
         for payload in payloads:
             try:
                 contact = self._upsert_contact(account, payload)
                 chat = self._upsert_chat(account, contact, payload)
-                _, created = self._insert_message(account, chat, contact, payload)
+                message, created = self._insert_message(account, chat, contact, payload)
                 if created:
                     created_count += 1
+                    if message.message_text:
+                        new_message_ids.append(message.pk)
                 else:
                     skipped_count += 1
             except Exception as e:
@@ -75,7 +123,7 @@ class IngestionService:
                     payload.get('provider_message_id'), e,
                 )
 
-        SyncLog.objects.create(
+        sync_log = SyncLog.objects.create(
             account=account,
             event_type='history_sync',
             status='success' if not error_count else 'warning',
@@ -86,6 +134,9 @@ class IngestionService:
                 'errors': error_count,
             },
         )
+
+        if new_message_ids:
+            _embed_in_background(new_message_ids, sync_log_id=sync_log.pk)
 
         return {
             'total': len(payloads),
@@ -116,9 +167,10 @@ class IngestionService:
             defaults['display_name'] = push_name
 
         # For non-LID contacts, always keep phone_number current.
-        # For LID contacts, never overwrite phone_number on update — the contacts.set sync
-        # may have already resolved the real phone number via the Baileys lid→phone mapping,
-        # and the LID local part is NOT a real phone number.
+        # For LID contacts: the worker resolves LID→phone before sending, so chat_id is
+        # normally a phone JID and is_lid will be False. A LID chat_id only reaches here
+        # for contacts not yet in contacts.set (unknown at connect time). Don't store the
+        # LID local-part as a phone_number in that case.
         if not is_lid:
             defaults['phone_number'] = sender_number
 
