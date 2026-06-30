@@ -31,6 +31,47 @@ class ContactSerializer(serializers.ModelSerializer):
         fields = ['id', 'phone_number', 'display_name', 'push_name', 'wa_contact_id', 'is_business']
 
 
+class ContactDetailSerializer(serializers.ModelSerializer):
+    account_id    = serializers.IntegerField(source='account.pk', read_only=True)
+    message_count = serializers.IntegerField(read_only=True, default=0)
+    chat_id       = serializers.SerializerMethodField()
+    chat_db_id    = serializers.SerializerMethodField()
+    contact_type  = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WhatsAppContact
+        fields = [
+            'id', 'account_id', 'wa_contact_id', 'phone_number',
+            'display_name', 'push_name', 'is_business',
+            'contact_type', 'message_count', 'chat_id', 'chat_db_id',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = [
+            'id', 'account_id', 'wa_contact_id', 'phone_number',
+            'push_name', 'is_business', 'contact_type',
+            'message_count', 'chat_id', 'chat_db_id',
+            'created_at', 'updated_at',
+        ]
+
+    def get_contact_type(self, obj):
+        jid = obj.wa_contact_id
+        if jid.endswith('@s.whatsapp.net'):
+            return 'phone'
+        if jid.endswith('@lid'):
+            return 'lid'
+        if jid.endswith('@g.us'):
+            return 'group'
+        return 'unknown'
+
+    def get_chat_id(self, obj):
+        chat = next(iter(obj.chats.all()), None)
+        return chat.wa_chat_id if chat else None
+
+    def get_chat_db_id(self, obj):
+        chat = next(iter(obj.chats.all()), None)
+        return chat.pk if chat else None
+
+
 class ChatSerializer(serializers.ModelSerializer):
     contact = ContactSerializer(read_only=True)
     display_name = serializers.SerializerMethodField()

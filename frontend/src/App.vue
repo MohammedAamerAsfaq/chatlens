@@ -53,6 +53,13 @@ const store = useConversationsStore()
         AI Providers
       </RouterLink>
       <RouterLink
+        to="/contacts"
+        class="text-sm text-gray-300 hover:text-white transition-colors"
+        active-class="text-white font-medium"
+      >
+        Contacts
+      </RouterLink>
+      <RouterLink
         to="/dropped-messages"
         class="text-sm text-gray-300 hover:text-white transition-colors"
         active-class="text-white font-medium"

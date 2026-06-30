@@ -11,6 +11,7 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
 from django.core.serializers.json import DjangoJSONEncoder
+from django.db.models import Count, Q
 from django.utils.dateparse import parse_datetime
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -19,7 +20,8 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact, SyncLog, DroppedMessage
 from .serializers import (
-    WhatsAppAccountSerializer, ChatSerializer, MessageSerializer, SyncLogSerializer, DroppedMessageSerializer,
+    WhatsAppAccountSerializer, ChatSerializer, MessageSerializer,
+    SyncLogSerializer, DroppedMessageSerializer, ContactDetailSerializer,
 )
 
 WORKER_BASE_URL = getattr(settings, 'WORKER_BASE_URL', 'http://localhost:3001')
@@ -665,3 +667,64 @@ class DroppedMessageViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(account_id=account_id)
         deleted, _ = qs.delete()
         return Response({'deleted': deleted})
+
+
+class ContactViewSet(viewsets.ModelViewSet):
+    serializer_class = ContactDetailSerializer
+    permission_classes = [AllowAny]
+    pagination_class = ActivityPagination
+    http_method_names = ['get', 'patch', 'head', 'options']
+
+    def get_queryset(self):
+        qs = (
+            WhatsAppContact.objects
+            .select_related('account')
+            .prefetch_related('chats')
+            .annotate(message_count=Count('messages', distinct=True))
+            .order_by('display_name', 'push_name', 'phone_number')
+        )
+
+        account_id = self.request.query_params.get('account')
+        if account_id:
+            qs = qs.filter(account_id=account_id)
+
+        search = (self.request.query_params.get('search') or '').strip()
+        if search:
+            qs = qs.filter(
+                Q(display_name__icontains=search) |
+                Q(push_name__icontains=search) |
+                Q(phone_number__icontains=search) |
+                Q(wa_contact_id__icontains=search)
+            )
+
+        contact_type = self.request.query_params.get('type')
+        if contact_type == 'phone':
+            qs = qs.filter(wa_contact_id__endswith='@s.whatsapp.net')
+        elif contact_type == 'lid':
+            qs = qs.filter(wa_contact_id__endswith='@lid')
+        elif contact_type == 'group':
+            qs = qs.filter(wa_contact_id__endswith='@g.us')
+
+        return qs
+
+    def partial_update(self, request, *args, **kwargs):
+        contact = self.get_object()
+        # Only display_name is user-editable; ignore any other fields in request
+        data = {'display_name': request.data.get('display_name', contact.display_name)}
+        serializer = self.get_serializer(contact, data=data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], url_path='stats')
+    def stats(self, request):
+        account_id = request.query_params.get('account')
+        qs = WhatsAppContact.objects.all()
+        if account_id:
+            qs = qs.filter(account_id=account_id)
+        return Response({
+            'total': qs.count(),
+            'phone': qs.filter(wa_contact_id__endswith='@s.whatsapp.net').count(),
+            'lid':   qs.filter(wa_contact_id__endswith='@lid').count(),
+            'group': qs.filter(wa_contact_id__endswith='@g.us').count(),
+        })

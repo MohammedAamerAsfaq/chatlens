@@ -6,6 +6,7 @@ import StorageView          from '../views/StorageView.vue'
 import MessageLogsView      from '../views/MessageLogsView.vue'
 import AIProvidersView      from '../views/AIProvidersView.vue'
 import DroppedMessagesView  from '../views/DroppedMessagesView.vue'
+import ContactsView         from '../views/ContactsView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -17,6 +18,7 @@ const router = createRouter({
     { path: '/message-logs', name: 'message-logs', component: MessageLogsView },
     { path: '/ai-providers', name: 'ai-providers', component: AIProvidersView },
     { path: '/dropped-messages', name: 'dropped-messages', component: DroppedMessagesView },
+    { path: '/contacts', name: 'contacts', component: ContactsView },
   ],
 })
 
