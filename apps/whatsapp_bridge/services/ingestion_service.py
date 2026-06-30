@@ -11,6 +11,19 @@ from ..models import (
 logger = logging.getLogger(__name__)
 
 
+def _should_classify(message) -> bool:
+    """Return True only for live inbound text messages worth classifying."""
+    from django.utils.timezone import now
+    if not message.message_text:
+        return False
+    if message.direction != 'inbound':
+        return False
+    age_seconds = (now() - message.message_time).total_seconds()
+    if age_seconds > 86400:  # older than 24 h — history-sync message
+        return False
+    return True
+
+
 def _embed_in_background(message_ids: list, sync_log_id: int = None):
     """Fire-and-forget embedding in a daemon thread — never blocks the HTTP response.
 
@@ -51,6 +64,51 @@ def _embed_in_background(message_ids: list, sync_log_id: int = None):
     threading.Thread(target=_run, daemon=True).start()
 
 
+def _process_message_in_background(message_id: int, sync_log_id: int = None):
+    """Embed then classify a single live message in one background thread.
+
+    Keeps embed + classify in the same thread so classification runs immediately
+    after the embedding is stored (needed for Layer-2 similarity dedup).
+    """
+    def _run():
+        embedded = errors = 0
+        try:
+            from apps.message_intelligence.services.embedding_service import embed_message
+            from apps.whatsapp_bridge.models import WhatsAppMessage
+
+            ok = embed_message(message_id)
+            embedded, errors = (1, 0) if ok else (0, 1)
+
+            message = (
+                WhatsAppMessage.objects
+                .select_related('account', 'chat', 'contact')
+                .get(pk=message_id)
+            )
+            if _should_classify(message):
+                from apps.trading.services.classification_service import classify_message
+                classify_message(message)
+
+        except Exception:
+            logger.warning(
+                'Background processing failed for message_id=%s', message_id, exc_info=True,
+            )
+            errors = 1
+        finally:
+            if sync_log_id:
+                try:
+                    log = SyncLog.objects.get(pk=sync_log_id)
+                    meta = log.metadata or {}
+                    meta['embedded'] = embedded
+                    meta['embed_errors'] = errors
+                    log.metadata = meta
+                    log.save(update_fields=['metadata'])
+                except Exception:
+                    logger.debug('Could not update SyncLog %s with processing result', sync_log_id)
+            _db_conn.close()
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
 class IngestionService:
 
     def ingest_message(self, payload: dict) -> WhatsAppMessage:
@@ -84,7 +142,9 @@ class IngestionService:
             )
 
             if message.message_text:
-                _embed_in_background([message.pk], sync_log_id=sync_log.pk)
+                # Live messages: embed + classify in the same background thread.
+                # History batch messages use _embed_in_background (no classification).
+                _process_message_in_background(message.pk, sync_log_id=sync_log.pk)
 
         return message
 

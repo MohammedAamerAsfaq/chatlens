@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     'apps.message_intelligence',
     'apps.api',
     'apps.ai_providers',
+    'apps.trading',
 ]
 
 MIDDLEWARE = [

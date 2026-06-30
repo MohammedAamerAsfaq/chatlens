@@ -6,5 +6,6 @@ urlpatterns = [
     path('api/', include('apps.api.urls')),
     path('api/', include('apps.ai_providers.urls')),
     path('api/', include('apps.message_intelligence.urls')),
+    path('api/', include('apps.trading.urls')),
     path('', include('apps.whatsapp_bridge.urls')),
 ]

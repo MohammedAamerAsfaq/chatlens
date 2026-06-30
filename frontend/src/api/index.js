@@ -87,6 +87,22 @@ export const groupsApi = {
   syncGroups: (accountId) => http.post('/groups/sync/', { account: accountId }),
 }
 
+export const tradingApi = {
+  // Products
+  listProducts:   (params)      => http.get('/products/', { params }),
+  createProduct:  (data)        => http.post('/products/', data),
+  updateProduct:  (id, data)    => http.patch(`/products/${id}/`, data),
+  deleteProduct:  (id)          => http.delete(`/products/${id}/`),
+  getProductStats:(params)      => http.get('/products/stats/', { params }),
+
+  // Inquiries
+  listInquiries:  (params)      => http.get('/inquiries/', { params }),
+  getInquiry:     (id)          => http.get(`/inquiries/${id}/`),
+  updateInquiry:  (id, data)    => http.patch(`/inquiries/${id}/`, data),
+  getStats:       (params)      => http.get('/inquiries/stats/', { params }),
+  getOpenFeed:    (params)      => http.get('/inquiries/open-feed/', { params }),
+}
+
 export const aiProvidersApi = {
   list:        ()              => http.get('/ai-providers/'),
   get:         (id)            => http.get(`/ai-providers/${id}/`),

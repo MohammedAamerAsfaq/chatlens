@@ -192,7 +192,8 @@ class GroupDetailSerializer(GroupSerializer):
 
 
 class MessageSerializer(serializers.ModelSerializer):
-    sender_name = serializers.SerializerMethodField()
+    sender_name    = serializers.SerializerMethodField()
+    classification = serializers.SerializerMethodField()
 
     class Meta:
         model = WhatsAppMessage
@@ -200,6 +201,7 @@ class MessageSerializer(serializers.ModelSerializer):
             'id', 'sender_number', 'sender_name', 'direction', 'message_type',
             'message_text', 'message_time', 'has_media',
             'media_mime_type', 'media_file_name', 'media_url',
+            'classification',
         ]
 
     def get_sender_name(self, obj):
@@ -211,3 +213,10 @@ class MessageSerializer(serializers.ModelSerializer):
             if phone:
                 return f'+{phone}'
         return f'+{obj.sender_number}' if obj.sender_number else ''
+
+    def get_classification(self, obj):
+        try:
+            c = obj.classification
+            return {'tags': c.tags, 'is_inquiry': c.is_inquiry, 'inquiry_type': c.inquiry_type}
+        except Exception:
+            return None

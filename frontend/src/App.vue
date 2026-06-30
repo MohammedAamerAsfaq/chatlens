@@ -67,6 +67,27 @@ const store = useConversationsStore()
         Groups
       </RouterLink>
       <RouterLink
+        to="/trading"
+        class="text-sm text-gray-300 hover:text-white transition-colors"
+        active-class="text-white font-medium"
+      >
+        Trading
+      </RouterLink>
+      <RouterLink
+        to="/inquiries"
+        class="text-sm text-gray-300 hover:text-white transition-colors"
+        active-class="text-white font-medium"
+      >
+        Inquiries
+      </RouterLink>
+      <RouterLink
+        to="/products"
+        class="text-sm text-gray-300 hover:text-white transition-colors"
+        active-class="text-white font-medium"
+      >
+        Products
+      </RouterLink>
+      <RouterLink
         to="/dropped-messages"
         class="text-sm text-gray-300 hover:text-white transition-colors"
         active-class="text-white font-medium"
