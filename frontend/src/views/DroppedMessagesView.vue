@@ -25,18 +25,33 @@ const pageEnd    = computed(() => Math.min(page.value * pageSize.value, totalCou
 let pollTimer = null
 
 const REASON_LABELS = {
-  no_remote_jid:     'No JID',
-  no_message_content:'No Content',
-  prepend_no_content:'Prepend: No Content',
+  no_remote_jid:              'No JID',
+  no_message_content:         'No Content',
+  prepend_no_content:         'Prepend: No Content',
+  forward_failed:             'Forward Failed',
+  build_error:                'Build Error',
+  protocolMessage:            'Protocol Msg',
+  senderKeyDistributionMessage: 'Key Distribution',
+  'status@broadcast':         'Status Broadcast',
 }
 
 const REASON_STYLE = {
-  no_remote_jid:     'bg-red-100 text-red-700',
-  no_message_content:'bg-yellow-100 text-yellow-700',
-  prepend_no_content:'bg-orange-100 text-orange-700',
+  no_remote_jid:              'bg-red-100 text-red-700',
+  no_message_content:         'bg-yellow-100 text-yellow-700',
+  prepend_no_content:         'bg-orange-100 text-orange-700',
+  forward_failed:             'bg-red-100 text-red-800 font-semibold',
+  build_error:                'bg-red-100 text-red-800 font-semibold',
+  protocolMessage:            'bg-gray-100 text-gray-500',
+  senderKeyDistributionMessage: 'bg-gray-100 text-gray-500',
+  'status@broadcast':         'bg-gray-100 text-gray-400',
 }
 
-function reasonLabel(r) { return REASON_LABELS[r] || r }
+// messageStubType reasons are dynamic (e.g. "messageStubType:10")
+function reasonLabel(r) {
+  if (REASON_LABELS[r]) return REASON_LABELS[r]
+  if (r?.startsWith('messageStubType:')) return `Stub #${r.split(':')[1]}`
+  return r
+}
 function reasonStyle(r) { return REASON_STYLE[r] || 'bg-gray-100 text-gray-600' }
 
 function buildParams() {
@@ -159,9 +174,18 @@ function jidDisplay(raw_jid) {
         class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
       >
         <option value="all">All reasons</option>
-        <option value="no_remote_jid">No JID</option>
-        <option value="no_message_content">No Content</option>
-        <option value="prepend_no_content">Prepend: No Content</option>
+        <optgroup label="— Live message drops —">
+          <option value="forward_failed">Forward Failed</option>
+          <option value="build_error">Build Error</option>
+          <option value="no_remote_jid">No JID</option>
+          <option value="no_message_content">No Content</option>
+        </optgroup>
+        <optgroup label="— Filtered (expected) —">
+          <option value="protocolMessage">Protocol Msg</option>
+          <option value="senderKeyDistributionMessage">Key Distribution</option>
+          <option value="status@broadcast">Status Broadcast</option>
+          <option value="prepend_no_content">Prepend: No Content</option>
+        </optgroup>
       </select>
 
       <span class="text-sm text-gray-400 flex-1">{{ totalCount.toLocaleString() }} entries</span>

@@ -418,6 +418,7 @@ class SessionManager {
   async _buildPayload(sessionId, msg, { isHistory = false } = {}) {
     const _skip = (reason) => {
       this.logger.info({ sessionId, msgId: msg.key?.id, jid: msg.key?.remoteJid, reason }, '_buildPayload filtered');
+      this._reportDropped(sessionId, msg, reason);
       return null;
     };
     if (msg.key.remoteJid === 'status@broadcast') return _skip('status@broadcast');
@@ -566,22 +567,28 @@ class SessionManager {
   }
 
   async _forwardMessage(sessionId, msg) {
+    // Phase 1: build payload — _skip() already calls _reportDropped for filtered messages
+    let built;
     try {
-      const built = await this._buildPayload(sessionId, msg);
-      if (!built) return;
-
-      const { payload, logEntry } = built;
-      try {
-        await this.djangoClient.sendMessageIngest(payload);
-      } catch (fwdErr) {
-        logEntry.forward_status = 'error';
-        logEntry.forward_error  = fwdErr.message;
-        throw fwdErr;
-      } finally {
-        this.messageLogger.write(sessionId, logEntry);
-      }
+      built = await this._buildPayload(sessionId, msg);
     } catch (err) {
-      this.logger.error({ sessionId, msgId: msg.key?.id, err: err.message }, 'Failed to forward message');
+      this.logger.error({ sessionId, msgId: msg.key?.id, err: err.message }, '_buildPayload threw unexpectedly');
+      this._reportDropped(sessionId, msg, 'build_error');
+      return;
+    }
+    if (!built) return;
+
+    // Phase 2: forward to Django
+    const { payload, logEntry } = built;
+    try {
+      await this.djangoClient.sendMessageIngest(payload);
+    } catch (fwdErr) {
+      logEntry.forward_status = 'error';
+      logEntry.forward_error  = fwdErr.message;
+      this.logger.error({ sessionId, msgId: msg.key?.id, err: fwdErr.message }, 'Failed to forward message to Django');
+      this._reportDropped(sessionId, msg, 'forward_failed');
+    } finally {
+      this.messageLogger.write(sessionId, logEntry);
     }
   }
 

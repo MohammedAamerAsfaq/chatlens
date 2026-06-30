@@ -41,6 +41,7 @@ class DjangoClient {
         { msgId: payload.provider_message_id, error: err.message },
         'Failed to send message to Django',
       );
+      throw err; // rethrow so _forwardMessage can detect the failure and report it
     }
   }
 
