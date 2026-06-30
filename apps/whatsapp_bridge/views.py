@@ -164,11 +164,14 @@ def internal_contacts_update(request):
                 continue
 
             phone_number = contact_data.get('phone_number', '')
-            lid_jid = contact_data.get('lid_jid') or None
+            lid_jid  = contact_data.get('lid_jid')  or None
+            username = contact_data.get('username')  or None
 
             defaults = {'push_name': push_name}
             if lid_jid:
                 defaults['lid_jid'] = lid_jid
+            if username:
+                defaults['username'] = username
 
             contact, created = WhatsAppContact.objects.update_or_create(
                 account=account,

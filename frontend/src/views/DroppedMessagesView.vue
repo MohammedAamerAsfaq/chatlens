@@ -33,6 +33,7 @@ const REASON_LABELS = {
   protocolMessage:              'Protocol Msg',
   senderKeyDistributionMessage: 'Key Distribution',
   unresolvable_lid:             'Unresolvable LID',
+  unresolvable_username:        'Unresolvable Username',
   'status@broadcast':           'Status Broadcast',
 }
 
@@ -45,6 +46,7 @@ const REASON_STYLE = {
   protocolMessage:              'bg-gray-100 text-gray-500',
   senderKeyDistributionMessage: 'bg-gray-100 text-gray-500',
   unresolvable_lid:             'bg-purple-100 text-purple-700 font-semibold',
+  unresolvable_username:        'bg-purple-100 text-purple-700 font-semibold',
   'status@broadcast':           'bg-gray-100 text-gray-400',
 }
 

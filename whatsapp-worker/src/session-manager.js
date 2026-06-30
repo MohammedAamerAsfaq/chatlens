@@ -118,6 +118,10 @@ class SessionManager {
       // LID → phone JID mapping built from contacts.set/upsert.
       // Used to normalise outbound LID chat_ids (which have no senderPn).
       lidToPhone: {},
+      // username (bare handle, no @domain) → full phone JID.
+      // Populated from contacts.set when c.username is present.
+      // Used to resolve username-keyed chat JIDs once WhatsApp usernames roll out.
+      usernameToPhone: {},
     });
     await this._connect(sessionId);
     return this._snapshot(sessionId);
@@ -328,20 +332,29 @@ class SessionManager {
     // contacts.set fires on initial connect with the full contacts list.
     // contacts.upsert fires when individual contacts are updated.
     const _sendNamedContacts = async (contacts) => {
-      // Build phone JID → LID alias mapping from contacts that expose both identifiers.
-      // e.g. { id: '923001234567@s.whatsapp.net', lid: '18806883308705@lid', notify: 'Mia' }
-      // Also populate session.lidToPhone (lid → full phone JID) for real-time resolution in _buildPayload.
-      const phoneToLid = {};
+      // Build phone JID → alias mappings from contacts that expose LID and/or username.
+      // e.g. { id: '923001234567@s.whatsapp.net', lid: '18806883308705@lid', username: 'mia.business', notify: 'Mia' }
+      // Populate session caches used by _buildPayload for real-time alias resolution.
+      const phoneToLid      = {};
+      const phoneToUsername = {};
       const sess = this.sessions.get(sessionId);
       for (const c of contacts || []) {
-        if (c.id?.endsWith('@s.whatsapp.net') && c.lid) {
-          try {
-            const phoneJid = jidNormalizedUser(c.id);
-            const lidJid   = jidNormalizedUser(c.lid);
+        if (!c.id?.endsWith('@s.whatsapp.net')) continue;
+        try {
+          const phoneJid = jidNormalizedUser(c.id);
+          if (c.lid) {
+            const lidJid = jidNormalizedUser(c.lid);
             phoneToLid[phoneJid] = lidJid;
-            if (sess) sess.lidToPhone[lidJid] = phoneJid; // full JID for _buildPayload LID resolution
-          } catch { /* skip malformed entry */ }
-        }
+            if (sess) sess.lidToPhone[lidJid] = phoneJid;
+          }
+          // TODO(baileys-username ~Jul 2026): confirm field name once Baileys ships username support.
+          // Assumed: c.username contains the bare handle (e.g. 'ahmed.mobile', no @ or domain).
+          if (c.username) {
+            const handle = c.username.toLowerCase().trim();
+            phoneToUsername[phoneJid] = handle;
+            if (sess) sess.usernameToPhone[handle] = phoneJid;
+          }
+        } catch { /* skip malformed entry */ }
       }
 
       const batch = [];
@@ -357,9 +370,10 @@ class SessionManager {
         if (!wa_contact_id) continue;
 
         const phone_number = c.id?.endsWith('@s.whatsapp.net') ? c.id.split('@')[0] : '';
-        const lid_jid = phoneToLid[wa_contact_id] || null;
+        const lid_jid  = phoneToLid[wa_contact_id]      || null;
+        const username = phoneToUsername[wa_contact_id]  || null;
 
-        batch.push({ wa_contact_id, push_name: name, phone_number, lid_jid });
+        batch.push({ wa_contact_id, push_name: name, phone_number, lid_jid, username });
       }
 
       const validBatch = batch.filter(c => c.wa_contact_id && c.push_name);
@@ -372,10 +386,11 @@ class SessionManager {
     };
 
     sock.ev.on('contacts.set', async ({ contacts }) => {
-      const lidCount = (contacts || []).filter(c => c.id?.endsWith('@lid')).length;
-      const mappableCount = (contacts || []).filter(c => c.id?.endsWith('@s.whatsapp.net') && c.lid).length;
+      const lidCount      = (contacts || []).filter(c => c.id?.endsWith('@lid')).length;
+      const lidMappable   = (contacts || []).filter(c => c.id?.endsWith('@s.whatsapp.net') && c.lid).length;
+      const usernameMapped = (contacts || []).filter(c => c.id?.endsWith('@s.whatsapp.net') && c.username).length;
       this.logger.info(
-        { sessionId, total: (contacts || []).length, lidContacts: lidCount, lidMappable: mappableCount },
+        { sessionId, total: (contacts || []).length, lidContacts: lidCount, lidMappable, usernameMapped },
         'Contacts.set received',
       );
       await _sendNamedContacts(contacts);
@@ -426,33 +441,49 @@ class SessionManager {
     const fromMe = msg.key.fromMe;
 
     const isLidJid = rawJid?.endsWith('@lid');
+    // Username JIDs: @s.whatsapp.net but local part contains non-digit characters.
+    // Phone JIDs are always pure digits (e.g. 971503218002@s.whatsapp.net).
+    // Username JIDs will look like ahmed.mobile@s.whatsapp.net once the feature rolls out.
+    const isUsernameJid = rawJid?.endsWith('@s.whatsapp.net')
+      && !!rawJid && !/^\d+@/.test(rawJid);
     const senderPn = msg.key.senderPn;
     const session = this.sessions.get(sessionId);
 
-    // Resolve LID → canonical phone JID so that both outbound and inbound messages
-    // for the same contact share one chat_id, regardless of which direction provides senderPn.
+    // Resolve alias JIDs → canonical phone JID so every contact has exactly one identity.
     //
-    // Priority for individual LID chats:
-    //   1. senderPn on inbound — Baileys' most reliable real-time resolution; also cache it.
-    //   2. session.lidToPhone  — built from contacts.set/upsert (available before history fires).
+    // LID priority (individual chat where remoteJid IS a LID):
+    //   1. senderPn on inbound — Baileys' most reliable real-time resolution; cache it.
+    //   2. session.lidToPhone  — built from contacts.set/upsert before any messages arrive.
+    //   Drop 'unresolvable_lid' if neither resolves.
     //
-    // If neither is available the message is dropped with reason 'unresolvable_lid'.
-    // A phantom LID-keyed contact in Django is worse than a visible drop.
+    // Username priority (individual chat where remoteJid has a non-digit local part):
+    //   1. session.usernameToPhone — built from contacts.set when c.username is present.
+    //   Drop 'unresolvable_username' if not in cache.
+    //   TODO(baileys-username ~Jul 2026): Baileys may also expose msg.key.senderPn here
+    //   (same field as LID resolution). Add that as priority-1 once confirmed and cache it.
     //
-    // Non-LID and group JIDs are passed through unchanged.
+    // Group JIDs and normal phone JIDs are passed through unchanged.
     let resolvedChatJid = rawJid;
     if (isLidJid) {
       const rawLidJid = jidNormalizedUser(rawJid);
       if (!fromMe && senderPn) {
-        // Inbound: senderPn is the definitive phone JID — update cache for future outbound.
         const phoneJid = jidNormalizedUser(senderPn);
         session.lidToPhone[rawLidJid] = phoneJid;
         resolvedChatJid = phoneJid;
       } else if (session.lidToPhone[rawLidJid]) {
-        // Outbound (or inbound without senderPn): use cached mapping from contacts.set.
         resolvedChatJid = session.lidToPhone[rawLidJid];
       } else {
         return _skip('unresolvable_lid');
+      }
+    } else if (isUsernameJid) {
+      const handle = rawJid.split('@')[0].toLowerCase();
+      const cached = session.usernameToPhone[handle];
+      if (cached) {
+        resolvedChatJid = cached;
+      } else {
+        // Cannot resolve username → phone. Drop loudly; do not create a username-keyed contact.
+        // Once Baileys exposes senderPn for username chats, add real-time resolution above.
+        return _skip('unresolvable_username');
       }
     }
 
@@ -486,6 +517,17 @@ class SessionManager {
             // Completely unresolvable — drop loudly rather than creating a LID-keyed contact.
             return _skip('unresolvable_lid');
           }
+        }
+      } else if (participant?.endsWith('@s.whatsapp.net') && !/^\d+@/.test(participant)) {
+        // Username-keyed group participant (non-digit local part on @s.whatsapp.net).
+        // TODO(baileys-username ~Jul 2026): confirm whether msg.key.participantPn is provided
+        // here (analogous to participantPn for LID participants). Until then, resolve via cache.
+        const handle = participant.split('@')[0].toLowerCase();
+        const cached = session.usernameToPhone[handle];
+        if (cached) {
+          rawSenderJid = cached;
+        } else {
+          return _skip('unresolvable_username');
         }
       } else {
         rawSenderJid = participant;

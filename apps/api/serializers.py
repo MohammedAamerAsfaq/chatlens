@@ -41,13 +41,13 @@ class ContactDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = WhatsAppContact
         fields = [
-            'id', 'account_id', 'wa_contact_id', 'lid_jid', 'phone_number',
+            'id', 'account_id', 'wa_contact_id', 'lid_jid', 'username', 'phone_number',
             'display_name', 'push_name', 'is_business',
             'contact_type', 'message_count', 'chat_id', 'chat_db_id',
             'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'account_id', 'wa_contact_id', 'lid_jid', 'phone_number',
+            'id', 'account_id', 'wa_contact_id', 'lid_jid', 'username', 'phone_number',
             'push_name', 'is_business', 'contact_type',
             'message_count', 'chat_id', 'chat_db_id',
             'created_at', 'updated_at',

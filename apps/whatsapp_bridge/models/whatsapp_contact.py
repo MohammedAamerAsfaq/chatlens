@@ -11,6 +11,10 @@ class WhatsAppContact(models.Model):
     # LID alias for this contact (nullable). Set when Baileys exposes the mapping.
     # wa_contact_id is ALWAYS the canonical phone JID; lid_jid is the alias only.
     lid_jid = models.CharField(max_length=255, blank=True, null=True)
+    # WhatsApp username alias (e.g. "ahmed.mobile"). Populated from contacts.set when
+    # the contact has set a username. Like lid_jid, this is an alias — wa_contact_id
+    # remains the canonical phone JID.
+    username = models.CharField(max_length=35, blank=True, null=True)
     phone_number = models.CharField(max_length=50, blank=True)
     display_name = models.CharField(max_length=255, blank=True)
     push_name = models.CharField(max_length=255, blank=True)
@@ -28,6 +32,11 @@ class WhatsAppContact(models.Model):
                 fields=['account', 'lid_jid'],
                 condition=models.Q(lid_jid__isnull=False) & ~models.Q(lid_jid=''),
                 name='unique_account_lid_jid',
+            ),
+            models.UniqueConstraint(
+                fields=['account', 'username'],
+                condition=models.Q(username__isnull=False) & ~models.Q(username=''),
+                name='unique_account_username',
             ),
         ]
 

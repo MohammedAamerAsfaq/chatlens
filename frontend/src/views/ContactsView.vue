@@ -7,7 +7,7 @@ const router = useRouter()
 
 const contacts    = ref([])
 const accounts    = ref([])
-const stats       = ref({ total: 0, phone: 0, lid: 0, group: 0 })
+const stats       = ref({ total: 0, phone: 0, lid: 0, group: 0, username: 0 })
 const loading     = ref(false)
 const savingId    = ref(null)
 
@@ -176,6 +176,11 @@ function openChat(contact) {
         <p class="text-xs text-orange-500 uppercase tracking-wide">Groups</p>
         <p class="text-xl font-bold text-gray-900">{{ stats.group.toLocaleString() }}</p>
       </div>
+      <div class="w-px h-8 bg-gray-100"></div>
+      <div>
+        <p class="text-xs text-blue-500 uppercase tracking-wide">@Usernames</p>
+        <p class="text-xl font-bold text-gray-900">{{ stats.username.toLocaleString() }}</p>
+      </div>
     </div>
 
     <!-- Filters -->
@@ -323,9 +328,12 @@ function openChat(contact) {
                 v-if="contact.lid_jid"
                 class="block text-[10px] font-mono text-purple-400 mt-0.5"
                 :title="`LID alias: ${contact.lid_jid}`"
-              >
-                {{ contact.lid_jid.split('@')[0] }}@lid
-              </span>
+              >{{ contact.lid_jid.split('@')[0] }}@lid</span>
+              <span
+                v-if="contact.username"
+                class="block text-[10px] font-mono text-blue-400 mt-0.5"
+                :title="`Username: @${contact.username}`"
+              >@{{ contact.username }}</span>
             </td>
 
             <!-- Type -->

@@ -723,8 +723,9 @@ class ContactViewSet(viewsets.ModelViewSet):
         if account_id:
             qs = qs.filter(account_id=account_id)
         return Response({
-            'total': qs.count(),
-            'phone': qs.filter(wa_contact_id__endswith='@s.whatsapp.net').count(),
-            'lid':   qs.filter(wa_contact_id__endswith='@lid').count(),
-            'group': qs.filter(wa_contact_id__endswith='@g.us').count(),
+            'total':    qs.count(),
+            'phone':    qs.filter(wa_contact_id__endswith='@s.whatsapp.net').count(),
+            'lid':      qs.filter(wa_contact_id__endswith='@lid').count(),
+            'group':    qs.filter(wa_contact_id__endswith='@g.us').count(),
+            'username': qs.filter(username__isnull=False).exclude(username='').count(),
         })
