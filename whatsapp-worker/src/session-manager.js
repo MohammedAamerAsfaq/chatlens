@@ -271,7 +271,14 @@ class SessionManager {
       // 'prepend' arrives when WhatsApp delivers missed messages after a reconnect.
       // Route those through the history batch path (no media download, deduped by Django).
       if (type === 'prepend') {
-        const valid = messages.filter(m => m.key?.remoteJid && m.message);
+        const valid = [];
+        for (const m of messages) {
+          if (m.key?.remoteJid && m.message) {
+            valid.push(m);
+          } else {
+            this._reportDropped(sessionId, m, 'prepend_no_content');
+          }
+        }
         if (valid.length) {
           this.logger.info({ sessionId, count: valid.length }, 'messages.upsert prepend — routing as history');
           await this._forwardHistoryBatch(sessionId, valid);
@@ -290,8 +297,14 @@ class SessionManager {
           { sessionId, type, msgId: msg.key?.id, jid: msg.key?.remoteJid, hasMsg: !!msg.message },
           'messages.upsert received',
         );
-        if (!msg.key?.remoteJid) continue;
-        if (!msg.message) continue;
+        if (!msg.key?.remoteJid) {
+          this._reportDropped(sessionId, msg, 'no_remote_jid');
+          continue;
+        }
+        if (!msg.message) {
+          this._reportDropped(sessionId, msg, 'no_message_content');
+          continue;
+        }
         await this._forwardMessage(sessionId, msg);
       }
     });
@@ -534,6 +547,22 @@ class SessionManager {
     };
 
     return { payload, logEntry };
+  }
+
+  async _reportDropped(sessionId, msg, reason) {
+    this.logger.info(
+      { sessionId, msgId: msg.key?.id, jid: msg.key?.remoteJid, hasMsg: !!msg.message, reason },
+      'message dropped before Django',
+    );
+    // Fire-and-forget — don't await so the upsert loop is never blocked by HTTP
+    this.djangoClient.sendDroppedMessage(sessionId, {
+      msg_id: msg.key?.id || null,
+      raw_jid: msg.key?.remoteJid || null,
+      from_me: msg.key?.fromMe ?? null,
+      has_message: !!msg.message,
+      reason,
+      raw_key: msg.key || null,
+    });
   }
 
   async _forwardMessage(sessionId, msg) {

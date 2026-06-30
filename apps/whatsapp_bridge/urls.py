@@ -29,4 +29,9 @@ urlpatterns = [
         views.internal_account_settings,
         name='internal-account-settings',
     ),
+    path(
+        'api/internal/whatsapp/dropped-message/',
+        views.internal_dropped_message,
+        name='internal-dropped-message',
+    ),
 ]

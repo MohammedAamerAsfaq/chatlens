@@ -61,6 +61,18 @@ class DjangoClient {
     }
   }
 
+  async sendDroppedMessage(sessionId, fields) {
+    try {
+      await this.http.post('/api/internal/whatsapp/dropped-message/', {
+        worker_session_id: sessionId,
+        ...fields,
+      });
+    } catch (err) {
+      // fire-and-forget — log at debug so this never spams error output
+      this.logger.debug({ sessionId, reason: fields.reason, err: err.message }, 'sendDroppedMessage failed');
+    }
+  }
+
   async sendContactsUpdate(sessionId, contacts) {
     if (!contacts.length) return;
     try {

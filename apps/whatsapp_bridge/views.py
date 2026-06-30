@@ -6,7 +6,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
 from .services.ingestion_service import IngestionService
 from .services.session_service import SessionService
-from .models import WhatsAppAccount, WhatsAppContact, SyncLog
+from .models import WhatsAppAccount, WhatsAppContact, SyncLog, DroppedMessage
 
 logger = logging.getLogger(__name__)
 
@@ -198,4 +198,38 @@ def internal_contacts_update(request):
         return JsonResponse({'error': 'Account not found'}, status=404)
     except Exception as e:
         logger.exception('Error in internal_contacts_update')
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def internal_dropped_message(request):
+    if not _verify_internal_token(request):
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    worker_session_id = payload.get('worker_session_id')
+    if not worker_session_id:
+        return JsonResponse({'error': 'Missing worker_session_id'}, status=400)
+
+    try:
+        account = WhatsAppAccount.objects.get(pk=worker_session_id)
+        DroppedMessage.objects.create(
+            account=account,
+            msg_id=payload.get('msg_id') or None,
+            raw_jid=payload.get('raw_jid') or None,
+            from_me=payload.get('from_me'),
+            has_message=bool(payload.get('has_message', False)),
+            reason=payload.get('reason', 'unknown'),
+            raw_key=payload.get('raw_key') or None,
+        )
+        return JsonResponse({'success': True})
+    except WhatsAppAccount.DoesNotExist:
+        return JsonResponse({'error': 'Account not found'}, status=404)
+    except Exception as e:
+        logger.exception('Error in internal_dropped_message')
         return JsonResponse({'error': str(e)}, status=500)

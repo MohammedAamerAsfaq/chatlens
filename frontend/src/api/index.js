@@ -64,6 +64,11 @@ export const messageLogsApi = {
   clear: (accountId)         => http.delete(`/accounts/${accountId}/message-logs/`),
 }
 
+export const droppedApi = {
+  list:     (params) => http.get('/dropped-messages/', { params }),
+  clearAll: (params) => http.post('/dropped-messages/clear-all/', {}, { params }),
+}
+
 export const aiProvidersApi = {
   list:        ()              => http.get('/ai-providers/'),
   get:         (id)            => http.get(`/ai-providers/${id}/`),

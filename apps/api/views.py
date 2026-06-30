@@ -17,9 +17,9 @@ from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact, SyncLog
+from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact, SyncLog, DroppedMessage
 from .serializers import (
-    WhatsAppAccountSerializer, ChatSerializer, MessageSerializer, SyncLogSerializer,
+    WhatsAppAccountSerializer, ChatSerializer, MessageSerializer, SyncLogSerializer, DroppedMessageSerializer,
 )
 
 WORKER_BASE_URL = getattr(settings, 'WORKER_BASE_URL', 'http://localhost:3001')
@@ -635,6 +635,31 @@ class SyncLogViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=['post'], url_path='clear-all')
     def clear_all(self, request):
         qs = SyncLog.objects.all()
+        account_id = request.query_params.get('account')
+        if account_id:
+            qs = qs.filter(account_id=account_id)
+        deleted, _ = qs.delete()
+        return Response({'deleted': deleted})
+
+
+class DroppedMessageViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = DroppedMessageSerializer
+    permission_classes = [AllowAny]
+    pagination_class = ActivityPagination
+
+    def get_queryset(self):
+        qs = DroppedMessage.objects.select_related('account').order_by('-created_at')
+        account_id = self.request.query_params.get('account')
+        if account_id:
+            qs = qs.filter(account_id=account_id)
+        reason = self.request.query_params.get('reason')
+        if reason:
+            qs = qs.filter(reason=reason)
+        return qs
+
+    @action(detail=False, methods=['post'], url_path='clear-all')
+    def clear_all(self, request):
+        qs = DroppedMessage.objects.all()
         account_id = request.query_params.get('account')
         if account_id:
             qs = qs.filter(account_id=account_id)
