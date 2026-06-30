@@ -1,6 +1,7 @@
 import json
 import logging
 from django.conf import settings
+from django.db import IntegrityError
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
@@ -176,15 +177,24 @@ def internal_contacts_update(request):
             if username:
                 defaults['username'] = username
 
-            contact, created = WhatsAppContact.objects.update_or_create(
-                account=account,
-                wa_contact_id=wa_contact_id,
-                defaults=defaults,
-                create_defaults={
-                    'display_name': push_name,
-                    'phone_number': phone_number,
-                },
-            )
+            try:
+                contact, created = WhatsAppContact.objects.update_or_create(
+                    account=account,
+                    wa_contact_id=wa_contact_id,
+                    defaults=defaults,
+                    create_defaults={
+                        'display_name': push_name,
+                        'phone_number': phone_number,
+                    },
+                )
+            except IntegrityError:
+                # Race between contacts-update and message-ingest both creating the same
+                # WhatsAppContact. Fall back to GET + UPDATE.
+                WhatsAppContact.objects.filter(
+                    account=account, wa_contact_id=wa_contact_id,
+                ).update(**defaults)
+                contact = WhatsAppContact.objects.get(account=account, wa_contact_id=wa_contact_id)
+                created = False
 
             if not created:
                 extra = {}

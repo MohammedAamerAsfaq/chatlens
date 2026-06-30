@@ -1,6 +1,6 @@
 import logging
 import threading
-from django.db import connection as _db_conn
+from django.db import IntegrityError, connection as _db_conn
 from django.db.models import F, Q
 from django.utils.dateparse import parse_datetime
 from ..models import (
@@ -170,14 +170,24 @@ class IngestionService:
         if push_name and direction == 'inbound':
             defaults['push_name'] = push_name
 
-        contact, _ = WhatsAppContact.objects.update_or_create(
-            account=account,
-            wa_contact_id=wa_contact_id,
-            defaults=defaults,
-            # display_name seeded only on creation so users can customise it without
-            # it being overwritten on every inbound message.
-            create_defaults={'display_name': push_name} if push_name else {},
-        )
+        try:
+            contact, _ = WhatsAppContact.objects.update_or_create(
+                account=account,
+                wa_contact_id=wa_contact_id,
+                defaults=defaults,
+                # display_name seeded only on creation so users can customise it without
+                # it being overwritten on every inbound message.
+                create_defaults={'display_name': push_name} if push_name else {},
+            )
+        except IntegrityError:
+            # Race condition: contacts-update and message-ingest run concurrently and both
+            # attempt to create the same WhatsAppContact. The loser gets an IntegrityError
+            # on the unique_together(account, wa_contact_id) constraint. Fall back to a
+            # plain update so the ingestion proceeds without losing the message.
+            WhatsAppContact.objects.filter(
+                account=account, wa_contact_id=wa_contact_id,
+            ).update(**defaults)
+            contact = WhatsAppContact.objects.get(account=account, wa_contact_id=wa_contact_id)
         return contact
 
     def _upsert_chat(
@@ -195,12 +205,20 @@ class IngestionService:
         if group_name:
             defaults['name'] = group_name
 
-        chat, created = WhatsAppChat.objects.update_or_create(
-            account=account,
-            wa_chat_id=wa_chat_id,
-            defaults=defaults,
-            create_defaults={'last_message_at': message_time},
-        )
+        try:
+            chat, created = WhatsAppChat.objects.update_or_create(
+                account=account,
+                wa_chat_id=wa_chat_id,
+                defaults=defaults,
+                create_defaults={'last_message_at': message_time},
+            )
+        except IntegrityError:
+            # Race between concurrent message-ingest requests for the same chat
+            # (e.g. history sync overlapping with a live message). Fall back to GET + UPDATE.
+            chat = WhatsAppChat.objects.get(account=account, wa_chat_id=wa_chat_id)
+            WhatsAppChat.objects.filter(pk=chat.pk).update(**defaults)
+            chat.refresh_from_db()
+            created = False
 
         # Only advance last_message_at — never let an older replayed message push it back.
         # History sync delivers messages out of chronological order, so without this guard
