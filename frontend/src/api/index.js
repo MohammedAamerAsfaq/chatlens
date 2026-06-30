@@ -70,6 +70,11 @@ export const contactsApi = {
   update: (id, data)    => http.patch(`/contacts/${id}/`, data),
 }
 
+export const embeddingsApi = {
+  status:   (params) => http.get('/intelligence/embedding-status/', { params }),
+  backfill: (data)   => http.post('/intelligence/backfill/', data),
+}
+
 export const droppedApi = {
   list:     (params) => http.get('/dropped-messages/', { params }),
   clearAll: (params) => http.post('/dropped-messages/clear-all/', {}, { params }),

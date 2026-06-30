@@ -1,6 +1,9 @@
 import logging
+import threading
+from django.db import connection as _db_conn
+from django.db.models import Q
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 
@@ -41,3 +44,72 @@ def semantic_search_view(request):
         })
 
     return Response({'query': query, 'results': results, 'total': len(results)})
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def embedding_status_view(request):
+    """GET /api/intelligence/embedding-status/?account_id=X
+    Returns counts of messages with/without embeddings for an account (or all accounts).
+    """
+    from apps.whatsapp_bridge.models import WhatsAppMessage
+
+    account_id = request.query_params.get('account_id')
+    qs = WhatsAppMessage.objects.filter(message_text__gt='')
+    if account_id:
+        qs = qs.filter(account_id=account_id)
+
+    total    = qs.count()
+    embedded = qs.filter(embedding__isnull=False).count()
+    pending  = total - embedded
+
+    return Response({'total': total, 'embedded': embedded, 'pending': pending})
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def embedding_backfill_view(request):
+    """POST /api/intelligence/backfill/  body: { account_id?, limit? }
+    Starts a background thread to embed pending messages and returns immediately.
+    """
+    from apps.whatsapp_bridge.models import WhatsAppMessage
+
+    account_id = request.data.get('account_id')
+    limit      = int(request.data.get('limit', 500))
+
+    qs = (
+        WhatsAppMessage.objects
+        .filter(message_text__gt='')
+        .filter(Q(embedding__isnull=True))
+        .order_by('id')
+    )
+    if account_id:
+        qs = qs.filter(account_id=account_id)
+
+    pending = qs.count()
+    if pending == 0:
+        return Response({'started': False, 'pending': 0, 'message': 'Nothing to embed'})
+
+    ids = list(qs.values_list('id', flat=True)[:limit])
+
+    def _run():
+        try:
+            from apps.message_intelligence.services.embedding_service import embed_messages_batch
+            result = embed_messages_batch(ids)
+            logger.info(
+                'Admin backfill complete — account=%s embedded=%s errors=%s',
+                account_id or 'all', result['embedded'], result['errors'],
+            )
+        except Exception:
+            logger.exception('Admin backfill failed — account=%s', account_id or 'all')
+        finally:
+            _db_conn.close()
+
+    threading.Thread(target=_run, daemon=True).start()
+
+    return Response({
+        'started': True,
+        'pending': pending,
+        'processing': len(ids),
+        'message': f'Embedding {len(ids)} messages in background ({"all" if pending <= limit else f"{limit} of {pending}"} pending)',
+    })
