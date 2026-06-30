@@ -89,6 +89,36 @@ class DjangoClient {
       );
     }
   }
+
+  async sendGroupUpdate(sessionId, groupPayload) {
+    try {
+      await this.http.post('/api/internal/whatsapp/group-update/', {
+        worker_session_id: sessionId,
+        ...groupPayload,
+      });
+    } catch (err) {
+      this.logger.warn(
+        { sessionId, groupId: groupPayload.group_id, error: err.message },
+        'Failed to send group update to Django',
+      );
+    }
+  }
+
+  async sendGroupParticipantsUpdate(sessionId, groupId, action, participants) {
+    try {
+      await this.http.post('/api/internal/whatsapp/group-participants-update/', {
+        worker_session_id: sessionId,
+        group_id: groupId,
+        action,
+        participants,
+      });
+    } catch (err) {
+      this.logger.warn(
+        { sessionId, groupId, action, error: err.message },
+        'Failed to send group participants update to Django',
+      );
+    }
+  }
 }
 
 module.exports = { DjangoClient };

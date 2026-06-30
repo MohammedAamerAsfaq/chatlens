@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact, SyncLog, DroppedMessage,
+    WhatsAppGroup, WhatsAppGroupParticipant,
 )
 
 
@@ -143,6 +144,51 @@ class DroppedMessageSerializer(serializers.ModelSerializer):
 
     def get_account_name(self, obj):
         return obj.account.display_name or obj.account.phone_number or f'Account #{obj.account.pk}'
+
+
+class GroupParticipantSerializer(serializers.ModelSerializer):
+    display_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WhatsAppGroupParticipant
+        fields = ['id', 'wa_jid', 'role', 'is_active', 'display_name', 'joined_at', 'updated_at']
+
+    def get_display_name(self, obj):
+        if obj.contact:
+            return obj.contact.display_name or obj.contact.push_name or obj.wa_jid
+        return obj.wa_jid
+
+
+class GroupSerializer(serializers.ModelSerializer):
+    account_id      = serializers.IntegerField(source='account.pk', read_only=True)
+    community_id    = serializers.IntegerField(source='community.pk', read_only=True, allow_null=True)
+    community_name  = serializers.CharField(source='community.name', read_only=True, allow_null=True)
+    sub_group_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WhatsAppGroup
+        fields = [
+            'id', 'account_id', 'wa_group_id', 'name', 'description',
+            'owner_jid', 'is_community', 'participant_count',
+            'community_id', 'community_name', 'sub_group_count',
+            'created_at', 'updated_at',
+        ]
+
+    def get_sub_group_count(self, obj):
+        if obj.is_community:
+            return obj.sub_groups.count()
+        return 0
+
+
+class GroupDetailSerializer(GroupSerializer):
+    participants = serializers.SerializerMethodField()
+
+    class Meta(GroupSerializer.Meta):
+        fields = GroupSerializer.Meta.fields + ['participants']
+
+    def get_participants(self, obj):
+        qs = obj.participants.filter(is_active=True).select_related('contact').order_by('-role', 'wa_jid')
+        return GroupParticipantSerializer(qs, many=True).data
 
 
 class MessageSerializer(serializers.ModelSerializer):

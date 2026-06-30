@@ -18,10 +18,14 @@ from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact, SyncLog, DroppedMessage
+from apps.whatsapp_bridge.models import (
+    WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact,
+    SyncLog, DroppedMessage, WhatsAppGroup,
+)
 from .serializers import (
     WhatsAppAccountSerializer, ChatSerializer, MessageSerializer,
     SyncLogSerializer, DroppedMessageSerializer, ContactDetailSerializer,
+    GroupSerializer, GroupDetailSerializer,
 )
 
 WORKER_BASE_URL = getattr(settings, 'WORKER_BASE_URL', 'http://localhost:3001')
@@ -729,3 +733,74 @@ class ContactViewSet(viewsets.ModelViewSet):
             'group':    qs.filter(wa_contact_id__endswith='@g.us').count(),
             'username': qs.filter(username__isnull=False).exclude(username='').count(),
         })
+
+
+class GroupViewSet(viewsets.ReadOnlyModelViewSet):
+    permission_classes = [AllowAny]
+    pagination_class = ActivityPagination
+
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return GroupDetailSerializer
+        return GroupSerializer
+
+    def get_queryset(self):
+        qs = WhatsAppGroup.objects.select_related('account', 'community').order_by('-updated_at')
+
+        account_id = self.request.query_params.get('account')
+        if account_id:
+            qs = qs.filter(account_id=account_id)
+
+        group_type = self.request.query_params.get('type')
+        if group_type == 'community':
+            qs = qs.filter(is_community=True)
+        elif group_type == 'group':
+            qs = qs.filter(is_community=False)
+
+        community_id = self.request.query_params.get('community')
+        if community_id:
+            qs = qs.filter(community_id=community_id)
+
+        search = (self.request.query_params.get('search') or '').strip()
+        if search:
+            qs = qs.filter(Q(name__icontains=search) | Q(wa_group_id__icontains=search))
+
+        return qs
+
+    @action(detail=False, methods=['get'], url_path='stats')
+    def stats(self, request):
+        account_id = request.query_params.get('account')
+        qs = WhatsAppGroup.objects.all()
+        if account_id:
+            qs = qs.filter(account_id=account_id)
+        return Response({
+            'total':       qs.count(),
+            'communities': qs.filter(is_community=True).count(),
+            'groups':      qs.filter(is_community=False).count(),
+        })
+
+    @action(detail=False, methods=['post'], url_path='sync')
+    def sync(self, request):
+        """Trigger groupFetchAllParticipating() on the worker for a given account."""
+        account_id = request.data.get('account')
+        if not account_id:
+            return Response({'error': 'account is required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            account = WhatsAppAccount.objects.get(pk=account_id)
+        except WhatsAppAccount.DoesNotExist:
+            return Response({'error': 'Account not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            resp = requests.post(
+                f'{WORKER_BASE_URL}/sessions/{account.pk}/sync-groups',
+                timeout=60,
+            )
+            if resp.status_code == 404:
+                return Response(
+                    {'error': 'Session not connected — connect the WhatsApp session first'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            resp.raise_for_status()
+            return Response(resp.json())
+        except requests.RequestException as e:
+            return Response({'error': f'Worker unreachable: {e}'}, status=status.HTTP_502_BAD_GATEWAY)

@@ -60,6 +60,13 @@ const store = useConversationsStore()
         Contacts
       </RouterLink>
       <RouterLink
+        to="/groups"
+        class="text-sm text-gray-300 hover:text-white transition-colors"
+        active-class="text-white font-medium"
+      >
+        Groups
+      </RouterLink>
+      <RouterLink
         to="/dropped-messages"
         class="text-sm text-gray-300 hover:text-white transition-colors"
         active-class="text-white font-medium"

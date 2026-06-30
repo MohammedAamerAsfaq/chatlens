@@ -115,6 +115,17 @@ module.exports = function sessionsRouter(sessionManager, mediaStorePath, message
     }
   });
 
+  // POST /sessions/:id/sync-groups — fetch all group metadata and push to Django
+  router.post('/:id/sync-groups', async (req, res) => {
+    try {
+      const count = await sessionManager.syncAllGroups(req.params.id);
+      if (count === null) return res.status(404).json({ error: 'Session not connected' });
+      return res.json({ success: true, synced: count });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   // GET /sessions/:id/message-logs — paginated node-level message log
   router.get('/:id/message-logs', (req, res) => {
     const page       = Math.max(1, parseInt(req.query.page      || '1',  10));

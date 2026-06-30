@@ -80,6 +80,13 @@ export const droppedApi = {
   clearAll: (params) => http.post('/dropped-messages/clear-all/', {}, { params }),
 }
 
+export const groupsApi = {
+  list:       (params)    => http.get('/groups/', { params }),
+  get:        (id)        => http.get(`/groups/${id}/`),
+  stats:      (params)    => http.get('/groups/stats/', { params }),
+  syncGroups: (accountId) => http.post('/groups/sync/', { account: accountId }),
+}
+
 export const aiProvidersApi = {
   list:        ()              => http.get('/ai-providers/'),
   get:         (id)            => http.get(`/ai-providers/${id}/`),

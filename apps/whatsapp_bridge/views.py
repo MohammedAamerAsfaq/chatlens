@@ -6,7 +6,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
 from .services.ingestion_service import IngestionService
 from .services.session_service import SessionService
-from .models import WhatsAppAccount, WhatsAppContact, SyncLog, DroppedMessage
+from .models import (
+    WhatsAppAccount, WhatsAppContact, WhatsAppChat, SyncLog, DroppedMessage,
+    WhatsAppGroup, WhatsAppGroupParticipant, ParticipantRole,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +201,183 @@ def internal_contacts_update(request):
         return JsonResponse({'error': 'Account not found'}, status=404)
     except Exception as e:
         logger.exception('Error in internal_contacts_update')
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def internal_group_update(request):
+    """Upsert full group metadata + participant list sent from the worker."""
+    if not _verify_internal_token(request):
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    worker_session_id = payload.get('worker_session_id')
+    group_id = (payload.get('group_id') or '').strip()
+
+    if not worker_session_id or not group_id:
+        return JsonResponse({'error': 'Missing worker_session_id or group_id'}, status=400)
+
+    if not group_id.endswith('@g.us'):
+        return JsonResponse({'error': f'Invalid group JID: {group_id!r}'}, status=400)
+
+    try:
+        account = WhatsAppAccount.objects.get(pk=worker_session_id)
+    except WhatsAppAccount.DoesNotExist:
+        return JsonResponse({'error': 'Account not found'}, status=404)
+
+    try:
+        community_id_raw = (payload.get('community_id') or '').strip() or None
+        community_group = None
+        if community_id_raw:
+            community_group, _ = WhatsAppGroup.objects.get_or_create(
+                account=account,
+                wa_group_id=community_id_raw,
+                defaults={'is_community': True},
+            )
+
+        # Link to WhatsAppChat if one already exists for this group JID
+        chat_link = None
+        try:
+            chat_link = WhatsAppChat.objects.get(account=account, wa_chat_id=group_id)
+        except WhatsAppChat.DoesNotExist:
+            pass
+
+        group_defaults = {
+            'name': (payload.get('name') or '').strip(),
+            'description': (payload.get('description') or '').strip(),
+            'owner_jid': (payload.get('owner_jid') or '').strip(),
+            'is_community': bool(payload.get('is_community', False)),
+            'community': community_group,
+        }
+        if chat_link:
+            group_defaults['chat'] = chat_link
+
+        group, _ = WhatsAppGroup.objects.update_or_create(
+            account=account,
+            wa_group_id=group_id,
+            defaults=group_defaults,
+        )
+
+        # Upsert full participant list when provided
+        participants_data = payload.get('participants') or []
+        if participants_data:
+            active_jids = set()
+            for p in participants_data:
+                jid = (p.get('jid') or '').strip()
+                if not jid:
+                    continue
+                role = p.get('role') or ParticipantRole.MEMBER
+                if role not in ParticipantRole.values:
+                    role = ParticipantRole.MEMBER
+                active_jids.add(jid)
+
+                # Resolve contact FK: strip @s.whatsapp.net only
+                contact = None
+                if jid.endswith('@s.whatsapp.net'):
+                    try:
+                        contact = WhatsAppContact.objects.get(account=account, wa_contact_id=jid)
+                    except WhatsAppContact.DoesNotExist:
+                        pass
+
+                WhatsAppGroupParticipant.objects.update_or_create(
+                    group=group,
+                    wa_jid=jid,
+                    defaults={'role': role, 'is_active': True, 'contact': contact},
+                )
+
+            # Mark participants not in the latest list as inactive
+            WhatsAppGroupParticipant.objects.filter(group=group, is_active=True).exclude(
+                wa_jid__in=active_jids
+            ).update(is_active=False)
+
+            group.participant_count = len(active_jids)
+            group.save(update_fields=['participant_count', 'updated_at'])
+
+        return JsonResponse({'success': True, 'group_id': group.pk})
+    except Exception as e:
+        logger.exception('Error in internal_group_update')
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def internal_group_participants_update(request):
+    """Handle incremental participant change events (add/remove/promote/demote)."""
+    if not _verify_internal_token(request):
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    worker_session_id = payload.get('worker_session_id')
+    group_id = (payload.get('group_id') or '').strip()
+    action = (payload.get('action') or '').strip()
+    participant_jids = payload.get('participants') or []
+
+    VALID_ACTIONS = {'add', 'remove', 'promote', 'demote'}
+    if not worker_session_id or not group_id or action not in VALID_ACTIONS:
+        return JsonResponse(
+            {'error': 'Missing/invalid worker_session_id, group_id, or action'}, status=400
+        )
+
+    try:
+        account = WhatsAppAccount.objects.get(pk=worker_session_id)
+    except WhatsAppAccount.DoesNotExist:
+        return JsonResponse({'error': 'Account not found'}, status=404)
+
+    try:
+        group = WhatsAppGroup.objects.get(account=account, wa_group_id=group_id)
+    except WhatsAppGroup.DoesNotExist:
+        # Group metadata not yet synced — create a minimal placeholder
+        group = WhatsAppGroup.objects.create(account=account, wa_group_id=group_id)
+
+    try:
+        updated = 0
+        for jid in participant_jids:
+            jid = (jid or '').strip()
+            if not jid:
+                continue
+
+            contact = None
+            if jid.endswith('@s.whatsapp.net'):
+                try:
+                    contact = WhatsAppContact.objects.get(account=account, wa_contact_id=jid)
+                except WhatsAppContact.DoesNotExist:
+                    pass
+
+            if action == 'add':
+                WhatsAppGroupParticipant.objects.update_or_create(
+                    group=group, wa_jid=jid,
+                    defaults={'is_active': True, 'role': ParticipantRole.MEMBER, 'contact': contact},
+                )
+            elif action == 'remove':
+                WhatsAppGroupParticipant.objects.filter(group=group, wa_jid=jid).update(is_active=False)
+            elif action == 'promote':
+                WhatsAppGroupParticipant.objects.update_or_create(
+                    group=group, wa_jid=jid,
+                    defaults={'role': ParticipantRole.ADMIN, 'is_active': True, 'contact': contact},
+                )
+            elif action == 'demote':
+                WhatsAppGroupParticipant.objects.filter(group=group, wa_jid=jid).update(
+                    role=ParticipantRole.MEMBER
+                )
+            updated += 1
+
+        # Refresh participant count
+        active_count = WhatsAppGroupParticipant.objects.filter(group=group, is_active=True).count()
+        group.participant_count = active_count
+        group.save(update_fields=['participant_count', 'updated_at'])
+
+        return JsonResponse({'success': True, 'updated': updated})
+    except Exception as e:
+        logger.exception('Error in internal_group_participants_update')
         return JsonResponse({'error': str(e)}, status=500)
 
 

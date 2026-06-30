@@ -154,6 +154,36 @@ class SessionManager {
     return await s.sock.groupMetadata(groupJid);
   }
 
+  // Fetch all groups the account participates in and push metadata to Django.
+  // Returns the number of groups synced, or null if the session is not connected.
+  async syncAllGroups(sessionId) {
+    const s = this.sessions.get(sessionId);
+    if (!s?.sock) return null;
+
+    const allGroups = await s.sock.groupFetchAllParticipating();
+    const groupList = Object.values(allGroups || {});
+    this.logger.info({ sessionId, count: groupList.length }, 'syncAllGroups: pushing to Django');
+
+    for (const meta of groupList) {
+      if (!meta?.id) continue;
+      const participants = (meta.participants || []).map(p => ({
+        jid:  p.id,
+        role: p.superAdmin ? 'superadmin' : p.admin ? 'admin' : 'member',
+      }));
+      await this.djangoClient.sendGroupUpdate(sessionId, {
+        group_id:     meta.id,
+        name:         meta.subject || '',
+        description:  meta.desc    || '',
+        owner_jid:    meta.owner   || '',
+        is_community: !!(meta.isCommunity),
+        community_id: meta.linkedParent || null,
+        participants,
+      });
+      if (meta.id && meta.subject) this.groupNameCache.set(meta.id, meta.subject);
+    }
+    return groupList.length;
+  }
+
   async disconnect(sessionId) {
     const s = this.sessions.get(sessionId);
     if (!s || !s.sock) return false;
@@ -398,6 +428,80 @@ class SessionManager {
 
     sock.ev.on('contacts.upsert', async (contacts) => {
       await _sendNamedContacts(contacts);
+    });
+
+    // ── Group metadata sync ────────────────────────────────────────────────────
+    // Build a normalized group payload from Baileys GroupMetadata and send to Django.
+    const _sendGroupMetadata = async (meta) => {
+      if (!meta?.id) return;
+      const participants = (meta.participants || []).map(p => ({
+        jid:  p.id,
+        role: p.superAdmin ? 'superadmin' : p.admin ? 'admin' : 'member',
+      }));
+      await this.djangoClient.sendGroupUpdate(sessionId, {
+        group_id:     meta.id,
+        name:         meta.subject || '',
+        description:  meta.desc    || '',
+        owner_jid:    meta.owner   || '',
+        is_community: !!(meta.isCommunity),
+        community_id: meta.linkedParent || null,
+        participants,
+      });
+    };
+
+    // On initial connect: fetch all groups the account participates in and sync them all.
+    // groupFetchAllParticipating() returns { [groupId]: GroupMetadata }.
+    sock.ev.on('connection.update', async (update) => {
+      if (update.connection !== 'open') return;
+      try {
+        const allGroups = await sock.groupFetchAllParticipating();
+        const groupList = Object.values(allGroups || {});
+        this.logger.info({ sessionId, count: groupList.length }, 'Syncing all group metadata on connect');
+        for (const meta of groupList) {
+          await _sendGroupMetadata(meta);
+          // Also warm the name cache
+          if (meta.id && meta.subject) this.groupNameCache.set(meta.id, meta.subject);
+        }
+      } catch (err) {
+        this.logger.warn({ sessionId, error: err.message }, 'groupFetchAllParticipating failed');
+      }
+    });
+
+    // Incremental group metadata updates (name/description changes, etc.)
+    sock.ev.on('groups.update', async (updates) => {
+      for (const update of updates || []) {
+        if (!update.id) continue;
+        try {
+          // Fetch fresh metadata so we have the full participant list
+          const meta = await sock.groupMetadata(update.id).catch(() => null);
+          if (meta) {
+            await _sendGroupMetadata(meta);
+            if (meta.subject) this.groupNameCache.set(meta.id, meta.subject);
+          } else {
+            // Partial update only — send what we have without participants
+            await this.djangoClient.sendGroupUpdate(sessionId, {
+              group_id:    update.id,
+              name:        update.subject        || undefined,
+              description: update.desc           || undefined,
+              owner_jid:   update.owner          || undefined,
+              is_community: update.isCommunity   || undefined,
+              community_id: update.linkedParent  || undefined,
+            });
+          }
+        } catch (err) {
+          this.logger.warn({ sessionId, groupId: update.id, error: err.message }, 'groups.update handling failed');
+        }
+      }
+    });
+
+    // Incremental participant changes (join, leave, promote, demote)
+    sock.ev.on('group-participants.update', async ({ id, participants, action }) => {
+      if (!id || !participants?.length) return;
+      try {
+        await this.djangoClient.sendGroupParticipantsUpdate(sessionId, id, action, participants);
+      } catch (err) {
+        this.logger.warn({ sessionId, groupId: id, action, error: err.message }, 'group-participants.update failed');
+      }
     });
   }
 
