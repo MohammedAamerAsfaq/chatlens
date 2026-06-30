@@ -156,23 +156,25 @@ function openChat(contact) {
     </div>
 
     <!-- Stats -->
-    <div class="grid grid-cols-4 gap-4 mb-6">
-      <div class="bg-white rounded-xl border border-gray-200 px-5 py-4 shadow-sm">
-        <p class="text-xs text-gray-400 uppercase tracking-wide mb-1">Total</p>
-        <p class="text-2xl font-bold text-gray-900">{{ stats.total.toLocaleString() }}</p>
+    <div class="flex items-center gap-6 mb-6 bg-white rounded-xl border border-gray-200 px-6 py-4 shadow-sm">
+      <div>
+        <p class="text-xs text-gray-400 uppercase tracking-wide">Total</p>
+        <p class="text-xl font-bold text-gray-900">{{ stats.total.toLocaleString() }}</p>
       </div>
-      <div class="bg-white rounded-xl border border-gray-200 px-5 py-4 shadow-sm">
-        <p class="text-xs text-green-500 uppercase tracking-wide mb-1">Phone</p>
-        <p class="text-2xl font-bold text-gray-900">{{ stats.phone.toLocaleString() }}</p>
+      <div class="w-px h-8 bg-gray-100"></div>
+      <div>
+        <p class="text-xs text-green-500 uppercase tracking-wide">Phone</p>
+        <p class="text-xl font-bold text-gray-900">{{ stats.phone.toLocaleString() }}</p>
       </div>
-      <div class="bg-white rounded-xl border border-gray-200 px-5 py-4 shadow-sm">
-        <p class="text-xs text-purple-500 uppercase tracking-wide mb-1">LID</p>
-        <p class="text-2xl font-bold text-gray-900">{{ stats.lid.toLocaleString() }}</p>
-        <p class="text-[10px] text-gray-400 mt-0.5">Privacy-mode contacts</p>
+      <div class="w-px h-8 bg-gray-100"></div>
+      <div>
+        <p class="text-xs text-purple-500 uppercase tracking-wide">LID <span class="normal-case text-gray-400 font-normal">(privacy-mode)</span></p>
+        <p class="text-xl font-bold text-gray-900">{{ stats.lid.toLocaleString() }}</p>
       </div>
-      <div class="bg-white rounded-xl border border-gray-200 px-5 py-4 shadow-sm">
-        <p class="text-xs text-orange-500 uppercase tracking-wide mb-1">Groups</p>
-        <p class="text-2xl font-bold text-gray-900">{{ stats.group.toLocaleString() }}</p>
+      <div class="w-px h-8 bg-gray-100"></div>
+      <div>
+        <p class="text-xs text-orange-500 uppercase tracking-wide">Groups</p>
+        <p class="text-xl font-bold text-gray-900">{{ stats.group.toLocaleString() }}</p>
       </div>
     </div>
 
@@ -312,10 +314,17 @@ function openChat(contact) {
               </span>
             </td>
 
-            <!-- Phone -->
+            <!-- Phone + LID alias -->
             <td class="px-4 py-3">
               <span class="text-xs font-mono text-gray-700">
                 {{ contact.phone_number ? `+${contact.phone_number}` : '—' }}
+              </span>
+              <span
+                v-if="contact.lid_jid"
+                class="block text-[10px] font-mono text-purple-400 mt-0.5"
+                :title="`LID alias: ${contact.lid_jid}`"
+              >
+                {{ contact.lid_jid.split('@')[0] }}@lid
               </span>
             </td>
 

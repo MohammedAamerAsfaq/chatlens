@@ -328,57 +328,43 @@ class SessionManager {
     // contacts.set fires on initial connect with the full contacts list.
     // contacts.upsert fires when individual contacts are updated.
     const _sendNamedContacts = async (contacts) => {
-      // Build a LID→phone mapping from contacts that have both a phone JID and a lid field.
+      // Build phone JID → LID alias mapping from contacts that expose both identifiers.
       // e.g. { id: '923001234567@s.whatsapp.net', lid: '18806883308705@lid', notify: 'Mia' }
-      // tells us that '18806883308705@lid' maps to phone '923001234567'.
-      // lidToPhone (local): lid → digits only, used for Django's phone_number field.
-      // session.lidToPhone:  lid → full phone JID, used by _buildPayload for chat_id resolution.
-      // Both are populated here; they intentionally store different formats.
-      const lidToPhone = {};
-      const lidToPushName = {};
+      // Also populate session.lidToPhone (lid → full phone JID) for real-time resolution in _buildPayload.
+      const phoneToLid = {};
+      const sess = this.sessions.get(sessionId);
       for (const c of contacts || []) {
-        if (c.id && c.id.endsWith('@s.whatsapp.net') && c.lid) {
+        if (c.id?.endsWith('@s.whatsapp.net') && c.lid) {
           try {
-            const lidJid = jidNormalizedUser(c.lid);
-            lidToPhone[lidJid] = c.id.split('@')[0];            // digits only for Django
-            const sess = this.sessions.get(sessionId);
-            if (sess) sess.lidToPhone[lidJid] = jidNormalizedUser(c.id); // full JID for _buildPayload
-            const name = c.name || c.notify || c.verifiedName || '';
-            if (name) lidToPushName[lidJid] = name;
-          } catch { /* skip malformed LID */ }
+            const phoneJid = jidNormalizedUser(c.id);
+            const lidJid   = jidNormalizedUser(c.lid);
+            phoneToLid[phoneJid] = lidJid;
+            if (sess) sess.lidToPhone[lidJid] = phoneJid; // full JID for _buildPayload LID resolution
+          } catch { /* skip malformed entry */ }
         }
       }
 
       const batch = [];
-      const seenLids = new Set();
+      for (const c of contacts || []) {
+        const name = c.name || c.notify || c.verifiedName || '';
+        if (!name) continue;
 
-      for (const c of (contacts || [])) {
-        if (!c.notify && !c.verifiedName && !c.name) continue;
+        // Pure LID entries are aliases for phone contacts — they carry no identity of their
+        // own and must never be created as primary contacts in Django.
+        if (c.id?.endsWith('@lid')) continue;
+
         const wa_contact_id = jidNormalizedUser(c.id);
-        let phone_number = '';
-        if (c.id.endsWith('@s.whatsapp.net')) {
-          phone_number = c.id.split('@')[0];
-        } else if (c.id.endsWith('@lid')) {
-          seenLids.add(wa_contact_id);
-          phone_number = lidToPhone[wa_contact_id] || '';
-        }
-        batch.push({
-          wa_contact_id,
-          push_name: c.name || c.notify || c.verifiedName || '',
-          phone_number,
-        });
-      }
+        if (!wa_contact_id) continue;
 
-      // Synthetic entries for LID contacts that only appeared as a phone contact's lid field.
-      // These are LID JIDs we found a phone for, but that didn't show up separately in the list.
-      for (const [lidJid, phone] of Object.entries(lidToPhone)) {
-        if (!seenLids.has(lidJid) && lidToPushName[lidJid]) {
-          batch.push({ wa_contact_id: lidJid, push_name: lidToPushName[lidJid], phone_number: phone });
-        }
+        const phone_number = c.id?.endsWith('@s.whatsapp.net') ? c.id.split('@')[0] : '';
+        const lid_jid = phoneToLid[wa_contact_id] || null;
+
+        batch.push({ wa_contact_id, push_name: name, phone_number, lid_jid });
       }
 
       const validBatch = batch.filter(c => c.wa_contact_id && c.push_name);
       if (!validBatch.length) return;
+
       // Send in chunks of 100 to avoid oversized payloads
       for (let i = 0; i < validBatch.length; i += 100) {
         await this.djangoClient.sendContactsUpdate(sessionId, validBatch.slice(i, i + 100));
@@ -424,7 +410,17 @@ class SessionManager {
     if (msg.key.remoteJid === 'status@broadcast') return _skip('status@broadcast');
     if (msg.messageStubType) return _skip(`messageStubType:${msg.messageStubType}`);
     if (msg.message?.protocolMessage) return _skip('protocolMessage');
-    if (msg.message?.senderKeyDistributionMessage) return _skip('senderKeyDistributionMessage');
+
+    // Drop senderKeyDistributionMessage ONLY when it is the sole content of the envelope.
+    // WhatsApp often bundles the key distribution with a real user message (text/media) in
+    // a single envelope — dropping the whole envelope in that case silently loses the message.
+    // Pure key envelopes (no other content besides optional messageContextInfo) are safe to drop.
+    if (msg.message?.senderKeyDistributionMessage) {
+      const METADATA_KEYS = new Set(['senderKeyDistributionMessage', 'messageContextInfo']);
+      const hasUserContent = Object.keys(msg.message).some(k => !METADATA_KEYS.has(k));
+      if (!hasUserContent) return _skip('senderKeyDistributionMessage');
+      // else: fall through — real content exists, let _parseMessage extract it
+    }
 
     const rawJid = msg.key.remoteJid;
     const fromMe = msg.key.fromMe;
@@ -439,7 +435,9 @@ class SessionManager {
     // Priority for individual LID chats:
     //   1. senderPn on inbound — Baileys' most reliable real-time resolution; also cache it.
     //   2. session.lidToPhone  — built from contacts.set/upsert (available before history fires).
-    //   3. rawJid (LID)        — fallback for unknown contacts not yet in contacts list.
+    //
+    // If neither is available the message is dropped with reason 'unresolvable_lid'.
+    // A phantom LID-keyed contact in Django is worse than a visible drop.
     //
     // Non-LID and group JIDs are passed through unchanged.
     let resolvedChatJid = rawJid;
@@ -453,21 +451,45 @@ class SessionManager {
       } else if (session.lidToPhone[rawLidJid]) {
         // Outbound (or inbound without senderPn): use cached mapping from contacts.set.
         resolvedChatJid = session.lidToPhone[rawLidJid];
+      } else {
+        return _skip('unresolvable_lid');
       }
-      // else: unknown contact — keep LID as fallback (no mapping available yet)
     }
 
     const chatId = jidNormalizedUser(resolvedChatJid);
     const isGroup = chatId?.endsWith('@g.us');
 
     // senderJid: who actually authored this message.
-    //   Group:          msg.key.participant (member's JID within the group)
+    //   Group (phone):  msg.key.participant (member's JID within the group)
+    //   Group (LID):    msg.key.participantPn (Baileys resolves the real phone for us) + cache mapping
     //   Inbound LID:    senderPn (real phone number provided by Baileys)
     //   Inbound normal: remoteJid (the other party IS the sender)
     //   Outbound:       resolved chatId (placeholder — own JID not available here)
     let rawSenderJid;
     if (isGroup) {
-      rawSenderJid = msg.key.participant || rawJid;
+      const participant = msg.key.participant || rawJid;
+      const participantPn = msg.key.participantPn;
+      if (participant?.endsWith('@lid')) {
+        if (participantPn) {
+          // Baileys provides real-time resolution — use it and cache for future messages.
+          rawSenderJid = participantPn;
+          const lidKey  = jidNormalizedUser(participant);
+          const phoneVal = jidNormalizedUser(participantPn);
+          if (lidKey && phoneVal) session.lidToPhone[lidKey] = phoneVal;
+        } else {
+          // No participantPn — try the session cache built from contacts.set.
+          const lidKey = jidNormalizedUser(participant);
+          const cached = session.lidToPhone[lidKey];
+          if (cached) {
+            rawSenderJid = cached;
+          } else {
+            // Completely unresolvable — drop loudly rather than creating a LID-keyed contact.
+            return _skip('unresolvable_lid');
+          }
+        }
+      } else {
+        rawSenderJid = participant;
+      }
     } else if (!fromMe && isLidJid && senderPn) {
       rawSenderJid = senderPn;
     } else {
@@ -562,7 +584,12 @@ class SessionManager {
       from_me: msg.key?.fromMe ?? null,
       has_message: !!msg.message,
       reason,
-      raw_key: msg.key || null,
+      // Merge the message field names into raw_key so the UI can show
+      // whether a senderKeyDistributionMessage drop was a pure key envelope
+      // (only _msgKeys: ['senderKeyDistributionMessage']) or a combined one.
+      raw_key: msg.key
+        ? { ...msg.key, _msgKeys: Object.keys(msg.message || {}) }
+        : null,
     });
   }
 

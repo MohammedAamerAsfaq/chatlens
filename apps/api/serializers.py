@@ -41,13 +41,13 @@ class ContactDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = WhatsAppContact
         fields = [
-            'id', 'account_id', 'wa_contact_id', 'phone_number',
+            'id', 'account_id', 'wa_contact_id', 'lid_jid', 'phone_number',
             'display_name', 'push_name', 'is_business',
             'contact_type', 'message_count', 'chat_id', 'chat_db_id',
             'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'account_id', 'wa_contact_id', 'phone_number',
+            'id', 'account_id', 'wa_contact_id', 'lid_jid', 'phone_number',
             'push_name', 'is_business', 'contact_type',
             'message_count', 'chat_id', 'chat_db_id',
             'created_at', 'updated_at',
@@ -58,7 +58,7 @@ class ContactDetailSerializer(serializers.ModelSerializer):
         if jid.endswith('@s.whatsapp.net'):
             return 'phone'
         if jid.endswith('@lid'):
-            return 'lid'
+            return 'lid'  # should be zero after migration; kept for observability
         if jid.endswith('@g.us'):
             return 'group'
         return 'unknown'

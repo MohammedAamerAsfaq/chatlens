@@ -148,72 +148,36 @@ class IngestionService:
     def _upsert_contact(self, account: WhatsAppAccount, payload: dict) -> WhatsAppContact:
         sender_number = payload.get('sender_number', '')
         chat_type = payload.get('chat_type', ChatType.INDIVIDUAL)
+        push_name = payload.get('push_name', '')
+        direction = payload.get('direction', 'inbound')
 
         # For individual chats the contact JID is the chat JID.
-        # For groups the contact JID is the sender's JID.
+        # For group messages the contact JID is the sender's phone JID.
         if chat_type == ChatType.INDIVIDUAL:
             wa_contact_id = payload.get('chat_id', sender_number)
         else:
             wa_contact_id = f"{sender_number}@s.whatsapp.net" if sender_number else payload.get('chat_id', '')
 
-        is_lid = wa_contact_id.endswith('@lid')
-        push_name = payload.get('push_name', '')
-        direction = payload.get('direction', 'inbound')
+        # The worker must always resolve LID → phone JID before forwarding.
+        # A LID reaching ingestion means the pipeline is broken upstream.
+        if wa_contact_id.endswith('@lid'):
+            raise ValueError(
+                f'Unresolved LID {wa_contact_id!r} reached ingestion for account {account.pk}. '
+                'Worker must resolve LID to phone JID before forwarding.'
+            )
 
-        # Fields to set on both create and update
-        defaults = {}
+        defaults = {'phone_number': sender_number}
         if push_name and direction == 'inbound':
             defaults['push_name'] = push_name
-            defaults['display_name'] = push_name
-
-        # For non-LID contacts, always keep phone_number current.
-        # For LID contacts: the worker resolves LID→phone before sending, so chat_id is
-        # normally a phone JID and is_lid will be False. A LID chat_id only reaches here
-        # for contacts not yet in contacts.set (unknown at connect time). Don't store the
-        # LID local-part as a phone_number in that case.
-        if not is_lid:
-            defaults['phone_number'] = sender_number
-
-        # create_defaults: only applied when creating a new record, not on update.
-        create_defaults = {'phone_number': ''} if is_lid else {}
 
         contact, _ = WhatsAppContact.objects.update_or_create(
             account=account,
             wa_contact_id=wa_contact_id,
             defaults=defaults,
-            create_defaults=create_defaults,
+            # display_name seeded only on creation so users can customise it without
+            # it being overwritten on every inbound message.
+            create_defaults={'display_name': push_name} if push_name else {},
         )
-
-        # Cross-link names between phone-JID and LID contacts for the same person.
-        # Group messages arrive with phone JIDs (sender_number = real phone), so when
-        # a push_name comes in for a phone-JID contact, also apply it to the LID contact
-        # whose resolved phone_number matches — and vice versa.
-        if push_name and direction == 'inbound':
-            if not is_lid and sender_number:
-                # Phone-JID contact got a name — propagate to any matching LID contact
-                WhatsAppContact.objects.filter(
-                    account=account,
-                    wa_contact_id__endswith='@lid',
-                    phone_number=sender_number,
-                ).update(push_name=push_name)
-                WhatsAppContact.objects.filter(
-                    account=account,
-                    wa_contact_id__endswith='@lid',
-                    phone_number=sender_number,
-                    display_name='',
-                ).update(display_name=push_name)
-            elif is_lid:
-                # LID contact got a name — propagate to the phone-JID contact if phone is resolved
-                resolved_phone = contact.phone_number
-                if resolved_phone:
-                    phone_jid = f"{resolved_phone}@s.whatsapp.net"
-                    WhatsAppContact.objects.filter(
-                        account=account, wa_contact_id=phone_jid
-                    ).update(push_name=push_name)
-                    WhatsAppContact.objects.filter(
-                        account=account, wa_contact_id=phone_jid, display_name=''
-                    ).update(display_name=push_name)
-
         return contact
 
     def _upsert_chat(

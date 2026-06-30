@@ -25,25 +25,27 @@ const pageEnd    = computed(() => Math.min(page.value * pageSize.value, totalCou
 let pollTimer = null
 
 const REASON_LABELS = {
-  no_remote_jid:              'No JID',
-  no_message_content:         'No Content',
-  prepend_no_content:         'Prepend: No Content',
-  forward_failed:             'Forward Failed',
-  build_error:                'Build Error',
-  protocolMessage:            'Protocol Msg',
+  no_remote_jid:                'No JID',
+  no_message_content:           'No Content',
+  prepend_no_content:           'Prepend: No Content',
+  forward_failed:               'Forward Failed',
+  build_error:                  'Build Error',
+  protocolMessage:              'Protocol Msg',
   senderKeyDistributionMessage: 'Key Distribution',
-  'status@broadcast':         'Status Broadcast',
+  unresolvable_lid:             'Unresolvable LID',
+  'status@broadcast':           'Status Broadcast',
 }
 
 const REASON_STYLE = {
-  no_remote_jid:              'bg-red-100 text-red-700',
-  no_message_content:         'bg-yellow-100 text-yellow-700',
-  prepend_no_content:         'bg-orange-100 text-orange-700',
-  forward_failed:             'bg-red-100 text-red-800 font-semibold',
-  build_error:                'bg-red-100 text-red-800 font-semibold',
-  protocolMessage:            'bg-gray-100 text-gray-500',
+  no_remote_jid:                'bg-red-100 text-red-700',
+  no_message_content:           'bg-yellow-100 text-yellow-700',
+  prepend_no_content:           'bg-orange-100 text-orange-700',
+  forward_failed:               'bg-red-100 text-red-800 font-semibold',
+  build_error:                  'bg-red-100 text-red-800 font-semibold',
+  protocolMessage:              'bg-gray-100 text-gray-500',
   senderKeyDistributionMessage: 'bg-gray-100 text-gray-500',
-  'status@broadcast':         'bg-gray-100 text-gray-400',
+  unresolvable_lid:             'bg-purple-100 text-purple-700 font-semibold',
+  'status@broadcast':           'bg-gray-100 text-gray-400',
 }
 
 // messageStubType reasons are dynamic (e.g. "messageStubType:10")

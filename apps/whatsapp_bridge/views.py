@@ -152,20 +152,31 @@ def internal_contacts_update(request):
             push_name = (contact_data.get('push_name') or '').strip()
             if not wa_contact_id or not push_name:
                 continue
-            phone_from_jid = contact_data.get('phone_number', '')
-            is_lid = wa_contact_id.endswith('@lid')
 
-            # Create the contact if it doesn't exist yet (e.g. address-book contacts
-            # that have never sent a direct message or group message to this account).
-            # On update: refresh push_name (their WA display name may change).
-            # On create: also seed display_name and phone_number.
+            # LID JIDs must never be primary contact identifiers.
+            # The worker sends phone JIDs as wa_contact_id and LIDs as the lid_jid alias.
+            if wa_contact_id.endswith('@lid'):
+                logger.error(
+                    'internal_contacts_update: rejected LID primary %s — '
+                    'worker must send phone JID as wa_contact_id with lid_jid as alias',
+                    wa_contact_id,
+                )
+                continue
+
+            phone_number = contact_data.get('phone_number', '')
+            lid_jid = contact_data.get('lid_jid') or None
+
+            defaults = {'push_name': push_name}
+            if lid_jid:
+                defaults['lid_jid'] = lid_jid
+
             contact, created = WhatsAppContact.objects.update_or_create(
                 account=account,
                 wa_contact_id=wa_contact_id,
-                defaults={'push_name': push_name},
+                defaults=defaults,
                 create_defaults={
                     'display_name': push_name,
-                    'phone_number': phone_from_jid,
+                    'phone_number': phone_number,
                 },
             )
 
@@ -173,24 +184,10 @@ def internal_contacts_update(request):
                 extra = {}
                 if not contact.display_name:
                     extra['display_name'] = push_name
-                if phone_from_jid:
-                    if is_lid or not contact.phone_number:
-                        extra['phone_number'] = phone_from_jid
+                if phone_number and not contact.phone_number:
+                    extra['phone_number'] = phone_number
                 if extra:
                     WhatsAppContact.objects.filter(pk=contact.pk).update(**extra)
-
-            # Cross-link: when a LID contact has a resolved phone number, also update
-            # the phone-JID contact (phone@s.whatsapp.net) with the name.
-            # Chats are linked to phone-JID contacts, so without this cross-link
-            # the chat list shows the phone number instead of the contact's name.
-            if is_lid and phone_from_jid:
-                phone_jid = f"{phone_from_jid}@s.whatsapp.net"
-                WhatsAppContact.objects.filter(
-                    account=account, wa_contact_id=phone_jid
-                ).update(push_name=push_name)
-                WhatsAppContact.objects.filter(
-                    account=account, wa_contact_id=phone_jid, display_name=''
-                ).update(display_name=push_name)
 
             updated += 1
         return JsonResponse({'status': 'ok', 'updated': updated})
