@@ -11,6 +11,7 @@ import GroupsView           from '../views/GroupsView.vue'
 import TradingView          from '../views/TradingView.vue'
 import InquiriesView        from '../views/InquiriesView.vue'
 import ProductsView         from '../views/ProductsView.vue'
+import AIInstructionsView   from '../views/AIInstructionsView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -27,6 +28,7 @@ const router = createRouter({
     { path: '/trading', name: 'trading', component: TradingView },
     { path: '/inquiries', name: 'inquiries', component: InquiriesView },
     { path: '/products', name: 'products', component: ProductsView },
+    { path: '/ai-instructions', name: 'ai-instructions', component: AIInstructionsView },
   ],
 })
 

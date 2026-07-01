@@ -37,6 +37,7 @@ class MessageClassification(models.Model):
         max_length=10, choices=INQUIRY_TYPE_CHOICES, blank=True,
     )
     ai_summary   = models.TextField(blank=True)
+    dedup_key    = models.CharField(max_length=512, blank=True, default='')
     raw_response = models.JSONField(null=True, blank=True)
     classified_at = models.DateTimeField(auto_now_add=True)
 

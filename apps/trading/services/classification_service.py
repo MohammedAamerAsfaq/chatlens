@@ -9,42 +9,6 @@ VALID_TAGS = {
     'negotiation', 'deal_confirmation', 'greeting', 'joke', 'spam', 'other',
 }
 
-SYSTEM_PROMPT = """\
-You are a B2B wholesale mobile trading classifier for a live trading desk.
-Analyze the WhatsApp message below and classify it.
-
-PRODUCT MASTER — match against these products and their aliases \
-(case-insensitive, ignore extra spaces and punctuation):
-{product_block}
-
-Rules:
-- is_inquiry must be true ONLY for genuine buy or sell business opportunities \
-(not greetings, jokes, or casual messages).
-- tags must contain at least one value.
-- products must list every product mentioned in the message, normalised to the canonical name.
-- dedup_key format: "{{buy|sell}}:{{product-slug}}:{{qty-bucket}}:{{contact_id}}" \
-where qty-bucket is the quantity rounded to nearest 5 (use 0 if unknown). \
-Leave empty string if is_inquiry is false.
-- If multiple products: generate one dedup_key covering the primary product.
-
-Respond ONLY with valid JSON — no markdown, no explanation — matching this schema exactly:
-{{
-  "tags": ["<tag>"],
-  "products": [
-    {{
-      "product_id": <int or null if not in master>,
-      "canonical_name": "<string>",
-      "quantity": <int or null>,
-      "price": <float or null>,
-      "currency": "<string or null>"
-    }}
-  ],
-  "is_inquiry": <bool>,
-  "inquiry_type": "buy" | "sell" | "both" | null,
-  "summary": "<one sentence>",
-  "dedup_key": "<string>"
-}}"""
-
 USER_PROMPT = """\
 Classify this message:
 
@@ -56,6 +20,7 @@ Message text: "{message_text}\""""
 
 def _build_prompts(message, product_block: str) -> tuple[str, str]:
     from apps.whatsapp_bridge.models import ChatType
+    from apps.trading.models import PromptConfig, INQUIRY_CLASSIFICATION_DEFAULT
 
     chat = message.chat
     if chat.chat_type == ChatType.GROUP:
@@ -69,7 +34,11 @@ def _build_prompts(message, product_block: str) -> tuple[str, str]:
     elif message.sender_number:
         contact_id = message.sender_number
 
-    system = SYSTEM_PROMPT.format(product_block=product_block)
+    system_template = PromptConfig.get_body(
+        PromptConfig.KEY_INQUIRY_CLASSIFICATION,
+        INQUIRY_CLASSIFICATION_DEFAULT,
+    )
+    system = system_template.replace('{product_block}', product_block)
     user   = USER_PROMPT.format(
         contact_id   = contact_id,
         source       = source,
@@ -111,6 +80,12 @@ def _parse_response(raw: str) -> dict:
         inquiry_type = ''
     if not is_inquiry:
         inquiry_type = ''
+    # Derive from tags if AI left inquiry_type null despite is_inquiry=True
+    if is_inquiry and not inquiry_type:
+        if 'wts' in tags:
+            inquiry_type = 'sell'
+        elif 'wtb' in tags:
+            inquiry_type = 'buy'
 
     return {
         'tags':         tags,
@@ -129,7 +104,6 @@ def classify_message(message) -> None:
     Triggers inquiry creation/update when is_inquiry=True.
     Designed to run inside a background thread — never raises, always logs on failure.
     """
-    from apps.ai_providers.manager import ai_manager
     from apps.trading.models import MessageClassification
     from apps.trading.services.product_cache import get_product_prompt_block
     from apps.trading.services.inquiry_service import process_inquiry
@@ -140,15 +114,20 @@ def classify_message(message) -> None:
     if MessageClassification.objects.filter(message_id=msg_id).exists():
         return
 
-    product_block = get_product_prompt_block()
-    system_prompt, user_prompt = _build_prompts(message, product_block)
-
     try:
-        raw_response = ai_manager.agent(
+        from apps.trading.services.agent_logger import call_agent
+        from apps.trading.models import AgentCallLog
+
+        product_block = get_product_prompt_block()
+        system_prompt, user_prompt = _build_prompts(message, product_block)
+
+        raw_response = call_agent(
+            AgentCallLog.PURPOSE_CLASSIFICATION,
             [
-                {'role': 'system',  'content': system_prompt},
-                {'role': 'user',    'content': user_prompt},
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user',   'content': user_prompt},
             ],
+            wa_message_id=msg_id,
             temperature=0,
         )
     except Exception:
@@ -171,6 +150,7 @@ def classify_message(message) -> None:
         is_inquiry   = parsed['is_inquiry'],
         inquiry_type = parsed['inquiry_type'],
         ai_summary   = parsed['summary'],
+        dedup_key    = parsed['dedup_key'],
         raw_response = parsed['raw'],
     )
     logger.info(

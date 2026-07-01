@@ -95,12 +95,27 @@ export const tradingApi = {
   deleteProduct:  (id)          => http.delete(`/products/${id}/`),
   getProductStats:(params)      => http.get('/products/stats/', { params }),
 
+  // Bulk product helpers
+  parseProductText:   (text)     => http.post('/products/parse-text/', { text }),
+  bulkCreateProducts: (products) => http.post('/products/bulk-create/', { products }),
+
+  // AI Prompts
+  listPrompts:      ()            => http.get('/prompts/'),
+  savePrompt:       (key, body)   => http.patch(`/prompts/${key}/`, { body }),
+  resetPrompt:      (key)         => http.delete(`/prompts/${key}/`),
+  getActiveAgent:   ()            => http.get('/prompts/active-agent/'),
+  saveAgentPricing: (data)        => http.patch('/prompts/active-agent/', data),
+  listAgentLogs:    (params)      => http.get('/agent-logs/', { params }),
+
   // Inquiries
-  listInquiries:  (params)      => http.get('/inquiries/', { params }),
-  getInquiry:     (id)          => http.get(`/inquiries/${id}/`),
-  updateInquiry:  (id, data)    => http.patch(`/inquiries/${id}/`, data),
-  getStats:       (params)      => http.get('/inquiries/stats/', { params }),
-  getOpenFeed:    (params)      => http.get('/inquiries/open-feed/', { params }),
+  listInquiries:          (params)      => http.get('/inquiries/', { params }),
+  getInquiry:             (id)          => http.get(`/inquiries/${id}/`),
+  updateInquiry:          (id, data)    => http.patch(`/inquiries/${id}/`, data),
+  getStats:               (params)      => http.get('/inquiries/stats/', { params }),
+  getOpenFeed:            (params)      => http.get('/inquiries/open-feed/', { params }),
+  getClassificationActivity: (params)  => http.get('/inquiries/classification-activity/', { params }),
+  backfillClassify:       (data)        => http.post('/inquiries/backfill-classify/', data),
+  retryInquiries:         (data)        => http.post('/inquiries/retry-inquiries/', data),
 }
 
 export const aiProvidersApi = {

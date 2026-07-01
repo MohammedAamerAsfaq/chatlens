@@ -85,6 +85,7 @@
             <div class="card-actions">
               <button class="act-btn close" @click="act(inq, 'closed')">Close</button>
               <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
+              <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id)" title="Open conversation">Chat →</button>
             </div>
           </div>
           <div v-if="buyFeed.length === 0" class="feed-empty">No open buying inquiries</div>
@@ -121,6 +122,7 @@
             <div class="card-actions">
               <button class="act-btn close" @click="act(inq, 'closed')">Close</button>
               <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
+              <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id)" title="Open conversation">Chat →</button>
             </div>
           </div>
           <div v-if="sellFeed.length === 0" class="feed-empty">No open selling offers</div>
@@ -129,6 +131,47 @@
 
       <!-- Analytics sidebar -->
       <div class="analytics-col">
+        <!-- AI Classification Activity -->
+        <div class="analytics-card">
+          <div class="analytics-title" style="display:flex;justify-content:space-between;align-items:center;">
+            <span>AI Pipeline (Today)</span>
+            <div style="display:flex;gap:4px;">
+              <button class="btn-ghost sm" @click="runBackfill" title="Classify recent unclassified messages">Backfill</button>
+              <button
+                v-if="classifyActivity?.today?.pending > 0"
+                class="btn-retry sm"
+                @click="runRetry"
+                title="Re-run inquiry creation for classified messages with no Inquiry record"
+              >Retry ({{ classifyActivity.today.pending }})</button>
+            </div>
+          </div>
+          <div v-if="backfillStatus" class="backfill-msg">{{ backfillStatus }}</div>
+          <pre v-if="retryError" class="retry-error">{{ retryError }}</pre>
+          <div v-if="classifyActivity" class="classify-row">
+            <span class="classify-chip total">{{ classifyActivity.today.total }} classified</span>
+            <span class="classify-chip inquiry">{{ classifyActivity.today.as_inquiry }} inquiries</span>
+            <span v-if="classifyActivity.today.pending > 0" class="classify-chip warn">
+              {{ classifyActivity.today.pending }} pending
+            </span>
+            <span v-if="classifyActivity.today.type_missing > 0" class="classify-chip error">
+              {{ classifyActivity.today.type_missing }} no type
+            </span>
+          </div>
+          <div v-if="classifyActivity?.recent?.length" class="recent-classifications">
+            <div
+              v-for="mc in classifyActivity.recent" :key="mc.id"
+              class="mc-row"
+              :class="{ 'mc-inquiry': mc.is_inquiry }"
+            >
+              <span class="mc-badge" :class="mc.is_inquiry ? 'badge-yes' : 'badge-no'">
+                {{ mc.is_inquiry ? (mc.inquiry_type || '?') : 'skip' }}
+              </span>
+              <span class="mc-summary">{{ mc.summary || mc.tags?.join(', ') }}</span>
+            </div>
+          </div>
+          <div v-else-if="classifyActivity" class="feed-empty" style="padding:10px">No classifications today</div>
+        </div>
+
         <!-- Source breakdown -->
         <div class="analytics-card">
           <div class="analytics-title">Source Breakdown</div>
@@ -188,15 +231,29 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useConversationsStore } from '@/stores/conversations'
 import { accountsApi, tradingApi } from '../api/index.js'
 
-const accounts        = ref([])
-const selectedAccount = ref('')
-const stats           = ref({})
-const feed            = ref([])
-const productStats    = ref([])
-const lastUpdate      = ref(null)
-let   pollTimer       = null
+const router = useRouter()
+const convStore = useConversationsStore()
+
+async function viewChat(chatId) {
+  if (!chatId) return
+  await router.push({ name: 'conversations' })
+  await convStore.selectChat(chatId)
+}
+
+const accounts           = ref([])
+const selectedAccount    = ref('')
+const stats              = ref({})
+const feed               = ref([])
+const productStats       = ref([])
+const classifyActivity   = ref(null)
+const backfillStatus     = ref('')
+const retryError         = ref('')
+const lastUpdate         = ref(null)
+let   pollTimer          = null
 
 const buyFeed  = computed(() => feed.value.filter(i => i.inquiry_type === 'buy'))
 const sellFeed = computed(() => feed.value.filter(i => i.inquiry_type === 'sell'))
@@ -225,20 +282,59 @@ function formatAge(secs) {
 
 async function refresh() {
   const accountParam = selectedAccount.value || undefined
-  const [statsRes, feedRes, prodRes] = await Promise.all([
-    tradingApi.getStats(accountParam ? { account: accountParam } : {}),
-    tradingApi.getOpenFeed(accountParam ? { account: accountParam } : {}),
-    tradingApi.getProductStats(accountParam ? { account: accountParam } : {}),
+  const params = accountParam ? { account: accountParam } : {}
+  const [statsRes, feedRes, prodRes, actRes] = await Promise.all([
+    tradingApi.getStats(params),
+    tradingApi.getOpenFeed(params),
+    tradingApi.getProductStats(params),
+    tradingApi.getClassificationActivity(params),
   ])
-  stats.value        = statsRes.data
-  feed.value         = feedRes.data
-  productStats.value = prodRes.data
-  lastUpdate.value   = Date.now()
+  stats.value            = statsRes.data
+  feed.value             = feedRes.data
+  productStats.value     = prodRes.data
+  classifyActivity.value = actRes.data
+  lastUpdate.value       = Date.now()
 }
 
 async function act(inq, status) {
   await tradingApi.updateInquiry(inq.id, { status })
   await refresh()
+}
+
+async function runBackfill() {
+  backfillStatus.value = 'Queuing…'
+  try {
+    const accountParam = selectedAccount.value || undefined
+    const { data } = await tradingApi.backfillClassify(
+      accountParam ? { account: accountParam, limit: 20 } : { limit: 20 }
+    )
+    backfillStatus.value = `Queued ${data.queued} message(s) — check logs in ~30s`
+    setTimeout(() => { backfillStatus.value = '' }, 15000)
+    setTimeout(refresh, 8000)
+  } catch (e) {
+    backfillStatus.value = 'Failed: ' + (e.response?.data?.detail || e.message)
+  }
+}
+
+async function runRetry() {
+  backfillStatus.value = 'Retrying inquiry creation…'
+  try {
+    const accountParam = selectedAccount.value || undefined
+    const { data } = await tradingApi.retryInquiries(
+      accountParam ? { account: accountParam } : {}
+    )
+    if (data.errors && data.first_error) {
+      backfillStatus.value = `Created ${data.created}, ${data.errors} errors — see below`
+      retryError.value = data.first_error
+    } else {
+      backfillStatus.value = `Created ${data.created} inquiries`
+      retryError.value = ''
+      setTimeout(() => { backfillStatus.value = '' }, 10000)
+    }
+    await refresh()
+  } catch (e) {
+    backfillStatus.value = 'Failed: ' + (e.response?.data?.detail || e.message)
+  }
 }
 
 onMounted(async () => {
@@ -300,6 +396,7 @@ onUnmounted(() => {
 .act-btn { padding: 4px 12px; border: none; border-radius: 5px; cursor: pointer; font-size: 0.8rem; font-weight: 500; }
 .act-btn.close { background: #f3f4f6; color: #374151; }
 .act-btn.deal  { background: #16a34a; color: #fff; }
+.act-btn.chat  { background: #eff6ff; color: #1d4ed8; margin-left: auto; }
 .feed-empty { text-align: center; color: #9ca3af; font-size: 0.85rem; padding: 30px; }
 /* Analytics */
 .analytics-col { overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; background: #fff; }
@@ -323,4 +420,20 @@ onUnmounted(() => {
 .legend-dot.wts { background: #f97316; }
 .btn-ghost { padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 6px; background: transparent; cursor: pointer; font-size: 0.85rem; }
 .btn-ghost.sm { padding: 4px 10px; font-size: 0.8rem; }
+/* Classification activity */
+.backfill-msg { font-size: 0.75rem; color: #6b7280; margin-bottom: 6px; }
+.classify-row { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.classify-chip { padding: 2px 8px; border-radius: 999px; font-size: 0.73rem; font-weight: 600; }
+.classify-chip.total   { background: #f3f4f6; color: #374151; }
+.classify-chip.inquiry { background: #dcfce7; color: #15803d; }
+.classify-chip.warn    { background: #fef9c3; color: #92400e; }
+.classify-chip.error   { background: #fee2e2; color: #b91c1c; }
+.btn-retry { padding: 4px 10px; font-size: 0.8rem; border: 1px solid #f59e0b; border-radius: 6px; background: #fffbeb; color: #92400e; cursor: pointer; font-weight: 600; }
+.recent-classifications { display: flex; flex-direction: column; gap: 3px; }
+.mc-row { display: flex; align-items: flex-start; gap: 6px; padding: 3px 0; border-bottom: 1px solid #f3f4f6; }
+.mc-badge { flex-shrink: 0; padding: 1px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; }
+.badge-yes { background: #dcfce7; color: #15803d; }
+.badge-no  { background: #f3f4f6; color: #9ca3af; }
+.mc-summary { font-size: 0.75rem; color: #374151; line-height: 1.3; }
+.retry-error { font-size: 0.7rem; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; padding: 6px 8px; white-space: pre-wrap; word-break: break-all; margin-top: 6px; max-height: 200px; overflow-y: auto; }
 </style>

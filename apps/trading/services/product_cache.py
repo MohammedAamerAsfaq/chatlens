@@ -27,9 +27,11 @@ def get_product_prompt_block() -> str:
 
         lines = []
         for p in products:
-            aliases_str = ', '.join(p.aliases) if p.aliases else 'none'
-            brand_part  = f'[{p.brand}] ' if p.brand else ''
-            lines.append(f'ID:{p.pk}  {brand_part}{p.name}  →  aliases: {aliases_str}')
+            brand_part = f'[{p.brand}] ' if p.brand else ''
+            line = f'ID:{p.pk}  {brand_part}{p.name}'
+            if p.aliases:
+                line += f'  (also known as: {", ".join(p.aliases)})'
+            lines.append(line)
 
         _cache['block'] = '\n'.join(lines)
         logger.debug('product_cache | rebuilt | products=%d', len(products))

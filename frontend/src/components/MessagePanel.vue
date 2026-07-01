@@ -2,6 +2,8 @@
 import { watch, nextTick, ref, computed } from 'vue'
 import { useConversationsStore } from '@/stores/conversations'
 
+defineOptions({ inheritAttrs: false })
+
 const store = useConversationsStore()
 const messagesEl = ref(null)
 
@@ -124,7 +126,7 @@ watch(lightbox, (val) => {
 </script>
 
 <template>
-  <div class="flex flex-col overflow-hidden bg-[#efeae2] flex-1 min-w-0 h-full">
+  <div v-bind="$attrs" class="flex flex-col overflow-hidden bg-[#efeae2] flex-1 min-w-0 h-full">
 
     <!-- Empty state -->
     <div v-if="!store.selectedChatId" class="flex-1 flex items-center justify-center bg-[#f0f2f5]">

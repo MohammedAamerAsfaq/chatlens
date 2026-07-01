@@ -5,24 +5,60 @@ import { accountsApi } from '@/api'
 const props = defineProps({ accountId: Number })
 const emit = defineEmits(['close'])
 
-const qrImage = ref(null)
+const qrImage   = ref(null)
 const connected = ref(false)
-const message = ref('Generating QR code...')
-let pollTimer = null
+const message   = ref('Starting session…')
+const error     = ref('')
+let pollTimer   = null
+
+function stopPolling() {
+  clearInterval(pollTimer)
+  pollTimer = null
+}
+
+function startPolling() {
+  stopPolling()
+  poll()
+  pollTimer = setInterval(() => {
+    if (!connected.value) {
+      poll()
+      pollConnection()
+    }
+  }, 3000)
+}
 
 async function poll() {
   try {
     const { data, status } = await accountsApi.getQR(props.accountId)
 
     if (status === 202 || !data.qr) {
-      message.value = 'Generating QR code...'
+      message.value = 'Generating QR code…'
       return
     }
 
+    error.value   = ''
     qrImage.value = data.qr
     message.value = 'Open WhatsApp → Linked Devices → Link a Device → Scan'
-  } catch {
-    // keep polling
+  } catch (e) {
+    const status = e.response?.status
+    if (status === 404) {
+      // Session died or never started — restart it automatically
+      stopPolling()
+      message.value = 'Restarting session…'
+      try {
+        await accountsApi.startSession(props.accountId)
+        message.value = 'Generating QR code…'
+        startPolling()
+      } catch {
+        error.value   = 'Could not start session. Check that the WhatsApp worker is running.'
+        message.value = 'Failed to start'
+      }
+    } else if (status === 503) {
+      error.value   = 'Worker is offline. Restart the WhatsApp worker and try again.'
+      message.value = 'Worker offline'
+      stopPolling()
+    }
+    // other transient errors: keep polling silently
   }
 }
 
@@ -31,23 +67,26 @@ async function pollConnection() {
     const { data } = await accountsApi.get(props.accountId)
     if (data.session_status === 'connected') {
       connected.value = true
-      message.value = 'Connected successfully!'
-      clearInterval(pollTimer)
+      message.value   = 'Connected successfully!'
+      stopPolling()
     }
   } catch {}
 }
 
-onMounted(() => {
-  poll()
-  pollTimer = setInterval(() => {
-    if (!connected.value) {
-      poll()
-      pollConnection()
-    }
-  }, 3000)
+onMounted(async () => {
+  // Always (re)start the session when the modal opens so stale qr_generated
+  // states are automatically recovered without the user having to close and
+  // click Connect separately.
+  try {
+    await accountsApi.startSession(props.accountId)
+  } catch {
+    // Session may already be running — ignore and just start polling
+  }
+  message.value = 'Generating QR code…'
+  startPolling()
 })
 
-onUnmounted(() => clearInterval(pollTimer))
+onUnmounted(stopPolling)
 </script>
 
 <template>
@@ -62,6 +101,9 @@ onUnmounted(() => clearInterval(pollTimer))
       <div class="flex justify-center mb-6">
         <div v-if="connected" class="w-56 h-56 flex items-center justify-center">
           <span class="text-green-500 text-7xl">✓</span>
+        </div>
+        <div v-else-if="error" class="w-56 h-56 bg-red-50 border border-red-200 rounded-lg flex items-center justify-center p-4">
+          <span class="text-red-600 text-sm text-center">{{ error }}</span>
         </div>
         <img
           v-else-if="qrImage"

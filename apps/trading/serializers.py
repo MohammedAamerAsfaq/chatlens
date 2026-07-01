@@ -38,22 +38,23 @@ class InquiryMessageSerializer(serializers.ModelSerializer):
 
 
 class InquirySerializer(serializers.ModelSerializer):
-    contact_name  = serializers.SerializerMethodField()
-    contact_phone = serializers.SerializerMethodField()
-    age_seconds   = serializers.SerializerMethodField()
+    contact_name   = serializers.SerializerMethodField()
+    contact_phone  = serializers.SerializerMethodField()
+    age_seconds    = serializers.SerializerMethodField()
+    source_chat_id = serializers.SerializerMethodField()
 
     class Meta:
         model  = Inquiry
         fields = [
             'id', 'account', 'contact', 'contact_name', 'contact_phone',
             'inquiry_type', 'status', 'products', 'summary', 'remarks',
-            'dedup_key', 'source_type', 'first_seen_at', 'closed_at',
+            'dedup_key', 'source_type', 'source_chat_id', 'first_seen_at', 'closed_at',
             'age_seconds', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'account', 'contact', 'contact_name', 'contact_phone',
             'inquiry_type', 'products', 'summary', 'dedup_key', 'source_type',
-            'first_seen_at', 'age_seconds', 'created_at', 'updated_at',
+            'source_chat_id', 'first_seen_at', 'age_seconds', 'created_at', 'updated_at',
         ]
 
     def get_contact_name(self, obj):
@@ -70,6 +71,10 @@ class InquirySerializer(serializers.ModelSerializer):
     def get_age_seconds(self, obj):
         from django.utils.timezone import now
         return int((now() - obj.first_seen_at).total_seconds())
+
+    def get_source_chat_id(self, obj):
+        link = obj.inquiry_messages.select_related('message').first()
+        return link.message.chat_id if link else None
 
 
 class InquiryDetailSerializer(InquirySerializer):
