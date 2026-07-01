@@ -1,7 +1,7 @@
 import logging
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from .models import AIProviderConfig
 from .serializers import AIProviderConfigSerializer, PROVIDER_MODELS
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class AIProviderConfigViewSet(viewsets.ModelViewSet):
     queryset = AIProviderConfig.objects.all()
     serializer_class = AIProviderConfigSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     @action(detail=True, methods=['post'], url_path='activate')
     def activate(self, request, pk=None):

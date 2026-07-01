@@ -3,7 +3,7 @@ import threading
 from django.db import connection as _db_conn
 from django.db.models import Q
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 
@@ -47,7 +47,7 @@ def semantic_search_view(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def embedding_status_view(request):
     """GET /api/intelligence/embedding-status/?account_id=X
     Returns counts of messages with/without embeddings for an account (or all accounts).
@@ -67,7 +67,7 @@ def embedding_status_view(request):
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def embedding_backfill_view(request):
     """POST /api/intelligence/backfill/  body: { account_id?, limit? }
     Starts a background thread to embed pending messages and returns immediately.

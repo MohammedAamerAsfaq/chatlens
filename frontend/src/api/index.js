@@ -17,6 +17,22 @@ http.interceptors.request.use(config => {
   return config
 })
 
+http.interceptors.response.use(
+  res => res,
+  err => {
+    if (err.response?.status === 401 && !err.config?.url?.includes('/auth/')) {
+      window.location.href = '/login'
+    }
+    return Promise.reject(err)
+  },
+)
+
+export const authApi = {
+  login:  (data)  => http.post('/auth/login/',  data),
+  logout: ()      => http.post('/auth/logout/'),
+  me:     ()      => http.get('/auth/me/'),
+}
+
 export const accountsApi = {
   list: () => http.get('/accounts/'),
   create: (data) => http.post('/accounts/', data),

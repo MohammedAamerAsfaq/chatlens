@@ -5,7 +5,7 @@ from django.utils.timezone import now
 from datetime import timedelta
 from rest_framework import viewsets, mixins, status
 from rest_framework.decorators import action
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .models import Product, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, AgentCallLog
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 class ProductViewSet(viewsets.ModelViewSet):
     serializer_class   = ProductSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         qs = Product.objects.all()
@@ -245,7 +245,7 @@ class InquiryViewSet(viewsets.GenericViewSet,
                      mixins.ListModelMixin,
                      mixins.RetrieveModelMixin,
                      mixins.UpdateModelMixin):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get_serializer_class(self):
         if self.action == 'retrieve':
@@ -547,7 +547,7 @@ class InquiryViewSet(viewsets.GenericViewSet,
 
 class MessageClassificationViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
     serializer_class   = MessageClassificationSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         qs = MessageClassification.objects.order_by('-classified_at')
@@ -557,7 +557,7 @@ class MessageClassificationViewSet(viewsets.GenericViewSet, mixins.ListModelMixi
 
 
 class PromptConfigViewSet(viewsets.GenericViewSet):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def list(self, request):
         """Return all prompt configs with their current body (or default if not saved yet)."""
@@ -642,7 +642,7 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
 
 
 class AgentCallLogViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         qs = AgentCallLog.objects.all()

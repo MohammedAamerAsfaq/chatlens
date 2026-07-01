@@ -1,4 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '@/stores/auth.js'
+import LoginView           from '../views/LoginView.vue'
 import SessionView          from '../views/SessionView.vue'
 import ConversationsView    from '../views/ConversationsView.vue'
 import ActivityView         from '../views/ActivityView.vue'
@@ -16,6 +18,7 @@ import AIInstructionsView   from '../views/AIInstructionsView.vue'
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
+    { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
     { path: '/', name: 'sessions', component: SessionView },
     { path: '/conversations', name: 'conversations', component: ConversationsView },
     { path: '/activity', name: 'activity', component: ActivityView },
@@ -30,6 +33,13 @@ const router = createRouter({
     { path: '/products', name: 'products', component: ProductsView },
     { path: '/ai-instructions', name: 'ai-instructions', component: AIInstructionsView },
   ],
+})
+
+router.beforeEach(async (to) => {
+  if (to.meta.public) return true
+  const auth = useAuthStore()
+  if (!auth.ready) await auth.init()
+  if (!auth.user) return { name: 'login' }
 })
 
 export default router

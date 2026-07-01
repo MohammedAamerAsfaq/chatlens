@@ -13,10 +13,11 @@ from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Count, Q
 from django.utils.dateparse import parse_datetime
+from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
 from rest_framework import viewsets, status
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact,
@@ -34,7 +35,7 @@ WORKER_BASE_URL = getattr(settings, 'WORKER_BASE_URL', 'http://localhost:3001')
 class WhatsAppAccountViewSet(viewsets.ModelViewSet):
     queryset = WhatsAppAccount.objects.all().order_by('-created_at')
     serializer_class = WhatsAppAccountSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
         if self.request.user.is_authenticated:
@@ -423,7 +424,7 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
 
 class ChatViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ChatSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         qs = WhatsAppChat.objects.select_related('contact').order_by('-last_message_at')
@@ -619,7 +620,7 @@ class ActivityPagination(PageNumberPagination):
 
 class SyncLogViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = SyncLogSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     pagination_class = ActivityPagination
 
     def get_queryset(self):
@@ -650,7 +651,7 @@ class SyncLogViewSet(viewsets.ReadOnlyModelViewSet):
 
 class DroppedMessageViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = DroppedMessageSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     pagination_class = ActivityPagination
 
     def get_queryset(self):
@@ -675,7 +676,7 @@ class DroppedMessageViewSet(viewsets.ReadOnlyModelViewSet):
 
 class ContactViewSet(viewsets.ModelViewSet):
     serializer_class = ContactDetailSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     pagination_class = ActivityPagination
     http_method_names = ['get', 'patch', 'head', 'options']
 
@@ -736,7 +737,7 @@ class ContactViewSet(viewsets.ModelViewSet):
 
 
 class GroupViewSet(viewsets.ReadOnlyModelViewSet):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     pagination_class = ActivityPagination
 
     def get_serializer_class(self):
@@ -804,3 +805,31 @@ class GroupViewSet(viewsets.ReadOnlyModelViewSet):
             return Response(resp.json())
         except requests.RequestException as e:
             return Response({'error': f'Worker unreachable: {e}'}, status=status.HTTP_502_BAD_GATEWAY)
+
+
+# ─── Auth ─────────────────────────────────────────────────────────────────────
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def auth_login_view(request):
+    username = (request.data.get('username') or '').strip()
+    password = request.data.get('password') or ''
+    user = authenticate(request, username=username, password=password)
+    if user is None:
+        return Response({'detail': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+    auth_login(request, user)
+    return Response({'id': user.pk, 'username': user.username, 'email': user.email})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def auth_logout_view(request):
+    auth_logout(request)
+    return Response({'detail': 'Logged out'})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def auth_me_view(request):
+    u = request.user
+    return Response({'id': u.pk, 'username': u.username, 'email': u.email})
