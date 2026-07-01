@@ -499,15 +499,17 @@ class InquiryViewSet(viewsets.GenericViewSet,
     def backfill_classify(self, request):
         """
         Classify recent inbound messages that have no classification yet.
+        Restricted to messages < 24 h old — same policy as the live pipeline.
         Runs in background threads — returns immediately with a count of messages queued.
-        Bypasses the 24h age gate so older messages can be tested.
         """
         import threading
+        from django.utils.timezone import now, timedelta
         from apps.whatsapp_bridge.models import WhatsAppMessage
         from apps.trading.models import MessageClassification
 
         limit      = min(int(request.data.get('limit', 10)), 50)
         account_id = request.data.get('account')
+        cutoff     = now() - timedelta(hours=24)
 
         already_done = set(
             MessageClassification.objects.values_list('message_id', flat=True)
@@ -515,7 +517,7 @@ class InquiryViewSet(viewsets.GenericViewSet,
 
         qs = (
             WhatsAppMessage.objects
-            .filter(direction='inbound')
+            .filter(direction='inbound', message_time__gte=cutoff)
             .exclude(message_text='')
             .select_related('account', 'chat', 'contact')
             .order_by('-message_time')
