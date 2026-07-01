@@ -7,6 +7,7 @@
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn-ghost" @click="openBulk">Bulk Import</button>
+        <button class="btn-ghost btn-inv" @click="openInventory">Update Inventory</button>
         <button class="btn-primary" @click="openCreate">+ Add Product</button>
       </div>
     </div>
@@ -26,13 +27,16 @@
             <th>Brand</th>
             <th>Category</th>
             <th>Aliases</th>
+            <th class="th-inv">Qty</th>
+            <th class="th-inv">Cost</th>
+            <th class="th-inv">Sale</th>
             <th>Active</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="filtered.length === 0">
-            <td colspan="6" class="empty">No products found.</td>
+            <td colspan="9" class="empty">No products found.</td>
           </tr>
           <tr v-for="p in filtered" :key="p.id" :class="{ inactive: !p.is_active }">
             <td class="col-name">{{ p.name }}</td>
@@ -42,6 +46,9 @@
               <span v-for="a in p.aliases" :key="a" class="alias-chip">{{ a }}</span>
               <span v-if="!p.aliases.length" class="muted">—</span>
             </td>
+            <td class="td-inv">{{ p.qty ?? 0 }}</td>
+            <td class="td-inv">{{ p.cost_price != null ? p.cost_price : '—' }}</td>
+            <td class="td-inv">{{ p.sale_price != null ? p.sale_price : '—' }}</td>
             <td>
               <span :class="['status-dot', p.is_active ? 'active' : 'inactive']">
                 {{ p.is_active ? 'Active' : 'Inactive' }}
@@ -164,6 +171,116 @@
       </div>
     </div>
 
+    <!-- Update Inventory modal -->
+    <div v-if="inv.open" class="modal-backdrop" @click.self="closeInventory">
+      <div class="modal modal-wide">
+
+        <div class="modal-head">
+          <h3>Update Inventory</h3>
+          <p class="inv-sub">
+            Paste your lists — the AI matches products and extracts qty, cost, and sale price.
+            <RouterLink to="/ai-instructions" class="edit-prompt-link" @click="closeInventory">Edit AI instructions →</RouterLink>
+          </p>
+          <div class="tab-bar">
+            <button :class="['tab-btn', inv.step === 'input' && 'active']" @click="inv.step = 'input'">Input</button>
+            <button :class="['tab-btn', inv.step === 'review' && 'active']" :disabled="!inv.preview.length" @click="inv.step = 'review'">
+              Review{{ inv.preview.length ? ` (${inv.preview.length})` : '' }}
+            </button>
+          </div>
+        </div>
+
+        <div class="modal-body">
+
+          <!-- Input step -->
+          <template v-if="inv.step === 'input'">
+            <div class="inv-grid">
+              <div class="form-group">
+                <label>Stock &amp; Cost list <span class="hint">— qty + purchase price per unit</span></label>
+                <textarea v-model="inv.costText" class="bulk-textarea" rows="10"
+                  placeholder="iPhone 17 Pro 256GB  50 units  cost 850 USD&#10;Samsung S25 Ultra 512GB  30 pcs  @780&#10;AirPods Pro 4  100  cost 180" />
+              </div>
+              <div class="form-group">
+                <label>Sale price list <span class="hint">— selling price per unit (optional)</span></label>
+                <textarea v-model="inv.saleText" class="bulk-textarea" rows="10"
+                  placeholder="iPhone 17 Pro 256GB  950 USD&#10;Samsung S25 Ultra 512GB  890&#10;AirPods Pro 4  210" />
+              </div>
+            </div>
+            <div v-if="inv.error" class="bulk-error">{{ inv.error }}</div>
+          </template>
+
+          <!-- Review step -->
+          <template v-else>
+            <div class="preview-header">
+              <span>{{ inv.preview.length }} items — edit before applying:</span>
+              <button class="btn-ghost btn-sm" @click="inv.step = 'input'">← Back</button>
+            </div>
+            <div class="inv-review-wrap">
+              <table class="data-table preview-table">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Matched</th>
+                    <th style="width:70px">Qty</th>
+                    <th style="width:90px">Cost</th>
+                    <th style="width:90px">Sale</th>
+                    <th style="width:70px">Currency</th>
+                    <th style="width:32px"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(item, i) in inv.preview" :key="i" :class="{ 'row-unmatched': !item.product_id }">
+                    <td>
+                      <input v-model="item.canonical_name" class="inline-input" />
+                    </td>
+                    <td>
+                      <span v-if="item.product_id" class="match-chip">ID {{ item.product_id }}</span>
+                      <span v-else class="no-match-chip">unmatched</span>
+                    </td>
+                    <td><input v-model.number="item.qty" class="inline-input" type="number" min="0" /></td>
+                    <td><input v-model.number="item.cost_price" class="inline-input" type="number" step="0.01" /></td>
+                    <td><input v-model.number="item.sale_price" class="inline-input" type="number" step="0.01" /></td>
+                    <td><input v-model="item.currency" class="inline-input" style="width:55px" /></td>
+                    <td><button class="btn-sm danger" @click="inv.preview.splice(i, 1)">✕</button></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="inv.result" class="bulk-result">
+              ✓ {{ inv.result.updated.length }} updated
+              <span v-if="inv.result.skipped.length">
+                · {{ inv.result.skipped.length }} skipped (not found): {{ inv.result.skipped.join(', ') }}
+              </span>
+            </div>
+          </template>
+
+        </div><!-- /modal-body -->
+
+        <div class="modal-foot">
+          <span v-if="inv.step === 'input' && (inv.costText.trim() || inv.saleText.trim())" class="token-pill">
+            ~{{ Math.round((inv.costText.length + inv.saleText.length) / 4).toLocaleString() }} tokens
+            <span v-if="agentPricing.input_price_per_1m">
+              · ~${{ (((inv.costText.length + inv.saleText.length) / 4 / 1_000_000) * agentPricing.input_price_per_1m).toFixed(6) }}
+            </span>
+          </span>
+          <span v-else class="foot-spacer" />
+          <div class="foot-actions">
+            <button class="btn-ghost" @click="closeInventory">Cancel</button>
+            <button v-if="inv.step === 'input'" class="btn-primary"
+              :disabled="inv.parsing || (!inv.costText.trim() && !inv.saleText.trim())"
+              @click="parseInventory">
+              {{ inv.parsing ? 'Parsing…' : 'Parse with AI' }}
+            </button>
+            <button v-else class="btn-primary"
+              :disabled="inv.applying || !inv.preview.length"
+              @click="applyInventory">
+              {{ inv.applying ? 'Applying…' : `Apply ${inv.preview.length} updates` }}
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
     <!-- Create / Edit modal -->
     <div v-if="modal.open" class="modal-backdrop" @click.self="closeModal">
       <div class="modal">
@@ -237,6 +354,13 @@ const bulk = ref({
 })
 
 const agentPricing = ref({ input_price_per_1m: null })
+
+const inv = ref({
+  open: false, step: 'input',
+  costText: '', saleText: '',
+  parsing: false, applying: false,
+  preview: [], error: '', result: null,
+})
 
 const previewAliases = computed(() =>
   modal.value.aliasText
@@ -363,6 +487,50 @@ async function importBulk() {
   }
 }
 
+function openInventory() {
+  inv.value = { open: true, step: 'input', costText: '', saleText: '', parsing: false, applying: false, preview: [], error: '', result: null }
+  tradingApi.getActiveAgent().then(r => { agentPricing.value = r.data }).catch(() => {})
+}
+
+function closeInventory() {
+  inv.value.open = false
+}
+
+async function parseInventory() {
+  inv.value.error = ''
+  inv.value.parsing = true
+  try {
+    const { data } = await tradingApi.parseInventory(inv.value.costText, inv.value.saleText)
+    if (data.error) throw new Error(data.error)
+    inv.value.preview = data.items.map(item => ({
+      product_id:    item.product_id   ?? null,
+      canonical_name: item.canonical_name || '',
+      qty:           item.qty           ?? null,
+      cost_price:    item.cost_price    ?? null,
+      sale_price:    item.sale_price    ?? null,
+      currency:      item.currency      || 'USD',
+    }))
+    inv.value.step = 'review'
+  } catch (e) {
+    inv.value.error = e.response?.data?.error || e.message || 'AI parsing failed'
+  } finally {
+    inv.value.parsing = false
+  }
+}
+
+async function applyInventory() {
+  inv.value.applying = true
+  inv.value.result = null
+  try {
+    const { data } = await tradingApi.bulkUpdateInventory(inv.value.preview)
+    inv.value.result = data
+    inv.value.preview = []
+    await load()
+  } finally {
+    inv.value.applying = false
+  }
+}
+
 async function deactivate(p) {
   if (!confirm(`Deactivate "${p.name}"? It will no longer appear in AI classification.`)) return
   await tradingApi.updateProduct(p.id, { is_active: false })
@@ -444,4 +612,16 @@ onMounted(load)
 .advanced-section summary { padding: 8px 12px; font-size: 0.83rem; color: #6b7280; cursor: pointer; user-select: none; }
 .advanced-section summary:hover { color: #374151; }
 .advanced-body { display: flex; flex-direction: column; gap: 12px; padding: 12px; border-top: 1px solid #e5e7eb; }
+/* Inventory */
+.btn-inv { border-color: #6366f1; color: #4f46e5; }
+.btn-inv:hover { background: #eef2ff; }
+.th-inv, .td-inv { text-align: right; font-variant-numeric: tabular-nums; color: #374151; }
+.th-inv { font-size: 0.78rem; }
+.inv-sub { margin: 0; font-size: 0.84rem; color: #6b7280; display: flex; gap: 12px; align-items: baseline; }
+.inv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.inv-review-wrap { overflow-x: auto; }
+.match-chip { background: #dcfce7; color: #15803d; padding: 1px 7px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+.no-match-chip { background: #fef9c3; color: #92400e; padding: 1px 7px; border-radius: 4px; font-size: 0.75rem; }
+.row-unmatched td:first-child { color: #92400e; }
+
 </style>

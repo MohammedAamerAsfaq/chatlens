@@ -8,7 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from .models import Product, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, AgentCallLog
+from .models import Product, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, AgentCallLog
 from .serializers import (
     ProductSerializer,
     MessageClassificationSerializer,
@@ -107,6 +107,107 @@ class ProductViewSet(viewsets.ModelViewSet):
         if created:
             invalidate_product_cache()
         return Response({'created': created, 'skipped': skipped})
+
+    @action(detail=False, methods=['post'], url_path='parse-inventory')
+    def parse_inventory(self, request):
+        """
+        Send one or two free-form text blocks to the AI to extract inventory updates.
+        cost_text: product names + qty + cost prices
+        sale_text: product names + sale prices (optional)
+        Returns [{product_id, canonical_name, qty, cost_price, sale_price, currency}].
+        """
+        cost_text = (request.data.get('cost_text') or '').strip()
+        sale_text = (request.data.get('sale_text') or '').strip()
+
+        if not cost_text and not sale_text:
+            return Response({'error': 'Provide at least cost_text or sale_text.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.trading.services.product_cache import get_product_prompt_block
+        from apps.trading.services.agent_logger import call_agent
+
+        product_block = get_product_prompt_block()
+        system_prompt = PromptConfig.get_body(
+            PromptConfig.KEY_INVENTORY_UPDATE,
+            INVENTORY_UPDATE_DEFAULT,
+        ).replace('{product_block}', product_block)
+
+        parts = []
+        if cost_text:
+            parts.append(f'STOCK & COST:\n{cost_text}')
+        if sale_text:
+            parts.append(f'SALE PRICE:\n{sale_text}')
+        user_text = '\n---\n'.join(parts)
+
+        try:
+            raw = call_agent(
+                PromptConfig.KEY_INVENTORY_UPDATE,
+                [
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user',   'content': user_text},
+                ],
+                temperature=0,
+            )
+            cleaned = raw.strip()
+            if cleaned.startswith('```'):
+                cleaned = cleaned.split('\n', 1)[-1].rsplit('```', 1)[0]
+            items = json.loads(cleaned)
+            if not isinstance(items, list):
+                raise ValueError('AI did not return a list')
+            return Response({'items': items})
+        except Exception as exc:
+            logger.exception('parse_inventory | failed')
+            return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['post'], url_path='bulk-update-inventory')
+    def bulk_update_inventory(self, request):
+        """
+        Apply inventory updates: set qty, cost_price, sale_price, currency on matched products.
+        Items with product_id are matched by PK; items without are matched by name (iexact).
+        """
+        items = request.data.get('items') or []
+        updated, skipped = [], []
+
+        for item in items:
+            product_id = item.get('product_id')
+            name       = (item.get('canonical_name') or '').strip()
+            qty        = item.get('qty')
+            cost_price = item.get('cost_price')
+            sale_price = item.get('sale_price')
+            currency   = (item.get('currency') or 'USD').strip()
+
+            product = None
+            if product_id:
+                try:
+                    product = Product.objects.get(pk=product_id)
+                except Product.DoesNotExist:
+                    pass
+            if not product and name:
+                product = Product.objects.filter(name__iexact=name, is_active=True).first()
+
+            if not product:
+                skipped.append(name or str(product_id))
+                continue
+
+            update_fields = ['updated_at']
+            if qty is not None:
+                product.qty = int(qty)
+                update_fields.append('qty')
+            if cost_price is not None:
+                product.cost_price = cost_price
+                update_fields.append('cost_price')
+            if sale_price is not None:
+                product.sale_price = sale_price
+                update_fields.append('sale_price')
+            if currency:
+                product.currency = currency
+                update_fields.append('currency')
+
+            product.save(update_fields=update_fields)
+            updated.append(ProductSerializer(product).data)
+
+        if updated:
+            invalidate_product_cache()
+        return Response({'updated': updated, 'skipped': skipped})
 
     @action(detail=False, methods=['get'], url_path='stats')
     def stats(self, request):
@@ -461,6 +562,7 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
         defaults = {
             PromptConfig.KEY_PRODUCT_EXTRACTION:     (PRODUCT_EXTRACTION_DEFAULT,     'Product Extraction (bulk import)'),
             PromptConfig.KEY_INQUIRY_CLASSIFICATION: (INQUIRY_CLASSIFICATION_DEFAULT, 'Inquiry Classification (live messages)'),
+            PromptConfig.KEY_INVENTORY_UPDATE:       (INVENTORY_UPDATE_DEFAULT,       'Inventory Update (bulk qty + price)'),
         }
         saved = {p.key: p for p in PromptConfig.objects.all()}
         result = []
@@ -516,6 +618,7 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
         defaults_map = {
             PromptConfig.KEY_PRODUCT_EXTRACTION:     'Product Extraction (bulk import)',
             PromptConfig.KEY_INQUIRY_CLASSIFICATION: 'Inquiry Classification (live messages)',
+            PromptConfig.KEY_INVENTORY_UPDATE:       'Inventory Update (bulk qty + price)',
         }
         label = defaults_map.get(key, key)
         obj, _ = PromptConfig.objects.update_or_create(

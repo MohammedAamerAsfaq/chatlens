@@ -56,13 +56,54 @@ Respond ONLY with valid JSON — no markdown, no explanation — matching this s
 """
 
 
+INVENTORY_UPDATE_DEFAULT = """\
+You are an inventory manager for a B2B wholesale mobile trading business.
+
+PRODUCT MASTER — match text against these catalog entries \
+(fuzzy match: ignore punctuation, region flags, color variants):
+{product_block}
+
+You will receive one or two free-form text blocks separated by "---":
+- STOCK & COST block: product names with quantities and/or cost/purchase prices
+- SALE PRICE block: product names with selling prices
+
+Rules:
+- Match each item to the product master. Use product_id when confident \
+(exact model, storage, tier). Set product_id to null if uncertain — \
+do NOT force-match a different model.
+- canonical_name: use the exact catalog name when matched, \
+otherwise the exact text from the input.
+- qty: integer unit count (null if not mentioned).
+- cost_price: purchase/cost price as a float (null if not mentioned).
+- sale_price: selling price as a float (null if not mentioned).
+- currency: infer from context (default "USD").
+- If a product appears in only one block, leave the other fields null.
+- Deduplicate: same product mentioned in both blocks → one entry with both prices.
+- Return ONLY a raw JSON array — no markdown, no explanation.
+
+Schema:
+[
+  {
+    "product_id": <int or null>,
+    "canonical_name": "<string>",
+    "qty": <int or null>,
+    "cost_price": <float or null>,
+    "sale_price": <float or null>,
+    "currency": "<string>"
+  }
+]\
+"""
+
+
 class PromptConfig(models.Model):
     KEY_PRODUCT_EXTRACTION      = 'product_extraction'
     KEY_INQUIRY_CLASSIFICATION  = 'inquiry_classification'
+    KEY_INVENTORY_UPDATE        = 'inventory_update'
 
     KEYS = [
         (KEY_PRODUCT_EXTRACTION,     'Product Extraction (bulk import)'),
         (KEY_INQUIRY_CLASSIFICATION, 'Inquiry Classification (live messages)'),
+        (KEY_INVENTORY_UPDATE,       'Inventory Update (bulk qty + price)'),
     ]
 
     key        = models.CharField(max_length=100, unique=True)

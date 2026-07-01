@@ -68,6 +68,9 @@
             <span class="meta-note" v-if="p.key === 'product_extraction'">
               Used in Bulk Import → AI Extract · must return a raw JSON array
             </span>
+            <span class="meta-note" v-if="p.key === 'inventory_update'">
+              Used in Products → Update Inventory · supports <code>{product_block}</code> placeholder · must return a raw JSON array
+            </span>
             <span class="token-estimate">
               ~{{ tokenCount(p.body).toLocaleString() }} tokens
               <span v-if="inputCost(p.body) !== null" class="cost-estimate">· ~${{ inputCost(p.body) }} input</span>
@@ -75,7 +78,7 @@
             </span>
           </div>
           <textarea v-model="p.body" class="prompt-editor"
-            :rows="p.key === 'inquiry_classification' ? 28 : 16" spellcheck="false" />
+            :rows="p.key === 'inquiry_classification' ? 28 : 18" spellcheck="false" />
           <div v-if="errors[p.key]" class="card-error">{{ errors[p.key] }}</div>
           <div v-if="saved[p.key]"  class="card-ok">Saved.</div>
         </div>
@@ -91,6 +94,7 @@
             <option value="">All purposes</option>
             <option value="classification">Inquiry Classification</option>
             <option value="product_extraction">Product Extraction</option>
+            <option value="inventory_update">Inventory Update</option>
           </select>
           <select v-model="logFilter.success" @change="loadLogs">
             <option value="">All statuses</option>
@@ -260,7 +264,9 @@ function toggle(id) {
 }
 
 function purposeLabel(p) {
-  return p === 'classification' ? 'Classification' : 'Product Extract'
+  if (p === 'classification')   return 'Classification'
+  if (p === 'inventory_update') return 'Inventory Update'
+  return 'Product Extract'
 }
 
 // ── Shared ─────────────────────────────────────────────────────────────────
@@ -333,6 +339,7 @@ onMounted(loadPrompts)
 .purpose-badge { font-size: 0.75rem; font-weight: 500; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
 .purpose-badge.classification { background: #ede9fe; color: #5b21b6; }
 .purpose-badge.product_extraction { background: #dbeafe; color: #1d4ed8; }
+.purpose-badge.inventory_update { background: #fef3c7; color: #92400e; }
 .log-model { font-family: monospace; font-size: 0.78rem; color: #374151; }
 .log-stats { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
 .stat { font-size: 0.78rem; color: #6b7280; font-family: monospace; }

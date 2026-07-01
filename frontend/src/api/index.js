@@ -96,8 +96,10 @@ export const tradingApi = {
   getProductStats:(params)      => http.get('/products/stats/', { params }),
 
   // Bulk product helpers
-  parseProductText:   (text)     => http.post('/products/parse-text/', { text }),
-  bulkCreateProducts: (products) => http.post('/products/bulk-create/', { products }),
+  parseProductText:     (text)           => http.post('/products/parse-text/', { text }),
+  bulkCreateProducts:   (products)       => http.post('/products/bulk-create/', { products }),
+  parseInventory:       (cost_text, sale_text) => http.post('/products/parse-inventory/', { cost_text, sale_text }),
+  bulkUpdateInventory:  (items)          => http.post('/products/bulk-update-inventory/', { items }),
 
   // AI Prompts
   listPrompts:      ()            => http.get('/prompts/'),
