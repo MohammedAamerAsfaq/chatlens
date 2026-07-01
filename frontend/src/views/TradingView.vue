@@ -79,6 +79,15 @@
                 {{ p.canonical_name }}{{ p.quantity ? ` ×${p.quantity}` : '' }}
               </span>
             </div>
+            <div class="card-stock-hints" v-if="getInventoryHints(inq).length">
+              <div v-for="h in getInventoryHints(inq)" :key="h.name" class="stock-hint">
+                <span class="stock-icon">✓</span>
+                {{ h.product.name }} in stock
+                <span v-if="h.product.sale_price"> · Sale: {{ h.product.currency || 'USD' }} {{ h.product.sale_price }}</span>
+                <span> · Qty: {{ h.product.qty }}</span>
+                <span v-if="h.product.cost_price"> · Cost: {{ h.product.currency || 'USD' }} {{ h.product.cost_price }}</span>
+              </div>
+            </div>
             <div class="card-meta">
               <span class="source-label">{{ inq.source_type }}</span>
             </div>
@@ -249,11 +258,37 @@ const selectedAccount    = ref('')
 const stats              = ref({})
 const feed               = ref([])
 const productStats       = ref([])
+const allProducts        = ref([])
 const classifyActivity   = ref(null)
 const backfillStatus     = ref('')
 const retryError         = ref('')
 const lastUpdate         = ref(null)
 let   pollTimer          = null
+
+const productMap = computed(() => {
+  const m = {}
+  for (const p of allProducts.value) m[p.id] = p
+  return m
+})
+
+function getInventoryHints(inq) {
+  if (inq.inquiry_type !== 'buy') return []
+  const hints = []
+  for (const p of (inq.products || [])) {
+    let match = p.product_id ? productMap.value[p.product_id] : null
+    if (!match && p.canonical_name) {
+      const needle = p.canonical_name.toLowerCase()
+      match = allProducts.value.find(prod => {
+        const hay = prod.name.toLowerCase()
+        return hay === needle || hay.includes(needle) || needle.includes(hay)
+      })
+    }
+    if (match && (match.qty > 0 || match.sale_price != null)) {
+      hints.push({ name: p.canonical_name, product: match })
+    }
+  }
+  return hints
+}
 
 const buyFeed  = computed(() => feed.value.filter(i => i.inquiry_type === 'buy'))
 const sellFeed = computed(() => feed.value.filter(i => i.inquiry_type === 'sell'))
@@ -283,16 +318,18 @@ function formatAge(secs) {
 async function refresh() {
   const accountParam = selectedAccount.value || undefined
   const params = accountParam ? { account: accountParam } : {}
-  const [statsRes, feedRes, prodRes, actRes] = await Promise.all([
+  const [statsRes, feedRes, prodRes, actRes, prodsRes] = await Promise.all([
     tradingApi.getStats(params),
     tradingApi.getOpenFeed(params),
     tradingApi.getProductStats(params),
     tradingApi.getClassificationActivity(params),
+    tradingApi.listProducts({ page_size: 1000, is_active: true }),
   ])
   stats.value            = statsRes.data
   feed.value             = feedRes.data
   productStats.value     = prodRes.data
   classifyActivity.value = actRes.data
+  allProducts.value      = prodsRes.data.results ?? prodsRes.data
   lastUpdate.value       = Date.now()
 }
 
@@ -436,4 +473,8 @@ onUnmounted(() => {
 .badge-no  { background: #f3f4f6; color: #9ca3af; }
 .mc-summary { font-size: 0.75rem; color: #374151; line-height: 1.3; }
 .retry-error { font-size: 0.7rem; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; padding: 6px 8px; white-space: pre-wrap; word-break: break-all; margin-top: 6px; max-height: 200px; overflow-y: auto; }
+/* Inventory stock hints on WTB cards */
+.card-stock-hints { display: flex; flex-direction: column; gap: 3px; margin-bottom: 6px; }
+.stock-hint { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 5px; padding: 4px 8px; font-size: 0.75rem; color: #166534; line-height: 1.4; }
+.stock-icon { color: #16a34a; font-weight: 700; margin-right: 3px; }
 </style>
