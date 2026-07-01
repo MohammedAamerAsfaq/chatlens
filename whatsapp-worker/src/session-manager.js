@@ -528,14 +528,16 @@ class SessionManager {
     };
     if (msg.key.remoteJid === 'status@broadcast') return _skip('status@broadcast');
     if (msg.messageStubType) return _skip(`messageStubType:${msg.messageStubType}`);
-    if (msg.message?.protocolMessage) return _skip('protocolMessage');
+    // Check key presence, not value truthiness — protocolMessage: null would pass a truthy check.
+    if (msg.message && 'protocolMessage' in msg.message) return _skip('protocolMessage');
 
     // Drop senderKeyDistributionMessage ONLY when it is the sole content of the envelope.
     // WhatsApp often bundles the key distribution with a real user message (text/media) in
     // a single envelope — dropping the whole envelope in that case silently loses the message.
-    // Pure key envelopes (no other content besides optional messageContextInfo) are safe to drop.
+    // Pure key envelopes (no other content besides optional messageContextInfo or protocolMessage)
+    // are safe to drop.
     if (msg.message?.senderKeyDistributionMessage) {
-      const METADATA_KEYS = new Set(['senderKeyDistributionMessage', 'messageContextInfo']);
+      const METADATA_KEYS = new Set(['senderKeyDistributionMessage', 'messageContextInfo', 'protocolMessage']);
       const hasUserContent = Object.keys(msg.message).some(k => !METADATA_KEYS.has(k));
       if (!hasUserContent) return _skip('senderKeyDistributionMessage');
       // else: fall through — real content exists, let _parseMessage extract it
