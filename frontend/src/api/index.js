@@ -82,9 +82,10 @@ export const messageLogsApi = {
 }
 
 export const contactsApi = {
-  list:   (params)      => http.get('/contacts/', { params }),
-  stats:  (params)      => http.get('/contacts/stats/', { params }),
-  update: (id, data)    => http.patch(`/contacts/${id}/`, data),
+  list:         (params)       => http.get('/contacts/', { params }),
+  stats:        (params)       => http.get('/contacts/stats/', { params }),
+  update:       (id, data)     => http.patch(`/contacts/${id}/`, data),
+  setAiParsing: (id, value)    => http.patch(`/contacts/${id}/set-ai-parsing/`, { ai_parsing: value }),
 }
 
 export const embeddingsApi = {
@@ -98,10 +99,11 @@ export const droppedApi = {
 }
 
 export const groupsApi = {
-  list:       (params)    => http.get('/groups/', { params }),
-  get:        (id)        => http.get(`/groups/${id}/`),
-  stats:      (params)    => http.get('/groups/stats/', { params }),
-  syncGroups: (accountId) => http.post('/groups/sync/', { account: accountId }),
+  list:         (params)    => http.get('/groups/', { params }),
+  get:          (id)        => http.get(`/groups/${id}/`),
+  stats:        (params)    => http.get('/groups/stats/', { params }),
+  syncGroups:   (accountId) => http.post('/groups/sync/', { account: accountId }),
+  setAiParsing: (id, value) => http.patch(`/groups/${id}/set-ai-parsing/`, { ai_parsing: value }),
 }
 
 export const tradingApi = {

@@ -734,6 +734,23 @@ class ContactViewSet(viewsets.ModelViewSet):
         serializer.save()
         return Response(serializer.data)
 
+    @action(detail=True, methods=['patch'], url_path='set-ai-parsing')
+    def set_ai_parsing(self, request, pk=None):
+        contact = self.get_object()
+        chat = contact.chats.first()
+        if not chat:
+            return Response({'detail': 'No chat found for this contact'}, status=status.HTTP_404_NOT_FOUND)
+        val = request.data.get('ai_parsing', 'inherit')
+        if val in (True, 'true', '1', 1):
+            chat.ai_parsing = True
+        elif val in (False, 'false', '0', 0):
+            chat.ai_parsing = False
+        else:
+            chat.ai_parsing = None
+        chat.save(update_fields=['ai_parsing'])
+        contact.refresh_from_db()
+        return Response(self.get_serializer(contact).data)
+
     @action(detail=False, methods=['get'], url_path='stats')
     def stats(self, request):
         account_id = request.query_params.get('account')
@@ -818,6 +835,22 @@ class GroupViewSet(viewsets.ReadOnlyModelViewSet):
             return Response(resp.json())
         except requests.RequestException as e:
             return Response({'error': f'Worker unreachable: {e}'}, status=status.HTTP_502_BAD_GATEWAY)
+
+    @action(detail=True, methods=['patch'], url_path='set-ai-parsing')
+    def set_ai_parsing(self, request, pk=None):
+        group = self.get_object()
+        chat = WhatsAppChat.objects.filter(account=group.account, wa_chat_id=group.wa_group_id).first()
+        if not chat:
+            return Response({'detail': 'No chat found for this group — messages must exist first'}, status=status.HTTP_404_NOT_FOUND)
+        val = request.data.get('ai_parsing', 'inherit')
+        if val in (True, 'true', '1', 1):
+            chat.ai_parsing = True
+        elif val in (False, 'false', '0', 0):
+            chat.ai_parsing = False
+        else:
+            chat.ai_parsing = None
+        chat.save(update_fields=['ai_parsing'])
+        return Response(GroupSerializer(group).data)
 
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────

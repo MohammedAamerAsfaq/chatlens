@@ -2,6 +2,10 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { groupsApi, accountsApi } from '@/api/index.js'
 
+// AI parse toggle
+const savingAiId     = ref(null)
+const savingGlobalAi = ref(false)
+
 // ── State ──────────────────────────────────────────────────────────────────────
 const accounts      = ref([])
 const selectedAccId = ref(null)
@@ -142,6 +146,48 @@ function formatJid(jid) {
   return local.length > 15 ? local.slice(0, 13) + '…' : local
 }
 
+function nextAiParsing(current) {
+  if (current === null || current === undefined) return true
+  if (current === true) return false
+  return null
+}
+
+function aiLabel(val) {
+  if (val === true)  return 'ON'
+  if (val === false) return 'OFF'
+  return 'auto'
+}
+
+async function toggleGroupAi(event, g) {
+  event.stopPropagation()
+  if (!g.chat_db_id || savingAiId.value === g.id) return
+  savingAiId.value = g.id
+  try {
+    const { data } = await groupsApi.setAiParsing(g.id, nextAiParsing(g.ai_parsing))
+    const idx = groups.value.findIndex(x => x.id === g.id)
+    if (idx !== -1) groups.value[idx] = { ...groups.value[idx], ai_parsing: data.ai_parsing }
+  } finally {
+    savingAiId.value = null
+  }
+}
+
+const selectedAccount = computed(() => accounts.value.find(a => a.id === selectedAccId.value) || null)
+
+async function toggleGlobalAi() {
+  const acc = selectedAccount.value
+  if (!acc || savingGlobalAi.value) return
+  savingGlobalAi.value = true
+  try {
+    const { data } = await accountsApi.updateSettings(acc.id, {
+      ai_parsing_enabled: !acc.ai_parsing_enabled,
+    })
+    const idx = accounts.value.findIndex(a => a.id === acc.id)
+    if (idx !== -1) accounts.value[idx] = { ...accounts.value[idx], ai_parsing_enabled: data.ai_parsing_enabled }
+  } finally {
+    savingGlobalAi.value = false
+  }
+}
+
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 onMounted(async () => {
   await fetchAccounts()
@@ -195,6 +241,24 @@ watch(selectedAccId, () => {
             'px-2 py-0.5 rounded-full font-medium',
             syncMsg.startsWith('Error') ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700',
           ]">{{ syncMsg }}</span>
+
+          <!-- Global AI default toggle -->
+          <button
+            v-if="selectedAccount"
+            @click="toggleGlobalAi"
+            :disabled="savingGlobalAi"
+            :class="[
+              'flex items-center gap-1.5 px-3 py-1 rounded-lg font-medium text-xs transition-colors',
+              selectedAccount.ai_parsing_enabled
+                ? 'bg-green-600 text-white hover:bg-green-700'
+                : 'bg-gray-200 text-gray-600 hover:bg-gray-300',
+            ]"
+            :title="selectedAccount.ai_parsing_enabled ? 'AI parsing default ON — click to disable' : 'AI parsing default OFF — click to enable'"
+          >
+            <span :class="['w-1.5 h-1.5 rounded-full', selectedAccount.ai_parsing_enabled ? 'bg-green-200' : 'bg-gray-400']"></span>
+            AI {{ selectedAccount.ai_parsing_enabled ? 'Default: ON' : 'Default: OFF' }}
+          </button>
+
           <button
             @click="syncGroups"
             :disabled="syncing || !selectedAccId"
@@ -273,6 +337,7 @@ watch(selectedAccId, () => {
                 <th class="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Name</th>
                 <th class="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Community</th>
                 <th class="text-right px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Members</th>
+                <th class="text-center px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide w-20" title="AI Inquiry Parsing">AI Parse</th>
                 <th class="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Updated</th>
               </tr>
             </thead>
@@ -316,6 +381,27 @@ watch(selectedAccId, () => {
                 <!-- Participant count -->
                 <td class="px-4 py-3 text-right tabular-nums text-gray-600 font-mono text-xs">
                   {{ g.participant_count }}
+                </td>
+
+                <!-- AI parse toggle -->
+                <td class="px-4 py-3 text-center" @click.stop>
+                  <button
+                    v-if="g.chat_db_id"
+                    @click="toggleGroupAi($event, g)"
+                    :disabled="savingAiId === g.id"
+                    :class="[
+                      'text-xs font-semibold px-2 py-0.5 rounded-full border transition-colors',
+                      g.ai_parsing === true
+                        ? 'bg-green-100 border-green-300 text-green-700 hover:bg-green-200'
+                        : g.ai_parsing === false
+                          ? 'bg-red-100 border-red-300 text-red-700 hover:bg-red-200'
+                          : 'bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200',
+                    ]"
+                    :title="g.ai_parsing === true ? 'Force ON — click to force OFF' : g.ai_parsing === false ? 'Force OFF — click to inherit default' : 'Inheriting account default — click to force ON'"
+                  >
+                    {{ aiLabel(g.ai_parsing) }}
+                  </button>
+                  <span v-else class="text-xs text-gray-300" title="No messages received yet">—</span>
                 </td>
 
                 <!-- Updated -->

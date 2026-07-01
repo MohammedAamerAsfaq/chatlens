@@ -38,21 +38,25 @@ class ContactDetailSerializer(serializers.ModelSerializer):
     chat_id       = serializers.SerializerMethodField()
     chat_db_id    = serializers.SerializerMethodField()
     contact_type  = serializers.SerializerMethodField()
+    ai_parsing    = serializers.SerializerMethodField()
 
     class Meta:
         model = WhatsAppContact
         fields = [
             'id', 'account_id', 'wa_contact_id', 'lid_jid', 'username', 'phone_number',
             'display_name', 'push_name', 'is_business',
-            'contact_type', 'message_count', 'chat_id', 'chat_db_id',
+            'contact_type', 'message_count', 'chat_id', 'chat_db_id', 'ai_parsing',
             'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'account_id', 'wa_contact_id', 'lid_jid', 'username', 'phone_number',
             'push_name', 'is_business', 'contact_type',
-            'message_count', 'chat_id', 'chat_db_id',
+            'message_count', 'chat_id', 'chat_db_id', 'ai_parsing',
             'created_at', 'updated_at',
         ]
+
+    def _first_chat(self, obj):
+        return next(iter(obj.chats.all()), None)
 
     def get_contact_type(self, obj):
         jid = obj.wa_contact_id
@@ -65,12 +69,16 @@ class ContactDetailSerializer(serializers.ModelSerializer):
         return 'unknown'
 
     def get_chat_id(self, obj):
-        chat = next(iter(obj.chats.all()), None)
+        chat = self._first_chat(obj)
         return chat.wa_chat_id if chat else None
 
     def get_chat_db_id(self, obj):
-        chat = next(iter(obj.chats.all()), None)
+        chat = self._first_chat(obj)
         return chat.pk if chat else None
+
+    def get_ai_parsing(self, obj):
+        chat = self._first_chat(obj)
+        return chat.ai_parsing if chat else None
 
 
 class ChatSerializer(serializers.ModelSerializer):
@@ -165,6 +173,8 @@ class GroupSerializer(serializers.ModelSerializer):
     community_id    = serializers.IntegerField(source='community.pk', read_only=True, allow_null=True)
     community_name  = serializers.CharField(source='community.name', read_only=True, allow_null=True)
     sub_group_count = serializers.SerializerMethodField()
+    chat_db_id      = serializers.SerializerMethodField()
+    ai_parsing      = serializers.SerializerMethodField()
 
     class Meta:
         model = WhatsAppGroup
@@ -172,6 +182,7 @@ class GroupSerializer(serializers.ModelSerializer):
             'id', 'account_id', 'wa_group_id', 'name', 'description',
             'owner_jid', 'is_community', 'participant_count',
             'community_id', 'community_name', 'sub_group_count',
+            'chat_db_id', 'ai_parsing',
             'created_at', 'updated_at',
         ]
 
@@ -179,6 +190,18 @@ class GroupSerializer(serializers.ModelSerializer):
         if obj.is_community:
             return obj.sub_groups.count()
         return 0
+
+    def _get_chat(self, obj):
+        from apps.whatsapp_bridge.models import WhatsAppChat
+        return WhatsAppChat.objects.filter(account=obj.account, wa_chat_id=obj.wa_group_id).first()
+
+    def get_chat_db_id(self, obj):
+        chat = self._get_chat(obj)
+        return chat.pk if chat else None
+
+    def get_ai_parsing(self, obj):
+        chat = self._get_chat(obj)
+        return chat.ai_parsing if chat else None
 
 
 class GroupDetailSerializer(GroupSerializer):

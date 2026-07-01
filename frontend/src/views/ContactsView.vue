@@ -10,6 +10,8 @@ const accounts    = ref([])
 const stats       = ref({ total: 0, phone: 0, lid: 0, group: 0, username: 0 })
 const loading     = ref(false)
 const savingId    = ref(null)
+const savingAiId  = ref(null)
+const savingGlobalAi = ref(false)
 
 // Filters
 const filterAccount = ref('all')
@@ -143,6 +145,53 @@ function openChat(contact) {
   if (!contact.chat_db_id) return
   router.push({ name: 'conversations', query: { chat_id: contact.chat_db_id } })
 }
+
+// ── AI parsing toggle ─────────────────────────────────────────────────────────
+
+function nextAiParsing(current) {
+  if (current === null || current === undefined) return true
+  if (current === true) return false
+  return null
+}
+
+function aiLabel(val) {
+  if (val === true)  return 'ON'
+  if (val === false) return 'OFF'
+  return 'auto'
+}
+
+async function toggleContactAi(contact) {
+  if (!contact.chat_db_id || savingAiId.value === contact.id) return
+  savingAiId.value = contact.id
+  try {
+    const next = nextAiParsing(contact.ai_parsing)
+    const { data } = await contactsApi.setAiParsing(contact.id, next)
+    const idx = contacts.value.findIndex(c => c.id === contact.id)
+    if (idx !== -1) contacts.value[idx] = data
+  } finally {
+    savingAiId.value = null
+  }
+}
+
+const selectedAccount = computed(() => {
+  if (filterAccount.value === 'all') return null
+  return accounts.value.find(a => a.id === Number(filterAccount.value)) || null
+})
+
+async function toggleGlobalAi() {
+  const acc = selectedAccount.value
+  if (!acc || savingGlobalAi.value) return
+  savingGlobalAi.value = true
+  try {
+    const { data } = await accountsApi.updateSettings(acc.id, {
+      ai_parsing_enabled: !acc.ai_parsing_enabled,
+    })
+    const idx = accounts.value.findIndex(a => a.id === acc.id)
+    if (idx !== -1) accounts.value[idx] = { ...accounts.value[idx], ai_parsing_enabled: data.ai_parsing_enabled }
+  } finally {
+    savingGlobalAi.value = false
+  }
+}
 </script>
 
 <template>
@@ -155,8 +204,8 @@ function openChat(contact) {
       <p class="text-sm text-gray-500 mt-1">Manage WhatsApp contacts and their display names</p>
     </div>
 
-    <!-- Stats -->
-    <div class="flex items-center gap-6 mb-6 bg-white rounded-xl border border-gray-200 px-6 py-4 shadow-sm">
+    <!-- Stats + global AI toggle -->
+    <div class="flex items-center gap-6 mb-6 bg-white rounded-xl border border-gray-200 px-6 py-4 shadow-sm flex-wrap">
       <div>
         <p class="text-xs text-gray-400 uppercase tracking-wide">Total</p>
         <p class="text-xl font-bold text-gray-900">{{ stats.total.toLocaleString() }}</p>
@@ -173,13 +222,29 @@ function openChat(contact) {
       </div>
       <div class="w-px h-8 bg-gray-100"></div>
       <div>
-        <p class="text-xs text-orange-500 uppercase tracking-wide">Groups</p>
-        <p class="text-xl font-bold text-gray-900">{{ stats.group.toLocaleString() }}</p>
-      </div>
-      <div class="w-px h-8 bg-gray-100"></div>
-      <div>
         <p class="text-xs text-blue-500 uppercase tracking-wide">@Usernames</p>
         <p class="text-xl font-bold text-gray-900">{{ stats.username.toLocaleString() }}</p>
+      </div>
+
+      <!-- Global AI default toggle (only when a specific account is selected) -->
+      <div v-if="selectedAccount" class="ml-auto flex items-center gap-3">
+        <div class="text-right">
+          <p class="text-xs text-gray-400 uppercase tracking-wide">AI Parsing Default</p>
+          <p class="text-xs text-gray-500 mt-0.5">Applies to contacts with no override</p>
+        </div>
+        <button
+          @click="toggleGlobalAi"
+          :disabled="savingGlobalAi"
+          :class="[
+            'flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm transition-colors',
+            selectedAccount.ai_parsing_enabled
+              ? 'bg-green-600 text-white hover:bg-green-700'
+              : 'bg-gray-200 text-gray-600 hover:bg-gray-300',
+          ]"
+        >
+          <span :class="['w-2 h-2 rounded-full', selectedAccount.ai_parsing_enabled ? 'bg-green-200' : 'bg-gray-400']"></span>
+          {{ selectedAccount.ai_parsing_enabled ? 'Default: ON' : 'Default: OFF' }}
+        </button>
       </div>
     </div>
 
@@ -252,6 +317,7 @@ function openChat(contact) {
             <th class="text-left px-4 py-3 w-36">Phone</th>
             <th class="text-left px-4 py-3 w-24">Type</th>
             <th class="text-left px-4 py-3 w-20">Msgs</th>
+            <th class="text-center px-4 py-3 w-24" title="AI Inquiry Parsing">AI Parse</th>
             <th class="text-left px-4 py-3 w-28">Actions</th>
           </tr>
         </thead>
@@ -347,6 +413,27 @@ function openChat(contact) {
             <!-- Message count -->
             <td class="px-4 py-3">
               <span class="text-xs text-gray-500">{{ (contact.message_count || 0).toLocaleString() }}</span>
+            </td>
+
+            <!-- AI parse toggle -->
+            <td class="px-4 py-3 text-center">
+              <button
+                v-if="contact.chat_db_id"
+                @click="toggleContactAi(contact)"
+                :disabled="savingAiId === contact.id"
+                :class="[
+                  'text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors',
+                  contact.ai_parsing === true
+                    ? 'bg-green-100 border-green-300 text-green-700 hover:bg-green-200'
+                    : contact.ai_parsing === false
+                      ? 'bg-red-100 border-red-300 text-red-700 hover:bg-red-200'
+                      : 'bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200',
+                ]"
+                :title="contact.ai_parsing === true ? 'Force ON — click to force OFF' : contact.ai_parsing === false ? 'Force OFF — click to inherit default' : 'Inheriting account default — click to force ON'"
+              >
+                {{ aiLabel(contact.ai_parsing) }}
+              </button>
+              <span v-else class="text-xs text-gray-300">—</span>
             </td>
 
             <!-- Actions -->
