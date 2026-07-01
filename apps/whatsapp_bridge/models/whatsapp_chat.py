@@ -25,6 +25,7 @@ class WhatsAppChat(models.Model):
     last_message_at = models.DateTimeField(null=True, blank=True)
     unread_count = models.IntegerField(default=0)
     is_archived = models.BooleanField(default=False)
+    ai_parsing = models.BooleanField(null=True, blank=True)
     raw_payload = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

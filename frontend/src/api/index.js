@@ -68,6 +68,7 @@ export const chatsApi = {
   markAllRead: (accountId) => http.post('/chats/mark-all-read/', {}, { params: accountId ? { account: accountId } : {} }),
   info: (id) => http.get(`/chats/${id}/info/`),
   groupInfo: (id) => http.get(`/chats/${id}/group-info/`),
+  setAiParsing: (id, value) => http.patch(`/chats/${id}/set-ai-parsing/`, { ai_parsing: value }),
 }
 
 export const activityApi = {

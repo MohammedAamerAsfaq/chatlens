@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useConversationsStore } from '@/stores/conversations'
+import { accountsApi } from '@/api'
 
 const store = useConversationsStore()
 const activeFilter = ref('all')
@@ -51,6 +52,55 @@ function formatTime(dt) {
   if (diff < 7) return d.toLocaleDateString([], { weekday: 'short' })
   return d.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
+
+// AI parsing toggle: null=inherit → true=force on → false=force off → null
+function nextAiParsing(current) {
+  if (current === null || current === undefined) return true
+  if (current === true) return false
+  return null  // false → back to inherit
+}
+
+function aiParsingLabel(val) {
+  if (val === true)  return 'AI: ON'
+  if (val === false) return 'AI: OFF'
+  return 'AI: auto'
+}
+
+function aiParsingClass(val) {
+  if (val === true)  return 'ai-badge ai-on'
+  if (val === false) return 'ai-badge ai-off'
+  return 'ai-badge ai-auto'
+}
+
+const savingAi = ref(new Set())
+
+async function toggleAiParsing(event, chat) {
+  event.stopPropagation()  // don't select the chat
+  if (savingAi.value.has(chat.id)) return
+  savingAi.value = new Set([...savingAi.value, chat.id])
+  try {
+    await store.setChatAiParsing(chat.id, nextAiParsing(chat.ai_parsing))
+  } finally {
+    savingAi.value = new Set([...savingAi.value].filter(id => id !== chat.id))
+  }
+}
+
+// Account-level AI toggle
+const savingAccountAi = ref(false)
+
+async function toggleAccountAi() {
+  const account = store.selectedAccount
+  if (!account || savingAccountAi.value) return
+  savingAccountAi.value = true
+  try {
+    const { data } = await accountsApi.updateSettings(account.id, {
+      ai_parsing_enabled: !account.ai_parsing_enabled,
+    })
+    account.ai_parsing_enabled = data.ai_parsing_enabled
+  } finally {
+    savingAccountAi.value = false
+  }
+}
 </script>
 
 <template>
@@ -62,6 +112,25 @@ function formatTime(dt) {
         {{ store.selectedAccount?.display_name || store.selectedAccount?.phone_number || 'Chats' }}
       </span>
       <div class="flex items-center gap-2">
+        <!-- Account-level AI toggle -->
+        <button
+          v-if="store.selectedAccount"
+          @click="toggleAccountAi"
+          :disabled="savingAccountAi"
+          :title="store.selectedAccount.ai_parsing_enabled ? 'AI parsing ON for this account — click to disable' : 'AI parsing OFF for this account — click to enable'"
+          :class="[
+            'flex items-center gap-1 text-xs font-medium rounded-full px-2 py-0.5 transition-colors',
+            store.selectedAccount.ai_parsing_enabled
+              ? 'bg-green-100 text-green-700 hover:bg-green-200'
+              : 'bg-gray-200 text-gray-500 hover:bg-gray-300',
+          ]"
+        >
+          <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z"/>
+            <path d="M12 8v4l3 3"/>
+          </svg>
+          AI {{ store.selectedAccount.ai_parsing_enabled ? 'ON' : 'OFF' }}
+        </button>
         <!-- Mark all read — only shown when there are unread messages -->
         <button
           v-if="totalUnread > 0"
@@ -172,15 +241,51 @@ function formatTime(dt) {
               </span>
               {{ chat.last_message_preview || 'No messages' }}
             </p>
-            <span
-              v-if="chat.unread_count > 0"
-              class="shrink-0 bg-green-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium"
-            >
-              {{ chat.unread_count > 99 ? '99+' : chat.unread_count }}
-            </span>
+            <div class="flex items-center gap-1 shrink-0">
+              <button
+                v-if="chat.ai_parsing !== null && chat.ai_parsing !== undefined"
+                @click="toggleAiParsing($event, chat)"
+                :class="aiParsingClass(chat.ai_parsing)"
+                :disabled="savingAi.has(chat.id)"
+                :title="aiParsingLabel(chat.ai_parsing) + ' — click to change'"
+              >{{ aiParsingLabel(chat.ai_parsing) }}</button>
+              <button
+                v-else
+                @click="toggleAiParsing($event, chat)"
+                class="ai-badge ai-auto"
+                :disabled="savingAi.has(chat.id)"
+                title="AI: auto (inherits account setting) — click to change"
+              ></button>
+              <span
+                v-if="chat.unread_count > 0"
+                class="bg-green-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium"
+              >
+                {{ chat.unread_count > 99 ? '99+' : chat.unread_count }}
+              </span>
+            </div>
           </div>
         </div>
       </button>
     </div>
   </div>
 </template>
+
+<style scoped>
+.ai-badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 1px 4px;
+  border: none;
+  cursor: pointer;
+  line-height: 1.4;
+  transition: opacity 0.15s;
+}
+.ai-badge:disabled { opacity: 0.5; cursor: not-allowed; }
+.ai-on   { background: #dcfce7; color: #15803d; }
+.ai-on:hover:not(:disabled)   { background: #bbf7d0; }
+.ai-off  { background: #fee2e2; color: #b91c1c; }
+.ai-off:hover:not(:disabled)  { background: #fecaca; }
+.ai-auto { background: #f3f4f6; color: #9ca3af; width: 8px; height: 8px; padding: 0; border-radius: 50%; }
+.ai-auto:hover:not(:disabled) { background: #e5e7eb; }
+</style>

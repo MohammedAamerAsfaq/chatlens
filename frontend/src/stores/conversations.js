@@ -133,6 +133,12 @@ export const useConversationsStore = defineStore('conversations', () => {
     if (account) account.total_unread = 0
   }
 
+  async function setChatAiParsing(chatId, value) {
+    const { data } = await chatsApi.setAiParsing(chatId, value)
+    const chat = chats.value.find(c => c.id === chatId)
+    if (chat) chat.ai_parsing = data.ai_parsing
+  }
+
   function startPolling() {
     chatPollTimer = setInterval(async () => {
       await fetchChats(selectedAccountId.value)
@@ -153,5 +159,6 @@ export const useConversationsStore = defineStore('conversations', () => {
     searchQuery, selectedChat, filteredChats,
     fetchChats, fetchChatsInitial, selectChat, switchAccount,
     loadOlderMessages, markAllRead, startPolling, stopPolling,
+    setChatAiParsing,
   }
 })

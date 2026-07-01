@@ -12,7 +12,11 @@ logger = logging.getLogger(__name__)
 
 
 def _should_classify(message) -> bool:
-    """Return True only for live inbound text messages worth classifying."""
+    """Return True only for live inbound text messages worth classifying.
+
+    Tri-state per-chat override: chat.ai_parsing=True forces on, False forces off,
+    None inherits account.ai_parsing_enabled global toggle.
+    """
     from django.utils.timezone import now
     if not message.message_text:
         return False
@@ -21,6 +25,16 @@ def _should_classify(message) -> bool:
     age_seconds = (now() - message.message_time).total_seconds()
     if age_seconds > 86400:  # older than 24 h — history-sync message
         return False
+
+    # Tri-state: per-chat setting takes priority over account global.
+    chat_override = getattr(message.chat, 'ai_parsing', None)
+    if chat_override is False:
+        return False
+    if chat_override is None:
+        account_enabled = getattr(message.account, 'ai_parsing_enabled', True)
+        if not account_enabled:
+            return False
+
     return True
 
 

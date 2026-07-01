@@ -60,7 +60,7 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'], url_path='update-settings')
     def update_settings(self, request, pk=None):
         account = self.get_object()
-        allowed = ['sync_history', 'history_days', 'idle_disconnect_minutes', 'display_name']
+        allowed = ['sync_history', 'history_days', 'idle_disconnect_minutes', 'display_name', 'ai_parsing_enabled']
         update_fields = []
         for field in allowed:
             if field in request.data:
@@ -569,6 +569,19 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
             'participants': participants,
             'active_senders': len(participants),
         })
+
+    @action(detail=True, methods=['patch'], url_path='set-ai-parsing')
+    def set_ai_parsing(self, request, pk=None):
+        chat = self.get_object()
+        val = request.data.get('ai_parsing', 'inherit')
+        if val in (True, 'true', '1', 1):
+            chat.ai_parsing = True
+        elif val in (False, 'false', '0', 0):
+            chat.ai_parsing = False
+        else:
+            chat.ai_parsing = None  # inherit from account
+        chat.save(update_fields=['ai_parsing'])
+        return Response(ChatSerializer(chat, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=['post'], url_path='mark-read')
     def mark_read(self, request, pk=None):

@@ -28,6 +28,7 @@ class WhatsAppAccount(models.Model):
     history_days = models.IntegerField(null=True, blank=True)  # null = all time
     idle_disconnect_minutes = models.IntegerField(default=0)   # 0 = disabled
     auto_download_media = models.BooleanField(default=True)
+    ai_parsing_enabled = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

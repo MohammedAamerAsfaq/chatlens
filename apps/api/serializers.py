@@ -18,7 +18,7 @@ class WhatsAppAccountSerializer(serializers.ModelSerializer):
             'worker_session_id', 'last_connected_at', 'last_disconnected_at',
             'is_active', 'created_at', 'total_unread',
             'sync_history', 'history_days', 'idle_disconnect_minutes',
-            'auto_download_media',
+            'auto_download_media', 'ai_parsing_enabled',
         ]
         read_only_fields = [
             'id', 'session_status', 'worker_session_id',
@@ -86,6 +86,7 @@ class ChatSerializer(serializers.ModelSerializer):
             'id', 'wa_chat_id', 'chat_type', 'name', 'contact',
             'display_name', 'last_message_at', 'last_message_preview',
             'last_message_direction', 'message_count', 'unread_count',
+            'ai_parsing',
         ]
 
     def get_display_name(self, obj):
