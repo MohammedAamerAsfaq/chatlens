@@ -60,7 +60,7 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'], url_path='update-settings')
     def update_settings(self, request, pk=None):
         account = self.get_object()
-        allowed = ['sync_history', 'history_days', 'idle_disconnect_minutes', 'display_name', 'ai_parsing_enabled']
+        allowed = ['sync_history', 'history_days', 'idle_disconnect_minutes', 'display_name', 'ai_parsing_enabled', 'auto_download_media']
         update_fields = []
         for field in allowed:
             if field in request.data:
@@ -73,6 +73,35 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
         if update_fields:
             account.save(update_fields=update_fields)
         return Response(WhatsAppAccountSerializer(account).data)
+
+    @action(detail=True, methods=['get'], url_path='sync-progress')
+    def sync_progress(self, request, pk=None):
+        from django.utils.timezone import now, timedelta
+        from apps.whatsapp_bridge.models import SyncLog
+        account = self.get_object()
+        since = account.last_connected_at
+        if not since:
+            return Response({'syncing': False, 'total_synced': 0, 'total_processed': 0, 'batch_count': 0})
+
+        logs = list(
+            SyncLog.objects.filter(
+                account=account,
+                event_type='history_sync',
+                created_at__gte=since,
+            ).order_by('created_at').values('metadata', 'created_at')
+        )
+
+        total_created = sum(l['metadata'].get('created', 0) for l in logs if l['metadata'])
+        total_processed = sum(l['metadata'].get('total', 0) for l in logs if l['metadata'])
+        recent_cutoff = now() - timedelta(seconds=30)
+        syncing = any(l['created_at'] >= recent_cutoff for l in logs)
+
+        return Response({
+            'syncing': syncing,
+            'total_synced': total_created,
+            'total_processed': total_processed,
+            'batch_count': len(logs),
+        })
 
     @action(detail=True, methods=['get'])
     def export(self, request, pk=None):

@@ -59,6 +59,7 @@ export const accountsApi = {
   },
   setAutoDownload: (id, enabled) => http.post(`/accounts/${id}/set-auto-download/`, { enabled }),
   setAutoDownloadAll: (enabled) => http.post('/accounts/set-auto-download-all/', { enabled }),
+  syncProgress: (id) => http.get(`/accounts/${id}/sync-progress/`),
 }
 
 export const chatsApi = {
