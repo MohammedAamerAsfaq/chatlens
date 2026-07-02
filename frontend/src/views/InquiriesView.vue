@@ -22,6 +22,11 @@
         <select v-model="filters.status" @change="load">
           <option value="">All</option>
           <option value="open">Open</option>
+          <option value="quoted_waiting">Quoted - Waiting</option>
+          <option value="price_high">Price High</option>
+          <option value="no_stock">No Stock</option>
+          <option value="not_dealing">Product Not Dealing with ATM</option>
+          <option value="irrelevant">Irrelevant</option>
           <option value="closed">Closed</option>
           <option value="deal_done">Deal Done</option>
         </select>
@@ -73,6 +78,7 @@
             </div>
             <div class="row-summary">{{ inq.summary }}</div>
             <div class="row-meta">
+              <span class="account-badge">{{ inq.account_name }}</span>
               <span class="source-badge">{{ inq.source_type }}</span>
               <span :class="['status-badge', inq.status]">{{ statusLabel(inq.status) }}</span>
               <span v-if="inq.products.length" class="product-count">
@@ -100,6 +106,7 @@
           </div>
           <div class="detail-meta">
             <span :class="['status-badge', selected.status]">{{ statusLabel(selected.status) }}</span>
+            <span class="account-badge">{{ selected.account_name }}</span>
             <span class="source-badge">{{ selected.source_type }}</span>
             <span class="time-label">{{ formatDatetime(selected.first_seen_at) }}</span>
           </div>
@@ -130,6 +137,14 @@
                 <span class="msg-source">{{ m.chat_name }}</span>
                 <span class="msg-type-tag">{{ m.chat_type }}</span>
                 <span class="msg-time">{{ formatDatetime(m.message_time) }}</span>
+                <button
+                  v-if="m.chat_id"
+                  class="goto-chat-btn"
+                  @click.stop="goToChat(m.chat_id)"
+                  title="Open chat in Conversations"
+                >
+                  → Chat
+                </button>
               </div>
               <div class="msg-sender">{{ m.push_name || m.sender_number }}</div>
               <div class="msg-text">{{ m.message_text }}</div>
@@ -149,17 +164,28 @@
           />
         </div>
 
-        <!-- Actions -->
-        <div v-if="selected.status === 'open'" class="action-bar">
-          <button class="btn-action close" @click="updateStatus('closed')">
-            Mark Closed
-          </button>
-          <button class="btn-action deal" @click="updateStatus('deal_done')">
-            Mark Deal Done
-          </button>
-        </div>
-        <div v-else class="action-bar">
-          <button class="btn-ghost sm" @click="updateStatus('open')">Reopen</button>
+        <!-- Status update -->
+        <div class="section">
+          <div class="section-title">Update Status</div>
+          <div class="status-update-row">
+            <select v-model="pendingStatus" class="status-select">
+              <option value="open">Open</option>
+              <option value="quoted_waiting">Quoted - Waiting</option>
+              <option value="price_high">Price High</option>
+              <option value="no_stock">No Stock</option>
+              <option value="not_dealing">Product Not Dealing with ATM</option>
+              <option value="irrelevant">Irrelevant</option>
+              <option value="closed">Closed</option>
+              <option value="deal_done">Deal Done</option>
+            </select>
+            <button
+              class="btn-action deal"
+              :disabled="pendingStatus === selected.status || updatingStatus"
+              @click="updateStatus(pendingStatus)"
+            >
+              {{ updatingStatus ? 'Saving…' : 'Update' }}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -172,13 +198,20 @@
 
 <script setup>
 import { ref, watch, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { accountsApi, tradingApi } from '../api/index.js'
+import { useConversationsStore } from '@/stores/conversations'
 
-const accounts  = ref([])
-const inquiries = ref([])
-const selected  = ref(null)
-const detail    = ref(null)
-const remarksText = ref('')
+const router        = useRouter()
+const conversations = useConversationsStore()
+
+const accounts     = ref([])
+const inquiries    = ref([])
+const selected     = ref(null)
+const detail       = ref(null)
+const remarksText  = ref('')
+const pendingStatus  = ref('')
+const updatingStatus = ref(false)
 
 const filters = ref({
   account: '', type: '', status: '', source: '', date: '',
@@ -200,19 +233,29 @@ async function load() {
 }
 
 async function select(inq) {
-  selected.value  = inq
+  selected.value    = inq
+  pendingStatus.value = inq.status
   remarksText.value = inq.remarks || ''
   const { data } = await tradingApi.getInquiry(inq.id)
   detail.value = data
 }
 
+watch(() => selected.value?.status, (s) => {
+  if (s) pendingStatus.value = s
+})
+
 async function updateStatus(status) {
-  await tradingApi.updateInquiry(selected.value.id, { status, remarks: remarksText.value })
-  await load()
-  if (selected.value) {
-    const { data } = await tradingApi.getInquiry(selected.value.id)
-    detail.value   = data
-    selected.value = inquiries.value.find(i => i.id === selected.value.id) || selected.value
+  updatingStatus.value = true
+  try {
+    await tradingApi.updateInquiry(selected.value.id, { status, remarks: remarksText.value })
+    await load()
+    if (selected.value) {
+      const { data } = await tradingApi.getInquiry(selected.value.id)
+      detail.value   = data
+      selected.value = inquiries.value.find(i => i.id === selected.value.id) || selected.value
+    }
+  } finally {
+    updatingStatus.value = false
   }
 }
 
@@ -220,6 +263,15 @@ async function saveRemarks() {
   if (!selected.value) return
   if (remarksText.value === (selected.value.remarks || '')) return
   await tradingApi.updateInquiry(selected.value.id, { remarks: remarksText.value })
+}
+
+async function goToChat(chatId) {
+  const accountId = selected.value.account
+  if (conversations.selectedAccountId !== accountId) {
+    await conversations.switchAccount(accountId)
+  }
+  conversations.selectChat(chatId)
+  router.push('/conversations')
 }
 
 function resetFilters() {
@@ -239,7 +291,16 @@ function formatDatetime(iso) {
 }
 
 function statusLabel(s) {
-  return { open: 'Open', closed: 'Closed', deal_done: 'Deal Done' }[s] || s
+  return {
+    open:           'Open',
+    quoted_waiting: 'Quoted - Waiting',
+    price_high:     'Price High',
+    no_stock:       'No Stock',
+    not_dealing:    'Not Dealing ATM',
+    irrelevant:     'Irrelevant',
+    closed:         'Closed',
+    deal_done:      'Deal Done',
+  }[s] || s
 }
 
 onMounted(async () => {
@@ -270,16 +331,22 @@ onMounted(async () => {
 .age { font-size: 0.78rem; color: #6b7280; white-space: nowrap; }
 .age.red { color: #dc2626; font-weight: 600; }
 .row-summary { font-size: 0.83rem; color: #374151; margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row-meta { display: flex; gap: 6px; align-items: center; }
+.row-meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .type-badge { padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; }
 .type-badge.buy { background: #dcfce7; color: #166534; }
 .type-badge.sell { background: #fff7ed; color: #9a3412; }
 .type-badge.lg { font-size: 0.85rem; padding: 3px 10px; }
+.account-badge { background: #ede9fe; color: #5b21b6; padding: 1px 6px; border-radius: 4px; font-size: 0.73rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
 .source-badge { background: #f3f4f6; color: #6b7280; padding: 1px 6px; border-radius: 4px; font-size: 0.73rem; text-transform: capitalize; }
-.status-badge { padding: 1px 7px; border-radius: 4px; font-size: 0.73rem; font-weight: 600; }
-.status-badge.open { background: #fef9c3; color: #854d0e; }
-.status-badge.closed { background: #f3f4f6; color: #6b7280; }
-.status-badge.deal_done { background: #dcfce7; color: #166534; }
+.status-badge { padding: 1px 7px; border-radius: 4px; font-size: 0.73rem; font-weight: 600; white-space: nowrap; }
+.status-badge.open           { background: #fef9c3; color: #854d0e; }
+.status-badge.quoted_waiting { background: #dbeafe; color: #1e40af; }
+.status-badge.price_high     { background: #ffedd5; color: #9a3412; }
+.status-badge.no_stock       { background: #fee2e2; color: #991b1b; }
+.status-badge.not_dealing    { background: #f3f4f6; color: #374151; }
+.status-badge.irrelevant     { background: #f3f4f6; color: #9ca3af; }
+.status-badge.closed         { background: #f3f4f6; color: #6b7280; }
+.status-badge.deal_done      { background: #dcfce7; color: #166534; }
 .product-count { font-size: 0.73rem; color: #6b7280; }
 .empty-state { padding: 40px; text-align: center; color: #9ca3af; font-size: 0.9rem; }
 /* Detail panel */
@@ -303,13 +370,16 @@ onMounted(async () => {
 .msg-source { font-weight: 500; font-size: 0.83rem; }
 .msg-type-tag { background: #e5e7eb; color: #374151; padding: 1px 5px; border-radius: 3px; font-size: 0.72rem; text-transform: capitalize; }
 .msg-time { font-size: 0.75rem; color: #9ca3af; margin-left: auto; }
+.goto-chat-btn { padding: 1px 8px; background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; border-radius: 4px; font-size: 0.72rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.goto-chat-btn:hover { background: #dbeafe; }
 .msg-sender { font-size: 0.78rem; color: #6b7280; margin-bottom: 3px; }
 .msg-text { font-size: 0.88rem; color: #111827; line-height: 1.45; }
 .remarks-input { width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.9rem; resize: vertical; box-sizing: border-box; }
-.action-bar { display: flex; gap: 10px; padding-top: 4px; }
+.status-update-row { display: flex; gap: 10px; align-items: center; }
+.status-select { flex: 1; padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.9rem; background: #fff; }
 .btn-action { padding: 9px 20px; border: none; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 0.9rem; }
-.btn-action.close { background: #f3f4f6; color: #374151; }
 .btn-action.deal { background: #16a34a; color: #fff; }
+.btn-action.deal:disabled { opacity: 0.45; cursor: default; }
 .btn-ghost { padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 6px; background: transparent; cursor: pointer; font-size: 0.85rem; }
 .btn-ghost.sm { padding: 4px 10px; font-size: 0.8rem; }
 </style>

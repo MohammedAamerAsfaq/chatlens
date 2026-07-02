@@ -37,6 +37,20 @@ watch(() => store.selectedChatId, async () => {
   scrollToBottom()
 })
 
+// Scroll to and highlight a specific message when navigated from Trading
+watch(() => store.highlightMessageId, async (msgId) => {
+  if (!msgId) return
+  await nextTick()
+  const el = messagesEl.value?.querySelector(`[data-msg-id="${msgId}"]`)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  el.classList.add('msg-highlight')
+  setTimeout(() => {
+    el.classList.remove('msg-highlight')
+    store.highlightMessageId = null
+  }, 3000)
+})
+
 function scrollToBottom() {
   if (messagesEl.value) {
     messagesEl.value.scrollTop = messagesEl.value.scrollHeight
@@ -77,6 +91,19 @@ function isNewDay(messages, index) {
   if (index === 0) return true
   return new Date(messages[index - 1].message_time).toDateString() !==
          new Date(messages[index].message_time).toDateString()
+}
+
+function waLinkForMessage(msg) {
+  if (isGroup.value) {
+    // For group messages, link to the sender's direct chat (inbound only — outbound is us)
+    if (msg.direction !== 'inbound' || !msg.sender_number) return null
+    const phone = msg.sender_number.split('@')[0].replace(/\D/g, '')
+    return phone ? `whatsapp://send?phone=${phone}` : null
+  } else {
+    // Direct chat — link to the contact's number from wa_chat_id
+    const phone = (store.selectedChat?.wa_chat_id || '').split('@')[0].replace(/\D/g, '')
+    return phone ? `whatsapp://send?phone=${phone}` : null
+  }
 }
 
 function mimeLabel(mime) {
@@ -208,7 +235,16 @@ watch(lightbox, (val) => {
             </div>
 
             <!-- Message -->
-            <div :class="['flex mb-1', msg.direction === 'outbound' ? 'justify-end' : 'justify-start']">
+            <div :data-msg-id="msg.id" :class="['group flex items-end gap-1 mb-1', msg.direction === 'outbound' ? 'justify-end' : 'justify-start']">
+              <!-- WA icon — left of outbound bubble, right of inbound bubble -->
+              <a
+                v-if="msg.direction === 'outbound' && waLinkForMessage(msg)"
+                :href="waLinkForMessage(msg)"
+                class="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mb-1"
+                title="Open in WhatsApp"
+              >
+                <svg viewBox="0 0 24 24" fill="#16a34a" width="16" height="16"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2zm4.82 13.68c-.2.56-1.18 1.07-1.62 1.14-.44.07-.98.1-1.58-.1-.36-.12-.83-.28-1.42-.55-2.5-1.08-4.13-3.6-4.26-3.77-.13-.17-1.05-1.4-1.05-2.67 0-1.27.66-1.9.9-2.16.23-.26.5-.32.67-.32.17 0 .33 0 .48.01.15.01.36-.06.56.43.2.49.7 1.7.76 1.82.06.13.1.27.02.43-.08.17-.12.27-.23.41-.11.14-.24.31-.33.42-.11.13-.23.27-.1.53.13.26.59 1 1.27 1.63.87.8 1.61 1.04 1.87 1.16.26.12.41.1.57-.06.16-.16.66-.77.83-1.04.17-.26.34-.22.57-.13.23.09 1.44.68 1.69.8.25.12.41.18.47.28.07.1.07.56-.13 1.12z"/></svg>
+              </a>
               <div
                 :class="[
                   'relative max-w-xs lg:max-w-md xl:max-w-lg px-3 pt-1.5 pb-1 rounded-lg shadow-sm text-sm',
@@ -369,6 +405,15 @@ watch(lightbox, (val) => {
                   </svg>
                 </div>
               </div>
+              <!-- WA icon — right of inbound bubble -->
+              <a
+                v-if="msg.direction === 'inbound' && waLinkForMessage(msg)"
+                :href="waLinkForMessage(msg)"
+                class="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mb-1"
+                title="Open in WhatsApp"
+              >
+                <svg viewBox="0 0 24 24" fill="#16a34a" width="16" height="16"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2zm4.82 13.68c-.2.56-1.18 1.07-1.62 1.14-.44.07-.98.1-1.58-.1-.36-.12-.83-.28-1.42-.55-2.5-1.08-4.13-3.6-4.26-3.77-.13-.17-1.05-1.4-1.05-2.67 0-1.27.66-1.9.9-2.16.23-.26.5-.32.67-.32.17 0 .33 0 .48.01.15.01.36-.06.56.43.2.49.7 1.7.76 1.82.06.13.1.27.02.43-.08.17-.12.27-.23.41-.11.14-.24.31-.33.42-.11.13-.23.27-.1.53.13.26.59 1 1.27 1.63.87.8 1.61 1.04 1.87 1.16.26.12.41.1.57-.06.16-.16.66-.77.83-1.04.17-.26.34-.22.57-.13.23.09 1.44.68 1.69.8.25.12.41.18.47.28.07.1.07.56-.13 1.12z"/></svg>
+              </a>
             </div>
 
           </template>

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useConversationsStore } from '@/stores/conversations'
 import { accountsApi } from '@/api'
 
@@ -86,6 +86,21 @@ async function toggleAiParsing(event, chat) {
 }
 
 // Account-level AI toggle
+// Scroll to and highlight a chat when navigated from Trading
+watch(() => store.highlightChatId, async (chatId) => {
+  if (!chatId) return
+  activeFilter.value = 'all'
+  await nextTick()
+  const el = document.querySelector(`[data-chat-id="${chatId}"]`)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  el.classList.add('chat-highlight')
+  setTimeout(() => {
+    el.classList.remove('chat-highlight')
+    store.highlightChatId = null
+  }, 3000)
+})
+
 const savingAccountAi = ref(false)
 
 async function toggleAccountAi() {
@@ -200,6 +215,7 @@ async function toggleAccountAi() {
       <button
         v-for="chat in displayedChats"
         :key="chat.id"
+        :data-chat-id="chat.id"
         @click="store.selectChat(chat.id)"
         :class="[
           'w-full text-left flex items-center gap-3 px-3 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors',

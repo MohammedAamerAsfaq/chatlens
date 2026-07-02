@@ -383,20 +383,20 @@ class InquiryViewSet(viewsets.GenericViewSet,
 
     @action(detail=False, methods=['get'], url_path='open-feed')
     def open_feed(self, request):
-        """Return the latest open inquiries for the live dashboard feed."""
+        """Return today's inquiries for the live dashboard feed, optionally filtered by status."""
         account_id = request.query_params.get('account')
         limit      = min(int(request.query_params.get('limit', 50)), 200)
+        status_val = request.query_params.get('status', InquiryStatus.OPEN)
 
-        qs = Inquiry.objects.filter(status=InquiryStatus.OPEN).select_related(
-            'account', 'contact'
-        ).order_by('-first_seen_at')[:limit]
+        today = now().replace(hour=0, minute=0, second=0, microsecond=0)
+        qs = Inquiry.objects.filter(first_seen_at__gte=today).select_related('account', 'contact')
 
+        if status_val and status_val != 'all':
+            qs = qs.filter(status=status_val)
         if account_id:
-            qs = Inquiry.objects.filter(
-                status=InquiryStatus.OPEN, account_id=account_id,
-            ).select_related('account', 'contact').order_by('-first_seen_at')[:limit]
+            qs = qs.filter(account_id=account_id)
 
-        return Response(InquirySerializer(qs, many=True).data)
+        return Response(InquirySerializer(qs.order_by('-first_seen_at')[:limit], many=True).data)
 
     @action(detail=False, methods=['get'], url_path='classification-activity')
     def classification_activity(self, request):

@@ -220,7 +220,10 @@ class SessionManager {
       printQRInTerminal: false,
       logger: pino({ level: 'silent' }),
       shouldIgnoreJid: jid => isJidBroadcast(jid),
-      syncFullHistory: session.syncHistory,
+      // Only request full (all-time) history when no day limit is set.
+      // With a finite history_days window, recent sync is sufficient and far faster —
+      // WhatsApp sends years of CDN blobs for full sync which can take hours.
+      syncFullHistory: session.syncHistory && !session.historyDays,
       getMessage: async () => ({ conversation: '' }),
     });
 
@@ -528,8 +531,13 @@ class SessionManager {
     };
     if (msg.key.remoteJid === 'status@broadcast') return _skip('status@broadcast');
     if (msg.messageStubType) return _skip(`messageStubType:${msg.messageStubType}`);
-    // Check key presence, not value truthiness — protocolMessage: null would pass a truthy check.
-    if (msg.message && 'protocolMessage' in msg.message) return _skip('protocolMessage');
+    // Baileys message objects are protobuf class instances: every schema field exists as a
+    // prototype getter even when not set, so `'protocolMessage' in msg.message` is always true.
+    // Check the actual value instead — null/undefined means the field is unset (not a protocol msg).
+    if (msg.message?.protocolMessage != null) {
+      const pmType = msg.message.protocolMessage.type ?? 'unknown';
+      return _skip(`protocolMessage:${pmType}`);
+    }
 
     // Drop senderKeyDistributionMessage ONLY when it is the sole content of the envelope.
     // WhatsApp often bundles the key distribution with a real user message (text/media) in

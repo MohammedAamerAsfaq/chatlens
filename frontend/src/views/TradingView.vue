@@ -53,6 +53,15 @@
       </div>
     </div>
 
+    <!-- Status filter tabs -->
+    <div class="status-filter-row">
+      <button
+        v-for="f in statusFilters" :key="f.value"
+        @click="setStatusFilter(f.value)"
+        :class="['sfilter-btn', selectedStatus === f.value ? 'sfilter-active' : '']"
+      >{{ f.label }}</button>
+    </div>
+
     <!-- Live feed + analytics -->
     <div class="main-grid">
       <!-- WTB feed -->
@@ -68,7 +77,10 @@
             :class="{ urgent: inq.age_seconds < 60 }"
           >
             <div class="card-top">
-              <span class="card-contact">{{ inq.contact_name || inq.contact_phone || 'Unknown' }}</span>
+              <span class="card-contact">
+                {{ inq.contact_name || inq.contact_phone || 'Unknown' }}
+                <span v-if="inq.contact_name && inq.contact_phone" class="card-phone">{{ inq.contact_phone }}</span>
+              </span>
               <span class="card-age" :class="{ red: inq.age_seconds > 60 }">
                 {{ formatAge(inq.age_seconds) }}
               </span>
@@ -90,11 +102,25 @@
             </div>
             <div class="card-meta">
               <span class="source-label">{{ inq.source_type }}</span>
+              <span v-if="inq.account_name" class="account-badge">{{ inq.account_name }}</span>
             </div>
             <div class="card-actions">
-              <button class="act-btn close" @click="act(inq, 'closed')">Close</button>
+              <select class="status-select-mini" @change="setStatus(inq, $event)">
+                <option value="" disabled selected>Set status…</option>
+                <option value="quoted_waiting">Quoted - Waiting</option>
+                <option value="no_response">No Response</option>
+                <option value="price_high">Price High</option>
+                <option value="no_stock">No Stock</option>
+                <option value="not_dealing">Not Dealing ATM</option>
+                <option value="irrelevant">Irrelevant</option>
+                <option value="closed">Close</option>
+              </select>
               <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
-              <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id)" title="Open conversation">Chat →</button>
+              <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id, inq.account, inq.source_message_id, inq.source_message_time)" title="Open conversation">Chat →</button>
+              <a v-if="inq.source_type === 'direct' && waLink(inq.contact_phone)" :href="waLink(inq.contact_phone)" class="act-btn wa" title="Open in WhatsApp">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2zm4.82 13.68c-.2.56-1.18 1.07-1.62 1.14-.44.07-.98.1-1.58-.1-.36-.12-.83-.28-1.42-.55-2.5-1.08-4.13-3.6-4.26-3.77-.13-.17-1.05-1.4-1.05-2.67 0-1.27.66-1.9.9-2.16.23-.26.5-.32.67-.32.17 0 .33 0 .48.01.15.01.36-.06.56.43.2.49.7 1.7.76 1.82.06.13.1.27.02.43-.08.17-.12.27-.23.41-.11.14-.24.31-.33.42-.11.13-.23.27-.1.53.13.26.59 1 1.27 1.63.87.8 1.61 1.04 1.87 1.16.26.12.41.1.57-.06.16-.16.66-.77.83-1.04.17-.26.34-.22.57-.13.23.09 1.44.68 1.69.8.25.12.41.18.47.28.07.1.07.56-.13 1.12z"/></svg>
+                WA
+              </a>
             </div>
           </div>
           <div v-if="buyFeed.length === 0" class="feed-empty">No open buying inquiries</div>
@@ -114,7 +140,10 @@
             :class="{ urgent: inq.age_seconds < 60 }"
           >
             <div class="card-top">
-              <span class="card-contact">{{ inq.contact_name || inq.contact_phone || 'Unknown' }}</span>
+              <span class="card-contact">
+                {{ inq.contact_name || inq.contact_phone || 'Unknown' }}
+                <span v-if="inq.contact_name && inq.contact_phone" class="card-phone">{{ inq.contact_phone }}</span>
+              </span>
               <span class="card-age" :class="{ red: inq.age_seconds > 60 }">
                 {{ formatAge(inq.age_seconds) }}
               </span>
@@ -127,11 +156,25 @@
             </div>
             <div class="card-meta">
               <span class="source-label">{{ inq.source_type }}</span>
+              <span v-if="inq.account_name" class="account-badge">{{ inq.account_name }}</span>
             </div>
             <div class="card-actions">
-              <button class="act-btn close" @click="act(inq, 'closed')">Close</button>
+              <select class="status-select-mini" @change="setStatus(inq, $event)">
+                <option value="" disabled selected>Set status…</option>
+                <option value="quoted_waiting">Quoted - Waiting</option>
+                <option value="no_response">No Response</option>
+                <option value="price_high">Price High</option>
+                <option value="no_stock">No Stock</option>
+                <option value="not_dealing">Not Dealing ATM</option>
+                <option value="irrelevant">Irrelevant</option>
+                <option value="closed">Close</option>
+              </select>
               <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
-              <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id)" title="Open conversation">Chat →</button>
+              <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id, inq.account, inq.source_message_id, inq.source_message_time)" title="Open conversation">Chat →</button>
+              <a v-if="inq.source_type === 'direct' && waLink(inq.contact_phone)" :href="waLink(inq.contact_phone)" class="act-btn wa" title="Open in WhatsApp">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2zm4.82 13.68c-.2.56-1.18 1.07-1.62 1.14-.44.07-.98.1-1.58-.1-.36-.12-.83-.28-1.42-.55-2.5-1.08-4.13-3.6-4.26-3.77-.13-.17-1.05-1.4-1.05-2.67 0-1.27.66-1.9.9-2.16.23-.26.5-.32.67-.32.17 0 .33 0 .48.01.15.01.36-.06.56.43.2.49.7 1.7.76 1.82.06.13.1.27.02.43-.08.17-.12.27-.23.41-.11.14-.24.31-.33.42-.11.13-.23.27-.1.53.13.26.59 1 1.27 1.63.87.8 1.61 1.04 1.87 1.16.26.12.41.1.57-.06.16-.16.66-.77.83-1.04.17-.26.34-.22.57-.13.23.09 1.44.68 1.69.8.25.12.41.18.47.28.07.1.07.56-.13 1.12z"/></svg>
+                WA
+              </a>
             </div>
           </div>
           <div v-if="sellFeed.length === 0" class="feed-empty">No open selling offers</div>
@@ -247,14 +290,18 @@ import { accountsApi, tradingApi } from '../api/index.js'
 const router = useRouter()
 const convStore = useConversationsStore()
 
-async function viewChat(chatId) {
+async function viewChat(chatId, accountId, messageId, messageTime) {
   if (!chatId) return
-  await router.push({ name: 'conversations' })
-  await convStore.selectChat(chatId)
+  if (accountId && convStore.selectedAccountId !== accountId) {
+    await convStore.switchAccount(accountId)
+  }
+  convStore.selectChat(chatId, { messageId, messageTime })
+  router.push({ name: 'conversations' })
 }
 
 const accounts           = ref([])
 const selectedAccount    = ref('')
+const selectedStatus     = ref('open')
 const stats              = ref({})
 const feed               = ref([])
 const productStats       = ref([])
@@ -264,6 +311,24 @@ const backfillStatus     = ref('')
 const retryError         = ref('')
 const lastUpdate         = ref(null)
 let   pollTimer          = null
+
+const statusFilters = [
+  { value: 'all',            label: 'All Today' },
+  { value: 'open',           label: 'Open' },
+  { value: 'quoted_waiting', label: 'Quoted - Waiting' },
+  { value: 'no_response',    label: 'No Response' },
+  { value: 'price_high',     label: 'Price High' },
+  { value: 'no_stock',       label: 'No Stock' },
+  { value: 'not_dealing',    label: 'Not Dealing' },
+  { value: 'irrelevant',     label: 'Irrelevant' },
+  { value: 'closed',         label: 'Closed' },
+  { value: 'deal_done',      label: 'Deal Done' },
+]
+
+function setStatusFilter(val) {
+  selectedStatus.value = val
+  refresh()
+}
 
 const productMap = computed(() => {
   const m = {}
@@ -318,9 +383,10 @@ function formatAge(secs) {
 async function refresh() {
   const accountParam = selectedAccount.value || undefined
   const params = accountParam ? { account: accountParam } : {}
+  const feedParams = { ...params, status: selectedStatus.value }
   const [statsRes, feedRes, prodRes, actRes, prodsRes] = await Promise.all([
     tradingApi.getStats(params),
-    tradingApi.getOpenFeed(params),
+    tradingApi.getOpenFeed(feedParams),
     tradingApi.getProductStats(params),
     tradingApi.getClassificationActivity(params),
     tradingApi.listProducts({ page_size: 1000, is_active: true }),
@@ -336,6 +402,18 @@ async function refresh() {
 async function act(inq, status) {
   await tradingApi.updateInquiry(inq.id, { status })
   await refresh()
+}
+
+function setStatus(inq, e) {
+  const val = e.target.value
+  e.target.value = ''
+  if (val) act(inq, val)
+}
+
+function waLink(phone) {
+  if (!phone) return null
+  const clean = phone.split('@')[0].replace(/\D/g, '')
+  return clean ? `whatsapp://send?phone=${clean}` : null
 }
 
 async function runBackfill() {
@@ -409,6 +487,11 @@ onUnmounted(() => {
 .stat-chip.neutral  { background: #f3f4f6; }
 .chip-value { font-size: 1.5rem; font-weight: 700; line-height: 1.2; }
 .chip-label { font-size: 0.72rem; color: #6b7280; font-weight: 500; margin-top: 2px; }
+/* Status filter row */
+.status-filter-row { display: flex; gap: 6px; padding: 8px 16px; background: #fff; border-bottom: 1px solid #e5e7eb; flex-wrap: wrap; }
+.sfilter-btn { padding: 4px 12px; border: 1px solid #d1d5db; border-radius: 999px; background: #fff; color: #6b7280; font-size: 0.78rem; font-weight: 500; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+.sfilter-btn:hover { border-color: #9ca3af; color: #374151; }
+.sfilter-active { background: #1d4ed8; border-color: #1d4ed8; color: #fff !important; }
 /* Main grid */
 .main-grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr 280px; gap: 0; overflow: hidden; }
 .feed-col { display: flex; flex-direction: column; border-right: 1px solid #e5e7eb; overflow: hidden; }
@@ -422,18 +505,21 @@ onUnmounted(() => {
 .feed-card.urgent { border-left: 3px solid #f59e0b; }
 .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .card-contact { font-weight: 600; font-size: 0.88rem; }
+.card-phone { font-weight: 400; font-size: 0.78rem; color: #6b7280; margin-left: 6px; }
 .card-age { font-size: 0.78rem; color: #6b7280; }
 .card-age.red { color: #dc2626; font-weight: 700; }
 .card-summary { font-size: 0.83rem; color: #374151; margin-bottom: 6px; }
 .card-products { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
 .product-chip { background: #eff6ff; color: #1d4ed8; padding: 1px 7px; border-radius: 4px; font-size: 0.75rem; }
-.card-meta { margin-bottom: 8px; }
+.card-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
 .source-label { font-size: 0.73rem; color: #9ca3af; text-transform: capitalize; }
-.card-actions { display: flex; gap: 6px; }
+.account-badge { font-size: 0.7rem; background: #ede9fe; color: #6d28d9; padding: 1px 7px; border-radius: 999px; font-weight: 600; }
+.card-actions { display: flex; gap: 6px; align-items: center; }
 .act-btn { padding: 4px 12px; border: none; border-radius: 5px; cursor: pointer; font-size: 0.8rem; font-weight: 500; }
-.act-btn.close { background: #f3f4f6; color: #374151; }
 .act-btn.deal  { background: #16a34a; color: #fff; }
 .act-btn.chat  { background: #eff6ff; color: #1d4ed8; margin-left: auto; }
+.act-btn.wa    { background: #dcfce7; color: #16a34a; display: flex; align-items: center; gap: 3px; text-decoration: none; }
+.status-select-mini { padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 5px; font-size: 0.78rem; color: #374151; cursor: pointer; background: #fff; }
 .feed-empty { text-align: center; color: #9ca3af; font-size: 0.85rem; padding: 30px; }
 /* Analytics */
 .analytics-col { overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; background: #fff; }

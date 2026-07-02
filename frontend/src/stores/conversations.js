@@ -22,6 +22,8 @@ export const useConversationsStore = defineStore('conversations', () => {
   const loadingOlderMessages = ref(false)
   const hasMoreMessages = ref(false)
   const searchQuery = ref('')
+  const highlightMessageId = ref(null)
+  const highlightChatId = ref(null)
 
   let chatPollTimer = null
   let messagePollTimer = null
@@ -106,19 +108,28 @@ export const useConversationsStore = defineStore('conversations', () => {
     finally { loadingOlderMessages.value = false }
   }
 
-  async function selectChat(id) {
+  async function selectChat(id, { messageId = null, messageTime = null } = {}) {
     selectedChatId.value = id
     messages.value = []
     hasMoreMessages.value = false
+    highlightMessageId.value = null
     loadingMessages.value = true
     clearInterval(messagePollTimer)
     clearUnread(chats.value, accounts.value, id, selectedAccountId.value)
-    // Fire markRead independently — don't let its failure block message loading
     chatsApi.markRead(id).catch(() => {})
     try {
-      const { data } = await chatsApi.messages(id, { limit: 40 })
+      const params = { limit: 40 }
+      if (messageTime) {
+        // Load 40 messages ending just after the target so it appears near the bottom
+        const t = new Date(messageTime)
+        t.setSeconds(t.getSeconds() + 1)
+        params.before = t.toISOString()
+      }
+      const { data } = await chatsApi.messages(id, params)
       messages.value = data.results
       hasMoreMessages.value = data.has_more
+      if (messageId) highlightMessageId.value = messageId
+      if (messageId) highlightChatId.value = id
     } finally {
       loadingMessages.value = false
     }
@@ -155,7 +166,7 @@ export const useConversationsStore = defineStore('conversations', () => {
   return {
     chats, accounts, selectedAccountId, selectedAccount,
     selectedChatId, messages, loadingChats, loadingMessages,
-    loadingOlderMessages, hasMoreMessages,
+    loadingOlderMessages, hasMoreMessages, highlightMessageId, highlightChatId,
     searchQuery, selectedChat, filteredChats,
     fetchChats, fetchChatsInitial, selectChat, switchAccount,
     loadOlderMessages, markAllRead, startPolling, stopPolling,

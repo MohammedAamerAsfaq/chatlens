@@ -22,6 +22,7 @@ class MessageClassificationSerializer(serializers.ModelSerializer):
 class InquiryMessageSerializer(serializers.ModelSerializer):
     message_text  = serializers.CharField(source='message.message_text', read_only=True)
     message_time  = serializers.DateTimeField(source='message.message_time', read_only=True)
+    chat_id       = serializers.IntegerField(source='message.chat_id', read_only=True)
     chat_name     = serializers.SerializerMethodField()
     chat_type     = serializers.CharField(source='message.chat.chat_type', read_only=True)
     sender_number = serializers.CharField(source='message.sender_number', read_only=True)
@@ -30,7 +31,7 @@ class InquiryMessageSerializer(serializers.ModelSerializer):
     class Meta:
         model  = InquiryMessage
         fields = ['id', 'message', 'message_text', 'message_time',
-                  'chat_name', 'chat_type', 'sender_number', 'push_name', 'added_at']
+                  'chat_id', 'chat_name', 'chat_type', 'sender_number', 'push_name', 'added_at']
         read_only_fields = fields
 
     def get_chat_name(self, obj):
@@ -41,22 +42,31 @@ class InquiryMessageSerializer(serializers.ModelSerializer):
 class InquirySerializer(serializers.ModelSerializer):
     contact_name   = serializers.SerializerMethodField()
     contact_phone  = serializers.SerializerMethodField()
+    account_name   = serializers.SerializerMethodField()
     age_seconds    = serializers.SerializerMethodField()
-    source_chat_id = serializers.SerializerMethodField()
+    source_chat_id      = serializers.SerializerMethodField()
+    source_message_id   = serializers.SerializerMethodField()
+    source_message_time = serializers.SerializerMethodField()
 
     class Meta:
         model  = Inquiry
         fields = [
-            'id', 'account', 'contact', 'contact_name', 'contact_phone',
+            'id', 'account', 'account_name', 'contact', 'contact_name', 'contact_phone',
             'inquiry_type', 'status', 'products', 'summary', 'remarks',
-            'dedup_key', 'source_type', 'source_chat_id', 'first_seen_at', 'closed_at',
+            'dedup_key', 'source_type', 'source_chat_id', 'source_message_id',
+            'source_message_time', 'first_seen_at', 'closed_at',
             'age_seconds', 'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'account', 'contact', 'contact_name', 'contact_phone',
+            'id', 'account', 'account_name', 'contact', 'contact_name', 'contact_phone',
             'inquiry_type', 'products', 'summary', 'dedup_key', 'source_type',
-            'source_chat_id', 'first_seen_at', 'age_seconds', 'created_at', 'updated_at',
+            'source_chat_id', 'source_message_id', 'source_message_time',
+            'first_seen_at', 'age_seconds', 'created_at', 'updated_at',
         ]
+
+    def get_account_name(self, obj):
+        a = obj.account
+        return a.display_name or a.phone_number or f'Account {a.pk}'
 
     def get_contact_name(self, obj):
         if not obj.contact:
@@ -73,9 +83,25 @@ class InquirySerializer(serializers.ModelSerializer):
         from django.utils.timezone import now
         return int((now() - obj.first_seen_at).total_seconds())
 
+    def _first_message(self, obj):
+        if not hasattr(obj, '_cached_first_msg'):
+            obj._cached_first_msg = (
+                obj.inquiry_messages.select_related('message')
+                .order_by('message__message_time').first()
+            )
+        return obj._cached_first_msg
+
     def get_source_chat_id(self, obj):
-        link = obj.inquiry_messages.select_related('message').first()
+        link = self._first_message(obj)
         return link.message.chat_id if link else None
+
+    def get_source_message_id(self, obj):
+        link = self._first_message(obj)
+        return link.message.id if link else None
+
+    def get_source_message_time(self, obj):
+        link = self._first_message(obj)
+        return link.message.message_time.isoformat() if link else None
 
 
 class InquiryDetailSerializer(InquirySerializer):

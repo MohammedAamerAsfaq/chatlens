@@ -1,1 +1,20 @@
 @import "tailwindcss";
+
+@keyframes chat-flash {
+  0%   { background-color: #fef08a; }
+  70%  { background-color: #fef08a; }
+  100% { background-color: transparent; }
+}
+.chat-highlight {
+  animation: chat-flash 3s ease-out forwards;
+}
+
+@keyframes msg-flash {
+  0%   { background-color: #fef08a; }
+  70%  { background-color: #fef08a; }
+  100% { background-color: transparent; }
+}
+.msg-highlight {
+  border-radius: 6px;
+  animation: msg-flash 3s ease-out forwards;
+}

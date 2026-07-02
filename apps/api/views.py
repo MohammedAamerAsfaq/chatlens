@@ -95,12 +95,16 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
         total_processed = sum(l['metadata'].get('total', 0) for l in logs if l['metadata'])
         recent_cutoff = now() - timedelta(seconds=30)
         syncing = any(l['created_at'] >= recent_cutoff for l in logs)
+        has_live_messages = SyncLog.objects.filter(
+            account=account, event_type='message_ingest', created_at__gte=since,
+        ).exists()
 
         return Response({
             'syncing': syncing,
             'total_synced': total_created,
             'total_processed': total_processed,
             'batch_count': len(logs),
+            'has_live_messages': has_live_messages,
         })
 
     @action(detail=True, methods=['get'])

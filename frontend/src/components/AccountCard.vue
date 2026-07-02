@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useAccountsStore } from '@/stores/accounts'
 import { accountsApi } from '@/api'
 
@@ -24,6 +24,7 @@ const localSettings = ref({
 
 const historyOptions = [
   { label: 'All time',     value: '' },
+  { label: 'Last 1 day',   value: 1 },
   { label: 'Last 1 month', value: 30 },
   { label: 'Last 3 months',value: 90 },
   { label: 'Last 6 months',value: 180 },
@@ -95,8 +96,26 @@ async function confirmDelete() {
 
 const syncProgress = ref(null)   // { syncing, total_synced, total_processed, batch_count }
 const syncDone     = ref(false)  // true briefly after sync finishes
+const syncFinished = ref(false)  // permanently true after the done badge fades
 let syncPollTimer  = null
 let syncDoneTimer  = null
+
+// null      = nothing to show (sync_history off, disconnected, or already done+faded)
+// 'awaiting'= connected + sync_history on, but no batches from WhatsApp yet
+// 'syncing' = batches actively arriving (Django has recent history_sync logs)
+// 'done'    = sync just completed (shown for 8s)
+const syncState = computed(() => {
+  if (syncFinished.value) return null
+  if (syncDone.value) return 'done'
+  if (!props.account.sync_history) return null
+  if (props.account.session_status !== 'connected') return null
+  if (syncProgress.value?.syncing) return 'syncing'
+  // batch_count > 0 but not currently syncing = history batch already done before this page load
+  if (syncProgress.value && syncProgress.value.batch_count > 0) return null
+  // Live messages arriving means the connection is active even without a history batch
+  if (syncProgress.value?.has_live_messages) return null
+  return 'awaiting'
+})
 
 async function fetchSyncProgress() {
   if (!props.account.sync_history) return
@@ -106,11 +125,14 @@ async function fetchSyncProgress() {
     syncProgress.value = data
 
     if (wasSyncing && !data.syncing && data.total_synced > 0) {
-      // Just finished — show completion badge then fade
       syncDone.value = true
       clearInterval(syncPollTimer)
       syncPollTimer = null
-      syncDoneTimer = setTimeout(() => { syncDone.value = false; syncProgress.value = null }, 8000)
+      syncDoneTimer = setTimeout(() => {
+        syncDone.value = false
+        syncProgress.value = null
+        syncFinished.value = true
+      }, 8000)
     }
   } catch {}
 }
@@ -120,7 +142,8 @@ function startSyncPolling() {
   syncPollTimer = null
   clearTimeout(syncDoneTimer)
   syncDoneTimer = null
-  syncDone.value  = false
+  syncDone.value     = false
+  syncFinished.value = false
   syncProgress.value = null
 
   if (props.account.sync_history) {
@@ -166,31 +189,52 @@ onUnmounted(() => {
 
     <p class="text-xs text-gray-400">Last connected: {{ formatDate(account.last_connected_at) }}</p>
 
-    <!-- History sync progress bar -->
-    <div v-if="syncProgress && (syncProgress.syncing || syncDone)" class="flex flex-col gap-1">
-      <div class="flex items-center justify-between text-xs">
-        <span :class="syncDone ? 'text-green-600 font-medium' : 'text-gray-600'">
-          <span v-if="syncDone">
+    <!-- History sync progress — three states -->
+    <div v-if="syncState" class="flex flex-col gap-1.5 border border-gray-100 rounded-lg p-3 bg-gray-50">
+
+      <!-- State: awaiting — WhatsApp is negotiating sync keys (no batches yet) -->
+      <template v-if="syncState === 'awaiting'">
+        <div class="flex items-center gap-2 text-xs text-gray-600 font-medium">
+          <div class="w-3 h-3 rounded-full border-2 border-gray-200 border-t-green-500 animate-spin shrink-0" />
+          Waiting for history sync to begin…
+        </div>
+        <div class="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+          <div class="h-full bg-green-300 w-full rounded-full animate-pulse" />
+        </div>
+        <p class="text-xs text-gray-400 leading-relaxed">
+          WhatsApp is negotiating sync keys. Large accounts can take <strong>10–30 minutes</strong>
+          before messages start arriving. Keep this session connected.
+        </p>
+      </template>
+
+      <!-- State: syncing — batches actively arriving from Django -->
+      <template v-else-if="syncState === 'syncing'">
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-gray-700 font-medium">
+            Syncing history…
+            <strong>{{ syncProgress.total_synced.toLocaleString() }}</strong> messages so far
+          </span>
+          <span class="text-gray-400">{{ syncProgress.batch_count }} batch{{ syncProgress.batch_count !== 1 ? 'es' : '' }}</span>
+        </div>
+        <div class="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+          <div class="h-full bg-green-500 rounded-full animate-sync-bar" />
+        </div>
+      </template>
+
+      <!-- State: done — briefly shown after sync finishes -->
+      <template v-else-if="syncState === 'done'">
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-green-600 font-medium">
             ✓ Sync complete —
             <strong>{{ syncProgress.total_synced.toLocaleString() }}</strong> messages imported
           </span>
-          <span v-else>
-            Syncing history…
-            <strong>{{ syncProgress.total_synced.toLocaleString() }}</strong> messages imported
-          </span>
-        </span>
-        <span class="text-gray-400">{{ syncProgress.batch_count }} batch{{ syncProgress.batch_count !== 1 ? 'es' : '' }}</span>
-      </div>
-      <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-        <div
-          v-if="!syncDone"
-          class="h-full bg-green-500 rounded-full animate-sync-bar"
-        />
-        <div
-          v-else
-          class="h-full bg-green-500 rounded-full w-full transition-all duration-500"
-        />
-      </div>
+          <span class="text-gray-400">{{ syncProgress.batch_count }} batch{{ syncProgress.batch_count !== 1 ? 'es' : '' }}</span>
+        </div>
+        <div class="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+          <div class="h-full bg-green-500 w-full rounded-full" />
+        </div>
+      </template>
+
     </div>
 
     <!-- Action buttons -->
