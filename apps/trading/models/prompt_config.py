@@ -21,6 +21,34 @@ PRODUCT MASTER — match against these products and their aliases \
 (case-insensitive, ignore extra spaces and punctuation):
 {product_block}
 
+REGIONAL ABBREVIATIONS — used by UAE wholesale traders. Map these EXACTLY when building canonical_name:
+  TRA / TDRA / TRA approved / TDRA approved → UAE
+  تدرا / تيرا / امارات / الامارات / إمارات  → UAE  (Arabic equivalents — all mean UAE spec)
+  KSA / Saudi / سعودي / السعودية            → KSA
+  JPN / Japan        → Japan
+  HK / Hong Kong     → Hong Kong
+  IND / India        → India
+  USA / US           → USA
+  EU                 → EU
+  CH / CHN / China   → China
+  KOR / Korea        → Korea
+  UK / England       → UK
+  SING / SG          → Singapore
+  AU / AUS           → Australia
+  LOCAL              → (no region suffix — locally available, spec unspecified)
+
+SIM TYPE HINTS — use these ONLY when no explicit region abbreviation is present in the message. \
+Sim type narrows the region but does not uniquely determine it — combine with other context clues:
+  Physical SIM / Dual SIM / nano SIM / physical nano → likely HK, India, UK, EU, China, Korea, Singapore
+  eSIM only / eSIM / no physical SIM                 → likely UAE (TDRA), KSA, Japan, USA
+  If sim type is mentioned alongside a region abbreviation, the region abbreviation takes priority.
+
+CRITICAL REGION RULE: The region abbreviation in the message MUST determine the product region. \
+Never substitute a different region (e.g. if message says TRA, TDRA, or any Arabic UAE equivalent \
+you must use UAE, not Japan or any other region). \
+If no matching regional variant exists in the product master, set product_id to null and write \
+the correct region in canonical_name anyway.
+
 Rules:
 - is_inquiry must be true ONLY for genuine buy or sell business opportunities \
 (not greetings, jokes, or casual messages).
@@ -29,8 +57,7 @@ Rules:
 - products: extract ONLY what is explicitly stated in the message. \
 Do NOT infer, add, or upgrade specs (e.g. do not add "Pro" if the message says "iPhone 17 256GB"). \
 Use the product_id from the master catalog ONLY when you are certain it is the exact same model \
-(matching name, storage, and tier). If uncertain, set product_id to null and use the exact \
-product description from the message as canonical_name.
+(matching name, storage, tier, AND region). If uncertain about region match, set product_id to null.
 - dedup_key format: "{buy|sell}:{product-slug}:{qty-bucket}:{contact_id}" \
 where qty-bucket is the quantity rounded to nearest 5 (use 0 if unknown). \
 Leave empty string if is_inquiry is false.

@@ -11,6 +11,7 @@ import DroppedMessagesView  from '../views/DroppedMessagesView.vue'
 import ContactsView         from '../views/ContactsView.vue'
 import GroupsView           from '../views/GroupsView.vue'
 import TradingView          from '../views/TradingView.vue'
+import TradingAnalyticsView from '../views/TradingAnalyticsView.vue'
 import InquiriesView        from '../views/InquiriesView.vue'
 import ProductsView         from '../views/ProductsView.vue'
 import AIInstructionsView   from '../views/AIInstructionsView.vue'
@@ -29,6 +30,7 @@ const router = createRouter({
     { path: '/contacts', name: 'contacts', component: ContactsView },
     { path: '/groups', name: 'groups', component: GroupsView },
     { path: '/trading', name: 'trading', component: TradingView },
+    { path: '/trading-analytics', name: 'trading-analytics', component: TradingAnalyticsView },
     { path: '/inquiries', name: 'inquiries', component: InquiriesView },
     { path: '/products', name: 'products', component: ProductsView },
     { path: '/ai-instructions', name: 'ai-instructions', component: AIInstructionsView },

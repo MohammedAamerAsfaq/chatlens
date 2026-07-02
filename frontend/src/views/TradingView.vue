@@ -115,6 +115,7 @@
                 <option value="irrelevant">Irrelevant</option>
                 <option value="closed">Close</option>
               </select>
+              <button class="act-btn close" @click="act(inq, 'closed')">Close</button>
               <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
               <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id, inq.account, inq.source_message_id, inq.source_message_time)" title="Open conversation">Chat →</button>
               <a v-if="inq.source_type === 'direct' && waLink(inq.contact_phone)" :href="waLink(inq.contact_phone)" class="act-btn wa" title="Open in WhatsApp">
@@ -169,6 +170,7 @@
                 <option value="irrelevant">Irrelevant</option>
                 <option value="closed">Close</option>
               </select>
+              <button class="act-btn close" @click="act(inq, 'closed')">Close</button>
               <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
               <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id, inq.account, inq.source_message_id, inq.source_message_time)" title="Open conversation">Chat →</button>
               <a v-if="inq.source_type === 'direct' && waLink(inq.contact_phone)" :href="waLink(inq.contact_phone)" class="act-btn wa" title="Open in WhatsApp">
@@ -181,102 +183,6 @@
         </div>
       </div>
 
-      <!-- Analytics sidebar -->
-      <div class="analytics-col">
-        <!-- AI Classification Activity -->
-        <div class="analytics-card">
-          <div class="analytics-title" style="display:flex;justify-content:space-between;align-items:center;">
-            <span>AI Pipeline (Today)</span>
-            <div style="display:flex;gap:4px;">
-              <button class="btn-ghost sm" @click="runBackfill" title="Classify recent unclassified messages">Backfill</button>
-              <button
-                v-if="classifyActivity?.today?.pending > 0"
-                class="btn-retry sm"
-                @click="runRetry"
-                title="Re-run inquiry creation for classified messages with no Inquiry record"
-              >Retry ({{ classifyActivity.today.pending }})</button>
-            </div>
-          </div>
-          <div v-if="backfillStatus" class="backfill-msg">{{ backfillStatus }}</div>
-          <pre v-if="retryError" class="retry-error">{{ retryError }}</pre>
-          <div v-if="classifyActivity" class="classify-row">
-            <span class="classify-chip total">{{ classifyActivity.today.total }} classified</span>
-            <span class="classify-chip inquiry">{{ classifyActivity.today.as_inquiry }} inquiries</span>
-            <span v-if="classifyActivity.today.pending > 0" class="classify-chip warn">
-              {{ classifyActivity.today.pending }} pending
-            </span>
-            <span v-if="classifyActivity.today.type_missing > 0" class="classify-chip error">
-              {{ classifyActivity.today.type_missing }} no type
-            </span>
-          </div>
-          <div v-if="classifyActivity?.recent?.length" class="recent-classifications">
-            <div
-              v-for="mc in classifyActivity.recent" :key="mc.id"
-              class="mc-row"
-              :class="{ 'mc-inquiry': mc.is_inquiry }"
-            >
-              <span class="mc-badge" :class="mc.is_inquiry ? 'badge-yes' : 'badge-no'">
-                {{ mc.is_inquiry ? (mc.inquiry_type || '?') : 'skip' }}
-              </span>
-              <span class="mc-summary">{{ mc.summary || mc.tags?.join(', ') }}</span>
-            </div>
-          </div>
-          <div v-else-if="classifyActivity" class="feed-empty" style="padding:10px">No classifications today</div>
-        </div>
-
-        <!-- Source breakdown -->
-        <div class="analytics-card">
-          <div class="analytics-title">Source Breakdown</div>
-          <table class="mini-table">
-            <thead><tr><th>Source</th><th>WTB</th><th>WTS</th></tr></thead>
-            <tbody>
-              <tr v-for="src in ['direct','group','community']" :key="src">
-                <td class="cap">{{ src }}</td>
-                <td>{{ stats.by_source?.[src]?.wtb ?? 0 }}</td>
-                <td>{{ stats.by_source?.[src]?.wts ?? 0 }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Top products -->
-        <div class="analytics-card" v-if="productStats.length">
-          <div class="analytics-title">Product Activity (Today)</div>
-          <table class="mini-table">
-            <thead><tr><th>Product</th><th>WTB</th><th>WTS</th><th>Deals</th></tr></thead>
-            <tbody>
-              <tr v-for="p in productStats" :key="p.product_id">
-                <td>{{ p.name }}</td>
-                <td>{{ p.wtb }}</td>
-                <td>{{ p.wts }}</td>
-                <td>{{ p.deals }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Hourly chart -->
-        <div class="analytics-card" v-if="stats.timeline?.length">
-          <div class="analytics-title">Hourly Activity</div>
-          <div class="chart-wrap">
-            <div
-              v-for="slot in stats.timeline" :key="slot.hour"
-              class="chart-slot"
-              :title="`${slot.hour} — WTB: ${slot.wtb}, WTS: ${slot.wts}`"
-            >
-              <div class="bar-group">
-                <div class="bar wtb-bar" :style="{ height: barHeight(slot.wtb) + 'px' }"></div>
-                <div class="bar wts-bar" :style="{ height: barHeight(slot.wts) + 'px' }"></div>
-              </div>
-              <div class="slot-label">{{ slot.hour.split(':')[0] }}</div>
-            </div>
-          </div>
-          <div class="chart-legend">
-            <span class="legend-dot wtb"></span> WTB &nbsp;
-            <span class="legend-dot wts"></span> WTS
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -299,18 +205,14 @@ async function viewChat(chatId, accountId, messageId, messageTime) {
   router.push({ name: 'conversations' })
 }
 
-const accounts           = ref([])
-const selectedAccount    = ref('')
-const selectedStatus     = ref('open')
-const stats              = ref({})
-const feed               = ref([])
-const productStats       = ref([])
-const allProducts        = ref([])
-const classifyActivity   = ref(null)
-const backfillStatus     = ref('')
-const retryError         = ref('')
-const lastUpdate         = ref(null)
-let   pollTimer          = null
+const accounts         = ref([])
+const selectedAccount  = ref('')
+const selectedStatus   = ref('open')
+const stats            = ref({})
+const feed             = ref([])
+const allProducts      = ref([])
+const lastUpdate       = ref(null)
+let   pollTimer        = null
 
 const statusFilters = [
   { value: 'all',            label: 'All Today' },
@@ -365,14 +267,6 @@ const lastUpdateLabel = computed(() => {
   return `${secs}s ago`
 })
 
-const maxBar = computed(() => {
-  const vals = (stats.value.timeline || []).flatMap(s => [s.wtb, s.wts])
-  return Math.max(...vals, 1)
-})
-
-function barHeight(val) {
-  return Math.round((val / maxBar.value) * 60)
-}
 
 function formatAge(secs) {
   if (secs < 60)   return `${secs}s`
@@ -384,19 +278,15 @@ async function refresh() {
   const accountParam = selectedAccount.value || undefined
   const params = accountParam ? { account: accountParam } : {}
   const feedParams = { ...params, status: selectedStatus.value }
-  const [statsRes, feedRes, prodRes, actRes, prodsRes] = await Promise.all([
+  const [statsRes, feedRes, prodsRes] = await Promise.all([
     tradingApi.getStats(params),
     tradingApi.getOpenFeed(feedParams),
-    tradingApi.getProductStats(params),
-    tradingApi.getClassificationActivity(params),
     tradingApi.listProducts({ page_size: 1000, is_active: true }),
   ])
-  stats.value            = statsRes.data
-  feed.value             = feedRes.data
-  productStats.value     = prodRes.data
-  classifyActivity.value = actRes.data
-  allProducts.value      = prodsRes.data.results ?? prodsRes.data
-  lastUpdate.value       = Date.now()
+  stats.value       = statsRes.data
+  feed.value        = feedRes.data
+  allProducts.value = prodsRes.data.results ?? prodsRes.data
+  lastUpdate.value  = Date.now()
 }
 
 async function act(inq, status) {
@@ -416,41 +306,6 @@ function waLink(phone) {
   return clean ? `whatsapp://send?phone=${clean}` : null
 }
 
-async function runBackfill() {
-  backfillStatus.value = 'Queuing…'
-  try {
-    const accountParam = selectedAccount.value || undefined
-    const { data } = await tradingApi.backfillClassify(
-      accountParam ? { account: accountParam, limit: 20 } : { limit: 20 }
-    )
-    backfillStatus.value = `Queued ${data.queued} message(s) — check logs in ~30s`
-    setTimeout(() => { backfillStatus.value = '' }, 15000)
-    setTimeout(refresh, 8000)
-  } catch (e) {
-    backfillStatus.value = 'Failed: ' + (e.response?.data?.detail || e.message)
-  }
-}
-
-async function runRetry() {
-  backfillStatus.value = 'Retrying inquiry creation…'
-  try {
-    const accountParam = selectedAccount.value || undefined
-    const { data } = await tradingApi.retryInquiries(
-      accountParam ? { account: accountParam } : {}
-    )
-    if (data.errors && data.first_error) {
-      backfillStatus.value = `Created ${data.created}, ${data.errors} errors — see below`
-      retryError.value = data.first_error
-    } else {
-      backfillStatus.value = `Created ${data.created} inquiries`
-      retryError.value = ''
-      setTimeout(() => { backfillStatus.value = '' }, 10000)
-    }
-    await refresh()
-  } catch (e) {
-    backfillStatus.value = 'Failed: ' + (e.response?.data?.detail || e.message)
-  }
-}
 
 onMounted(async () => {
   const { data } = await accountsApi.list()
@@ -493,7 +348,7 @@ onUnmounted(() => {
 .sfilter-btn:hover { border-color: #9ca3af; color: #374151; }
 .sfilter-active { background: #1d4ed8; border-color: #1d4ed8; color: #fff !important; }
 /* Main grid */
-.main-grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr 280px; gap: 0; overflow: hidden; }
+.main-grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 0; overflow: hidden; }
 .feed-col { display: flex; flex-direction: column; border-right: 1px solid #e5e7eb; overflow: hidden; }
 .feed-header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #e5e7eb; }
 .wtb-header { background: #f0fdf4; }
@@ -516,49 +371,14 @@ onUnmounted(() => {
 .account-badge { font-size: 0.7rem; background: #ede9fe; color: #6d28d9; padding: 1px 7px; border-radius: 999px; font-weight: 600; }
 .card-actions { display: flex; gap: 6px; align-items: center; }
 .act-btn { padding: 4px 12px; border: none; border-radius: 5px; cursor: pointer; font-size: 0.8rem; font-weight: 500; }
+.act-btn.close { background: #f3f4f6; color: #374151; }
 .act-btn.deal  { background: #16a34a; color: #fff; }
 .act-btn.chat  { background: #eff6ff; color: #1d4ed8; margin-left: auto; }
 .act-btn.wa    { background: #dcfce7; color: #16a34a; display: flex; align-items: center; gap: 3px; text-decoration: none; }
 .status-select-mini { padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 5px; font-size: 0.78rem; color: #374151; cursor: pointer; background: #fff; }
 .feed-empty { text-align: center; color: #9ca3af; font-size: 0.85rem; padding: 30px; }
-/* Analytics */
-.analytics-col { overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; background: #fff; }
-.analytics-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; }
-.analytics-title { font-size: 0.78rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }
-.mini-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-.mini-table th { color: #9ca3af; font-weight: 500; padding: 3px 6px; text-align: left; border-bottom: 1px solid #f3f4f6; }
-.mini-table td { padding: 4px 6px; border-bottom: 1px solid #f9fafb; }
-.mini-table td.cap { text-transform: capitalize; }
-/* Chart */
-.chart-wrap { display: flex; align-items: flex-end; gap: 3px; height: 80px; padding-top: 10px; }
-.chart-slot { display: flex; flex-direction: column; align-items: center; flex: 1; }
-.bar-group { display: flex; align-items: flex-end; gap: 1px; }
-.bar { width: 6px; border-radius: 2px 2px 0 0; min-height: 2px; transition: height 0.3s; }
-.wtb-bar { background: #22c55e; }
-.wts-bar { background: #f97316; }
-.slot-label { font-size: 0.62rem; color: #9ca3af; margin-top: 2px; }
-.chart-legend { display: flex; align-items: center; gap: 4px; font-size: 0.75rem; color: #6b7280; margin-top: 8px; }
-.legend-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.legend-dot.wtb { background: #22c55e; }
-.legend-dot.wts { background: #f97316; }
 .btn-ghost { padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 6px; background: transparent; cursor: pointer; font-size: 0.85rem; }
 .btn-ghost.sm { padding: 4px 10px; font-size: 0.8rem; }
-/* Classification activity */
-.backfill-msg { font-size: 0.75rem; color: #6b7280; margin-bottom: 6px; }
-.classify-row { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
-.classify-chip { padding: 2px 8px; border-radius: 999px; font-size: 0.73rem; font-weight: 600; }
-.classify-chip.total   { background: #f3f4f6; color: #374151; }
-.classify-chip.inquiry { background: #dcfce7; color: #15803d; }
-.classify-chip.warn    { background: #fef9c3; color: #92400e; }
-.classify-chip.error   { background: #fee2e2; color: #b91c1c; }
-.btn-retry { padding: 4px 10px; font-size: 0.8rem; border: 1px solid #f59e0b; border-radius: 6px; background: #fffbeb; color: #92400e; cursor: pointer; font-weight: 600; }
-.recent-classifications { display: flex; flex-direction: column; gap: 3px; }
-.mc-row { display: flex; align-items: flex-start; gap: 6px; padding: 3px 0; border-bottom: 1px solid #f3f4f6; }
-.mc-badge { flex-shrink: 0; padding: 1px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; }
-.badge-yes { background: #dcfce7; color: #15803d; }
-.badge-no  { background: #f3f4f6; color: #9ca3af; }
-.mc-summary { font-size: 0.75rem; color: #374151; line-height: 1.3; }
-.retry-error { font-size: 0.7rem; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; padding: 6px 8px; white-space: pre-wrap; word-break: break-all; margin-top: 6px; max-height: 200px; overflow-y: auto; }
 /* Inventory stock hints on WTB cards */
 .card-stock-hints { display: flex; flex-direction: column; gap: 3px; margin-bottom: 6px; }
 .stock-hint { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 5px; padding: 4px 8px; font-size: 0.75rem; color: #166534; line-height: 1.4; }

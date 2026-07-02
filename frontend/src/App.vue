@@ -26,8 +26,9 @@ async function handleLogout() {
       <RouterLink to="/ai-providers"    class="nav-link" active-class="nav-link-active">AI Providers</RouterLink>
       <RouterLink to="/contacts"        class="nav-link" active-class="nav-link-active">Contacts</RouterLink>
       <RouterLink to="/groups"          class="nav-link" active-class="nav-link-active">Groups</RouterLink>
-      <RouterLink to="/trading"         class="nav-link" active-class="nav-link-active">Trading</RouterLink>
-      <RouterLink to="/products"        class="nav-link" active-class="nav-link-active">Products</RouterLink>
+      <RouterLink to="/trading"            class="nav-link" active-class="nav-link-active">Trading</RouterLink>
+      <RouterLink to="/trading-analytics" class="nav-link" active-class="nav-link-active">Analytics</RouterLink>
+      <RouterLink to="/products"          class="nav-link" active-class="nav-link-active">Products</RouterLink>
       <RouterLink to="/ai-instructions" class="nav-link" active-class="nav-link-active">AI Instructions</RouterLink>
       <RouterLink to="/dropped-messages" class="nav-link" active-class="nav-link-active">Dropped</RouterLink>
 
