@@ -81,7 +81,10 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
         account = self.get_object()
         since = account.last_connected_at
         if not since:
-            return Response({'syncing': False, 'total_synced': 0, 'total_processed': 0, 'batch_count': 0})
+            return Response({
+                'syncing': False, 'total_synced': 0, 'total_processed': 0,
+                'batch_count': 0, 'is_complete': False,
+            })
 
         logs = list(
             SyncLog.objects.filter(
@@ -95,6 +98,11 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
         total_processed = sum(l['metadata'].get('total', 0) for l in logs if l['metadata'])
         recent_cutoff = now() - timedelta(seconds=30)
         syncing = any(l['created_at'] >= recent_cutoff for l in logs)
+        # Authoritative completion signal from Baileys' own isLatest flag — set even
+        # when a chunk's messages were entirely filtered out by history_days, so a
+        # sync that legitimately finds nothing in the window still reports "done"
+        # instead of leaving the UI stuck on "still waiting".
+        is_complete = any(l['metadata'].get('is_latest') for l in logs if l['metadata'])
         has_live_messages = SyncLog.objects.filter(
             account=account, event_type='message_ingest', created_at__gte=since,
         ).exists()
@@ -105,6 +113,7 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
             'total_processed': total_processed,
             'batch_count': len(logs),
             'has_live_messages': has_live_messages,
+            'is_complete': is_complete,
         })
 
     @action(detail=True, methods=['get'])

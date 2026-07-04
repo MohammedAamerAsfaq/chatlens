@@ -162,16 +162,15 @@ class IngestionService:
 
         return message
 
-    def ingest_batch(self, payloads: list) -> dict:
+    def ingest_batch(self, worker_session_id, payloads: list, is_latest: bool = False, received: int = None) -> dict:
         """Process a list of messages (from history sync) in one call.
 
         Skips per-message SyncLog and unread_count updates — history messages are
-        already-read messages from the user's phone. Creates one batch SyncLog entry.
+        already-read messages from the user's phone. Always creates one batch SyncLog
+        entry, even when payloads is empty: a narrow history_days window can filter an
+        entire WhatsApp-delivered chunk down to zero, and the sync-progress UI needs
+        that logged to tell "done, nothing in range" apart from "still hanging".
         """
-        if not payloads:
-            return {'total': 0, 'created': 0, 'skipped': 0, 'errors': 0}
-
-        worker_session_id = payloads[0].get('worker_session_id')
         account = WhatsAppAccount.objects.get(pk=worker_session_id)
 
         created_count = 0
@@ -203,9 +202,11 @@ class IngestionService:
             status='success' if not error_count else 'warning',
             metadata={
                 'total': len(payloads),
+                'received': received if received is not None else len(payloads),
                 'created': created_count,
                 'skipped': skipped_count,
                 'errors': error_count,
+                'is_latest': is_latest,
             },
         )
 

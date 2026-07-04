@@ -63,6 +63,13 @@ module.exports = function sessionsRouter(sessionManager, mediaStorePath, message
     const snapshot = sessionManager.getStatus(req.params.id);
     if (!snapshot) return res.status(404).json({ error: 'Session not found' });
 
+    if (snapshot.status === 'error') {
+      return res.status(500).json({
+        error: sessionManager.getLastError(req.params.id) || 'Connection failed.',
+        status: snapshot.status,
+      });
+    }
+
     const qrDataUrl = sessionManager.getQR(req.params.id);
     if (!qrDataUrl) {
       return res.status(202).json({

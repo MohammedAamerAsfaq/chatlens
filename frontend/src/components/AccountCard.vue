@@ -121,10 +121,15 @@ async function fetchSyncProgress() {
   if (!props.account.sync_history) return
   try {
     const { data } = await accountsApi.syncProgress(props.account.id)
-    const wasSyncing = syncProgress.value?.syncing
+    const alreadyComplete = syncProgress.value?.is_complete
     syncProgress.value = data
 
-    if (wasSyncing && !data.syncing && data.total_synced > 0) {
+    // is_complete comes from Baileys' own isLatest flag on the final history chunk —
+    // authoritative, and set even when that chunk had zero messages after the
+    // history_days filter. This replaces the old "no new batches for 30s" heuristic,
+    // which could never fire for an account whose entire history sync filtered down
+    // to nothing (no batches ever arrived to go idle from).
+    if (!alreadyComplete && data.is_complete) {
       syncDone.value = true
       clearInterval(syncPollTimer)
       syncPollTimer = null
@@ -225,8 +230,12 @@ onUnmounted(() => {
       <template v-else-if="syncState === 'done'">
         <div class="flex items-center justify-between text-xs">
           <span class="text-green-600 font-medium">
-            ✓ Sync complete —
-            <strong>{{ syncProgress.total_synced.toLocaleString() }}</strong> messages imported
+            <template v-if="syncProgress.total_synced > 0">
+              ✓ Sync complete — <strong>{{ syncProgress.total_synced.toLocaleString() }}</strong> messages imported
+            </template>
+            <template v-else>
+              ✓ Sync complete — no messages found in your sync window
+            </template>
           </span>
           <span class="text-gray-400">{{ syncProgress.batch_count }} batch{{ syncProgress.batch_count !== 1 ? 'es' : '' }}</span>
         </div>

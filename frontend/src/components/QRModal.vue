@@ -57,8 +57,16 @@ async function poll() {
       error.value   = 'Worker is offline. Restart the WhatsApp worker and try again.'
       message.value = 'Worker offline'
       stopPolling()
+    } else if (status === 500) {
+      error.value   = e.response?.data?.error || 'Connection failed — please try again.'
+      message.value = 'Failed to connect'
+      stopPolling()
+    } else {
+      // Unknown/network error talking to our own backend — don't spin forever, surface it.
+      error.value   = 'Lost contact with the server while generating the QR code.'
+      message.value = 'Connection error'
+      stopPolling()
     }
-    // other transient errors: keep polling silently
   }
 }
 

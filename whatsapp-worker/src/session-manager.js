@@ -24,6 +24,12 @@ const SESSION_STATUS = {
   ERROR:         'error',
 };
 
+// If no connection.update event (qr/open/close) arrives within this window, the
+// handshake is considered hung. Generous enough that a normal QR generation or a
+// legitimate wait-for-scan (Baileys re-fires 'qr' periodically, which re-arms this)
+// never trips it — only a truly stalled socket does.
+const WATCHDOG_TIMEOUT_MS = 45000;
+
 const MIME_TO_EXT = {
   'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
   'video/mp4': 'mp4', 'video/3gpp': '3gp', 'video/mpeg': 'mpeg',
@@ -115,6 +121,9 @@ class SessionManager {
       lastActivityAt: Date.now(),
       idleTimer: null,
       preventReconnect: false,
+      watchdogTimer: null,
+      watchdogFired: false,
+      lastError: null,
       // LID → phone JID mapping built from contacts.set/upsert.
       // Used to normalise outbound LID chat_ids (which have no senderPn).
       lidToPhone: {},
@@ -146,6 +155,11 @@ class SessionManager {
     const s = this.sessions.get(sessionId);
     if (!s) return null;
     return s.qrDataUrl;
+  }
+
+  getLastError(sessionId) {
+    const s = this.sessions.get(sessionId);
+    return s?.lastError || null;
   }
 
   async getGroupMetadata(sessionId, groupJid) {
@@ -202,34 +216,97 @@ class SessionManager {
 
   // ─── Internals ──────────────────────────────────────────────────────────────
 
+  // (Re)arms the stuck-connection watchdog. Called on connect and every time a
+  // connection.update event fires, so a healthy handshake or a legitimate QR refresh
+  // keeps pushing the deadline out — only a socket that goes fully silent trips it.
+  _armWatchdog(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    this._clearWatchdog(session);
+    session.watchdogTimer = setTimeout(() => this._handleStuckConnection(sessionId), WATCHDOG_TIMEOUT_MS);
+  }
+
+  _clearWatchdog(session) {
+    if (session?.watchdogTimer) {
+      clearTimeout(session.watchdogTimer);
+      session.watchdogTimer = null;
+    }
+  }
+
+  // Fires when a session has gone silent for WATCHDOG_TIMEOUT_MS — no qr/open/close
+  // event at all. Without this, a stalled handshake (bad network, stuck WebSocket,
+  // corrupted auth state) leaves the session stuck in pending_qr/qr_generated forever
+  // with no error ever surfacing to the UI.
+  _handleStuckConnection(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.status === SESSION_STATUS.CONNECTED) return;
+
+    this.logger.error({ sessionId }, 'Connection watchdog fired — no response from WhatsApp servers, marking session as error');
+
+    const deadSock = session.sock;
+    session.watchdogFired = true;
+    session.preventReconnect = true;
+    session.status = SESSION_STATUS.ERROR;
+    session.lastError = 'No response from WhatsApp servers — connection timed out. Please try again.';
+    session.qrDataUrl = null;
+    session.sock = null;
+
+    this.djangoClient.sendSessionStatus(sessionId, { status: SESSION_STATUS.ERROR });
+
+    try {
+      deadSock?.end(new Error('Watchdog timeout — no connection event received'));
+    } catch (_) {
+      // Socket was never fully established — nothing to tear down.
+    }
+  }
+
   async _connect(sessionId) {
-    const authDir = path.join(this.sessionStorePath, sessionId);
-    fs.mkdirSync(authDir, { recursive: true });
-
-    const { state, saveCreds } = await useMultiFileAuthState(authDir);
-    const { version } = await fetchLatestBaileysVersion();
-
     const session = this.sessions.get(sessionId);
 
-    const sock = makeWASocket({
-      version,
-      auth: {
-        creds: state.creds,
-        keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
-      },
-      printQRInTerminal: false,
-      logger: pino({ level: 'silent' }),
-      shouldIgnoreJid: jid => isJidBroadcast(jid),
-      // Only request full (all-time) history when no day limit is set.
-      // With a finite history_days window, recent sync is sufficient and far faster —
-      // WhatsApp sends years of CDN blobs for full sync which can take hours.
-      syncFullHistory: session.syncHistory && !session.historyDays,
-      getMessage: async () => ({ conversation: '' }),
-    });
+    // Auth-state load, version fetch, and socket construction all happen before any
+    // connection.update event can fire — the watchdog (armed just below, once we have
+    // a sock) can't catch a failure here. Without this try/catch, a corrupted
+    // creds.json or a failed fetchLatestBaileysVersion() call would throw out of
+    // createSession() and leave the session stuck at pending_qr with no sock and no
+    // watchdog forever — the same silent hang, just triggered earlier.
+    let sock;
+    try {
+      const authDir = path.join(this.sessionStorePath, sessionId);
+      fs.mkdirSync(authDir, { recursive: true });
+
+      const { state, saveCreds } = await useMultiFileAuthState(authDir);
+      const { version } = await fetchLatestBaileysVersion();
+
+      sock = makeWASocket({
+        version,
+        auth: {
+          creds: state.creds,
+          keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
+        },
+        printQRInTerminal: false,
+        logger: pino({ level: 'silent' }),
+        shouldIgnoreJid: jid => isJidBroadcast(jid),
+        // Only request full (all-time) history when no day limit is set.
+        // With a finite history_days window, recent sync is sufficient and far faster —
+        // WhatsApp sends years of CDN blobs for full sync which can take hours.
+        syncFullHistory: session.syncHistory && !session.historyDays,
+        getMessage: async () => ({ conversation: '' }),
+      });
+
+      sock.ev.on('creds.update', saveCreds);
+    } catch (err) {
+      this.logger.error({ sessionId, error: err.message }, 'Failed to initialize connection');
+      session.sock = null;
+      session.status = SESSION_STATUS.ERROR;
+      session.lastError = `Failed to start session: ${err.message}`;
+      session.qrDataUrl = null;
+      await this.djangoClient.sendSessionStatus(sessionId, { status: SESSION_STATUS.ERROR });
+      return;
+    }
 
     session.sock = sock;
-
-    sock.ev.on('creds.update', saveCreds);
+    session.watchdogFired = false;
+    this._armWatchdog(sessionId);
 
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
@@ -237,6 +314,7 @@ class SessionManager {
       if (qr) {
         session.qrDataUrl = await QRCode.toDataURL(qr);
         session.status = SESSION_STATUS.QR_GENERATED;
+        this._armWatchdog(sessionId);
         this.logger.info({ sessionId }, 'QR generated');
         await this.djangoClient.sendSessionStatus(sessionId, {
           status: SESSION_STATUS.QR_GENERATED,
@@ -244,6 +322,7 @@ class SessionManager {
       }
 
       if (connection === 'open') {
+        this._clearWatchdog(session);
         const me = sock.user;
         session.status = SESSION_STATUS.CONNECTED;
         session.phoneNumber = me?.id?.split(':')[0] || null;
@@ -281,10 +360,40 @@ class SessionManager {
         const loggedOut = code === DisconnectReason.loggedOut;
 
         if (session.idleTimer) { clearInterval(session.idleTimer); session.idleTimer = null; }
+        this._clearWatchdog(session);
+
+        if (session.watchdogFired) {
+          // Status/error/sock were already set by the watchdog — this close event is
+          // just the dead socket unwinding. Don't overwrite the error state or reconnect.
+          session.watchdogFired = false;
+          session.preventReconnect = false;
+          this.logger.info({ sessionId }, 'Watchdog-closed socket cleanup complete');
+          return;
+        }
 
         session.status = loggedOut ? SESSION_STATUS.LOGGED_OUT : SESSION_STATUS.DISCONNECTED;
         session.sock = null;
         this.logger.info({ sessionId, code, loggedOut }, 'Session closed');
+
+        if (loggedOut) {
+          // Delete credentials right now — don't defer this to the next createSession()
+          // call. That deferred check only fires if this same in-memory session entry
+          // is still around, which breaks the moment the worker process restarts (crash,
+          // deploy, dev-server reload) before the account reconnects: initialize() rebuilds
+          // an empty sessions Map and finds creds.json still on disk, so it reconnects with
+          // credentials WhatsApp has already revoked. Baileys can still locally report
+          // 'connected' in that case — producing a session that looks live in the UI but
+          // never receives anything again (no history sync, no live messages), forever.
+          const authDir = path.join(this.sessionStorePath, sessionId);
+          if (fs.existsSync(authDir)) {
+            try {
+              fs.rmSync(authDir, { recursive: true });
+              this.logger.info({ sessionId }, 'Logged out — cleared credentials immediately, fresh QR required');
+            } catch (err) {
+              this.logger.error({ sessionId, err: err.message }, 'Failed to clear logged-out credentials');
+            }
+          }
+        }
 
         await this.djangoClient.sendSessionStatus(sessionId, {
           status: session.status,
@@ -358,7 +467,7 @@ class SessionManager {
         { sessionId, received: messages.length, processing: filtered.length, isLatest },
         'History sync',
       );
-      await this._forwardHistoryBatch(sessionId, filtered);
+      await this._forwardHistoryBatch(sessionId, filtered, { isLatest, received: messages.length });
     });
 
     // Sync contact names whenever Baileys provides them.
@@ -775,7 +884,7 @@ class SessionManager {
     }
   }
 
-  async _forwardHistoryBatch(sessionId, msgs) {
+  async _forwardHistoryBatch(sessionId, msgs, { isLatest = false, received = msgs.length } = {}) {
     const CHUNK_SIZE = 100;
 
     // Build all payloads (filters protocol messages; fetches group names via cache)
@@ -789,7 +898,19 @@ class SessionManager {
       }
     }
 
-    if (!built.length) return;
+    if (!built.length) {
+      // Still report this chunk to Django — even empty. A narrow history_days window
+      // (or a chunk that's entirely older than it) can filter an entire WhatsApp-
+      // delivered batch down to zero, and without this call the sync-progress UI never
+      // sees a single history_sync log, making a *finished* sync indistinguishable from
+      // one that's still hanging.
+      try {
+        await this.djangoClient.sendMessageIngestBatch(sessionId, [], { isLatest, received });
+      } catch (err) {
+        this.logger.error({ sessionId, err: err.message }, 'Failed to report empty history batch to Django');
+      }
+      return;
+    }
 
     this.logger.info({ sessionId, total: built.length, chunks: Math.ceil(built.length / CHUNK_SIZE) }, 'Sending history batch to Django');
 
@@ -801,7 +922,7 @@ class SessionManager {
       let forwardError = null;
 
       try {
-        await this.djangoClient.sendMessageIngestBatch(payloads);
+        await this.djangoClient.sendMessageIngestBatch(sessionId, payloads, { isLatest, received });
       } catch (err) {
         forwardStatus = 'error';
         forwardError = err.message;
@@ -873,6 +994,7 @@ class SessionManager {
       phoneNumber: s.phoneNumber,
       displayName: s.displayName,
       hasQR: !!s.qrDataUrl,
+      lastError: s.lastError || null,
     };
   }
 }

@@ -1,7 +1,7 @@
 # ChatLens Development Document
 
 > **Status:** Living document — reflects the system as actually built, not the original plan.
-> Last updated: 2026-06-30
+> Last updated: 2026-07-04 (session-connection watchdog added same day)
 
 ---
 
@@ -13,9 +13,9 @@
 
 ## 2. Purpose
 
-ChatLens is a WhatsApp QR-session based conversation intelligence system. It reads WhatsApp conversations, stores them in a structured PostgreSQL database, generates vector embeddings for semantic search, and provides dashboards for analytics, contact management, and message intelligence.
+ChatLens is a WhatsApp QR-session based conversation intelligence system. It reads WhatsApp conversations, stores them in a structured PostgreSQL database, generates vector embeddings for semantic search, and provides dashboards for analytics, contact management, message intelligence, and — as of the B2B Trading Intelligence feature — real-time AI classification of buy/sell inquiries for a wholesale trading desk.
 
-ChatLens is a read-first system. Sending is deliberately disabled in the current version.
+ChatLens is a read-first system. Sending is deliberately disabled; the one exception is `whatsapp://send?phone=` deep links from the UI, which hand off to the user's own WhatsApp client rather than sending through the platform.
 
 ---
 
@@ -70,9 +70,11 @@ All internal worker→Django calls carry the `X-Internal-Token` header. All fron
 ```
 apps/
   chatlens_core/          system settings
-  whatsapp_bridge/        accounts, sessions, chats, contacts, messages, sync logs, dropped messages
+  whatsapp_bridge/        accounts, sessions, chats, contacts, groups/communities, messages, sync logs, dropped messages
   message_intelligence/   embeddings, semantic search
-  api/                    public REST API for the Vue frontend
+  ai_providers/           AI provider config (Voyage, OpenAI, etc.)
+  trading/                B2B trading intelligence — products, classification, inquiries, prompts, agent call logs
+  api/                    public REST API for the Vue frontend + session auth (login/logout/me)
 ```
 
 ---
@@ -95,6 +97,7 @@ apps/
 | history_days | integer | null = no limit |
 | idle_disconnect_minutes | integer | 0 = never auto-disconnect |
 | auto_download_media | boolean | |
+| ai_parsing_enabled | boolean | account-level default for trading classification; **default `False`** (opt-in, flipped from `True` in migration `0014`) |
 | created_at | timestamptz | |
 | updated_at | timestamptz | |
 
@@ -106,6 +109,7 @@ apps/
 | account_id | FK → whatsapp_account | |
 | wa_contact_id | varchar(255) | **always** a phone JID (`phone@s.whatsapp.net`) or group JID (`id@g.us`) — never a LID |
 | lid_jid | varchar(255) nullable | LID alias when the contact uses WhatsApp privacy mode (e.g. `200506303578143@lid`) |
+| username | varchar(35) nullable | WhatsApp username alias (rolling out from 2026-07-07). Same alias treatment as `lid_jid` — never becomes the canonical identifier |
 | phone_number | varchar(50) | digits only, derived from wa_contact_id |
 | display_name | varchar(255) | user-editable label; seeded from push_name on first create only |
 | push_name | varchar(255) | the name set on the contact's WhatsApp profile |
@@ -117,6 +121,7 @@ apps/
 **Constraints:**
 - `UNIQUE(account_id, wa_contact_id)`
 - `UNIQUE(account_id, lid_jid)` where `lid_jid IS NOT NULL AND lid_jid != ''`
+- `UNIQUE(account_id, username)` where `username IS NOT NULL AND username != ''`
 
 **Design rule:** `wa_contact_id` is always canonical (phone/group). LIDs are stored as aliases only. The worker must resolve any LID to a phone JID before forwarding a message. If it cannot, it drops the message with reason `unresolvable_lid`.
 
@@ -133,9 +138,44 @@ apps/
 | last_message_at | timestamptz | monotonically advancing — never rolled back by history replay |
 | unread_count | integer | |
 | is_archived | boolean | |
+| ai_parsing | boolean nullable | tri-state override: `True`/`False` force on/off for this chat, `NULL` = inherit `whatsapp_account.ai_parsing_enabled` |
 | raw_payload | jsonb | |
 
 **Constraints:** `UNIQUE(account_id, wa_chat_id)`
+
+### 6.3.1 whatsapp_group / whatsapp_group_participant
+
+Introduced to give groups and communities first-class identity, separate from `whatsapp_chat` (which still holds the message-list row for a group chat).
+
+| Column (whatsapp_group) | Type | Notes |
+|---|---|---|
+| id | bigint PK | |
+| account_id | FK → whatsapp_account | |
+| wa_group_id | varchar(255) | group JID |
+| chat_id | FK → whatsapp_chat, nullable, one-to-one | links to the existing chat row |
+| name | varchar(512) | |
+| description | text | |
+| owner_jid | varchar(255) | |
+| community_id | FK → whatsapp_group (self), nullable | set when this group is a sub-group of a community |
+| is_community | boolean | true when this row is the community umbrella, not a regular group |
+| participant_count | integer | |
+| created_at / updated_at | timestamptz | |
+
+**Constraints:** `UNIQUE(account_id, wa_group_id)`
+
+| Column (whatsapp_group_participant) | Type | Notes |
+|---|---|---|
+| id | bigint PK | |
+| group_id | FK → whatsapp_group | |
+| wa_jid | varchar(255) | |
+| contact_id | FK → whatsapp_contact, nullable | |
+| role | varchar(20) | `member` / `admin` / `superadmin` |
+| is_active | boolean | |
+| joined_at / updated_at | timestamptz | |
+
+**Constraints:** `UNIQUE(group_id, wa_jid)`
+
+A data migration (`0011_backfill_groups_from_chats`) seeded placeholder `whatsapp_group` rows from existing `whatsapp_chat` rows where `chat_type='group'`; these are enriched with real metadata the next time the session connects and Baileys' `groupFetchAllParticipating()` fires.
 
 ### 6.4 whatsapp_message
 
@@ -202,6 +242,105 @@ Captures every message the worker decided not to forward to Django, with its rea
 | raw_key | jsonb | `msg.key` + `_msgKeys` (field names present in `msg.message`) |
 | created_at | timestamptz | |
 
+### 6.8 trading_product
+
+Product master used for AI matching (aliases) and inventory tracking. No LIKE/fuzzy queries against `aliases` — matching is entirely AI-driven at classification time.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint PK | |
+| name | varchar(255) | |
+| brand | varchar(100) | |
+| category | varchar(100) | |
+| sku | varchar(100) | |
+| aliases | jsonb (list) | free-text aliases traders use, e.g. `["17PM", "17 Pro Max"]` |
+| is_active | boolean | soft-delete flag |
+| qty | integer | inventory quantity |
+| cost_price | decimal(12,2) nullable | |
+| sale_price | decimal(12,2) nullable | |
+| currency | varchar(10) | default `USD` |
+| created_at / updated_at | timestamptz | |
+
+### 6.9 trading_message_classification
+
+One row per classified `WhatsAppMessage`. Created by the AI classification service after every successful call.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint PK | |
+| message_id | FK → whatsapp_message, one-to-one | |
+| tags | jsonb (list) | one or more of `wtb`, `wts`, `price_inquiry`, `stock_inquiry`, `negotiation`, `deal_confirmation`, `greeting`, `joke`, `spam`, `other` |
+| products | jsonb (list) | `[{product_id, canonical_name, quantity, price, currency}]` snapshot at classification time |
+| is_inquiry | boolean | true only for a genuine buy/sell opportunity |
+| inquiry_type | varchar(10) | `buy` / `sell` / `both` |
+| ai_summary | text | one-sentence AI summary |
+| dedup_key | varchar(512) | AI-generated, format `{buy|sell}:{product-slug}:{qty-bucket}:{contact_id}` |
+| raw_response | jsonb nullable | full AI response for debugging |
+| classified_at | timestamptz | |
+
+### 6.10 trading_inquiry / trading_inquiry_message
+
+An `Inquiry` represents a business opportunity, not a single message — multiple messages (e.g. the same offer re-sent to several groups) link to the same inquiry via `InquiryMessage`.
+
+| Column (trading_inquiry) | Type | Notes |
+|---|---|---|
+| id | bigint PK | |
+| account_id | FK → whatsapp_account | |
+| contact_id | FK → whatsapp_contact, nullable | |
+| inquiry_type | varchar(10) | `buy` / `sell` |
+| status | varchar(20) | see below — expanded past the original 3-state plan |
+| products | jsonb (list) | snapshot, updated as follow-up messages add detail |
+| summary | text | |
+| remarks | text | operator notes |
+| dedup_key | varchar(512), indexed | drives cross-group deduplication |
+| source_type | varchar(20) | `direct` / `group` / `community` |
+| first_seen_at | timestamptz | timestamp of the originating message; never changes on follow-ups |
+| closed_at | timestamptz nullable | set when status moves to a terminal state — powers response/conversion time analytics |
+| created_at / updated_at | timestamptz | |
+
+**Status values (as implemented — expanded twice past the original plan):**
+`open`, `quoted_waiting`, `no_response`, `price_high`, `no_stock`, `not_dealing`, `irrelevant`, `closed`, `deal_done`
+
+| Column (trading_inquiry_message) | Type | Notes |
+|---|---|---|
+| id | bigint PK | |
+| inquiry_id | FK → trading_inquiry | |
+| message_id | FK → whatsapp_message | |
+| added_at | timestamptz | |
+
+**Constraints:** `UNIQUE(inquiry_id, message_id)`
+
+### 6.11 trading_prompt_config
+
+Operator-editable overrides for the three AI prompts used by the trading pipeline. Falls back to the built-in default body when no row exists for a key.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint PK | |
+| key | varchar(100), unique | `product_extraction`, `inquiry_classification`, or `inventory_update` |
+| label | varchar(200) | |
+| body | text | the prompt text sent to the AI |
+| updated_at | timestamptz | |
+
+### 6.12 trading_agent_call_log
+
+Full audit trail of every AI call made by the trading pipeline (classification and product extraction), including token counts and errors — surfaced in the AI Instructions / diagnostics screen.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint PK | |
+| purpose | varchar(50) | `classification` / `product_extraction` |
+| provider | varchar(50) | |
+| model | varchar(100) | |
+| messages | jsonb | full messages array sent to the AI |
+| response | text | |
+| input_tokens / output_tokens | integer | |
+| duration_ms | integer | |
+| success | boolean | |
+| error | text | |
+| wa_message_id | bigint nullable, indexed | optional link back to the triggering message |
+| created_at | timestamptz, indexed | |
+
 ---
 
 ## 7. Message Types
@@ -230,6 +369,8 @@ disconnected
 logged_out
 error
 ```
+
+`error` is set by the worker's connection watchdog (see §17.1) when a session gets stuck — either the initial handshake hangs with no `connection.update` event, or setup fails outright (corrupted auth state, version-fetch failure) before a socket even exists. Before the watchdog existed, both of these left the account silently stuck in `pending_qr`/`qr_generated` forever with no error ever surfacing; now they always resolve to `error` with a human-readable `lastError` message, surfaced through `GET /sessions/:id/qr` (worker) → `GET /api/accounts/:id/qr/` (Django) → the QR modal.
 
 ---
 
@@ -264,6 +405,8 @@ All require `X-Internal-Token` header.
 | GET  | `/api/internal/whatsapp/account-settings/:id/` | Worker fetches account config at connect |
 | POST | `/api/internal/whatsapp/contacts-update/` | Contact names from `contacts.set` / `contacts.upsert` |
 | POST | `/api/internal/whatsapp/dropped-message/` | Fire-and-forget drop notification |
+| POST | `/api/internal/whatsapp/group-update/` | Group/community metadata from `groupFetchAllParticipating()` |
+| POST | `/api/internal/whatsapp/group-participants-update/` | Group participant list + roles |
 
 ### message-ingest payload
 
@@ -309,25 +452,73 @@ For group messages: `chat_id` is the group JID (`id@g.us`), `sender_number` is t
 
 ## 11. Public API Endpoints (Frontend → Django)
 
+Session auth + CSRF, gated behind the login endpoints in §11.1.
+
+### 11.0 Auth
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/auth/login/` | Session login |
+| POST | `/api/auth/logout/` | Session logout |
+| GET  | `/api/auth/me/` | Current user (used by the router guard on every navigation) |
+
+### 11.1 Accounts, Chats, Contacts, Groups
+
 | Method | Path | Purpose |
 |---|---|---|
 | GET/POST | `/api/accounts/` | WhatsApp account CRUD |
+| PATCH | `/api/accounts/:id/update-settings/` | Update `sync_history`, `history_days`, `idle_disconnect_minutes`, `display_name`, `ai_parsing_enabled`, `auto_download_media` |
 | POST | `/api/accounts/:id/start-session/` | Start worker session |
 | GET  | `/api/accounts/:id/qr/` | Poll QR code |
 | POST | `/api/accounts/:id/disconnect/` | Disconnect session |
 | GET  | `/api/accounts/:id/storage/` | Storage stats |
+| GET/POST | `/api/accounts/:id/backup-media/`, `/restore-messages/`, `/restore-media/` | Media/message backup & restore |
 | GET  | `/api/chats/` | Chat list |
 | GET  | `/api/chats/:id/messages/` | Messages in a chat |
+| GET  | `/api/chats/:id/group-info/` | Group metadata + participants for a group chat |
+| PATCH | `/api/chats/:id/set-ai-parsing/` | Tri-state override: `true` / `false` / `inherit` |
+| POST | `/api/chats/:id/mark-read/`, `/api/chats/mark-all-read/` | Read-state management |
 | GET  | `/api/contacts/` | Contact list (paginated, filterable) |
 | GET  | `/api/contacts/stats/` | `{total, phone, lid, group}` counts |
 | PATCH | `/api/contacts/:id/` | Update `display_name` only |
+| PATCH | `/api/contacts/:id/set-ai-parsing/` | Per-contact tri-state AI parsing override |
+| GET  | `/api/groups/` | Group/community list |
+| GET  | `/api/groups/stats/` | Group counts |
+| POST | `/api/groups/sync/` | Trigger `groupFetchAllParticipating()` refresh |
+| PATCH | `/api/groups/:id/set-ai-parsing/` | Per-group tri-state AI parsing override |
 | GET  | `/api/activity/` | Sync log entries |
 | GET  | `/api/dropped-messages/` | Dropped message log |
 | POST | `/api/dropped-messages/clear-all/` | Clear drop log |
+
+### 11.2 Intelligence & Providers
+
+| Method | Path | Purpose |
+|---|---|---|
 | POST | `/api/intelligence/search/` | Semantic search |
 | GET  | `/api/intelligence/embedding-status/` | Embedding coverage stats |
 | POST | `/api/intelligence/backfill/` | Trigger background embedding of pending messages |
 | GET/POST | `/api/ai-providers/` | AI provider config |
+
+### 11.3 Trading Intelligence
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET/POST/PATCH/DELETE | `/api/products/` | Product CRUD |
+| POST | `/api/products/parse-text/` | AI-extract products from a pasted price list |
+| POST | `/api/products/bulk-create/` | Bulk-create parsed products |
+| POST | `/api/products/parse-inventory/` | AI-extract qty/cost/sale price from free text |
+| POST | `/api/products/bulk-update-inventory/` | Apply parsed inventory update |
+| GET  | `/api/products/stats/` | Per-product WTB/WTS counts |
+| GET/PATCH | `/api/inquiries/` | Inquiry list/detail + status/remarks update |
+| GET  | `/api/inquiries/stats/` | Dashboard aggregates |
+| GET  | `/api/inquiries/open-feed/` | Live feed of open inquiries |
+| GET  | `/api/inquiries/classification-activity/` | Recent classification events (diagnostics) |
+| POST | `/api/inquiries/retry-inquiries/` | Re-run classification for failed/skipped inquiries |
+| POST | `/api/inquiries/backfill-classify/` | Classify recent unclassified messages (<24h old) |
+| GET  | `/api/classifications/` | Read-only classification records, filterable by message |
+| GET/PATCH/DELETE | `/api/prompts/` | Prompt override CRUD |
+| GET/PATCH | `/api/prompts/active-agent/` | Active AI agent/model config for trading |
+| GET  | `/api/agent-logs/` | AI call audit log (tokens, duration, success/error) |
 
 ---
 
@@ -364,8 +555,17 @@ ingest_message / ingest_batch
   → _upsert_contact   (raises ValueError if wa_contact_id ends with @lid)
   → _upsert_chat      (last_message_at is monotonically advancing)
   → _insert_message   (get_or_create by provider_message_id)
-  → _embed_in_background (daemon thread, fire-and-forget)
+  → _process_message_in_background (daemon thread, fire-and-forget)
+      1. embed_message()                — existing embedding step
+      2. classify_message() — only if _should_classify() passes:
+           - message_text is non-empty
+           - direction == 'inbound'
+           - message age <= 24h (history-sync messages are never classified)
+           - AI parsing enabled for this chat (tri-state chat override, else account default —
+             account default is OFF unless explicitly enabled in settings)
 ```
+
+See §6.9–6.10 for the classification/inquiry schema and the Trading Intelligence section below for the full pipeline.
 
 ---
 
@@ -447,14 +647,21 @@ One contact row per real person. `wa_contact_id` is always the canonical phone J
 
 | Route | Screen | Purpose |
 |---|---|---|
-| `/` | Dashboard | Message volume, account stats |
-| `/accounts` | Accounts | Create/manage WhatsApp accounts, QR connect |
-| `/conversations` | Conversations | Chat list + message view |
-| `/contacts` | Contacts | Contact management, display name editing, LID alias display |
+| `/login` | Login | Session auth gate — public route, only unauthenticated screen |
+| `/` | Sessions | Create/manage WhatsApp accounts, QR connect (formerly "Accounts") |
+| `/conversations` | Conversations | Chat list + message view, WhatsApp deep-link ("open in WhatsApp") on messages/chats |
+| `/contacts` | Contacts | Contact management, display name editing, LID/username alias display, per-contact AI-parse toggle |
+| `/groups` | Groups | Group/community list, sync trigger, per-group AI-parse toggle |
 | `/storage` | Storage | Per-account storage stats, media controls, embedding status + backfill |
 | `/activity` | Activity Log | Sync log with filter by account/type, embedding status per event |
 | `/dropped-messages` | Dropped Messages Log | All messages the worker dropped, expandable raw key with `_msgKeys` |
+| `/message-logs` | Message Logs | Raw per-session worker log viewer |
 | `/ai-providers` | AI Providers | Manage voyage/openai/etc. provider config and API keys |
+| `/trading` | Trading Dashboard | Live WTB/WTS feed, open-inquiry cards with status actions, urgency indicators |
+| `/trading-analytics` | Trading Analytics | Product demand, source breakdown, hourly activity, response/conversion time |
+| `/inquiries` | Inquiries | Split-panel inquiry list + detail, status workflow (9 states, see §6.10), remarks |
+| `/products` | Products | Product master CRUD, AI bulk-import from pasted price lists, bulk inventory update via AI |
+| `/ai-instructions` | AI Instructions | Edit trading prompt overrides (§6.11), view AI agent call log/diagnostics (§6.12) |
 
 ---
 
@@ -464,20 +671,49 @@ Each active session (`this.sessions.get(sessionId)`) holds:
 
 ```javascript
 {
-  sock,               // Baileys socket
-  sessionId,
-  historyDays,        // from account settings
+  sock,                  // Baileys socket, null while disconnected/erroring
+  status,                // one of the §8 session statuses
+  qrDataUrl,             // current QR as a data: URL, or null
+  phoneNumber,
+  displayName,
+  syncHistory,
+  historyDays,           // from account settings
+  autoDownloadMedia,
+  idleDisconnectMs,      // 0 = disabled
   lastActivityAt,
-  lidToPhone: {},     // Map: normalized LID JID → full phone JID
-                      // Populated from contacts.set and participantPn/senderPn on live messages
+  idleTimer,             // setInterval handle for idle-disconnect, or null
+  preventReconnect,      // true = the next 'close' event should not auto-reconnect
+  watchdogTimer,         // setTimeout handle for the connection watchdog (§17.1), or null
+  watchdogFired,         // true between the watchdog firing and its 'close' cleanup running
+  lastError,             // human-readable message set when status === 'error'
+  lidToPhone: {},        // Map: normalized LID JID → full phone JID
+                         // Populated from contacts.set and participantPn/senderPn on live messages
+  usernameToPhone: {},   // Map: bare username → full phone JID, from contacts.set c.username
 }
 ```
+
+### 17.1 Connection Watchdog
+
+Added 2026-07-04 after QR connections were observed hanging indefinitely with no error ever surfacing to the UI — the frontend polled `GET /accounts/:id/qr/` forever showing "Generating QR code…" with no way to tell the difference between "still working" and "will never finish."
+
+**The gap:** the only thing that ever changed a session's status was Baileys firing a `connection.update` event (`qr`, `open`, or `close`). If the initial WebSocket handshake stalled — bad network, WhatsApp-side throttling, a stale/corrupted auth directory — nothing ever fired, and nothing timed out. Reopening the QR modal didn't help either: `createSession()` no-ops whenever `session.sock` is already set (`session-manager.js` — `if (existing?.sock) return this._snapshot(sessionId)`), and a hung socket still counts as "set."
+
+**The fix — two layers, both converging on `SESSION_STATUS.ERROR`:**
+
+1. **Post-socket-creation watchdog** (`_armWatchdog` / `_clearWatchdog` / `_handleStuckConnection`). A 45-second (`WATCHDOG_TIMEOUT_MS`) timer is armed right after `makeWASocket()` returns, and re-armed every time a `qr` event fires — so a healthy handshake or a legitimate wait-for-scan (Baileys periodically re-issues `qr`) keeps pushing the deadline out. It's cleared on `open`. If it ever fires: the dead socket is torn down (`sock.end(...)`), `session.sock` is set to `null`, `status` becomes `error`, and `lastError` gets a human-readable message. Because `sock` is nulled, the *next* `createSession()` call (e.g. reopening the QR modal) is no longer a no-op — it actually reconnects.
+
+   A `watchdogFired` flag suppresses the normal `close`-handler logic (which would otherwise overwrite the `error` status with `disconnected` and schedule a reconnect) so the error state sticks until the user retries.
+
+2. **Pre-socket-creation try/catch** in `_connect()`. Auth-state loading (`useMultiFileAuthState`), Baileys version fetching (`fetchLatestBaileysVersion`), and socket construction all happen *before* there's a socket to arm the watchdog on. If any of these throw (corrupted `creds.json`, network failure fetching the Baileys version), the session used to stay stuck at `pending_qr` with `sock: null` forever, invisible to the watchdog. This path now catches the error directly and marks the session `error` with the real exception message — no separate mechanism, just closing the same gap earlier in the lifecycle.
+
+**Surfacing to the UI:** `GET /sessions/:id/qr` (worker) returns HTTP 500 with `{error, status: 'error'}` whenever a session is in the error state, instead of an endless `202`. Django's `qr` view passes the status code straight through. `QRModal.vue`'s `poll()` no longer has a "keep polling silently" fallback for unrecognized errors — every failure path (404, 503, 500, or an unexpected network error) stops polling and shows an actionable message.
 
 ---
 
 ## 18. Security
 
 - `INTERNAL_API_TOKEN` — shared secret between Node.js worker and Django. Set in `.env`. All internal endpoints validate this header.
+- Session auth + CSRF gate every frontend route except `/login`. Enforced client-side by the Vue Router `beforeEach` guard (`frontend/src/router/index.ts`) calling `/api/auth/me/`, and server-side by DRF session auth on every `apps/api`/`apps/trading` viewset.
 - `whatsapp-worker/sessions/` — WhatsApp E2E session keys. Never committed.
 - `.env` / `.env.local_dev` — API keys and secrets. Never committed.
 - `whatsapp-worker/message-logs/` — raw message logs for debugging. Not committed.
@@ -485,6 +721,8 @@ Each active session (`this.sessions.get(sessionId)`) holds:
 ---
 
 ## 19. Migration History
+
+### whatsapp_bridge
 
 | Migration | Description |
 |---|---|
@@ -496,6 +734,24 @@ Each active session (`this.sessions.get(sessionId)`) holds:
 | 0006_add_auto_download_media | Added `auto_download_media` to account |
 | 0007_add_dropped_message | New `whatsapp_dropped_message` table |
 | 0008_add_lid_jid_contact | Added `lid_jid` to contact; merged existing `@lid` contact rows into phone contacts |
+| 0009_add_username_contact | Added `username` alias column to contact (WhatsApp usernames rolling out 2026-07-07) |
+| 0010_add_groups | New `whatsapp_group` / `whatsapp_group_participant` tables — first-class group/community identity |
+| 0011_backfill_groups_from_chats | Data migration: seeded `whatsapp_group` rows from existing group-type chats |
+| 0012_rename_whatsapp_dr_account_idx... | Index rename on `whatsapp_dropped_message` (Django auto-naming churn) |
+| 0013_add_ai_parsing_fields | Added `ai_parsing_enabled` to account, `ai_parsing` tri-state to chat |
+| 0014_ai_parsing_default_off | Flipped `ai_parsing_enabled` default from `True` to `False` — opt-in, not opt-out |
+
+### trading
+
+| Migration | Description |
+|---|---|
+| 0001_initial | `trading_product`, `trading_message_classification`, `trading_inquiry`, `trading_inquiry_message` |
+| 0002_prompt_config | New `trading_prompt_config` table |
+| 0003_agent_call_log | New `trading_agent_call_log` table |
+| 0004_add_dedup_key_to_classification | Added `dedup_key` to `trading_message_classification` |
+| 0005_add_inventory_fields_to_product | Added `qty`, `cost_price`, `sale_price`, `currency` to product |
+| 0006_alter_inquiry_status | Expanded status from 3 states to 8: added `quoted_waiting`, `price_high`, `no_stock`, `not_dealing`, `irrelevant` |
+| 0007_alter_inquiry_status | Added 9th status: `no_response` |
 
 ---
 
@@ -528,14 +784,32 @@ Each active session (`this.sessions.get(sessionId)`) holds:
 - `participantPn` used for group LID participant resolution + `session.lidToPhone` cache update
 - Data migration merging historical `@lid` contact rows into canonical phone contacts
 
-### Phase 5 — Analytics Dashboard (planned)
-- Message volume by day/hour
-- Top chats, top contacts
-- Intent/sentiment distribution
-- Response-time analytics
+### Phase 5 — Groups, Usernames & Auth (complete)
+- Group/Community split into first-class `whatsapp_group`/`whatsapp_group_participant` models with sync from `groupFetchAllParticipating()`
+- WhatsApp username alias support (`username` column, same alias treatment as LID)
+- Login screen + full session-auth gate on every frontend route
+- Per-account and per-chat/contact/group tri-state AI-parsing toggles (default off)
+- Auto-download media toggle, history sync progress bar, WhatsApp deep links (`whatsapp://send?phone=`) from chats/messages
 
-### Phase 6 — ML Intelligence (planned)
-- Intent detection (price inquiry, stock inquiry, complaint, etc.)
-- Product mention extraction + fuzzy matching
+### Phase 6 — B2B Trading Intelligence (complete)
+- New `apps/trading` Django app: Product master (with inventory: qty/cost/sale price), AI classification, Inquiry lifecycle
+- AI classification runs in the same background thread as embedding, immediately after `embed_message()`, gated by `_should_classify` (inbound, has text, <24h old, AI parsing enabled for the chat)
+- Two-layer deduplication: exact `dedup_key` match, then embedding cosine-similarity fallback (≥0.92) for rephrased duplicates
+- Inquiry status workflow expanded from the original 3-state plan (open/closed/deal_done) to 9 states covering the real trading desk workflow (quoted, no response, price too high, no stock, not dealing, irrelevant, etc.)
+- AI-driven product recognition — no regex/Levenshtein matching, the AI does all fuzzy matching against the product+alias list
+- Editable AI prompts (`trading_prompt_config`) and full AI call audit log (`trading_agent_call_log`) surfaced in the AI Instructions screen
+- Frontend: Trading Dashboard (live WTB/WTS feed), Trading Analytics (product demand, source breakdown, response/conversion time), Inquiries (split-panel workflow), Products (CRUD + AI bulk import/inventory update)
+- AI-assisted bulk product import from pasted price lists and bulk inventory updates (qty/cost/sale price) from free text
+
+### Phase 7 — Session Connection Reliability (complete)
+- Diagnosed and fixed QR/session connections silently hanging forever with no error ever surfacing (root cause: no timeout existed anywhere in the handshake path, and `createSession` no-op'd on a stuck-but-present socket)
+- Connection watchdog (§17.1): 45s timeout armed after socket creation, re-armed on every QR refresh, cleared on connect — fires `SESSION_STATUS.ERROR` with a human-readable `lastError` if the handshake goes silent
+- Pre-socket-creation failures (corrupted auth state, Baileys version-fetch failure) now caught and routed to the same `error` state instead of leaving the session stuck at `pending_qr`
+- `GET /sessions/:id/qr` returns HTTP 500 with the error detail instead of an endless 202 once a session errors
+- `QRModal.vue` — removed the "keep polling silently" fallback; every failure path now stops polling and shows an actionable message instead of spinning forever
+- Not yet done: no auto-retry after the watchdog fires (user must reopen the QR modal to retry — this now actually works since the watchdog nulls the stuck socket)
+
+### Phase 8 — ML Intelligence (planned)
 - Lead scoring
-- ERP product master integration
+- ERP product master integration / two-way sync
+- Cross-account analytics rollups

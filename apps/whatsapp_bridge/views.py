@@ -73,13 +73,22 @@ def internal_message_ingest_batch(request):
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
+    worker_session_id = data.get('worker_session_id')
+    if not worker_session_id:
+        return JsonResponse({'error': 'Missing field: worker_session_id'}, status=400)
+
     messages = data.get('messages', [])
-    if not isinstance(messages, list) or not messages:
-        return JsonResponse({'error': 'messages must be a non-empty list'}, status=400)
+    if not isinstance(messages, list):
+        return JsonResponse({'error': 'messages must be a list'}, status=400)
 
     try:
         service = IngestionService()
-        result = service.ingest_batch(messages)
+        result = service.ingest_batch(
+            worker_session_id,
+            messages,
+            is_latest=bool(data.get('is_latest')),
+            received=data.get('received', len(messages)),
+        )
         return JsonResponse({'success': True, **result})
     except WhatsAppAccount.DoesNotExist:
         return JsonResponse({'error': 'WhatsApp account not found'}, status=404)

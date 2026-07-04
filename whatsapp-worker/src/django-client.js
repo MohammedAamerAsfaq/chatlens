@@ -45,8 +45,13 @@ class DjangoClient {
     }
   }
 
-  async sendMessageIngestBatch(payloads) {
-    const resp = await this.http.post('/api/internal/whatsapp/message-ingest-batch/', { messages: payloads });
+  async sendMessageIngestBatch(sessionId, payloads, { isLatest = false, received = payloads.length } = {}) {
+    const resp = await this.http.post('/api/internal/whatsapp/message-ingest-batch/', {
+      worker_session_id: sessionId,
+      messages: payloads,
+      is_latest: isLatest,
+      received,
+    });
     return resp.data;
   }
 
