@@ -125,6 +125,9 @@
               <a v-if="waAskPriceLink(inq)" :href="waAskPriceLink(inq)" class="act-btn wa-ask" title="Ask price on WhatsApp">
                 Ask Price
               </a>
+              <a v-if="waPriceListLink(inq)" :href="waPriceListLink(inq)" class="act-btn wa-list" title="Send full price list on WhatsApp">
+                Price List
+              </a>
             </div>
           </div>
           <div v-if="buyFeed.length === 0" class="feed-empty">No open buying inquiries</div>
@@ -357,6 +360,24 @@ function waAskPriceLink(inq) {
   return `whatsapp://send?${params.toString()}`
 }
 
+function waPriceListText() {
+  const lines = allProducts.value
+    .filter(p => p.is_active !== false && (p.qty ?? 0) > 0 && p.sale_price != null)
+    .map(p => `${p.name} - ${p.sale_price}`)
+  return lines.join('\n')
+}
+
+function waPriceListLink(inq) {
+  const phone = inq.contact_phone
+  if (!phone) return null
+  const clean = phone.split('@')[0].replace(/\D/g, '')
+  if (!clean) return null
+  const text = waPriceListText()
+  if (!text) return null
+  const params = new URLSearchParams({ phone: clean, text })
+  return `whatsapp://send?${params.toString()}`
+}
+
 
 onMounted(async () => {
   const { data } = await accountsApi.list()
@@ -427,6 +448,7 @@ onUnmounted(() => {
 .act-btn.chat  { background: #eff6ff; color: #1d4ed8; margin-left: auto; }
 .act-btn.wa    { background: #dcfce7; color: #16a34a; display: flex; align-items: center; gap: 3px; text-decoration: none; }
 .act-btn.wa-ask { background: #fef9c3; color: #92400e; text-decoration: none; }
+.act-btn.wa-list { background: #e0e7ff; color: #4338ca; text-decoration: none; }
 .status-select-mini { padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 5px; font-size: 0.78rem; color: #374151; cursor: pointer; background: #fff; }
 .feed-empty { text-align: center; color: #9ca3af; font-size: 0.85rem; padding: 30px; }
 .btn-ghost { padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 6px; background: transparent; cursor: pointer; font-size: 0.85rem; }

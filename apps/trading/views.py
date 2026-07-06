@@ -5,15 +5,17 @@ from django.utils.timezone import now
 from datetime import timedelta
 from rest_framework import viewsets, mixins, status
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Product, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, AgentCallLog
+from .models import Product, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, AgentCallLog, AiParsingLog
 from .serializers import (
     ProductSerializer,
     MessageClassificationSerializer,
     InquirySerializer,
     InquiryDetailSerializer,
+    AiParsingLogSerializer,
 )
 from .services.product_cache import invalidate as invalidate_product_cache
 
@@ -694,3 +696,27 @@ class AgentCallLogViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
                 'response':     log.response,
             })
         return Response(rows)
+
+
+class AiParsingLogPagination(PageNumberPagination):
+    page_size = 25
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+    page_query_param = 'page'
+
+
+class AiParsingLogViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = AiParsingLogSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = AiParsingLogPagination
+
+    def get_queryset(self):
+        qs = AiParsingLog.objects.select_related('account', 'chat', 'message').order_by('-created_at')
+        p = self.request.query_params
+        if account_id := p.get('account'):
+            qs = qs.filter(account_id=account_id)
+        if status_ := p.get('status'):
+            qs = qs.filter(status=status_)
+        if reason := p.get('skip_reason'):
+            qs = qs.filter(skip_reason=reason)
+        return qs

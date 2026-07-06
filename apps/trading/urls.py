@@ -7,5 +7,6 @@ router.register('inquiries',       views.InquiryViewSet,               basename=
 router.register('classifications', views.MessageClassificationViewSet, basename='classifications')
 router.register('prompts',         views.PromptConfigViewSet,          basename='prompts')
 router.register('agent-logs',     views.AgentCallLogViewSet,          basename='agent-logs')
+router.register('ai-parsing-logs', views.AiParsingLogViewSet,         basename='ai-parsing-logs')
 
 urlpatterns = router.urls

@@ -1,7 +1,7 @@
 # ChatLens Development Document
 
 > **Status:** Living document — reflects the system as actually built, not the original plan.
-> Last updated: 2026-07-04 (session-connection watchdog added same day)
+> Last updated: 2026-07-06 (AI Parsing Log, WhatsApp prefill actions, LID cache seeding, nav regroup)
 
 ---
 
@@ -15,7 +15,7 @@
 
 ChatLens is a WhatsApp QR-session based conversation intelligence system. It reads WhatsApp conversations, stores them in a structured PostgreSQL database, generates vector embeddings for semantic search, and provides dashboards for analytics, contact management, message intelligence, and — as of the B2B Trading Intelligence feature — real-time AI classification of buy/sell inquiries for a wholesale trading desk.
 
-ChatLens is a read-first system. Sending is deliberately disabled; the one exception is `whatsapp://send?phone=` deep links from the UI, which hand off to the user's own WhatsApp client rather than sending through the platform.
+ChatLens is a read-first system. Sending is deliberately disabled; the one exception is `whatsapp://send?phone=` deep links from the UI, which hand off to the user's own WhatsApp client rather than sending through the platform — optionally with a `text=` param that prefills the compose box (e.g. inquiry item + price, a price-check, or the full price list). The user still has to press send themselves; ChatLens never sends on their behalf.
 
 ---
 
@@ -241,6 +241,7 @@ Captures every message the worker decided not to forward to Django, with its rea
 | reason | varchar(100) | see §9 |
 | raw_key | jsonb | `msg.key` + `_msgKeys` (field names present in `msg.message`) |
 | created_at | timestamptz | |
+| resolved_at | timestamptz nullable | set when a later message with the same `msg_id` was ingested successfully — i.e. Baileys' retry request eventually got the sender to resend and decryption succeeded. Distinguishes self-healed drops (mostly `no_message_content`) from permanent loss. |
 
 ### 6.8 trading_product
 
@@ -341,6 +342,21 @@ Full audit trail of every AI call made by the trading pipeline (classification a
 | wa_message_id | bigint nullable, indexed | optional link back to the triggering message |
 | created_at | timestamptz, indexed | |
 
+### 6.13 trading_ai_parsing_log
+
+One row per **live** message evaluated for AI classification eligibility — both the ones actually sent to the AI and the ones skipped, with why. Written by `_log_ai_parsing_and_classify` in `ingestion_service.py`, in the same background thread as embedding, for every created live message (history-sync batch messages are excluded — they'd all read as `too_old` and just add noise). Surfaced in the AI Parsing Log screen (§16).
+
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint PK | |
+| message_id | FK → whatsapp_message, unique | one row per message; re-processing updates in place |
+| account_id | FK → whatsapp_account | |
+| chat_id | FK → whatsapp_chat, nullable | |
+| status | varchar(10) | `sent` or `skipped` |
+| skip_reason | varchar(30) | blank when `status=sent`; else one of `no_text`, `outbound`, `too_old`, `chat_disabled`, `account_disabled` |
+| message_preview | varchar(200) | first 200 chars of `message_text` |
+| created_at | timestamptz, indexed | |
+
 ---
 
 ## 7. Message Types
@@ -403,6 +419,7 @@ All require `X-Internal-Token` header.
 | POST | `/api/internal/whatsapp/message-ingest/` | Single live message |
 | POST | `/api/internal/whatsapp/message-ingest-batch/` | History sync batch |
 | GET  | `/api/internal/whatsapp/account-settings/:id/` | Worker fetches account config at connect |
+| GET  | `/api/internal/whatsapp/lid-mappings/:id/` | Worker seeds `lidToPhone`/`usernameToPhone` from already-known contacts on restore, so a restart doesn't start the cache cold (was causing `unresolvable_lid` drops for known senders) |
 | POST | `/api/internal/whatsapp/contacts-update/` | Contact names from `contacts.set` / `contacts.upsert` |
 | POST | `/api/internal/whatsapp/dropped-message/` | Fire-and-forget drop notification |
 | POST | `/api/internal/whatsapp/group-update/` | Group/community metadata from `groupFetchAllParticipating()` |
@@ -487,7 +504,7 @@ Session auth + CSRF, gated behind the login endpoints in §11.1.
 | POST | `/api/groups/sync/` | Trigger `groupFetchAllParticipating()` refresh |
 | PATCH | `/api/groups/:id/set-ai-parsing/` | Per-group tri-state AI parsing override |
 | GET  | `/api/activity/` | Sync log entries |
-| GET  | `/api/dropped-messages/` | Dropped message log |
+| GET  | `/api/dropped-messages/` | Dropped message log, filterable by `account`/`reason`; each row includes `resolved_at` if it later self-healed |
 | POST | `/api/dropped-messages/clear-all/` | Clear drop log |
 
 ### 11.2 Intelligence & Providers
@@ -519,6 +536,7 @@ Session auth + CSRF, gated behind the login endpoints in §11.1.
 | GET/PATCH/DELETE | `/api/prompts/` | Prompt override CRUD |
 | GET/PATCH | `/api/prompts/active-agent/` | Active AI agent/model config for trading |
 | GET  | `/api/agent-logs/` | AI call audit log (tokens, duration, success/error) |
+| GET  | `/api/ai-parsing-logs/` | Per-message sent/skipped routing log (§6.13), filterable by `account`/`status`/`skip_reason` |
 
 ---
 
@@ -552,18 +570,25 @@ _forwardHistoryBatch:
 Django `IngestionService`:
 ```
 ingest_message / ingest_batch
-  → _upsert_contact   (raises ValueError if wa_contact_id ends with @lid)
-  → _upsert_chat      (last_message_at is monotonically advancing)
-  → _insert_message   (get_or_create by provider_message_id)
-  → _process_message_in_background (daemon thread, fire-and-forget)
-      1. embed_message()                — existing embedding step
-      2. classify_message() — only if _should_classify() passes:
-           - message_text is non-empty
-           - direction == 'inbound'
-           - message age <= 24h (history-sync messages are never classified)
-           - AI parsing enabled for this chat (tri-state chat override, else account default —
-             account default is OFF unless explicitly enabled in settings)
+  → _upsert_contact          (raises ValueError if wa_contact_id ends with @lid)
+  → _upsert_chat             (last_message_at is monotonically advancing)
+  → _insert_message          (get_or_create by provider_message_id)
+  → _resolve_dropped_message (marks any earlier whatsapp_dropped_message row for this
+                               msg_id as resolved_at=now — see §6.7)
+  → _process_message_in_background (daemon thread, fire-and-forget; called for every
+                               created live message, not just ones with text — every
+                               message gets an AiParsingLog row, see below)
+      1. embed_message()                    — only when message_text is non-empty
+      2. _log_ai_parsing_and_classify(message):
+           - _classify_skip_reason(message) → None (send) or one of:
+                no_text | outbound | too_old (>24h) | chat_disabled | account_disabled
+           - AiParsingLog.objects.update_or_create(message=..., status=sent|skipped, skip_reason=...)
+           - if not skipped → classify_message(message)
 ```
+
+`_classify_skip_reason` replaced the old boolean `_should_classify` — same rules (chat-level tri-state override wins, else the account's `ai_parsing_enabled` default), but it now returns *why* instead of just true/false, so every routing decision is auditable via `trading_ai_parsing_log` (§6.13) instead of silently disappearing for skipped messages.
+
+History-sync batch messages (`ingest_batch`) are still embedded but never classified or logged to `trading_ai_parsing_log` — they would all read as `too_old` and just add noise.
 
 See §6.9–6.10 for the classification/inquiry schema and the Trading Intelligence section below for the full pipeline.
 
@@ -585,7 +610,7 @@ WhatsApp LID is a privacy feature that replaces a user's phone JID with a random
 
 1. `msg.key.senderPn` — Baileys-provided real phone JID for inbound individual LID chats
 2. `msg.key.participantPn` — Baileys-provided real phone JID for LID group participants
-3. `session.lidToPhone` — in-memory cache populated from `contacts.set` / `contacts.upsert` at connect time and updated whenever a `senderPn`/`participantPn` is seen
+3. `session.lidToPhone` — in-memory cache populated from `contacts.set` / `contacts.upsert` at connect time and updated whenever a `senderPn`/`participantPn` is seen. Also **seeded from the DB** (`GET /api/internal/whatsapp/lid-mappings/:id/`, built from existing `whatsapp_contact.lid_jid`/`username` rows) when a session is restored on worker restart, so the cache isn't cold immediately after a restart — previously it rebuilt from scratch and dropped `unresolvable_lid` for senders that were already known contacts until a fresh `contacts.set` repopulated it.
 
 ### Strict rule
 
@@ -645,23 +670,26 @@ One contact row per real person. `wa_contact_id` is always the canonical phone J
 
 ## 16. Frontend Screens
 
-| Route | Screen | Purpose |
-|---|---|---|
-| `/login` | Login | Session auth gate — public route, only unauthenticated screen |
-| `/` | Sessions | Create/manage WhatsApp accounts, QR connect (formerly "Accounts") |
-| `/conversations` | Conversations | Chat list + message view, WhatsApp deep-link ("open in WhatsApp") on messages/chats |
-| `/contacts` | Contacts | Contact management, display name editing, LID/username alias display, per-contact AI-parse toggle |
-| `/groups` | Groups | Group/community list, sync trigger, per-group AI-parse toggle |
-| `/storage` | Storage | Per-account storage stats, media controls, embedding status + backfill |
-| `/activity` | Activity Log | Sync log with filter by account/type, embedding status per event |
-| `/dropped-messages` | Dropped Messages Log | All messages the worker dropped, expandable raw key with `_msgKeys` |
-| `/message-logs` | Message Logs | Raw per-session worker log viewer |
-| `/ai-providers` | AI Providers | Manage voyage/openai/etc. provider config and API keys |
-| `/trading` | Trading Dashboard | Live WTB/WTS feed, open-inquiry cards with status actions, urgency indicators |
-| `/trading-analytics` | Trading Analytics | Product demand, source breakdown, hourly activity, response/conversion time |
-| `/inquiries` | Inquiries | Split-panel inquiry list + detail, status workflow (9 states, see §6.10), remarks |
-| `/products` | Products | Product master CRUD, AI bulk-import from pasted price lists, bulk inventory update via AI |
-| `/ai-instructions` | AI Instructions | Edit trading prompt overrides (§6.11), view AI agent call log/diagnostics (§6.12) |
+Top nav is grouped into three hover dropdowns (`App.vue`) to keep the bar from overflowing as screens were added — **Lists**, **Settings**, and **Logs** — each highlights as active when the current route is one of its children. Everything else stays a flat top-level link.
+
+| Route | Screen | Nav placement | Purpose |
+|---|---|---|---|
+| `/login` | Login | (public, no nav) | Session auth gate — only unauthenticated screen |
+| `/conversations` | Conversations | top-level | Chat list + message view, WhatsApp deep-link ("open in WhatsApp") on messages/chats |
+| `/trading` | Trading Dashboard | top-level | Live WTB/WTS feed, open-inquiry cards with status actions, urgency indicators. Per-card WhatsApp actions (all prefill the compose box via `text=`, never auto-send): **WA** — item(s) + our sale price; **Ask Price** (WTB + WTS) — item(s) + blank line + `Price?`; **Price List** (WTB only) — every active in-stock product as `Name - Price` |
+| `/trading-analytics` | Trading Analytics | top-level | Product demand, source breakdown, hourly activity, response/conversion time |
+| `/contacts` | Contacts | under **Lists** | Contact management, display name editing, LID/username alias display, per-contact AI-parse toggle |
+| `/groups` | Groups | under **Lists** | Group/community list, sync trigger, per-group AI-parse toggle |
+| `/products` | Products | under **Lists** | Product master CRUD, AI bulk-import from pasted price lists, bulk inventory update via AI. Table shows Qty/Cost/Sale/**Margin** (sale − cost) per product and a **Total PNL** badge (Σ margin × qty across the visible/filtered rows); the Aliases column was dropped from the table (still editable under "Advanced" in the Add/Edit modal) |
+| `/` | Sessions | under **Settings** | Create/manage WhatsApp accounts, QR connect (formerly "Accounts") |
+| `/storage` | Storage | under **Settings** | Per-account storage stats, media controls, embedding status + backfill |
+| `/ai-providers` | AI Providers | under **Settings** | Manage voyage/openai/etc. provider config and API keys |
+| `/ai-instructions` | AI Instructions | under **Settings** | Edit trading prompt overrides (§6.11), view AI agent call log/diagnostics (§6.12) |
+| `/activity` | Activity Log | under **Logs** | Sync log with filter by account/type, embedding status per event |
+| `/message-logs` | Message Logs | under **Logs** | Raw per-session worker log viewer |
+| `/dropped-messages` | Dropped Messages Log | under **Logs** | All messages the worker dropped, expandable raw key with `_msgKeys`; rows that later self-healed (§6.7 `resolved_at`) show a green "Recovered" badge |
+| `/ai-parsing-log` | AI Parsing Log | under **Logs** | Every live message and whether it was sent for AI classification or skipped, and why (§6.13) — filterable by account/status/skip reason |
+| `/inquiries` | Inquiries | not in top nav (direct URL only) | Split-panel inquiry list + detail, status workflow (9 states, see §6.10), remarks |
 
 ---
 
@@ -740,6 +768,7 @@ Added 2026-07-04 after QR connections were observed hanging indefinitely with no
 | 0012_rename_whatsapp_dr_account_idx... | Index rename on `whatsapp_dropped_message` (Django auto-naming churn) |
 | 0013_add_ai_parsing_fields | Added `ai_parsing_enabled` to account, `ai_parsing` tri-state to chat |
 | 0014_ai_parsing_default_off | Flipped `ai_parsing_enabled` default from `True` to `False` — opt-in, not opt-out |
+| 0015_droppedmessage_resolved_at_and_more | Added `resolved_at` to `whatsapp_dropped_message` + `(account, msg_id)` index |
 
 ### trading
 
@@ -752,6 +781,7 @@ Added 2026-07-04 after QR connections were observed hanging indefinitely with no
 | 0005_add_inventory_fields_to_product | Added `qty`, `cost_price`, `sale_price`, `currency` to product |
 | 0006_alter_inquiry_status | Expanded status from 3 states to 8: added `quoted_waiting`, `price_high`, `no_stock`, `not_dealing`, `irrelevant` |
 | 0007_alter_inquiry_status | Added 9th status: `no_response` |
+| 0008_aiparsinglog | New `trading_ai_parsing_log` table (§6.13) |
 
 ---
 
@@ -809,7 +839,16 @@ Added 2026-07-04 after QR connections were observed hanging indefinitely with no
 - `QRModal.vue` — removed the "keep polling silently" fallback; every failure path now stops polling and shows an actionable message instead of spinning forever
 - Not yet done: no auto-retry after the watchdog fires (user must reopen the QR modal to retry — this now actually works since the watchdog nulls the stuck socket)
 
-### Phase 8 — ML Intelligence (planned)
+### Phase 8 — Trading UX & Observability Polish (complete)
+- WhatsApp deep-link actions on inquiry cards now prefill the compose box instead of just opening the chat: **WA** (item + our sale price), **Ask Price** (item + `Price?`, WTB and WTS), **Price List** (WTB only — every active in-stock product as `Name - Price`). Still never auto-sends — WhatsApp's `text=` param only prefills.
+- AI buy/sell classification prompt hardened with an explicit ordered disambiguation ruleset (WTB/WTS tag > offer language > price-check template > default-to-buy) — ambiguous multi-variant price-check messages were sometimes misread as sell offers based on variant count alone.
+- **AI Parsing Log** (`trading_ai_parsing_log`, §6.13): every live message now gets an auditable sent/skipped routing record instead of skipped messages silently vanishing. `_should_classify` replaced by `_classify_skip_reason`, which returns the reason instead of a bare bool.
+- **Dropped-message recovery tracking**: `whatsapp_dropped_message.resolved_at` is stamped when a later message with the same `msg_id` ingests successfully (Baileys' automatic retry-request succeeded) — the Dropped Messages screen now distinguishes self-healed drops from permanent loss instead of both looking identical.
+- **LID/username cache seeding on restart**: new `GET /api/internal/whatsapp/lid-mappings/:id/` endpoint seeds the worker's in-memory `lidToPhone`/`usernameToPhone` maps from already-known DB contacts when a session is restored, closing the gap where a worker restart reset the cache to empty and caused `unresolvable_lid` drops for senders that were already known.
+- Product Master: added a per-product **Margin** column (sale − cost) and a **Total PNL** summary badge (Σ margin × qty, filter-aware); removed the Aliases column from the table (alias editing moved to the modal's existing "Advanced" section, unchanged).
+- Top nav regrouped into hover dropdowns to stop the bar overflowing as screens were added (§16): **Lists** (Contacts/Groups/Products), **Settings** (Sessions/Storage/AI Providers/AI Instructions), **Logs** (Activity/Message Logs/Dropped/AI Parsing Log).
+
+### Phase 9 — ML Intelligence (planned)
 - Lead scoring
 - ERP product master integration / two-way sync
 - Cross-account analytics rollups

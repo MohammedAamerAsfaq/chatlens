@@ -27,31 +27,53 @@ def _resolve_dropped_message(account: WhatsAppAccount, msg_id: str) -> None:
 logger = logging.getLogger(__name__)
 
 
-def _should_classify(message) -> bool:
-    """Return True only for live inbound text messages worth classifying.
+def _classify_skip_reason(message) -> str | None:
+    """Return the AiParsingLog skip_reason code, or None if the message should
+    be sent for AI classification.
 
     Tri-state per-chat override: chat.ai_parsing=True forces on, False forces off,
     None inherits account.ai_parsing_enabled global toggle.
     """
     from django.utils.timezone import now
     if not message.message_text:
-        return False
+        return 'no_text'
     if message.direction != 'inbound':
-        return False
+        return 'outbound'
     age_seconds = (now() - message.message_time).total_seconds()
     if age_seconds > 86400:  # older than 24 h — history-sync message
-        return False
+        return 'too_old'
 
     # Tri-state: per-chat setting takes priority over account global.
     chat_override = getattr(message.chat, 'ai_parsing', None)
     if chat_override is False:
-        return False
+        return 'chat_disabled'
     if chat_override is None:
         account_enabled = getattr(message.account, 'ai_parsing_enabled', True)
         if not account_enabled:
-            return False
+            return 'account_disabled'
 
-    return True
+    return None
+
+
+def _log_ai_parsing_and_classify(message) -> None:
+    """Record the sent/skipped routing decision for this message, then classify
+    it if it wasn't skipped. Single source of truth for the AI Parsing Log page.
+    """
+    from apps.trading.models import AiParsingLog
+    reason = _classify_skip_reason(message)
+    AiParsingLog.objects.update_or_create(
+        message=message,
+        defaults={
+            'account': message.account,
+            'chat': message.chat,
+            'status': 'skipped' if reason else 'sent',
+            'skip_reason': reason or '',
+            'message_preview': (message.message_text or '')[:200],
+        },
+    )
+    if not reason:
+        from apps.trading.services.classification_service import classify_message
+        classify_message(message)
 
 
 def _embed_in_background(message_ids: list, sync_log_id: int = None):
@@ -103,20 +125,20 @@ def _process_message_in_background(message_id: int, sync_log_id: int = None):
     def _run():
         embedded = errors = 0
         try:
-            from apps.message_intelligence.services.embedding_service import embed_message
             from apps.whatsapp_bridge.models import WhatsAppMessage
-
-            ok = embed_message(message_id)
-            embedded, errors = (1, 0) if ok else (0, 1)
 
             message = (
                 WhatsAppMessage.objects
                 .select_related('account', 'chat', 'contact')
                 .get(pk=message_id)
             )
-            if _should_classify(message):
-                from apps.trading.services.classification_service import classify_message
-                classify_message(message)
+
+            if message.message_text:
+                from apps.message_intelligence.services.embedding_service import embed_message
+                ok = embed_message(message_id)
+                embedded, errors = (1, 0) if ok else (0, 1)
+
+            _log_ai_parsing_and_classify(message)
 
         except Exception:
             logger.warning(
@@ -172,10 +194,10 @@ class IngestionService:
                 metadata={k: v for k, v in _meta.items() if v is not None},
             )
 
-            if message.message_text:
-                # Live messages: embed + classify in the same background thread.
-                # History batch messages use _embed_in_background (no classification).
-                _process_message_in_background(message.pk, sync_log_id=sync_log.pk)
+            # Live messages: embed + classify (or log why not) in the same background
+            # thread. History batch messages use _embed_in_background (no classification,
+            # no AiParsingLog — they'd all read as skipped:too_old and just add noise).
+            _process_message_in_background(message.pk, sync_log_id=sync_log.pk)
 
         return message
 

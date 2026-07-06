@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Product, MessageClassification, Inquiry, InquiryMessage
+from .models import Product, MessageClassification, Inquiry, InquiryMessage, AiParsingLog
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -17,6 +17,29 @@ class MessageClassificationSerializer(serializers.ModelSerializer):
         fields = ['id', 'message', 'tags', 'products', 'is_inquiry', 'inquiry_type',
                   'ai_summary', 'classified_at']
         read_only_fields = fields
+
+
+class AiParsingLogSerializer(serializers.ModelSerializer):
+    account_name  = serializers.SerializerMethodField()
+    chat_name     = serializers.SerializerMethodField()
+    message_time  = serializers.DateTimeField(source='message.message_time', read_only=True)
+    direction     = serializers.CharField(source='message.direction', read_only=True)
+
+    class Meta:
+        model  = AiParsingLog
+        fields = ['id', 'message', 'account', 'account_name', 'chat', 'chat_name',
+                  'status', 'skip_reason', 'message_preview', 'message_time',
+                  'direction', 'created_at']
+        read_only_fields = fields
+
+    def get_account_name(self, obj):
+        a = obj.account
+        return a.display_name or a.phone_number or f'Account {a.pk}'
+
+    def get_chat_name(self, obj):
+        if not obj.chat:
+            return ''
+        return obj.chat.name or obj.chat.wa_chat_id
 
 
 class InquiryMessageSerializer(serializers.ModelSerializer):

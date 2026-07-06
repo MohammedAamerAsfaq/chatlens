@@ -128,6 +128,7 @@ export const tradingApi = {
   getActiveAgent:   ()            => http.get('/prompts/active-agent/'),
   saveAgentPricing: (data)        => http.patch('/prompts/active-agent/', data),
   listAgentLogs:    (params)      => http.get('/agent-logs/', { params }),
+  listAiParsingLogs: (params)     => http.get('/ai-parsing-logs/', { params }),
 
   // Inquiries
   listInquiries:          (params)      => http.get('/inquiries/', { params }),
