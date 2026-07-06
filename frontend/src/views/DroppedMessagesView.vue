@@ -50,13 +50,17 @@ const REASON_STYLE = {
   'status@broadcast':           'bg-gray-100 text-gray-400',
 }
 
-// messageStubType reasons are dynamic (e.g. "messageStubType:10")
+// messageStubType / unhandled_type reasons are dynamic (e.g. "messageStubType:10", "unhandled_type:replace")
 function reasonLabel(r) {
   if (REASON_LABELS[r]) return REASON_LABELS[r]
   if (r?.startsWith('messageStubType:')) return `Stub #${r.split(':')[1]}`
+  if (r?.startsWith('unhandled_type:')) return `Unhandled Type: ${r.split(':')[1]}`
   return r
 }
-function reasonStyle(r) { return REASON_STYLE[r] || 'bg-gray-100 text-gray-600' }
+function reasonStyle(r) {
+  if (r?.startsWith('unhandled_type:')) return 'bg-red-100 text-red-800 font-semibold'
+  return REASON_STYLE[r] || 'bg-gray-100 text-gray-600'
+}
 
 function buildParams() {
   const p = { page: page.value, page_size: pageSize.value }

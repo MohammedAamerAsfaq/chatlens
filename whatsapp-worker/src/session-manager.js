@@ -30,6 +30,24 @@ const SESSION_STATUS = {
 // never trips it — only a truly stalled socket does.
 const WATCHDOG_TIMEOUT_MS = 45000;
 
+// TEMPORARY debugging aid — investigating messages from a specific contact
+// (971521962376 / Al Thamam Ipad Almurar) vanishing with no trace in any of the
+// normal drop-reporting paths. Logs the full raw Baileys event unconditionally,
+// bypassing every filter, so the next occurrence gets captured no matter what
+// shape it arrives in (unknown message type, rotated LID, exception before any
+// _reportDropped call, etc.). Remove once the mechanism is confirmed.
+// TODO: remove after root cause for 971521962376 is confirmed (see conversation 2026-07-06).
+const DEBUG_WATCH_JIDS = ['43190593786026@lid', '971521962376@s.whatsapp.net'];
+const DEBUG_WATCH_NAME_HINT = 'thamam';
+
+function _isDebugWatchTarget(msg) {
+  const key = msg?.key || {};
+  const candidates = [key.remoteJid, key.participant, key.participantPn, key.senderPn].filter(Boolean);
+  if (candidates.some(jid => DEBUG_WATCH_JIDS.includes(jid))) return true;
+  const name = (msg?.pushName || '').toLowerCase();
+  return name.includes(DEBUG_WATCH_NAME_HINT);
+}
+
 const MIME_TO_EXT = {
   'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
   'video/mp4': 'mp4', 'video/3gpp': '3gp', 'video/mpeg': 'mpeg',
@@ -67,6 +85,17 @@ class SessionManager {
     if (MIME_TO_EXT[base]) return MIME_TO_EXT[base];
     const sub = base.split('/')[1];
     return sub ? sub.replace(/[^a-z0-9]/gi, '') : 'bin';
+  }
+
+  // TEMPORARY — writes DEBUG_WATCH_JIDS hits to a durable file (not just console/pino),
+  // since the worker's stdout isn't captured anywhere persistent. See DEBUG_WATCH_JIDS above.
+  _debugWatchLog(sessionId, event, msg, extra = {}) {
+    try {
+      const filePath = path.join(this.messageLogger.logsDir, 'debug-watch.ndjson');
+      const line = { ts: new Date().toISOString(), sessionId, event, ...extra, rawMsg: msg };
+      fs.appendFileSync(filePath, JSON.stringify(line) + '\n', 'utf8');
+    } catch { /* swallow — debug tap must never crash the pipeline */ }
+    this.logger.warn({ sessionId, event }, 'DEBUG WATCH: hit for tracked contact — see debug-watch.ndjson');
   }
 
   // ─── Public API ────────────────────────────────────────────────────────────
@@ -282,6 +311,18 @@ class SessionManager {
       const { state, saveCreds } = await useMultiFileAuthState(authDir);
       const { version } = await fetchLatestBaileysVersion();
 
+      // TEMPORARY — Baileys' own internal logger was fully silenced, so any error it hits
+      // internally while decoding/decrypting a message (before ever emitting messages.upsert)
+      // was invisible to us. Our own debug tap only sees messages Baileys already turned into
+      // a WAMessage and emitted — if Baileys errors out before that point, our tap never fires.
+      // Route Baileys' internal 'warn'+ logs to a durable file so we can see what it's actually
+      // doing with the messages that never reach our event handlers.
+      // TODO: revert to pino({ level: 'silent' }) once root cause for 971521962376 is confirmed.
+      const baileysDebugLogger = pino(
+        { level: 'warn' },
+        pino.destination(path.join(this.messageLogger.logsDir, 'baileys-internal.log')),
+      );
+
       sock = makeWASocket({
         version,
         auth: {
@@ -289,7 +330,7 @@ class SessionManager {
           keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
         },
         printQRInTerminal: false,
-        logger: pino({ level: 'silent' }),
+        logger: baileysDebugLogger,
         shouldIgnoreJid: jid => isJidBroadcast(jid),
         // Only request full (all-time) history when no day limit is set.
         // With a finite history_days window, recent sync is sufficient and far faster —
@@ -419,6 +460,16 @@ class SessionManager {
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       session.lastActivityAt = Date.now();
 
+      // TEMPORARY debug tap — see DEBUG_WATCH_JIDS above. Runs before any filtering
+      // so it catches the event no matter what happens to it afterward.
+      for (const m of messages) {
+        if (_isDebugWatchTarget(m)) {
+          let safeMsg = null;
+          try { safeMsg = JSON.parse(JSON.stringify(m)); } catch { safeMsg = { unserializable: true }; }
+          this._debugWatchLog(sessionId, 'messages.upsert', safeMsg, { type });
+        }
+      }
+
       // 'prepend' arrives when WhatsApp delivers missed messages after a reconnect.
       // Route those through the history batch path (no media download, deduped by Django).
       if (type === 'prepend') {
@@ -438,7 +489,13 @@ class SessionManager {
       }
 
       if (type !== 'notify' && type !== 'append') {
-        this.logger.debug({ sessionId, type, count: messages.length }, 'messages.upsert — unhandled type, skipping');
+        // Previously a silent debug-level log (invisible at the default LOG_LEVEL=info) with
+        // no DB trace at all — messages hitting this path vanished with zero evidence anywhere.
+        // Report each one explicitly so it shows up in whatsapp_dropped_message.
+        this.logger.warn({ sessionId, type, count: messages.length }, 'messages.upsert — unhandled type, reporting as dropped');
+        for (const m of messages) {
+          this._reportDropped(sessionId, m, `unhandled_type:${type}`);
+        }
         return;
       }
 
@@ -461,6 +518,15 @@ class SessionManager {
     });
 
     sock.ev.on('messaging-history.set', async ({ messages, isLatest }) => {
+      // TEMPORARY debug tap — see DEBUG_WATCH_JIDS above.
+      for (const m of messages) {
+        if (_isDebugWatchTarget(m)) {
+          let safeMsg = null;
+          try { safeMsg = JSON.parse(JSON.stringify(m)); } catch { safeMsg = { unserializable: true }; }
+          this._debugWatchLog(sessionId, 'messaging-history.set', safeMsg);
+        }
+      }
+
       let filtered = messages.filter(m => m.key?.remoteJid && m.message);
 
       if (session.historyDays) {
