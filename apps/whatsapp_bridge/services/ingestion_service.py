@@ -2,11 +2,27 @@ import logging
 import threading
 from django.db import IntegrityError, connection as _db_conn
 from django.db.models import F, Q
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from ..models import (
     WhatsAppAccount, WhatsAppContact, WhatsAppChat,
-    WhatsAppMessage, ChatType, SyncLog,
+    WhatsAppMessage, ChatType, SyncLog, DroppedMessage,
 )
+
+
+def _resolve_dropped_message(account: WhatsAppAccount, msg_id: str) -> None:
+    """Mark any earlier drop for this msg_id as recovered.
+
+    A message can arrive as decryptable content after previously showing up
+    empty (Baileys retry-requested a resend and the sender's device complied).
+    Same provider_message_id, so this closes the loop on the original drop
+    instead of leaving it looking like permanent loss.
+    """
+    if not msg_id:
+        return
+    DroppedMessage.objects.filter(
+        account=account, msg_id=msg_id, resolved_at__isnull=True,
+    ).update(resolved_at=timezone.now())
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +148,7 @@ class IngestionService:
         contact = self._upsert_contact(account, payload)
         chat = self._upsert_chat(account, contact, payload)
         message, created = self._insert_message(account, chat, contact, payload)
+        _resolve_dropped_message(account, payload.get('provider_message_id'))
 
         if created:
             if payload.get('direction') == 'inbound':
@@ -183,6 +200,7 @@ class IngestionService:
                 contact = self._upsert_contact(account, payload)
                 chat = self._upsert_chat(account, contact, payload)
                 message, created = self._insert_message(account, chat, contact, payload)
+                _resolve_dropped_message(account, payload.get('provider_message_id'))
                 if created:
                     created_count += 1
                     if message.message_text:

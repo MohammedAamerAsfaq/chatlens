@@ -30,6 +30,11 @@ urlpatterns = [
         name='internal-account-settings',
     ),
     path(
+        'api/internal/whatsapp/lid-mappings/<str:session_id>/',
+        views.internal_lid_mappings,
+        name='internal-lid-mappings',
+    ),
+    path(
         'api/internal/whatsapp/dropped-message/',
         views.internal_dropped_message,
         name='internal-dropped-message',

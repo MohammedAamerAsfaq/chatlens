@@ -14,11 +14,18 @@ class DroppedMessage(models.Model):
     reason = models.CharField(max_length=100)
     raw_key = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Set when a later message with the same msg_id was successfully ingested —
+    # i.e. Baileys' retry request eventually got the sender to resend and decrypt
+    # succeeded. Distinguishes "self-healed" drops from ones that never recovered.
+    resolved_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'whatsapp_dropped_message'
         ordering = ['-created_at']
-        indexes = [models.Index(fields=['account', 'created_at'])]
+        indexes = [
+            models.Index(fields=['account', 'created_at']),
+            models.Index(fields=['account', 'msg_id']),
+        ]
 
     def __str__(self):
         return f"{self.reason} | {self.raw_jid or 'no-jid'} | {self.created_at}"

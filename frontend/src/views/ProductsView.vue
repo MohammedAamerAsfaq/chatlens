@@ -4,6 +4,9 @@
       <div class="header-left">
         <h2>Product Master</h2>
         <span class="count-badge">{{ products.length }} products</span>
+        <span class="pnl-badge" :class="totalPnl < 0 ? 'negative' : 'positive'">
+          Total PNL: {{ formatMoney(totalPnl) }}
+        </span>
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn-ghost" @click="openBulk">Bulk Import</button>
@@ -26,29 +29,29 @@
             <th>Name</th>
             <th>Brand</th>
             <th>Category</th>
-            <th>Aliases</th>
             <th class="th-inv">Qty</th>
             <th class="th-inv">Cost</th>
             <th class="th-inv">Sale</th>
+            <th class="th-inv">Margin</th>
             <th>Active</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="filtered.length === 0">
-            <td colspan="9" class="empty">No products found.</td>
+            <td colspan="8" class="empty">No products found.</td>
           </tr>
           <tr v-for="p in filtered" :key="p.id" :class="{ inactive: !p.is_active }">
             <td class="col-name">{{ p.name }}</td>
             <td>{{ p.brand }}</td>
             <td>{{ p.category }}</td>
-            <td class="col-aliases">
-              <span v-for="a in p.aliases" :key="a" class="alias-chip">{{ a }}</span>
-              <span v-if="!p.aliases.length" class="muted">—</span>
-            </td>
             <td class="td-inv">{{ p.qty ?? 0 }}</td>
             <td class="td-inv">{{ p.cost_price != null ? p.cost_price : '—' }}</td>
             <td class="td-inv">{{ p.sale_price != null ? p.sale_price : '—' }}</td>
+            <td class="td-inv">
+              <span v-if="margin(p) != null" :class="margin(p) < 0 ? 'neg' : 'pos'">{{ formatMoney(margin(p)) }}</span>
+              <span v-else class="muted">—</span>
+            </td>
             <td>
               <span :class="['status-dot', p.is_active ? 'active' : 'inactive']">
                 {{ p.is_active ? 'Active' : 'Inactive' }}
@@ -369,6 +372,15 @@ const previewAliases = computed(() =>
     .filter(Boolean)
 )
 
+function margin(p) {
+  if (p.cost_price == null || p.sale_price == null) return null
+  return p.sale_price - p.cost_price
+}
+
+function formatMoney(n) {
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 const filtered = computed(() => {
   let list = products.value
   if (!showInactive.value) list = list.filter(p => p.is_active)
@@ -382,6 +394,13 @@ const filtered = computed(() => {
   }
   return list
 })
+
+const totalPnl = computed(() =>
+  filtered.value.reduce((sum, p) => {
+    const m = margin(p)
+    return m == null ? sum : sum + m * (p.qty ?? 0)
+  }, 0)
+)
 
 async function load() {
   const { data } = await tradingApi.listProducts({ active: 'all' })
@@ -546,6 +565,9 @@ onMounted(load)
 .header-left { display: flex; align-items: center; gap: 10px; }
 .header-left h2 { margin: 0; font-size: 1.2rem; }
 .count-badge { background: #e5e7eb; border-radius: 999px; padding: 2px 10px; font-size: 0.8rem; }
+.pnl-badge { border-radius: 999px; padding: 2px 10px; font-size: 0.8rem; font-weight: 600; }
+.pnl-badge.positive { background: #dcfce7; color: #15803d; }
+.pnl-badge.negative { background: #fee2e2; color: #dc2626; }
 .toolbar { display: flex; gap: 12px; align-items: center; }
 .search-input { flex: 1; padding: 7px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.9rem; }
 .toggle-label { font-size: 0.88rem; display: flex; gap: 6px; align-items: center; cursor: pointer; }
@@ -556,8 +578,9 @@ onMounted(load)
 .data-table tr:last-child td { border-bottom: none; }
 .data-table tr.inactive { opacity: 0.5; }
 .col-name { font-weight: 500; }
-.col-aliases { display: flex; flex-wrap: wrap; gap: 4px; }
 .alias-chip { background: #eff6ff; color: #1d4ed8; border-radius: 4px; padding: 1px 7px; font-size: 0.78rem; }
+.td-inv .pos { color: #15803d; }
+.td-inv .neg { color: #dc2626; }
 .col-actions { display: flex; gap: 6px; white-space: nowrap; }
 .status-dot { font-size: 0.8rem; font-weight: 500; }
 .status-dot.active { color: #16a34a; }

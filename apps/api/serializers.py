@@ -149,7 +149,7 @@ class DroppedMessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = DroppedMessage
         fields = ['id', 'account_id', 'account_name', 'msg_id', 'raw_jid',
-                  'from_me', 'has_message', 'reason', 'raw_key', 'created_at']
+                  'from_me', 'has_message', 'reason', 'raw_key', 'created_at', 'resolved_at']
 
     def get_account_name(self, obj):
         return obj.account.display_name or obj.account.phone_number or f'Account #{obj.account.pk}'

@@ -67,6 +67,21 @@ class DjangoClient {
     }
   }
 
+  async getLidMappings(sessionId) {
+    try {
+      const resp = await this.http.get(
+        `/api/internal/whatsapp/lid-mappings/${sessionId}/`,
+      );
+      return {
+        lidToPhone: resp.data.lid_to_phone || {},
+        usernameToPhone: resp.data.username_to_phone || {},
+      };
+    } catch (err) {
+      this.logger.warn({ sessionId, error: err.message }, 'Could not fetch LID mappings — starting with empty cache');
+      return { lidToPhone: {}, usernameToPhone: {} };
+    }
+  }
+
   async sendDroppedMessage(sessionId, fields) {
     try {
       await this.http.post('/api/internal/whatsapp/dropped-message/', {

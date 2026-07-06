@@ -85,7 +85,10 @@ class SessionManager {
       this.logger.info({ sessionId }, 'Restoring session');
       // Fetch account settings from Django so idle-disconnect and history rules are respected
       const options = await this.djangoClient.getAccountSettings(sessionId);
-      await this.createSession(sessionId, options);
+      // Seed the LID/username → phone cache from already-known contacts so messages
+      // from them don't get dropped as unresolvable_lid while the cache is cold.
+      const { lidToPhone, usernameToPhone } = await this.djangoClient.getLidMappings(sessionId);
+      await this.createSession(sessionId, { ...options, lidToPhone, usernameToPhone });
     }
   }
 
@@ -124,13 +127,15 @@ class SessionManager {
       watchdogTimer: null,
       watchdogFired: false,
       lastError: null,
-      // LID → phone JID mapping built from contacts.set/upsert.
+      // LID → phone JID mapping built from contacts.set/upsert, seeded from
+      // already-known contacts on restore (see initialize()) so the cache
+      // isn't cold immediately after a worker restart.
       // Used to normalise outbound LID chat_ids (which have no senderPn).
-      lidToPhone: {},
+      lidToPhone: { ...(options.lidToPhone || {}) },
       // username (bare handle, no @domain) → full phone JID.
-      // Populated from contacts.set when c.username is present.
+      // Populated from contacts.set when c.username is present, also seeded on restore.
       // Used to resolve username-keyed chat JIDs once WhatsApp usernames roll out.
-      usernameToPhone: {},
+      usernameToPhone: { ...(options.usernameToPhone || {}) },
     });
     await this._connect(sessionId);
     return this._snapshot(sessionId);

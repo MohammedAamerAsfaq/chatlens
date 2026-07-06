@@ -250,6 +250,11 @@ function jidDisplay(raw_jid) {
                 <span :class="['text-xs font-medium px-2 py-0.5 rounded-full', reasonStyle(log.reason)]">
                   {{ reasonLabel(log.reason) }}
                 </span>
+                <span
+                  v-if="log.resolved_at"
+                  class="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700 ml-1"
+                  :title="`Recovered ${formatTime(log.resolved_at)}`"
+                >Recovered</span>
               </td>
               <td class="px-4 py-2.5">
                 <span class="text-xs font-mono text-gray-700">{{ jidDisplay(log.raw_jid) }}</span>
@@ -296,6 +301,11 @@ function jidDisplay(raw_jid) {
                   <span class="text-gray-400 font-medium">Has message</span>
                   <span :class="log.has_message ? 'text-green-700' : 'text-red-600'">
                     {{ log.has_message ? 'yes' : 'no' }}
+                  </span>
+
+                  <span class="text-gray-400 font-medium">Recovered</span>
+                  <span :class="log.resolved_at ? 'text-green-700' : 'text-gray-500'">
+                    {{ log.resolved_at ? formatTime(log.resolved_at) : 'no — still missing' }}
                   </span>
                 </div>
 

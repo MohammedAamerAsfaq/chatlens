@@ -140,6 +140,35 @@ def internal_account_settings(request, session_id):
         return JsonResponse({'error': 'Not found'}, status=404)
 
 
+@require_GET
+def internal_lid_mappings(request, session_id):
+    """LID/username → phone-JID mappings known so far, for seeding the worker's
+    in-memory cache on (re)connect. Without this the cache starts empty after
+    every worker restart and legitimate messages from already-known contacts
+    get dropped as unresolvable_lid until they happen to resend contacts info.
+    """
+    if not _verify_internal_token(request):
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+    try:
+        WhatsAppAccount.objects.get(pk=session_id)
+    except WhatsAppAccount.DoesNotExist:
+        return JsonResponse({'error': 'Not found'}, status=404)
+
+    contacts = WhatsAppContact.objects.filter(account_id=session_id).exclude(
+        wa_contact_id=''
+    ).values('wa_contact_id', 'lid_jid', 'username')
+
+    lid_to_phone = {}
+    username_to_phone = {}
+    for c in contacts:
+        if c['lid_jid']:
+            lid_to_phone[c['lid_jid']] = c['wa_contact_id']
+        if c['username']:
+            username_to_phone[c['username'].lower()] = c['wa_contact_id']
+
+    return JsonResponse({'lid_to_phone': lid_to_phone, 'username_to_phone': username_to_phone})
+
+
 @csrf_exempt
 @require_POST
 def internal_contacts_update(request):

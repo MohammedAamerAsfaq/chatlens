@@ -118,9 +118,12 @@
               <button class="act-btn close" @click="act(inq, 'closed')">Close</button>
               <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
               <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id, inq.account, inq.source_message_id, inq.source_message_time)" title="Open conversation">Chat →</button>
-              <a v-if="inq.source_type === 'direct' && waLink(inq.contact_phone)" :href="waLink(inq.contact_phone)" class="act-btn wa" title="Open in WhatsApp">
+              <a v-if="waLink(inq)" :href="waLink(inq)" class="act-btn wa" title="Open in WhatsApp">
                 <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2zm4.82 13.68c-.2.56-1.18 1.07-1.62 1.14-.44.07-.98.1-1.58-.1-.36-.12-.83-.28-1.42-.55-2.5-1.08-4.13-3.6-4.26-3.77-.13-.17-1.05-1.4-1.05-2.67 0-1.27.66-1.9.9-2.16.23-.26.5-.32.67-.32.17 0 .33 0 .48.01.15.01.36-.06.56.43.2.49.7 1.7.76 1.82.06.13.1.27.02.43-.08.17-.12.27-.23.41-.11.14-.24.31-.33.42-.11.13-.23.27-.1.53.13.26.59 1 1.27 1.63.87.8 1.61 1.04 1.87 1.16.26.12.41.1.57-.06.16-.16.66-.77.83-1.04.17-.26.34-.22.57-.13.23.09 1.44.68 1.69.8.25.12.41.18.47.28.07.1.07.56-.13 1.12z"/></svg>
                 WA
+              </a>
+              <a v-if="waAskPriceLink(inq)" :href="waAskPriceLink(inq)" class="act-btn wa-ask" title="Ask price on WhatsApp">
+                Ask Price
               </a>
             </div>
           </div>
@@ -173,9 +176,12 @@
               <button class="act-btn close" @click="act(inq, 'closed')">Close</button>
               <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
               <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id, inq.account, inq.source_message_id, inq.source_message_time)" title="Open conversation">Chat →</button>
-              <a v-if="inq.source_type === 'direct' && waLink(inq.contact_phone)" :href="waLink(inq.contact_phone)" class="act-btn wa" title="Open in WhatsApp">
+              <a v-if="waLink(inq)" :href="waLink(inq)" class="act-btn wa" title="Open in WhatsApp">
                 <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2zm4.82 13.68c-.2.56-1.18 1.07-1.62 1.14-.44.07-.98.1-1.58-.1-.36-.12-.83-.28-1.42-.55-2.5-1.08-4.13-3.6-4.26-3.77-.13-.17-1.05-1.4-1.05-2.67 0-1.27.66-1.9.9-2.16.23-.26.5-.32.67-.32.17 0 .33 0 .48.01.15.01.36-.06.56.43.2.49.7 1.7.76 1.82.06.13.1.27.02.43-.08.17-.12.27-.23.41-.11.14-.24.31-.33.42-.11.13-.23.27-.1.53.13.26.59 1 1.27 1.63.87.8 1.61 1.04 1.87 1.16.26.12.41.1.57-.06.16-.16.66-.77.83-1.04.17-.26.34-.22.57-.13.23.09 1.44.68 1.69.8.25.12.41.18.47.28.07.1.07.56-.13 1.12z"/></svg>
                 WA
+              </a>
+              <a v-if="waAskPriceLink(inq)" :href="waAskPriceLink(inq)" class="act-btn wa-ask" title="Ask price on WhatsApp">
+                Ask Price
               </a>
             </div>
           </div>
@@ -238,18 +244,23 @@ const productMap = computed(() => {
   return m
 })
 
+function matchInventory(p) {
+  let match = p.product_id ? productMap.value[p.product_id] : null
+  if (!match && p.canonical_name) {
+    const needle = p.canonical_name.toLowerCase()
+    match = allProducts.value.find(prod => {
+      const hay = prod.name.toLowerCase()
+      return hay === needle || hay.includes(needle) || needle.includes(hay)
+    })
+  }
+  return match
+}
+
 function getInventoryHints(inq) {
   if (inq.inquiry_type !== 'buy') return []
   const hints = []
   for (const p of (inq.products || [])) {
-    let match = p.product_id ? productMap.value[p.product_id] : null
-    if (!match && p.canonical_name) {
-      const needle = p.canonical_name.toLowerCase()
-      match = allProducts.value.find(prod => {
-        const hay = prod.name.toLowerCase()
-        return hay === needle || hay.includes(needle) || needle.includes(hay)
-      })
-    }
+    const match = matchInventory(p)
     if (match && (match.qty > 0 || match.sale_price != null)) {
       hints.push({ name: p.canonical_name, product: match })
     }
@@ -300,10 +311,50 @@ function setStatus(inq, e) {
   if (val) act(inq, val)
 }
 
-function waLink(phone) {
+function waPrefillText(inq) {
+  const lines = []
+  for (const p of (inq.products || [])) {
+    const match = matchInventory(p)
+    let line = p.canonical_name || match?.name
+    if (!line) continue
+    line = line.replace(/^\[[^\]]*\]\s*/, '')
+    if (p.quantity) line += ` x${p.quantity}`
+    if (match?.sale_price != null) line += ` - ${match.sale_price}`
+    lines.push(line)
+  }
+  return lines.join('\n')
+}
+
+function waLink(inq) {
+  const phone = inq.contact_phone
   if (!phone) return null
   const clean = phone.split('@')[0].replace(/\D/g, '')
-  return clean ? `whatsapp://send?phone=${clean}` : null
+  if (!clean) return null
+  const text = waPrefillText(inq)
+  const params = new URLSearchParams({ phone: clean })
+  if (text) params.set('text', text)
+  return `whatsapp://send?${params.toString()}`
+}
+
+function waAskPriceText(inq) {
+  const lines = []
+  for (const p of (inq.products || [])) {
+    let line = p.canonical_name
+    if (!line) continue
+    line = line.replace(/^\[[^\]]*\]\s*/, '')
+    if (p.quantity) line += ` x${p.quantity}`
+    lines.push(line)
+  }
+  return lines.length ? `${lines.join('\n')}\n\nPrice?` : 'Price?'
+}
+
+function waAskPriceLink(inq) {
+  const phone = inq.contact_phone
+  if (!phone) return null
+  const clean = phone.split('@')[0].replace(/\D/g, '')
+  if (!clean) return null
+  const params = new URLSearchParams({ phone: clean, text: waAskPriceText(inq) })
+  return `whatsapp://send?${params.toString()}`
 }
 
 
@@ -375,6 +426,7 @@ onUnmounted(() => {
 .act-btn.deal  { background: #16a34a; color: #fff; }
 .act-btn.chat  { background: #eff6ff; color: #1d4ed8; margin-left: auto; }
 .act-btn.wa    { background: #dcfce7; color: #16a34a; display: flex; align-items: center; gap: 3px; text-decoration: none; }
+.act-btn.wa-ask { background: #fef9c3; color: #92400e; text-decoration: none; }
 .status-select-mini { padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 5px; font-size: 0.78rem; color: #374151; cursor: pointer; background: #fff; }
 .feed-empty { text-align: center; color: #9ca3af; font-size: 0.85rem; padding: 30px; }
 .btn-ghost { padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 6px; background: transparent; cursor: pointer; font-size: 0.85rem; }
