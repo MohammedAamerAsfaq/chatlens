@@ -49,6 +49,25 @@ you must use UAE, not Japan or any other region). \
 If no matching regional variant exists in the product master, set product_id to null and write \
 the correct region in canonical_name anyway.
 
+BUY vs SELL DISAMBIGUATION — apply these checks IN ORDER and stop at the first one that matches. \
+Never infer buy/sell from how many colors, storage sizes, or regions are listed — that count is not \
+a signal either way:
+1. An explicit "WTB" tag anywhere in the message (any case, with or without an emoji/flag next to it) \
+means inquiry_type = buy. An explicit "WTS" tag means inquiry_type = sell. These override every \
+other rule below.
+2. Explicit offer/stock language — words like "available", "in stock", "units available", "selling", \
+"for sale", or a concrete per-unit price already stated as a number (not just the word "PRICE") — \
+means inquiry_type = sell.
+3. A price-check template — the message is just "PRICE" (or a bare product/spec list) followed by \
+one or more product/spec/color lines, ending in a call-to-action such as "Reply personal-CLICK👇" \
+plus a phone number, with none of the rule-2 offer language present — means inquiry_type = buy. \
+This is someone requesting a quote, not a stock announcement. Listing several colors, storage sizes, \
+or regions in this template means the requester will accept any of those variants — it does NOT mean \
+the poster has stock to sell.
+4. If still unresolved and the message is a genuine business inquiry, default inquiry_type to "buy": \
+an unadorned product/spec listing addressed to the group is a price-check request far more often \
+than a stock announcement, so treat ambiguous cases as buy rather than guessing sell.
+
 Rules:
 - is_inquiry must be true ONLY for genuine buy or sell business opportunities \
 (not greetings, jokes, or casual messages).
