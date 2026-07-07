@@ -285,14 +285,20 @@ class IngestionService:
         if push_name and direction == 'inbound':
             defaults['push_name'] = push_name
 
+        # create_defaults is only applied when a new row is actually created — defaults
+        # is NOT merged in on create, only on update. phone_number must be in both, or a
+        # contact's very first-ever message creates them with a blank phone_number that
+        # only self-heals once a second message arrives.
+        create_defaults = {'phone_number': sender_number}
+        if push_name:
+            create_defaults['display_name'] = push_name
+
         try:
             contact, _ = WhatsAppContact.objects.update_or_create(
                 account=account,
                 wa_contact_id=wa_contact_id,
                 defaults=defaults,
-                # display_name seeded only on creation so users can customise it without
-                # it being overwritten on every inbound message.
-                create_defaults={'display_name': push_name} if push_name else {},
+                create_defaults=create_defaults,
             )
         except IntegrityError:
             # Race condition: contacts-update and message-ingest run concurrently and both
