@@ -735,14 +735,29 @@ class ContactViewSet(viewsets.ModelViewSet):
     pagination_class = ActivityPagination
     http_method_names = ['get', 'patch', 'head', 'options']
 
+    ORDERING_FIELDS = {
+        'display_name':  ['display_name', 'push_name', 'phone_number'],
+        'push_name':     ['push_name', 'display_name'],
+        'phone_number':  ['phone_number'],
+        'category':      ['category', 'display_name'],
+        'message_count': ['message_count'],
+    }
+
     def get_queryset(self):
         qs = (
             WhatsAppContact.objects
             .select_related('account')
             .prefetch_related('chats')
             .annotate(message_count=Count('messages', distinct=True))
-            .order_by('display_name', 'push_name', 'phone_number')
         )
+
+        ordering = self.request.query_params.get('ordering') or 'display_name'
+        descending = ordering.startswith('-')
+        field = ordering[1:] if descending else ordering
+        order_fields = self.ORDERING_FIELDS.get(field, self.ORDERING_FIELDS['display_name'])
+        if descending:
+            order_fields = [f'-{f}' for f in order_fields]
+        qs = qs.order_by(*order_fields)
 
         account_id = self.request.query_params.get('account')
         if account_id:

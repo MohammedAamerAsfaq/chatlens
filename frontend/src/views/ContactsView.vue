@@ -19,6 +19,26 @@ const filterType     = ref('all')
 const filterCategory = ref('all')
 const searchQuery    = ref('')
 
+// Sorting
+const sortField = ref('display_name')
+const sortDir   = ref('asc')
+
+function sortIcon(field) {
+  if (sortField.value !== field) return ''
+  return sortDir.value === 'asc' ? '▲' : '▼'
+}
+
+function toggleSort(field) {
+  if (sortField.value === field) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortField.value = field
+    sortDir.value = 'asc'
+  }
+  page.value = 1
+  fetchContacts()
+}
+
 // Pagination
 const page            = ref(1)
 const pageSize        = ref(50)
@@ -47,6 +67,7 @@ function buildParams() {
   if (filterType.value     !== 'all') p.type     = filterType.value
   if (filterCategory.value !== 'all') p.category = filterCategory.value === 'none' ? '' : filterCategory.value
   if (searchQuery.value.trim())       p.search   = searchQuery.value.trim()
+  p.ordering = sortDir.value === 'desc' ? `-${sortField.value}` : sortField.value
   return p
 }
 
@@ -341,12 +362,22 @@ async function toggleGlobalAi() {
         <thead>
           <tr class="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
             <th class="text-left px-4 py-3 w-12"></th>
-            <th class="text-left px-4 py-3">Display Name</th>
-            <th class="text-left px-4 py-3 w-44">WhatsApp Name</th>
-            <th class="text-left px-4 py-3 w-36">Phone</th>
+            <th class="text-left px-4 py-3 cursor-pointer select-none hover:text-gray-700" @click="toggleSort('display_name')">
+              Display Name<span class="ml-1">{{ sortIcon('display_name') }}</span>
+            </th>
+            <th class="text-left px-4 py-3 w-44 cursor-pointer select-none hover:text-gray-700" @click="toggleSort('push_name')">
+              WhatsApp Name<span class="ml-1">{{ sortIcon('push_name') }}</span>
+            </th>
+            <th class="text-left px-4 py-3 w-36 cursor-pointer select-none hover:text-gray-700" @click="toggleSort('phone_number')">
+              Phone<span class="ml-1">{{ sortIcon('phone_number') }}</span>
+            </th>
             <th class="text-left px-4 py-3 w-24">Type</th>
-            <th class="text-left px-4 py-3 w-28">Category</th>
-            <th class="text-left px-4 py-3 w-20">Msgs</th>
+            <th class="text-left px-4 py-3 w-28 cursor-pointer select-none hover:text-gray-700" @click="toggleSort('category')">
+              Category<span class="ml-1">{{ sortIcon('category') }}</span>
+            </th>
+            <th class="text-left px-4 py-3 w-20 cursor-pointer select-none hover:text-gray-700" @click="toggleSort('message_count')">
+              Msgs<span class="ml-1">{{ sortIcon('message_count') }}</span>
+            </th>
             <th class="text-center px-4 py-3 w-24" title="AI Inquiry Parsing">AI Parse</th>
             <th class="text-left px-4 py-3 w-28">Actions</th>
           </tr>
