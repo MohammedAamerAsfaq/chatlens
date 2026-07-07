@@ -9,6 +9,8 @@ VALID_TAGS = {
     'negotiation', 'deal_confirmation', 'greeting', 'joke', 'spam', 'other',
 }
 
+VALID_MATCH_TYPES = {'exact', 'near'}
+
 USER_PROMPT = """\
 Classify this message:
 
@@ -72,8 +74,12 @@ def _parse_response(raw: str) -> dict:
     for p in (data.get('products') or []):
         if not isinstance(p, dict):
             continue
+        match_type = p.get('match_type') if p.get('product_id') is not None else None
+        if match_type not in VALID_MATCH_TYPES:
+            match_type = None
         products.append({
             'product_id':    p.get('product_id'),
+            'match_type':    match_type,
             'canonical_name': str(p.get('canonical_name') or ''),
             'quantity':      p.get('quantity'),
             'price':         p.get('price'),

@@ -49,6 +49,23 @@ you must use UAE, not Japan or any other region). \
 If no matching regional variant exists in the product master, set product_id to null and write \
 the correct region in canonical_name anyway.
 
+CRITICAL EXACT-MATCH RULE — product_id may ONLY be set to a catalog entry that matches ALL FOUR \
+of: model name, storage, COLOR, AND region. Every one of the four, not just some. This has been a \
+recurring real mistake: matching product_id to the closest available catalog entry when the \
+requested color or region has NO matching entry at all — e.g. the message asks for "512GB Silver \
+Japan" but the master only has "512GB Orange Japan" and "512GB Silver UAE" (no "512GB Silver Japan" \
+exists) — silently linking the Orange Japan or Silver UAE entry as if it were the same product is \
+WRONG, even though two of the three attributes match. The same applies when the message asks for a \
+color the master doesn't carry in that storage+region combination.
+- If all four attributes match a catalog entry exactly → product_id = that entry's id, match_type = "exact".
+- If the model+storage match a catalog entry but its color and/or region differs from what the \
+message asked for (i.e. no exact variant exists) → you may still reference that closest entry \
+for pricing/stock context, but you MUST set match_type = "near" — never "exact" — so the desk \
+knows this is not the color/region the customer actually asked for.
+- If you are not even confident of a near match, set product_id to null and match_type to null. \
+canonical_name must always reflect what the message actually said (color/region as requested), \
+regardless of which product_id or match_type you chose.
+
 BUY vs SELL DISAMBIGUATION — apply these checks IN ORDER and stop at the first one that matches. \
 Never infer buy/sell from how many colors, storage sizes, or regions are listed — that count is not \
 a signal either way:
@@ -89,8 +106,7 @@ Rules:
 - tags must contain at least one value.
 - products: extract ONLY what is explicitly stated in the message. \
 Do NOT infer, add, or upgrade specs (e.g. do not add "Pro" if the message says "iPhone 17 256GB"). \
-Use the product_id from the master catalog ONLY when you are certain it is the exact same model \
-(matching name, storage, tier, AND region). If uncertain about region match, set product_id to null.
+See CRITICAL EXACT-MATCH RULE above for product_id and match_type.
 - dedup_key format: "{buy|sell}:{product-slug}:{qty-bucket}:{contact_id}" \
 where qty-bucket is the quantity rounded to nearest 5 (use 0 if unknown). \
 Leave empty string if is_inquiry is false.
@@ -102,6 +118,7 @@ Respond ONLY with valid JSON — no markdown, no explanation — matching this s
   "products": [
     {
       "product_id": <int or null if not in master>,
+      "match_type": "exact" | "near" | null,
       "canonical_name": "<string>",
       "quantity": <int or null>,
       "price": <float or null>,

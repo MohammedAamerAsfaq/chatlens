@@ -112,8 +112,14 @@
             </div>
             <div class="card-summary">{{ inq.summary }}</div>
             <div class="card-products" v-if="inq.products.length">
-              <span v-for="p in inq.products" :key="p.canonical_name" class="product-chip">
+              <span
+                v-for="p in inq.products" :key="p.canonical_name"
+                class="product-chip"
+                :class="{ 'product-chip-near': p.match_type === 'near' }"
+                :title="p.match_type === 'near' ? 'Near match — requested color/region not in the product master; showing closest catalog entry' : ''"
+              >
                 {{ p.canonical_name }}{{ p.quantity ? ` ×${p.quantity}` : '' }}
+                <span v-if="p.match_type === 'near'" class="near-match-tag">~ near match</span>
               </span>
             </div>
             <div class="card-stock-hints" v-if="getInventoryHints(inq).length">
@@ -217,8 +223,14 @@
             </div>
             <div class="card-summary">{{ inq.summary }}</div>
             <div class="card-products" v-if="inq.products.length">
-              <span v-for="p in inq.products" :key="p.canonical_name" class="product-chip">
+              <span
+                v-for="p in inq.products" :key="p.canonical_name"
+                class="product-chip"
+                :class="{ 'product-chip-near': p.match_type === 'near' }"
+                :title="p.match_type === 'near' ? 'Near match — requested color/region not in the product master; showing closest catalog entry' : ''"
+              >
                 {{ p.canonical_name }}{{ p.quantity ? ` ×${p.quantity}` : '' }}
+                <span v-if="p.match_type === 'near'" class="near-match-tag">~ near match</span>
               </span>
             </div>
             <div class="card-meta">
@@ -568,6 +580,8 @@ onUnmounted(() => {
 .card-summary { font-size: 0.83rem; color: #374151; margin-bottom: 6px; }
 .card-products { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
 .product-chip { background: #eff6ff; color: #1d4ed8; padding: 1px 7px; border-radius: 4px; font-size: 0.75rem; }
+.product-chip-near { background: #fef9c3; color: #92400e; border: 1px solid #fde68a; }
+.near-match-tag { font-weight: 700; margin-left: 3px; }
 .card-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
 .source-label { font-size: 0.73rem; color: #9ca3af; text-transform: capitalize; }
 .account-badge { font-size: 0.7rem; background: #ede9fe; color: #6d28d9; padding: 1px 7px; border-radius: 999px; font-weight: 600; }

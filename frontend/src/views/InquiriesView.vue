@@ -119,12 +119,17 @@
         <div v-if="selected.products.length" class="section">
           <div class="section-title">Products</div>
           <div class="product-list">
-            <div v-for="p in selected.products" :key="p.canonical_name" class="product-item">
+            <div v-for="p in selected.products" :key="p.canonical_name" class="product-item" :class="{ 'product-item-near': p.match_type === 'near' }">
               <span class="product-name">{{ p.canonical_name }}</span>
               <span v-if="p.quantity" class="product-detail">×{{ p.quantity }}</span>
               <span v-if="p.price" class="product-detail">
                 {{ p.currency || '' }} {{ p.price }}
               </span>
+              <span
+                v-if="p.match_type === 'near'"
+                class="near-match-tag"
+                title="Near match — requested color/region not in the product master; showing closest catalog entry"
+              >~ near match</span>
             </div>
           </div>
         </div>
@@ -367,6 +372,8 @@ onMounted(async () => {
 .product-list { display: flex; flex-direction: column; gap: 4px; }
 .product-item { display: flex; gap: 8px; align-items: center; font-size: 0.9rem; }
 .product-name { font-weight: 500; }
+.product-item-near { background: #fef9c3; padding: 3px 8px; border-radius: 4px; border: 1px solid #fde68a; }
+.near-match-tag { color: #92400e; font-weight: 700; font-size: 0.78rem; }
 .product-detail { color: #6b7280; font-size: 0.85rem; }
 .messages-list { display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; }
 .message-item { background: #f9fafb; border-radius: 6px; padding: 10px 12px; border: 1px solid #e5e7eb; }
