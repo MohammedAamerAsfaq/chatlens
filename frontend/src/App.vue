@@ -31,6 +31,7 @@ async function handleLogout() {
       <RouterLink to="/conversations"   class="nav-link" active-class="nav-link-active">Conversations</RouterLink>
       <RouterLink to="/trading"            class="nav-link" active-class="nav-link-active">Trading</RouterLink>
       <RouterLink to="/trading-analytics" class="nav-link" active-class="nav-link-active">Analytics</RouterLink>
+      <RouterLink to="/buying-inquiries"  class="nav-link" active-class="nav-link-active">Buying Inquiries</RouterLink>
 
       <!-- Lists — grouped dropdown, opens on hover -->
       <div class="relative group">

@@ -17,6 +17,12 @@
       </div>
     </div>
 
+    <!-- Error banner -->
+    <div v-if="categoryError" class="error-banner">
+      {{ categoryError }}
+      <button class="error-dismiss" @click="categoryError = ''">✕</button>
+    </div>
+
     <!-- Stat chips -->
     <div class="stat-row">
       <div class="stat-chip wtb">
@@ -85,6 +91,25 @@
                 {{ formatAge(inq.age_seconds) }}
               </span>
             </div>
+            <div v-if="inq.contact" class="card-category-row">
+              <select
+                class="category-select-mini"
+                :class="{ 'category-select-suggested': hasSuggestion(inq) }"
+                :value="categoryDisplayValue(inq)"
+                @change="setContactCategory(inq, $event.target.value)"
+              >
+                <option value="">Uncategorized</option>
+                <option value="supplier">Supplier</option>
+                <option value="customer">Customer</option>
+                <option value="both">Both</option>
+              </select>
+              <button
+                v-if="hasSuggestion(inq)"
+                class="category-suggestion-chip"
+                @click="setContactCategory(inq, inq.suggested_contact_category)"
+                :title="`AI suggests: ${categoryLabel(inq.suggested_contact_category)} — click to confirm`"
+              >✓ Apply</button>
+            </div>
             <div class="card-summary">{{ inq.summary }}</div>
             <div class="card-products" v-if="inq.products.length">
               <span v-for="p in inq.products" :key="p.canonical_name" class="product-chip">
@@ -119,6 +144,7 @@
                 <option value="not_dealing">Not Dealing ATM</option>
                 <option value="irrelevant">Irrelevant</option>
                 <option value="closed">Close</option>
+                <option value="incorrect_match">Incorrect Match</option>
               </select>
               <button class="act-btn close" @click="act(inq, 'closed')">Close</button>
               <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
@@ -133,6 +159,16 @@
               <a v-if="waPriceListLink(inq)" :href="waPriceListLink(inq)" class="act-btn wa-list" title="Send full price list on WhatsApp">
                 Price List
               </a>
+            </div>
+            <div v-if="incorrectMatchForms[inq.id]?.open" class="incorrect-match-form">
+              <input
+                v-model="incorrectMatchForms[inq.id].reason"
+                placeholder="What's incorrect about this match?"
+                class="incorrect-match-input"
+                @keydown.enter="submitIncorrectMatch(inq)"
+              />
+              <button class="act-btn close" @click="submitIncorrectMatch(inq)">Save</button>
+              <button class="act-btn chat" @click="cancelIncorrectMatch(inq)">Cancel</button>
             </div>
           </div>
           <div v-if="buyFeed.length === 0" class="feed-empty">No open buying inquiries</div>
@@ -160,6 +196,25 @@
                 {{ formatAge(inq.age_seconds) }}
               </span>
             </div>
+            <div v-if="inq.contact" class="card-category-row">
+              <select
+                class="category-select-mini"
+                :class="{ 'category-select-suggested': hasSuggestion(inq) }"
+                :value="categoryDisplayValue(inq)"
+                @change="setContactCategory(inq, $event.target.value)"
+              >
+                <option value="">Uncategorized</option>
+                <option value="supplier">Supplier</option>
+                <option value="customer">Customer</option>
+                <option value="both">Both</option>
+              </select>
+              <button
+                v-if="hasSuggestion(inq)"
+                class="category-suggestion-chip"
+                @click="setContactCategory(inq, inq.suggested_contact_category)"
+                :title="`AI suggests: ${categoryLabel(inq.suggested_contact_category)} — click to confirm`"
+              >✓ Apply</button>
+            </div>
             <div class="card-summary">{{ inq.summary }}</div>
             <div class="card-products" v-if="inq.products.length">
               <span v-for="p in inq.products" :key="p.canonical_name" class="product-chip">
@@ -180,6 +235,7 @@
                 <option value="not_dealing">Not Dealing ATM</option>
                 <option value="irrelevant">Irrelevant</option>
                 <option value="closed">Close</option>
+                <option value="incorrect_match">Incorrect Match</option>
               </select>
               <button class="act-btn close" @click="act(inq, 'closed')">Close</button>
               <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
@@ -191,6 +247,16 @@
               <a v-if="waAskPriceLink(inq)" :href="waAskPriceLink(inq)" class="act-btn wa-ask" title="Ask price on WhatsApp">
                 Ask Price
               </a>
+            </div>
+            <div v-if="incorrectMatchForms[inq.id]?.open" class="incorrect-match-form">
+              <input
+                v-model="incorrectMatchForms[inq.id].reason"
+                placeholder="What's incorrect about this match?"
+                class="incorrect-match-input"
+                @keydown.enter="submitIncorrectMatch(inq)"
+              />
+              <button class="act-btn close" @click="submitIncorrectMatch(inq)">Save</button>
+              <button class="act-btn chat" @click="cancelIncorrectMatch(inq)">Cancel</button>
             </div>
           </div>
           <div v-if="sellFeed.length === 0" class="feed-empty">No open selling offers</div>
@@ -205,7 +271,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useConversationsStore } from '@/stores/conversations'
-import { accountsApi, tradingApi } from '../api/index.js'
+import { accountsApi, tradingApi, contactsApi } from '../api/index.js'
 
 const router = useRouter()
 const convStore = useConversationsStore()
@@ -239,6 +305,7 @@ const statusFilters = [
   { value: 'irrelevant',     label: 'Irrelevant' },
   { value: 'closed',         label: 'Closed' },
   { value: 'deal_done',      label: 'Deal Done' },
+  { value: 'incorrect_match', label: 'Incorrect Match' },
 ]
 
 function setStatusFilter(val) {
@@ -313,10 +380,61 @@ async function act(inq, status) {
   await refresh()
 }
 
+// ── Quick contact categorization (supplier/customer/both) ────────────────────────
+
+const categoryError = ref('')
+
+const CATEGORY_LABELS = { supplier: 'Supplier', customer: 'Customer', both: 'Both' }
+function categoryLabel(val) {
+  return CATEGORY_LABELS[val] || val
+}
+
+function hasSuggestion(inq) {
+  return !!(inq.suggested_contact_category && inq.suggested_contact_category !== inq.contact_category)
+}
+
+// Pre-fill the dropdown with the AI's suggestion when one is pending, instead of the
+// currently-saved category — the select still only persists on an explicit change/apply.
+function categoryDisplayValue(inq) {
+  return hasSuggestion(inq) ? inq.suggested_contact_category : (inq.contact_category || '')
+}
+
+async function setContactCategory(inq, value) {
+  if (!inq.contact) return
+  try {
+    await contactsApi.update(inq.contact, { category: value })
+    inq.contact_category = value
+    categoryError.value = ''
+  } catch (err) {
+    categoryError.value = `Failed to update contact category: ${err.response?.data?.detail || err.message}`
+  }
+}
+
+// Inline "Incorrect Match" reason form, keyed by inquiry id
+const incorrectMatchForms = ref({})
+
 function setStatus(inq, e) {
   const val = e.target.value
   e.target.value = ''
-  if (val) act(inq, val)
+  if (!val) return
+  if (val === 'incorrect_match') {
+    incorrectMatchForms.value[inq.id] = { open: true, reason: '' }
+    return
+  }
+  act(inq, val)
+}
+
+async function submitIncorrectMatch(inq) {
+  const form = incorrectMatchForms.value[inq.id]
+  if (!form) return
+  await tradingApi.updateInquiry(inq.id, { status: 'incorrect_match', remarks: form.reason.trim() })
+  form.open = false
+  await refresh()
+}
+
+function cancelIncorrectMatch(inq) {
+  const form = incorrectMatchForms.value[inq.id]
+  if (form) form.open = false
 }
 
 function waPrefillText(inq) {
@@ -399,6 +517,8 @@ onUnmounted(() => {
 <style scoped>
 .trading-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; background: #f9fafb; }
 .trading-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; background: #fff; border-bottom: 1px solid #e5e7eb; }
+.error-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 20px; background: #fee2e2; color: #991b1b; font-size: 0.85rem; border-bottom: 1px solid #fca5a5; }
+.error-dismiss { background: none; border: none; color: #991b1b; cursor: pointer; font-size: 0.9rem; padding: 0 4px; }
 .header-left { display: flex; align-items: center; gap: 10px; }
 .header-left h2 { margin: 0; font-size: 1.15rem; }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; animation: blink 1.5s ease-in-out infinite; }
@@ -440,6 +560,11 @@ onUnmounted(() => {
 .card-phone { font-weight: 400; font-size: 0.78rem; color: #6b7280; margin-left: 6px; }
 .card-age { font-size: 0.78rem; color: #6b7280; }
 .card-age.red { color: #dc2626; font-weight: 700; }
+.card-category-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.category-select-mini { padding: 2px 6px; border: 1px solid #d1d5db; border-radius: 5px; font-size: 0.72rem; color: #374151; cursor: pointer; background: #fff; }
+.category-select-suggested { border-color: #fbbf24; background: #fffbeb; color: #92400e; font-weight: 600; }
+.category-suggestion-chip { padding: 2px 8px; border: 1px solid #fbbf24; border-radius: 999px; font-size: 0.72rem; color: #92400e; background: #fef9c3; cursor: pointer; font-weight: 600; }
+.category-suggestion-chip:hover { background: #fef08a; }
 .card-summary { font-size: 0.83rem; color: #374151; margin-bottom: 6px; }
 .card-products { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
 .product-chip { background: #eff6ff; color: #1d4ed8; padding: 1px 7px; border-radius: 4px; font-size: 0.75rem; }
@@ -455,6 +580,8 @@ onUnmounted(() => {
 .act-btn.wa-ask { background: #fef9c3; color: #92400e; text-decoration: none; }
 .act-btn.wa-list { background: #e0e7ff; color: #4338ca; text-decoration: none; }
 .status-select-mini { padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 5px; font-size: 0.78rem; color: #374151; cursor: pointer; background: #fff; }
+.incorrect-match-form { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+.incorrect-match-input { flex: 1; padding: 4px 8px; border: 1px solid #fca5a5; border-radius: 5px; font-size: 0.78rem; min-width: 0; }
 .feed-empty { text-align: center; color: #9ca3af; font-size: 0.85rem; padding: 30px; }
 .btn-ghost { padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 6px; background: transparent; cursor: pointer; font-size: 0.85rem; }
 .btn-ghost.sm { padding: 4px 10px; font-size: 0.8rem; }

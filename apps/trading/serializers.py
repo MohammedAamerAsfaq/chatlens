@@ -1,5 +1,8 @@
 from rest_framework import serializers
-from .models import Product, MessageClassification, Inquiry, InquiryMessage, AiParsingLog
+from .models import (
+    Product, MessageClassification, Inquiry, InquiryMessage, AiParsingLog,
+    BuyingInquiry, SupplierQuote,
+)
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -65,6 +68,7 @@ class InquiryMessageSerializer(serializers.ModelSerializer):
 class InquirySerializer(serializers.ModelSerializer):
     contact_name   = serializers.SerializerMethodField()
     contact_phone  = serializers.SerializerMethodField()
+    contact_category = serializers.SerializerMethodField()
     account_name   = serializers.SerializerMethodField()
     age_seconds    = serializers.SerializerMethodField()
     source_chat_id      = serializers.SerializerMethodField()
@@ -75,6 +79,7 @@ class InquirySerializer(serializers.ModelSerializer):
         model  = Inquiry
         fields = [
             'id', 'account', 'account_name', 'contact', 'contact_name', 'contact_phone',
+            'contact_category', 'suggested_contact_category',
             'inquiry_type', 'status', 'products', 'summary', 'remarks',
             'dedup_key', 'source_type', 'source_chat_id', 'source_message_id',
             'source_message_time', 'first_seen_at', 'closed_at',
@@ -82,6 +87,7 @@ class InquirySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id', 'account', 'account_name', 'contact', 'contact_name', 'contact_phone',
+            'contact_category', 'suggested_contact_category',
             'inquiry_type', 'products', 'summary', 'dedup_key', 'source_type',
             'source_chat_id', 'source_message_id', 'source_message_time',
             'first_seen_at', 'age_seconds', 'created_at', 'updated_at',
@@ -101,6 +107,11 @@ class InquirySerializer(serializers.ModelSerializer):
         if not obj.contact:
             return ''
         return obj.contact.phone_number or ''
+
+    def get_contact_category(self, obj):
+        if not obj.contact:
+            return ''
+        return obj.contact.category or ''
 
     def get_age_seconds(self, obj):
         from django.utils.timezone import now
@@ -140,3 +151,38 @@ class InquiryDetailSerializer(InquirySerializer):
             .order_by('message__message_time')
         )
         return InquiryMessageSerializer(qs, many=True).data
+
+
+class SupplierQuoteSerializer(serializers.ModelSerializer):
+    supplier_name  = serializers.SerializerMethodField()
+    supplier_phone = serializers.CharField(source='supplier.phone_number', read_only=True)
+
+    class Meta:
+        model = SupplierQuote
+        fields = [
+            'id', 'buying_inquiry', 'supplier', 'supplier_name', 'supplier_phone',
+            'status', 'asked_at', 'quoted_price', 'quoted_currency', 'quote_note',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'buying_inquiry', 'supplier_name', 'supplier_phone', 'created_at', 'updated_at']
+
+    def get_supplier_name(self, obj):
+        c = obj.supplier
+        return c.display_name or c.push_name or c.phone_number or c.wa_contact_id
+
+
+class BuyingInquirySerializer(serializers.ModelSerializer):
+    account_name    = serializers.SerializerMethodField()
+    supplier_quotes = SupplierQuoteSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = BuyingInquiry
+        fields = [
+            'id', 'account', 'account_name', 'product_name', 'quantity', 'notes',
+            'status', 'supplier_quotes', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'account_name', 'supplier_quotes', 'created_at', 'updated_at']
+
+    def get_account_name(self, obj):
+        a = obj.account
+        return a.display_name or a.phone_number or f'Account {a.pk}'

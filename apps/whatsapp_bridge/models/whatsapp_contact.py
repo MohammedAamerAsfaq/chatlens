@@ -1,6 +1,12 @@
 from django.db import models
 
 
+class ContactCategory(models.TextChoices):
+    SUPPLIER = 'supplier', 'Supplier'
+    CUSTOMER = 'customer', 'Customer'
+    BOTH     = 'both',     'Both (Supplier & Customer)'
+
+
 class WhatsAppContact(models.Model):
     account = models.ForeignKey(
         'whatsapp_bridge.WhatsAppAccount',
@@ -19,6 +25,9 @@ class WhatsAppContact(models.Model):
     display_name = models.CharField(max_length=255, blank=True)
     push_name = models.CharField(max_length=255, blank=True)
     is_business = models.BooleanField(default=False)
+    # User-assigned tag — blank means uncategorized. Drives the supplier picker on the
+    # Buying Inquiries page; has no effect on message ingestion/classification.
+    category = models.CharField(max_length=20, choices=ContactCategory.choices, blank=True)
     raw_payload = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -13,9 +13,12 @@ USER_PROMPT = """\
 Classify this message:
 
 Sender contact ID: {contact_id}
+Existing contact category: {contact_category}
 Source: {source}
 Time: {message_time}
 Message text: "{message_text}\""""
+
+VALID_CATEGORY_SUGGESTIONS = {'supplier', 'customer', 'both'}
 
 
 def _build_prompts(message, product_block: str) -> tuple[str, str]:
@@ -29,8 +32,10 @@ def _build_prompts(message, product_block: str) -> tuple[str, str]:
         source = 'Direct chat'
 
     contact_id = ''
+    contact_category = 'not set'
     if message.contact:
         contact_id = message.contact.wa_contact_id
+        contact_category = message.contact.category or 'not set'
     elif message.sender_number:
         contact_id = message.sender_number
 
@@ -40,10 +45,11 @@ def _build_prompts(message, product_block: str) -> tuple[str, str]:
     )
     system = system_template.replace('{product_block}', product_block)
     user   = USER_PROMPT.format(
-        contact_id   = contact_id,
-        source       = source,
-        message_time = message.message_time.isoformat(),
-        message_text = message.message_text.replace('"', "'"),
+        contact_id       = contact_id,
+        contact_category = contact_category,
+        source           = source,
+        message_time     = message.message_time.isoformat(),
+        message_text     = message.message_text.replace('"', "'"),
     )
     return system, user
 
@@ -87,6 +93,10 @@ def _parse_response(raw: str) -> dict:
         elif 'wtb' in tags:
             inquiry_type = 'buy'
 
+    contact_category_suggestion = data.get('contact_category_suggestion') or ''
+    if contact_category_suggestion not in VALID_CATEGORY_SUGGESTIONS:
+        contact_category_suggestion = ''
+
     return {
         'tags':         tags,
         'products':     products,
@@ -94,6 +104,7 @@ def _parse_response(raw: str) -> dict:
         'inquiry_type': inquiry_type,
         'summary':      str(data.get('summary') or ''),
         'dedup_key':    str(data.get('dedup_key') or ''),
+        'contact_category_suggestion': contact_category_suggestion,
         'raw':          data,
     }
 
@@ -151,6 +162,7 @@ def classify_message(message) -> None:
         inquiry_type = parsed['inquiry_type'],
         ai_summary   = parsed['summary'],
         dedup_key    = parsed['dedup_key'],
+        suggested_contact_category = parsed['contact_category_suggestion'],
         raw_response = parsed['raw'],
     )
     logger.info(

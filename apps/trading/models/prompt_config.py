@@ -68,6 +68,20 @@ the poster has stock to sell.
 an unadorned product/spec listing addressed to the group is a price-check request far more often \
 than a stock announcement, so treat ambiguous cases as buy rather than guessing sell.
 
+CONTACT CATEGORY SUGGESTION — the message includes the sender's "Existing contact category", \
+one of "supplier" (we buy from them), "customer" (they buy from us), "both", or "not set". \
+Decide whether this message gives a reason to suggest a DIFFERENT category:
+- If the message's inquiry_type is "sell" (they are selling to us) and the existing category is \
+"not set" or "customer" (never "supplier" or "both" already), suggest "supplier" — or "both" if \
+existing category is "customer".
+- If the message's inquiry_type is "buy" (they are buying from us) and the existing category is \
+"not set" or "supplier" (never "customer" or "both" already), suggest "customer" — or "both" if \
+existing category is "supplier".
+- If the existing category already covers the behavior shown in this message (e.g. existing is \
+"both", or existing is "supplier" and this message is also a sell), or is_inquiry is false, \
+set contact_category_suggestion to null — do NOT repeat the existing category as a "suggestion".
+- Never suggest based on anything other than this message's own inquiry_type.
+
 Rules:
 - is_inquiry must be true ONLY for genuine buy or sell business opportunities \
 (not greetings, jokes, or casual messages).
@@ -97,7 +111,8 @@ Respond ONLY with valid JSON — no markdown, no explanation — matching this s
   "is_inquiry": <bool>,
   "inquiry_type": "buy" | "sell" | "both" | null,
   "summary": "<one sentence>",
-  "dedup_key": "<string>"
+  "dedup_key": "<string>",
+  "contact_category_suggestion": "supplier" | "customer" | "both" | null
 }\
 """
 

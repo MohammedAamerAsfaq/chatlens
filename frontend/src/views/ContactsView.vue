@@ -14,9 +14,10 @@ const savingAiId  = ref(null)
 const savingGlobalAi = ref(false)
 
 // Filters
-const filterAccount = ref('all')
-const filterType    = ref('all')
-const searchQuery   = ref('')
+const filterAccount  = ref('all')
+const filterType     = ref('all')
+const filterCategory = ref('all')
+const searchQuery    = ref('')
 
 // Pagination
 const page            = ref(1)
@@ -42,9 +43,10 @@ const TYPE_STYLE = {
 
 function buildParams() {
   const p = { page: page.value, page_size: pageSize.value }
-  if (filterAccount.value !== 'all') p.account = filterAccount.value
-  if (filterType.value    !== 'all') p.type    = filterType.value
-  if (searchQuery.value.trim())      p.search  = searchQuery.value.trim()
+  if (filterAccount.value  !== 'all') p.account  = filterAccount.value
+  if (filterType.value     !== 'all') p.type     = filterType.value
+  if (filterCategory.value !== 'all') p.category = filterCategory.value === 'none' ? '' : filterCategory.value
+  if (searchQuery.value.trim())       p.search   = searchQuery.value.trim()
   return p
 }
 
@@ -73,7 +75,7 @@ async function fetchAccounts() {
   } catch {}
 }
 
-watch([filterAccount, filterType, pageSize], () => {
+watch([filterAccount, filterType, filterCategory, pageSize], () => {
   page.value = 1
   fetchContacts()
   fetchStats()
@@ -170,6 +172,22 @@ async function toggleContactAi(contact) {
     if (idx !== -1) contacts.value[idx] = data
   } finally {
     savingAiId.value = null
+  }
+}
+
+// ── Category (supplier / customer) ────────────────────────────────────────────
+
+const savingCategoryId = ref(null)
+
+async function setCategory(contact, value) {
+  if (savingCategoryId.value === contact.id) return
+  savingCategoryId.value = contact.id
+  try {
+    const { data } = await contactsApi.update(contact.id, { category: value })
+    const idx = contacts.value.findIndex(c => c.id === contact.id)
+    if (idx !== -1) contacts.value[idx] = data
+  } finally {
+    savingCategoryId.value = null
   }
 }
 
@@ -271,6 +289,17 @@ async function toggleGlobalAi() {
         <option value="group">Group</option>
       </select>
 
+      <select
+        v-model="filterCategory"
+        class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+      >
+        <option value="all">All categories</option>
+        <option value="supplier">Supplier</option>
+        <option value="customer">Customer</option>
+        <option value="both">Both</option>
+        <option value="none">Uncategorized</option>
+      </select>
+
       <!-- Search -->
       <div class="relative flex-1 min-w-[220px]">
         <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -316,6 +345,7 @@ async function toggleGlobalAi() {
             <th class="text-left px-4 py-3 w-44">WhatsApp Name</th>
             <th class="text-left px-4 py-3 w-36">Phone</th>
             <th class="text-left px-4 py-3 w-24">Type</th>
+            <th class="text-left px-4 py-3 w-28">Category</th>
             <th class="text-left px-4 py-3 w-20">Msgs</th>
             <th class="text-center px-4 py-3 w-24" title="AI Inquiry Parsing">AI Parse</th>
             <th class="text-left px-4 py-3 w-28">Actions</th>
@@ -408,6 +438,30 @@ async function toggleGlobalAi() {
                 {{ TYPE_LABEL[contact.contact_type] || contact.contact_type }}
               </span>
               <span v-if="contact.is_business" class="ml-1 text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full font-medium">Biz</span>
+            </td>
+
+            <!-- Category (supplier / customer) -->
+            <td class="px-4 py-3">
+              <select
+                :value="contact.category || ''"
+                @change="setCategory(contact, $event.target.value)"
+                :disabled="savingCategoryId === contact.id"
+                :class="[
+                  'text-xs font-medium px-2 py-1 rounded-full border cursor-pointer transition-colors',
+                  contact.category === 'supplier'
+                    ? 'bg-amber-100 border-amber-300 text-amber-700'
+                    : contact.category === 'customer'
+                      ? 'bg-blue-100 border-blue-300 text-blue-700'
+                      : contact.category === 'both'
+                        ? 'bg-purple-100 border-purple-300 text-purple-700'
+                        : 'bg-gray-100 border-gray-200 text-gray-500',
+                ]"
+              >
+                <option value="">Uncategorized</option>
+                <option value="supplier">Supplier</option>
+                <option value="customer">Customer</option>
+                <option value="both">Both</option>
+              </select>
             </td>
 
             <!-- Message count -->

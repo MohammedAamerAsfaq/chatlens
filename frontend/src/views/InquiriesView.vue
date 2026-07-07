@@ -29,6 +29,7 @@
           <option value="irrelevant">Irrelevant</option>
           <option value="closed">Closed</option>
           <option value="deal_done">Deal Done</option>
+          <option value="incorrect_match">Incorrect Match</option>
         </select>
       </div>
       <div class="filter-group">
@@ -177,6 +178,7 @@
               <option value="irrelevant">Irrelevant</option>
               <option value="closed">Closed</option>
               <option value="deal_done">Deal Done</option>
+              <option value="incorrect_match">Incorrect Match</option>
             </select>
             <button
               class="btn-action deal"
@@ -300,6 +302,7 @@ function statusLabel(s) {
     irrelevant:     'Irrelevant',
     closed:         'Closed',
     deal_done:      'Deal Done',
+    incorrect_match: 'Incorrect Match',
   }[s] || s
 }
 
@@ -347,6 +350,7 @@ onMounted(async () => {
 .status-badge.irrelevant     { background: #f3f4f6; color: #9ca3af; }
 .status-badge.closed         { background: #f3f4f6; color: #6b7280; }
 .status-badge.deal_done      { background: #dcfce7; color: #166534; }
+.status-badge.incorrect_match { background: #fee2e2; color: #991b1b; }
 .product-count { font-size: 0.73rem; color: #6b7280; }
 .empty-state { padding: 40px; text-align: center; color: #9ca3af; font-size: 0.9rem; }
 /* Detail panel */

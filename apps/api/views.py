@@ -765,12 +765,19 @@ class ContactViewSet(viewsets.ModelViewSet):
         elif contact_type == 'group':
             qs = qs.filter(wa_contact_id__endswith='@g.us')
 
+        category = self.request.query_params.get('category')
+        if category is not None:
+            qs = qs.filter(category=category)
+
         return qs
 
     def partial_update(self, request, *args, **kwargs):
         contact = self.get_object()
-        # Only display_name is user-editable; ignore any other fields in request
-        data = {'display_name': request.data.get('display_name', contact.display_name)}
+        # Only display_name and category are user-editable; ignore any other fields in request
+        data = {
+            'display_name': request.data.get('display_name', contact.display_name),
+            'category': request.data.get('category', contact.category),
+        }
         serializer = self.get_serializer(contact, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()

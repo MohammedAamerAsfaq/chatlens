@@ -11,6 +11,7 @@ class InquiryStatus(models.TextChoices):
     IRRELEVANT     = 'irrelevant',     'Irrelevant'
     CLOSED         = 'closed',         'Closed'
     DEAL_DONE      = 'deal_done',      'Deal Done'
+    INCORRECT_MATCH = 'incorrect_match', 'Incorrect Match'
 
 
 class Inquiry(models.Model):
@@ -46,6 +47,10 @@ class Inquiry(models.Model):
 
     summary = models.TextField()
     remarks = models.TextField(blank=True)
+
+    # Snapshot of MessageClassification.suggested_contact_category at creation/update time —
+    # 'supplier'/'customer'/'both', blank if the AI found no reason to suggest a category change.
+    suggested_contact_category = models.CharField(max_length=20, blank=True)
 
     # "{buy|sell}:{product-slug}:{qty-bucket}:{contact-id}"
     # Used for cross-group deduplication within the same account + contact + time window.

@@ -8,5 +8,7 @@ router.register('classifications', views.MessageClassificationViewSet, basename=
 router.register('prompts',         views.PromptConfigViewSet,          basename='prompts')
 router.register('agent-logs',     views.AgentCallLogViewSet,          basename='agent-logs')
 router.register('ai-parsing-logs', views.AiParsingLogViewSet,         basename='ai-parsing-logs')
+router.register('buying-inquiries', views.BuyingInquiryViewSet,       basename='buying-inquiries')
+router.register('supplier-quotes',  views.SupplierQuoteViewSet,       basename='supplier-quotes')
 
 urlpatterns = router.urls

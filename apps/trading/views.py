@@ -9,13 +9,15 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Product, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, AgentCallLog, AiParsingLog
+from .models import Product, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, AgentCallLog, AiParsingLog, BuyingInquiry, SupplierQuote
 from .serializers import (
     ProductSerializer,
     MessageClassificationSerializer,
     InquirySerializer,
     InquiryDetailSerializer,
     AiParsingLogSerializer,
+    BuyingInquirySerializer,
+    SupplierQuoteSerializer,
 )
 from .services.product_cache import invalidate as invalidate_product_cache
 
@@ -720,3 +722,64 @@ class AiParsingLogViewSet(viewsets.ReadOnlyModelViewSet):
         if reason := p.get('skip_reason'):
             qs = qs.filter(skip_reason=reason)
         return qs
+
+
+class BuyingInquiryViewSet(viewsets.ModelViewSet):
+    serializer_class = BuyingInquirySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = (
+            BuyingInquiry.objects
+            .select_related('account')
+            .prefetch_related('supplier_quotes__supplier')
+            .order_by('-created_at')
+        )
+        p = self.request.query_params
+        if account_id := p.get('account'):
+            qs = qs.filter(account_id=account_id)
+        if status_ := p.get('status'):
+            qs = qs.filter(status=status_)
+        return qs
+
+    def perform_create(self, serializer):
+        from apps.whatsapp_bridge.models import WhatsAppContact
+        inquiry = serializer.save()
+        # Auto-populate a supplier card for every contact currently tagged 'supplier' or
+        # 'both' on this account — the user can add/remove individual suppliers afterward.
+        suppliers = WhatsAppContact.objects.filter(account=inquiry.account, category__in=['supplier', 'both'])
+        SupplierQuote.objects.bulk_create([
+            SupplierQuote(buying_inquiry=inquiry, supplier=s) for s in suppliers
+        ])
+
+    @action(detail=True, methods=['post'], url_path='add-supplier')
+    def add_supplier(self, request, pk=None):
+        from apps.whatsapp_bridge.models import WhatsAppContact
+        inquiry = self.get_object()
+        supplier_id = request.data.get('supplier_id')
+        if not supplier_id:
+            return Response({'error': 'supplier_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            supplier = WhatsAppContact.objects.get(pk=supplier_id, account=inquiry.account)
+        except WhatsAppContact.DoesNotExist:
+            return Response({'error': 'Supplier not found for this account'}, status=status.HTTP_404_NOT_FOUND)
+        quote, _ = SupplierQuote.objects.get_or_create(buying_inquiry=inquiry, supplier=supplier)
+        return Response(SupplierQuoteSerializer(quote).data, status=status.HTTP_201_CREATED)
+
+
+class SupplierQuoteViewSet(
+    viewsets.GenericViewSet,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+):
+    serializer_class = SupplierQuoteSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = SupplierQuote.objects.select_related('supplier', 'buying_inquiry')
+
+    @action(detail=True, methods=['post'], url_path='ask')
+    def ask(self, request, pk=None):
+        quote = self.get_object()
+        quote.status = 'asked'
+        quote.asked_at = now()
+        quote.save(update_fields=['status', 'asked_at', 'updated_at'])
+        return Response(SupplierQuoteSerializer(quote).data)

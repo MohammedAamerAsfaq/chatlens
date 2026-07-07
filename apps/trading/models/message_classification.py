@@ -38,6 +38,9 @@ class MessageClassification(models.Model):
     )
     ai_summary   = models.TextField(blank=True)
     dedup_key    = models.CharField(max_length=512, blank=True, default='')
+    # AI's suggested contact category update ('supplier'/'customer'/'both'), blank if it
+    # found no reason to change the contact's existing category. See classification_service.
+    suggested_contact_category = models.CharField(max_length=20, blank=True)
     raw_response = models.JSONField(null=True, blank=True)
     classified_at = models.DateTimeField(auto_now_add=True)
 

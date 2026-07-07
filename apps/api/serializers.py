@@ -44,7 +44,7 @@ class ContactDetailSerializer(serializers.ModelSerializer):
         model = WhatsAppContact
         fields = [
             'id', 'account_id', 'wa_contact_id', 'lid_jid', 'username', 'phone_number',
-            'display_name', 'push_name', 'is_business',
+            'display_name', 'push_name', 'is_business', 'category',
             'contact_type', 'message_count', 'chat_id', 'chat_db_id', 'ai_parsing',
             'created_at', 'updated_at',
         ]

@@ -139,6 +139,17 @@ export const tradingApi = {
   getClassificationActivity: (params)  => http.get('/inquiries/classification-activity/', { params }),
   backfillClassify:       (data)        => http.post('/inquiries/backfill-classify/', data),
   retryInquiries:         (data)        => http.post('/inquiries/retry-inquiries/', data),
+
+  // Buying Inquiries (manual RFQ-to-suppliers workflow)
+  listBuyingInquiries:  (params)     => http.get('/buying-inquiries/', { params }),
+  createBuyingInquiry:  (data)       => http.post('/buying-inquiries/', data),
+  updateBuyingInquiry:  (id, data)   => http.patch(`/buying-inquiries/${id}/`, data),
+  deleteBuyingInquiry:  (id)         => http.delete(`/buying-inquiries/${id}/`),
+  addSupplierToInquiry: (id, supplier_id) => http.post(`/buying-inquiries/${id}/add-supplier/`, { supplier_id }),
+
+  askSupplierQuote:     (id)         => http.post(`/supplier-quotes/${id}/ask/`),
+  updateSupplierQuote:  (id, data)   => http.patch(`/supplier-quotes/${id}/`, data),
+  deleteSupplierQuote:  (id)         => http.delete(`/supplier-quotes/${id}/`),
 }
 
 export const aiProvidersApi = {
