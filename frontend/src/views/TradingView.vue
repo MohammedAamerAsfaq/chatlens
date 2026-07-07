@@ -97,7 +97,12 @@
                 {{ h.product.name }} in stock
                 <span v-if="h.product.sale_price"> · Sale: {{ h.product.currency || 'USD' }} {{ h.product.sale_price }}</span>
                 <span> · Qty: {{ h.product.qty }}</span>
-                <span v-if="h.product.cost_price"> · Cost: {{ h.product.currency || 'USD' }} {{ h.product.cost_price }}</span>
+                <span v-if="h.product.cost_price">
+                  ·
+                  <span :class="{ 'cost-loss': h.product.sale_price != null && h.product.sale_price < h.product.cost_price }">
+                    Cost: {{ h.product.currency || 'USD' }} {{ h.product.cost_price }}
+                  </span>
+                </span>
               </div>
             </div>
             <div class="card-meta">
@@ -456,5 +461,6 @@ onUnmounted(() => {
 /* Inventory stock hints on WTB cards */
 .card-stock-hints { display: flex; flex-direction: column; gap: 3px; margin-bottom: 6px; }
 .stock-hint { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 5px; padding: 4px 8px; font-size: 0.75rem; color: #166534; line-height: 1.4; }
+.cost-loss { color: #dc2626; font-weight: 700; }
 .stock-icon { color: #16a34a; font-weight: 700; margin-right: 3px; }
 </style>
