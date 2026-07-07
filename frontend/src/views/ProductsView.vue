@@ -45,9 +45,45 @@
             <td class="col-name">{{ p.name }}</td>
             <td>{{ p.brand }}</td>
             <td>{{ p.category }}</td>
-            <td class="td-inv">{{ p.qty ?? 0 }}</td>
-            <td class="td-inv">{{ p.cost_price != null ? p.cost_price : '—' }}</td>
-            <td class="td-inv">{{ p.sale_price != null ? p.sale_price : '—' }}</td>
+            <td class="td-inv" @click="startCellEdit(p, 'qty')">
+              <input
+                v-if="isEditingCell(p, 'qty')"
+                v-model="editCellValue"
+                type="number" min="0" step="1"
+                class="inline-cell-input"
+                autofocus
+                @click.stop
+                @keydown="handleCellKeydown($event, p, 'qty')"
+                @blur="saveCellEdit(p, 'qty')"
+              />
+              <span v-else class="editable-cell">{{ p.qty ?? 0 }}</span>
+            </td>
+            <td class="td-inv" @click="startCellEdit(p, 'cost_price')">
+              <input
+                v-if="isEditingCell(p, 'cost_price')"
+                v-model="editCellValue"
+                type="number" step="0.01"
+                class="inline-cell-input"
+                autofocus
+                @click.stop
+                @keydown="handleCellKeydown($event, p, 'cost_price')"
+                @blur="saveCellEdit(p, 'cost_price')"
+              />
+              <span v-else class="editable-cell">{{ p.cost_price != null ? p.cost_price : '—' }}</span>
+            </td>
+            <td class="td-inv" @click="startCellEdit(p, 'sale_price')">
+              <input
+                v-if="isEditingCell(p, 'sale_price')"
+                v-model="editCellValue"
+                type="number" step="0.01"
+                class="inline-cell-input"
+                autofocus
+                @click.stop
+                @keydown="handleCellKeydown($event, p, 'sale_price')"
+                @blur="saveCellEdit(p, 'sale_price')"
+              />
+              <span v-else class="editable-cell">{{ p.sale_price != null ? p.sale_price : '—' }}</span>
+            </td>
             <td class="td-inv">
               <span v-if="margin(p) != null" :class="margin(p) < 0 ? 'neg' : 'pos'">{{ formatMoney(margin(p)) }}</span>
               <span v-else class="muted">—</span>
@@ -303,6 +339,24 @@
             <input v-model="modal.category" placeholder="Smartphones" />
           </div>
         </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Qty</label>
+            <input v-model.number="modal.qty" type="number" min="0" placeholder="0" />
+          </div>
+          <div class="form-group">
+            <label>Cost Price</label>
+            <input v-model="modal.cost_price" type="number" step="0.01" placeholder="e.g. 850" />
+          </div>
+          <div class="form-group">
+            <label>Sale Price</label>
+            <input v-model="modal.sale_price" type="number" step="0.01" placeholder="e.g. 950" />
+          </div>
+          <div class="form-group">
+            <label>Currency</label>
+            <input v-model="modal.currency" placeholder="USD" />
+          </div>
+        </div>
         <details class="advanced-section">
           <summary>Advanced (optional)</summary>
           <div class="advanced-body">
@@ -407,8 +461,50 @@ async function load() {
   products.value = data
 }
 
+// ── Inline cell edit (Qty / Cost / Sale) ────────────────────────────────────────
+
+const editingCell   = ref(null) // { id, field }
+const editCellValue = ref('')
+let suppressBlurSave = false
+
+function isEditingCell(p, field) {
+  return editingCell.value?.id === p.id && editingCell.value?.field === field
+}
+
+function startCellEdit(p, field) {
+  if (isEditingCell(p, field)) return
+  editingCell.value = { id: p.id, field }
+  editCellValue.value = p[field] ?? ''
+}
+
+async function saveCellEdit(p, field) {
+  if (suppressBlurSave) { suppressBlurSave = false; editingCell.value = null; return }
+  editingCell.value = null
+  const raw = editCellValue.value
+  const value = field === 'qty'
+    ? (raw === '' ? 0 : Number(raw))
+    : (raw === '' ? null : Number(raw))
+  const current = p[field] ?? (field === 'qty' ? 0 : null)
+  if (value === current) return
+  const { data } = await tradingApi.updateProduct(p.id, { [field]: value })
+  const idx = products.value.findIndex(x => x.id === p.id)
+  if (idx !== -1) products.value[idx] = data
+}
+
+function handleCellKeydown(e, p, field) {
+  if (e.key === 'Enter') {
+    e.target.blur()
+  } else if (e.key === 'Escape') {
+    suppressBlurSave = true
+    e.target.blur()
+  }
+}
+
 function openCreate() {
-  modal.value = { open: true, id: null, name: '', brand: '', category: '', sku: '', aliasText: '' }
+  modal.value = {
+    open: true, id: null, name: '', brand: '', category: '', sku: '', aliasText: '',
+    qty: 0, cost_price: '', sale_price: '', currency: 'USD',
+  }
 }
 
 function openEdit(p) {
@@ -416,6 +512,10 @@ function openEdit(p) {
     open: true, id: p.id,
     name: p.name, brand: p.brand, category: p.category, sku: p.sku,
     aliasText: p.aliases.join(', '),
+    qty: p.qty ?? 0,
+    cost_price: p.cost_price ?? '',
+    sale_price: p.sale_price ?? '',
+    currency: p.currency || 'USD',
   }
 }
 
@@ -434,6 +534,10 @@ async function save() {
       sku:       modal.value.sku.trim(),
       aliases:   previewAliases.value,
       is_active: true,
+      qty:        modal.value.qty === '' || modal.value.qty == null ? 0 : Number(modal.value.qty),
+      cost_price: modal.value.cost_price === '' || modal.value.cost_price == null ? null : Number(modal.value.cost_price),
+      sale_price: modal.value.sale_price === '' || modal.value.sale_price == null ? null : Number(modal.value.sale_price),
+      currency:   modal.value.currency?.trim() || 'USD',
     }
     if (modal.value.id) {
       await tradingApi.updateProduct(modal.value.id, payload)
@@ -581,6 +685,10 @@ onMounted(load)
 .alias-chip { background: #eff6ff; color: #1d4ed8; border-radius: 4px; padding: 1px 7px; font-size: 0.78rem; }
 .td-inv .pos { color: #15803d; }
 .td-inv .neg { color: #dc2626; }
+.editable-cell { cursor: pointer; border-bottom: 1px dashed #d1d5db; padding-bottom: 1px; }
+.editable-cell:hover { border-color: #2563eb; color: #2563eb; }
+.inline-cell-input { width: 72px; text-align: right; border: 1px solid #2563eb; border-radius: 4px; padding: 2px 5px; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+.inline-cell-input:focus { outline: none; box-shadow: 0 0 0 2px rgba(37,99,235,0.2); }
 .col-actions { display: flex; gap: 6px; white-space: nowrap; }
 .status-dot { font-size: 0.8rem; font-weight: 500; }
 .status-dot.active { color: #16a34a; }
