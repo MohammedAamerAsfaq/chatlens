@@ -30,6 +30,14 @@ const SESSION_STATUS = {
 // never trips it — only a truly stalled socket does.
 const WATCHDOG_TIMEOUT_MS = 45000;
 
+// Base delay and cap for exponential-backoff reconnects (see 'close' handler below).
+// A flat retry interval hammers WhatsApp's servers during any outage — the kind of
+// pattern that gets a linked device flagged/rate-limited, which is itself a way to
+// end up forced into a fresh QR re-link. Backing off preserves the existing session
+// for as long as possible instead.
+const RECONNECT_BASE_DELAY_MS = 5000;
+const RECONNECT_MAX_DELAY_MS = 5 * 60 * 1000;
+
 // TEMPORARY debugging aid — investigating messages from a specific contact
 // (971521962376 / Al Thamam Ipad Almurar) vanishing with no trace in any of the
 // normal drop-reporting paths. Logs the full raw Baileys event unconditionally,
@@ -156,6 +164,11 @@ class SessionManager {
       watchdogTimer: null,
       watchdogFired: false,
       lastError: null,
+      // Consecutive failed-reconnect count, reset to 0 on every successful 'open'.
+      // Drives exponential backoff below — hammering WhatsApp's servers with a flat
+      // retry interval during an outage is exactly the kind of behavior that gets a
+      // linked device flagged/rate-limited, forcing an unwanted fresh QR re-link.
+      reconnectAttempts: 0,
       // LID → phone JID mapping built from contacts.set/upsert, seeded from
       // already-known contacts on restore (see initialize()) so the cache
       // isn't cold immediately after a worker restart.
@@ -375,6 +388,7 @@ class SessionManager {
         session.displayName = me?.name || null;
         session.qrDataUrl = null;
         session.lastActivityAt = Date.now();
+        session.reconnectAttempts = 0;
         this.logger.info({ sessionId, phone: session.phoneNumber }, 'Session connected');
         await this.djangoClient.sendSessionStatus(sessionId, {
           status: SESSION_STATUS.CONNECTED,
@@ -450,8 +464,13 @@ class SessionManager {
             session.preventReconnect = false;
             this.logger.info({ sessionId }, 'Soft disconnect — staying offline');
           } else {
-            this.logger.info({ sessionId }, 'Reconnecting in 5s');
-            setTimeout(() => this._connect(sessionId), 5000);
+            const attempt = session.reconnectAttempts++;
+            const delayMs = Math.min(
+              RECONNECT_BASE_DELAY_MS * 2 ** attempt,
+              RECONNECT_MAX_DELAY_MS,
+            );
+            this.logger.info({ sessionId, attempt, delayMs }, `Reconnecting in ${Math.round(delayMs / 1000)}s`);
+            setTimeout(() => this._connect(sessionId), delayMs);
           }
         }
       }
