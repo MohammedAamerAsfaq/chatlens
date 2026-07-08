@@ -39,9 +39,15 @@ REGIONAL ABBREVIATIONS — used by UAE wholesale traders. Map these EXACTLY when
 
 SIM TYPE HINTS — use these ONLY when no explicit region abbreviation is present in the message. \
 Sim type narrows the region but does not uniquely determine it — combine with other context clues:
+  Single SIM / single nano SIM / 1 SIM               → closest match is Hong Kong (HK). Unlike the \
+broader "Physical/Dual SIM" hint below, treat "single SIM" as a specific, strong signal for HK — use \
+it as the region in canonical_name and for product_id matching when no other region clue exists.
   Physical SIM / Dual SIM / nano SIM / physical nano → likely HK, India, UK, EU, China, Korea, Singapore
   eSIM only / eSIM / no physical SIM                 → likely UAE (TDRA), KSA, Japan, USA
   If sim type is mentioned alongside a region abbreviation, the region abbreviation takes priority.
+  If sim type is mentioned but the message otherwise gives no region at all, still apply the hint \
+above (e.g. write "Hong Kong" for "single SIM") rather than leaving canonical_name without a region \
+or matching product_id against an unrelated region's catalog entry.
 
 CRITICAL REGION RULE: The region abbreviation in the message MUST determine the product region. \
 Never substitute a different region (e.g. if message says TRA, TDRA, or any Arabic UAE equivalent \
@@ -57,14 +63,37 @@ Japan" but the master only has "512GB Orange Japan" and "512GB Silver UAE" (no "
 exists) — silently linking the Orange Japan or Silver UAE entry as if it were the same product is \
 WRONG, even though two of the three attributes match. The same applies when the message asks for a \
 color the master doesn't carry in that storage+region combination.
-- If all four attributes match a catalog entry exactly → product_id = that entry's id, match_type = "exact".
-- If the model+storage match a catalog entry but its color and/or region differs from what the \
-message asked for (i.e. no exact variant exists) → you may still reference that closest entry \
-for pricing/stock context, but you MUST set match_type = "near" — never "exact" — so the desk \
-knows this is not the color/region the customer actually asked for.
+MODEL NAME INCLUDES THE TIER SUFFIX — "iPhone 17 Pro" and "iPhone 17 Pro Max" (likewise "Plus" vs \
+base, "Ultra" vs "Plus", etc.) are DIFFERENT MODELS, not the same model in a different color. This \
+has also been a real mistake: the message asks for "17 Pro Max 256GB Orange UAE", the master only \
+has "17 Pro 256GB Orange UAE" (no "17 Pro Max" in that color+region) plus "17 Pro Max" in other \
+colors — matching the Pro (non-Max) entry as "exact" because color+storage+region happened to line \
+up is WRONG; the tier word "Max" not matching means the model name itself does not match, exactly \
+like a wrong color or region would.
+- If all four attributes match a catalog entry exactly, tier suffix included → product_id = that \
+entry's id, match_type = "exact".
+- If storage+region (and color, if present) match a catalog entry but the model name/tier does not \
+(e.g. requested "Pro Max" but only "Pro" exists in that color+region, or vice versa) — treat this \
+the same as a color/region mismatch: you may still reference that closest entry for pricing/stock \
+context, but you MUST set match_type = "near" — never "exact".
+- The same "near" treatment applies when model+storage match but color and/or region differs from \
+what the message asked for (i.e. no exact variant exists).
 - If you are not even confident of a near match, set product_id to null and match_type to null. \
-canonical_name must always reflect what the message actually said (color/region as requested), \
+canonical_name must always reflect what the message actually said (model/color/region as requested), \
 regardless of which product_id or match_type you chose.
+- A single available entry in that model+storage+region group is NOT automatically the match just \
+because it's the only one there — e.g. the message asks for "512GB Silver Hong Kong", the master's \
+only 512GB Hong Kong entry for that model is "512GB Orange Hong Kong" — Silver and Orange are \
+different colors, full stop, so this is match_type "near" (referencing Orange as the closest \
+available), never "exact". Being the only candidate does not make it a correct one.
+
+MANDATORY SELF-CHECK — do this for every product_id you are about to set, before writing your final \
+answer: find that exact ID's line in the PRODUCT MASTER list above and compare it word-by-word \
+against the model, storage, color, and region you are writing into canonical_name for that item. \
+The product master list is the ONLY source of truth for what these mean — not general knowledge of \
+what iPhones typically come in. If even one word differs between the catalog line and canonical_name \
+(brand aside), match_type CANNOT be "exact" — downgrade it to "near", or to null if you're not even \
+sure it's the closest option. Do this check silently; only the final JSON is returned.
 
 BUY vs SELL DISAMBIGUATION — apply these checks IN ORDER and stop at the first one that matches. \
 Never infer buy/sell from how many colors, storage sizes, or regions are listed — that count is not \

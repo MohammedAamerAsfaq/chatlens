@@ -123,9 +123,10 @@
               </span>
             </div>
             <div class="card-stock-hints" v-if="getInventoryHints(inq).length">
-              <div v-for="h in getInventoryHints(inq)" :key="h.name" class="stock-hint">
-                <span class="stock-icon">✓</span>
+              <div v-for="h in getInventoryHints(inq)" :key="h.name" class="stock-hint" :class="{ 'stock-hint-mismatch': h.mismatch }">
+                <span class="stock-icon">{{ h.mismatch ? '⚠' : '✓' }}</span>
                 {{ h.product.name }} in stock
+                <span v-if="h.mismatch" class="mismatch-tag">— not "{{ h.name }}", closest match only</span>
                 <span v-if="h.product.sale_price"> · Sale: {{ h.product.currency || 'USD' }} {{ h.product.sale_price }}</span>
                 <span> · Qty: {{ h.product.qty }}</span>
                 <span v-if="h.product.cost_price">
@@ -343,13 +344,45 @@ function matchInventory(p) {
   return match
 }
 
+// A matched inventory record is only trustworthy for pricing/prefill purposes when
+// it's actually the SAME product the customer asked for — not just close enough that
+// product_id resolved to something. Two independent checks, either one can veto:
+//  1. The AI itself flagged this as a near (not exact) match.
+//  2. The matched product's own name doesn't equal what was requested — this catches
+//     the AI mismarking something "exact" when it demonstrably isn't (e.g. matching
+//     "iPhone 17 Pro Max" to a catalog entry actually named "iPhone 17 Pro"), and also
+//     protects older inquiries stored before match_type existed.
+// Whether product_id was correctly matched is the AI's judgment call to make (that's what
+// match_type is for — exact/near/null), not ours to re-derive here. Re-verifying it with
+// our own string comparison duplicates a fuzzy-matching problem we already pay the agent
+// to solve, with a strictly worse tool (exact-string-equality can't handle aliases, tier
+// suffixes, brand formatting, or regional synonyms the way the agent can) — and it already
+// produced a false positive the first time a brand prefix showed up. Trust match_type.
+// Only "near" is untrustworthy for pricing; missing match_type (older inquiries, predating
+// this field) falls back to trusted, same as before this field existed.
+function isReliableMatch(p, match) {
+  if (!match) return false
+  return p.match_type !== 'near'
+}
+
+// Product.name in the catalog never includes the brand (brand is a separate field), but
+// canonical_name from the AI sometimes does — either bracketed "[Apple] iPhone..." or a
+// bare "Apple iPhone..." prefix. Purely cosmetic cleanup for outgoing WhatsApp text.
+function stripBrandPrefix(name, brand) {
+  let s = (name || '').replace(/^\[[^\]]*\]\s*/, '')
+  if (brand) {
+    s = s.replace(new RegExp('^' + brand.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s+', 'i'), '')
+  }
+  return s.trim()
+}
+
 function getInventoryHints(inq) {
   if (inq.inquiry_type !== 'buy') return []
   const hints = []
   for (const p of (inq.products || [])) {
     const match = matchInventory(p)
     if (match && (match.qty > 0 || match.sale_price != null)) {
-      hints.push({ name: p.canonical_name, product: match })
+      hints.push({ name: p.canonical_name, product: match, mismatch: !isReliableMatch(p, match) })
     }
   }
   return hints
@@ -455,9 +488,10 @@ function waPrefillText(inq) {
     const match = matchInventory(p)
     let line = p.canonical_name || match?.name
     if (!line) continue
-    line = line.replace(/^\[[^\]]*\]\s*/, '')
-    if (p.quantity) line += ` x${p.quantity}`
-    if (match?.sale_price != null) line += ` - ${match.sale_price}`
+    line = stripBrandPrefix(line, match?.brand)
+    // Only attach the matched price when it's actually the same product requested —
+    // never quote a price that belongs to a different model/color/region than the line says.
+    if (match?.sale_price != null && isReliableMatch(p, match)) line += ` - ${match.sale_price}`
     lines.push(line)
   }
   return lines.join('\n')
@@ -480,7 +514,6 @@ function waAskPriceText(inq) {
     let line = p.canonical_name
     if (!line) continue
     line = line.replace(/^\[[^\]]*\]\s*/, '')
-    if (p.quantity) line += ` x${p.quantity}`
     lines.push(line)
   }
   return lines.length ? `${lines.join('\n')}\n\nPrice?` : 'Price?'
@@ -602,6 +635,9 @@ onUnmounted(() => {
 /* Inventory stock hints on WTB cards */
 .card-stock-hints { display: flex; flex-direction: column; gap: 3px; margin-bottom: 6px; }
 .stock-hint { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 5px; padding: 4px 8px; font-size: 0.75rem; color: #166534; line-height: 1.4; }
+.stock-hint-mismatch { background: #fef9c3; border-color: #fde68a; color: #92400e; }
+.mismatch-tag { font-weight: 700; }
 .cost-loss { color: #dc2626; font-weight: 700; }
 .stock-icon { color: #16a34a; font-weight: 700; margin-right: 3px; }
+.stock-hint-mismatch .stock-icon { color: #d97706; }
 </style>

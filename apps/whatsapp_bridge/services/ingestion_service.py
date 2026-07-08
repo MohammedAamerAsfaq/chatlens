@@ -135,8 +135,20 @@ def _process_message_in_background(message_id: int, sync_log_id: int = None):
 
             if message.message_text:
                 from apps.message_intelligence.services.embedding_service import embed_message
-                ok = embed_message(message_id)
-                embedded, errors = (1, 0) if ok else (0, 1)
+                try:
+                    ok = embed_message(message_id)
+                    embedded, errors = (1, 0) if ok else (0, 1)
+                except Exception:
+                    # A transient embedding-provider failure (rate limit, timeout, network
+                    # blip) must never take classification down with it — they're
+                    # independent concerns. Previously this exception propagated past this
+                    # point and skipped _log_ai_parsing_and_classify() entirely, silently
+                    # dropping the message from classification with zero trace anywhere.
+                    logger.warning(
+                        'embed_message failed for message_id=%s — continuing to '
+                        'classification anyway', message_id, exc_info=True,
+                    )
+                    errors = 1
 
             _log_ai_parsing_and_classify(message)
 

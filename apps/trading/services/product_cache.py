@@ -19,7 +19,7 @@ def get_product_prompt_block() -> str:
             return _cache['block']
 
         from apps.trading.models import Product
-        products = list(Product.objects.filter(is_active=True).order_by('brand', 'name'))
+        products = list(Product.objects.filter(is_active=True, qty__gt=0).order_by('brand', 'name'))
 
         if not products:
             _cache['block'] = '(no products configured)'
