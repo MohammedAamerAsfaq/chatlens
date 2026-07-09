@@ -1,7 +1,14 @@
 import json
 import logging
+import re
 
 logger = logging.getLogger(__name__)
+
+_WORD_RE = re.compile(r'[a-z0-9]+')
+
+
+def _words(text: str) -> set:
+    return set(_WORD_RE.findall((text or '').lower()))
 
 # Valid tag values the AI may return
 VALID_TAGS = {
@@ -115,6 +122,47 @@ def _parse_response(raw: str) -> dict:
     }
 
 
+def _validate_exact_matches(products: list) -> list:
+    """
+    Self-consistency guard, not a re-match: the agent occasionally claims
+    match_type="exact" for a product_id whose real catalog name contradicts what
+    it wrote into canonical_name for the same product (e.g. canonical_name says
+    "Blue" but the linked catalog entry is actually "Orange"). We never try to
+    find a different/better product_id ourselves — that's the agent's job. We
+    only check whether the agent's own two answers (product_id's real name vs.
+    canonical_name) agree, and downgrade match_type to "near" when they don't,
+    so a self-contradictory "exact" never reaches the UI as a confident match.
+    """
+    exact_ids = {
+        p['product_id'] for p in products
+        if p['match_type'] == 'exact' and p['product_id'] is not None
+    }
+    if not exact_ids:
+        return products
+
+    try:
+        from apps.trading.models import Product
+        names = dict(Product.objects.filter(id__in=exact_ids).values_list('id', 'name'))
+    except Exception:
+        logger.exception('_validate_exact_matches | catalog lookup failed')
+        return products
+
+    for p in products:
+        if p['match_type'] != 'exact' or p['product_id'] not in names:
+            continue
+        real_words = _words(names[p['product_id']])
+        claimed_words = _words(p['canonical_name'])
+        if not real_words <= claimed_words:
+            logger.warning(
+                'classify_message | exact match self-contradiction | product_id=%s | '
+                'catalog_name=%r | canonical_name=%r | missing_words=%s',
+                p['product_id'], names[p['product_id']], p['canonical_name'],
+                real_words - claimed_words,
+            )
+            p['match_type'] = 'near'
+    return products
+
+
 def classify_message(message) -> None:
     """
     Classify a single WhatsAppMessage and persist a MessageClassification record.
@@ -159,6 +207,8 @@ def classify_message(message) -> None:
             msg_id, raw_response[:500],
         )
         return
+
+    parsed['products'] = _validate_exact_matches(parsed['products'])
 
     classification = MessageClassification.objects.create(
         message      = message,

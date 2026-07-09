@@ -26,6 +26,64 @@ def _resolve_dropped_message(account: WhatsAppAccount, msg_id: str) -> None:
 
 logger = logging.getLogger(__name__)
 
+DUPLICATE_BROADCAST_WINDOW_MINUTES   = 60
+DUPLICATE_BROADCAST_SIMILARITY_THRESHOLD = 0.92  # same bar as inquiry_service's layer-2 match
+
+
+def _is_duplicate_group_broadcast(message) -> bool:
+    """
+    Traders often post the identical WTB/WTS list to many different WhatsApp groups
+    within minutes of each other — each one otherwise triggers its own AI classification
+    call and its own Inquiry row to triage separately, even though it's the same ask.
+
+    If a message from ANY group (not just this one, not scoped to the same contact —
+    a repost from a different sender/group still counts) already produced a genuine
+    inquiry (is_inquiry=True) via AI classification within the last hour, and this
+    message's embedding is a close semantic match, skip classifying this one again.
+
+    Only applies to GROUP chats — direct 1:1 messages are never dropped this way, and
+    if this message has no embedding yet (embedding provider lagged/failed), we fail
+    open (return False) rather than risk silently dropping a real inquiry.
+    """
+    from django.utils.timezone import now
+    from datetime import timedelta
+
+    if message.chat.chat_type != ChatType.GROUP:
+        return False
+
+    try:
+        from apps.message_intelligence.models import MessageEmbedding
+        from pgvector.django import CosineDistance
+
+        my_emb = MessageEmbedding.objects.filter(message=message).first()
+        if not my_emb or my_emb.embedding is None:
+            return False
+
+        window = now() - timedelta(minutes=DUPLICATE_BROADCAST_WINDOW_MINUTES)
+        candidate = (
+            MessageEmbedding.objects
+            .filter(
+                message__account_id=message.account_id,
+                message__chat__chat_type=ChatType.GROUP,
+                message__classification__is_inquiry=True,
+                message__message_time__gte=window,
+                embedding__isnull=False,
+            )
+            .exclude(message_id=message.pk)
+            .annotate(distance=CosineDistance('embedding', my_emb.embedding))
+            .order_by('distance')
+            .first()
+        )
+        if candidate and candidate.distance <= (1 - DUPLICATE_BROADCAST_SIMILARITY_THRESHOLD):
+            logger.info(
+                'duplicate_group_broadcast | message_id=%s matches earlier message_id=%s | distance=%.4f',
+                message.pk, candidate.message_id, candidate.distance,
+            )
+            return True
+    except Exception:
+        logger.debug('duplicate_group_broadcast | check failed, failing open', exc_info=True)
+    return False
+
 
 def _classify_skip_reason(message) -> str | None:
     """Return the AiParsingLog skip_reason code, or None if the message should
@@ -51,6 +109,11 @@ def _classify_skip_reason(message) -> str | None:
         account_enabled = getattr(message.account, 'ai_parsing_enabled', True)
         if not account_enabled:
             return 'account_disabled'
+
+    # Cross-group broadcast dedup — checked last since it's the most expensive check
+    # (a DB similarity query), so cheaper/cheaper-to-decide skip reasons short-circuit first.
+    if _is_duplicate_group_broadcast(message):
+        return 'duplicate_broadcast'
 
     return None
 

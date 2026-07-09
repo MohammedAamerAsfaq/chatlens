@@ -23,19 +23,21 @@ const pageEnd    = computed(() => Math.min(page.value * pageSize.value, totalCou
 let pollTimer = null
 
 const REASON_LABELS = {
-  no_text:          'No text content',
-  outbound:         'Outbound message',
-  too_old:          'Older than 24h',
-  chat_disabled:    'AI off for chat',
-  account_disabled: 'AI off for account',
+  no_text:            'No text content',
+  outbound:           'Outbound message',
+  too_old:            'Older than 24h',
+  chat_disabled:      'AI off for chat',
+  account_disabled:   'AI off for account',
+  duplicate_broadcast: 'Duplicate group broadcast',
 }
 
 const REASON_STYLE = {
-  no_text:          'bg-gray-100 text-gray-500',
-  outbound:         'bg-gray-100 text-gray-500',
-  too_old:          'bg-gray-100 text-gray-500',
-  chat_disabled:    'bg-purple-100 text-purple-700 font-semibold',
-  account_disabled: 'bg-purple-100 text-purple-700 font-semibold',
+  no_text:            'bg-gray-100 text-gray-500',
+  outbound:           'bg-gray-100 text-gray-500',
+  too_old:            'bg-gray-100 text-gray-500',
+  chat_disabled:      'bg-purple-100 text-purple-700 font-semibold',
+  account_disabled:   'bg-purple-100 text-purple-700 font-semibold',
+  duplicate_broadcast: 'bg-amber-100 text-amber-700 font-semibold',
 }
 
 function reasonLabel(r) { return REASON_LABELS[r] || r }
@@ -139,6 +141,7 @@ function toggleRow(id) {
         <option value="too_old">Older than 24h</option>
         <option value="chat_disabled">AI off for chat</option>
         <option value="account_disabled">AI off for account</option>
+        <option value="duplicate_broadcast">Duplicate group broadcast</option>
       </select>
 
       <span class="text-sm text-gray-400 flex-1">{{ totalCount.toLocaleString() }} entries</span>

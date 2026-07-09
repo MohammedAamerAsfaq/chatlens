@@ -11,6 +11,7 @@
       <div style="display:flex;gap:8px">
         <button class="btn-ghost" @click="openBulk">Bulk Import</button>
         <button class="btn-ghost btn-inv" @click="openInventory">Update Inventory</button>
+        <button class="btn-ghost" @click="openPriceList">Price List</button>
         <button class="btn-primary" @click="openCreate">+ Add Product</button>
       </div>
     </div>
@@ -320,6 +321,42 @@
       </div>
     </div>
 
+    <!-- Price List modal -->
+    <div v-if="priceList.open" class="modal-backdrop" @click.self="closePriceList">
+      <div class="modal modal-wide">
+        <div class="modal-head">
+          <h3>Price List (WhatsApp)</h3>
+          <p class="inv-sub">
+            AI-formatted from current in-stock, priced products — this exact text is sent when the
+            "Price List" button is clicked on an inquiry.
+            <RouterLink to="/ai-instructions" class="edit-prompt-link" @click="closePriceList">Edit AI instructions →</RouterLink>
+          </p>
+        </div>
+        <div class="modal-body">
+          <div v-if="priceList.error" class="bulk-error">{{ priceList.error }}</div>
+          <div v-if="priceList.generatedAt" class="price-list-meta">
+            Last generated {{ formatDateTime(priceList.generatedAt) }}
+          </div>
+          <textarea
+            v-model="priceList.body"
+            class="bulk-textarea price-list-preview"
+            rows="18"
+            readonly
+            placeholder="No price list generated yet — click Regenerate."
+          />
+        </div>
+        <div class="modal-foot">
+          <span class="foot-spacer" />
+          <div class="foot-actions">
+            <button class="btn-ghost" @click="closePriceList">Close</button>
+            <button class="btn-primary" :disabled="priceList.generating" @click="regeneratePriceList">
+              {{ priceList.generating ? 'Generating…' : 'Regenerate' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Create / Edit modal -->
     <div v-if="modal.open" class="modal-backdrop" @click.self="closeModal">
       <div class="modal">
@@ -418,6 +455,46 @@ const inv = ref({
   parsing: false, applying: false,
   preview: [], error: '', result: null,
 })
+
+const priceList = ref({
+  open: false, body: '', generatedAt: null,
+  generating: false, error: '',
+})
+
+function formatDateTime(iso) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+async function openPriceList() {
+  priceList.value.open  = true
+  priceList.value.error = ''
+  try {
+    const { data } = await tradingApi.getPriceList()
+    priceList.value.body        = data.body
+    priceList.value.generatedAt = data.generated_at
+  } catch (e) {
+    priceList.value.error = e.response?.data?.error || 'Failed to load price list'
+  }
+}
+
+function closePriceList() {
+  priceList.value.open = false
+}
+
+async function regeneratePriceList() {
+  priceList.value.generating = true
+  priceList.value.error      = ''
+  try {
+    const { data } = await tradingApi.regeneratePriceList()
+    priceList.value.body        = data.body
+    priceList.value.generatedAt = data.generated_at
+  } catch (e) {
+    priceList.value.error = e.response?.data?.error || 'Failed to generate price list'
+  } finally {
+    priceList.value.generating = false
+  }
+}
 
 const previewAliases = computed(() =>
   modal.value.aliasText
@@ -729,6 +806,8 @@ onMounted(load)
 .token-pill { font-size: 0.8rem; font-family: monospace; background: #f3f4f6; color: #374151; padding: 4px 12px; border-radius: 20px; }
 .bulk-textarea { width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.85rem; font-family: monospace; resize: vertical; box-sizing: border-box; }
 .bulk-error { color: #dc2626; font-size: 0.85rem; }
+.price-list-meta { font-size: 0.8rem; color: #6b7280; margin-bottom: 8px; }
+.price-list-preview { font-family: inherit; background: #fafafa; color: #1f2937; white-space: pre-wrap; }
 .bulk-result { color: #16a34a; font-size: 0.85rem; }
 .preview-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: #374151; }
 .preview-table-wrap { max-height: 240px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 6px; }

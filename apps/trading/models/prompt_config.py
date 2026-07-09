@@ -49,11 +49,28 @@ it as the region in canonical_name and for product_id matching when no other reg
 above (e.g. write "Hong Kong" for "single SIM") rather than leaving canonical_name without a region \
 or matching product_id against an unrelated region's catalog entry.
 
+UNRECOGNIZED REGION TOKENS — the REGIONAL ABBREVIATIONS table above is the complete list of tokens \
+you may map to a region. If the message contains a region-looking token that is NOT in that table \
+(e.g. "jv", "jv simlock", or any other short code you don't recognize from the list), do NOT guess \
+which region it might mean by resemblance to a real abbreviation. Leave the region out of \
+canonical_name and set product_id to null, match_type to null — an unrecognized code is not the same \
+as a known one just because it looks similar. This has been a real mistake: "jv simlock" was silently \
+read as Japan (JPN) and matched "exact" against Japan-region catalog entries — "jv" is not in the \
+table, so this must never happen.
+
 CRITICAL REGION RULE: The region abbreviation in the message MUST determine the product region. \
 Never substitute a different region (e.g. if message says TRA, TDRA, or any Arabic UAE equivalent \
 you must use UAE, not Japan or any other region). \
 If no matching regional variant exists in the product master, set product_id to null and write \
 the correct region in canonical_name anyway.
+UAE vs USA — these two region words are superficially similar (same length, same first and third \
+letters) and easy to conflate at a glance, but they are completely different regions. A catalog \
+entry whose region word is literally "USA" is NEVER a match for a message asking for TRA / TDRA / \
+UAE spec, even if model, storage, and color all line up — and the reverse is equally true. This has \
+been a real mistake: message asks for "iPad 11 128GB WiFi Blue TRA", the master's only 128GB Blue \
+entry is "iPad 11 128GB WiFi Blue USA" — writing canonical_name "UAE" while still linking product_id \
+to that USA catalog entry as "exact" is WRONG. Re-read the catalog line's region word literally, \
+character by character, rather than assuming it looks close enough.
 
 CRITICAL EXACT-MATCH RULE — product_id may ONLY be set to a catalog entry that matches ALL FOUR \
 of: model name, storage, COLOR, AND region. Every one of the four, not just some. This has been a \
@@ -87,6 +104,21 @@ only 512GB Hong Kong entry for that model is "512GB Orange Hong Kong" — Silver
 different colors, full stop, so this is match_type "near" (referencing Orange as the closest \
 available), never "exact". Being the only candidate does not make it a correct one.
 
+MANDATORY ENUMERATION STEP — do this before assigning product_id for any product line: list every \
+catalog entry that shares the same model name and storage size as the request (ignore color/region \
+for this list). Then check how many of those entries match the requested color AND region:
+- Exactly one entry matches all four (model, storage, color, region) → match_type = "exact".
+- Zero entries match all four, but exactly one entry in the group differs by only one attribute \
+(color, region, or tier) → match_type = "near", referencing that one entry.
+- Zero entries match all four, and TWO OR MORE entries each differ from the request by a DIFFERENT \
+single attribute (e.g. one candidate matches color but not region, while a different candidate \
+matches region but not color) — this is genuinely ambiguous, there is no single "closest" one. Set \
+product_id to null AND match_type to null. Do not pick either candidate and do not call it "exact" \
+or "near". This has been a real mistake: request "17 Pro Max 512GB Silver Hong Kong" — master has \
+"512GB Orange Hong Kong" (region matches, color doesn't) AND "512GB Silver UAE" (color matches, \
+region doesn't) — picking the UAE entry and calling it "exact" is WRONG; with two competing partial \
+matches, product_id must be null, full stop.
+
 MANDATORY SELF-CHECK — do this for every product_id you are about to set, before writing your final \
 answer: find that exact ID's line in the PRODUCT MASTER list above and compare it word-by-word \
 against the model, storage, color, and region you are writing into canonical_name for that item. \
@@ -94,6 +126,17 @@ The product master list is the ONLY source of truth for what these mean — not 
 what iPhones typically come in. If even one word differs between the catalog line and canonical_name \
 (brand aside), match_type CANNOT be "exact" — downgrade it to "near", or to null if you're not even \
 sure it's the closest option. Do this check silently; only the final JSON is returned.
+
+BARE / CONTEXT-FREE MESSAGES — a message that is just a short standalone number or code with no \
+product words, no spec, and no brand at all (e.g. a lone "3", "5", "ok", a bare price, or an emoji) \
+is NOT a product inquiry by itself, even if a similar-looking ID happens to exist in the PRODUCT \
+MASTER list. Never link product_id by treating a digit in the message as if it were referencing an \
+"ID:" line in the product master — that ID numbering is for your internal lookup only and has no \
+meaning to the sender. This has been a real mistake: message was just "3" (almost certainly a reply \
+to something earlier in the chat, not visible to you), and it was fabricated into a full "exact" \
+match against catalog ID 3 — a complete hallucination with no basis in the message text. If the \
+message has no genuine product/spec content of its own, set is_inquiry to false and leave products \
+empty, regardless of what any bare number in it might coincidentally resemble.
 
 BUY vs SELL DISAMBIGUATION — apply these checks IN ORDER and stop at the first one that matches. \
 Never infer buy/sell from how many colors, storage sizes, or regions are listed — that count is not \
@@ -202,15 +245,30 @@ Schema:
 """
 
 
+PRICE_LIST_FORMAT_DEFAULT = """\
+You are formatting a wholesale price list for a B2B mobile trading business to send to \
+customers and suppliers over WhatsApp.
+
+You will receive a raw list of in-stock, priced products (one per line: brand, model, \
+storage, color, region, quantity, currency, price). Reformat it into a clean, readable \
+WhatsApp text message.
+
+Return ONLY the formatted price list text — no markdown code fences, no explanation, no \
+commentary before or after.\
+"""
+
+
 class PromptConfig(models.Model):
     KEY_PRODUCT_EXTRACTION      = 'product_extraction'
     KEY_INQUIRY_CLASSIFICATION  = 'inquiry_classification'
     KEY_INVENTORY_UPDATE        = 'inventory_update'
+    KEY_PRICE_LIST_FORMAT       = 'price_list_format'
 
     KEYS = [
         (KEY_PRODUCT_EXTRACTION,     'Product Extraction (bulk import)'),
         (KEY_INQUIRY_CLASSIFICATION, 'Inquiry Classification (live messages)'),
         (KEY_INVENTORY_UPDATE,       'Inventory Update (bulk qty + price)'),
+        (KEY_PRICE_LIST_FORMAT,      'Price List Formatting (WhatsApp send)'),
     ]
 
     key        = models.CharField(max_length=100, unique=True)

@@ -74,6 +74,7 @@ class InquirySerializer(serializers.ModelSerializer):
     source_chat_id      = serializers.SerializerMethodField()
     source_message_id   = serializers.SerializerMethodField()
     source_message_time = serializers.SerializerMethodField()
+    source_message_text = serializers.SerializerMethodField()
 
     class Meta:
         model  = Inquiry
@@ -82,14 +83,14 @@ class InquirySerializer(serializers.ModelSerializer):
             'contact_category', 'suggested_contact_category',
             'inquiry_type', 'status', 'products', 'summary', 'remarks',
             'dedup_key', 'source_type', 'source_chat_id', 'source_message_id',
-            'source_message_time', 'first_seen_at', 'closed_at',
+            'source_message_time', 'source_message_text', 'first_seen_at', 'closed_at',
             'age_seconds', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'account', 'account_name', 'contact', 'contact_name', 'contact_phone',
             'contact_category', 'suggested_contact_category',
             'inquiry_type', 'products', 'summary', 'dedup_key', 'source_type',
-            'source_chat_id', 'source_message_id', 'source_message_time',
+            'source_chat_id', 'source_message_id', 'source_message_time', 'source_message_text',
             'first_seen_at', 'age_seconds', 'created_at', 'updated_at',
         ]
 
@@ -136,6 +137,10 @@ class InquirySerializer(serializers.ModelSerializer):
     def get_source_message_time(self, obj):
         link = self._first_message(obj)
         return link.message.message_time.isoformat() if link else None
+
+    def get_source_message_text(self, obj):
+        link = self._first_message(obj)
+        return link.message.message_text if link else ''
 
 
 class InquiryDetailSerializer(InquirySerializer):

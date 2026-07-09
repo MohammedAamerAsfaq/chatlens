@@ -121,6 +121,10 @@ export const tradingApi = {
   parseInventory:       (cost_text, sale_text) => http.post('/products/parse-inventory/', { cost_text, sale_text }),
   bulkUpdateInventory:  (items)          => http.post('/products/bulk-update-inventory/', { items }),
 
+  // AI-formatted price list (for the WhatsApp "Price List" button)
+  getPriceList:         ()               => http.get('/products/price-list/'),
+  regeneratePriceList:  ()               => http.post('/products/regenerate-price-list/'),
+
   // AI Prompts
   listPrompts:      ()            => http.get('/prompts/'),
   savePrompt:       (key, body)   => http.patch(`/prompts/${key}/`, { body }),

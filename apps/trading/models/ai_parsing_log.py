@@ -7,11 +7,12 @@ class AiParsingLog(models.Model):
         ('skipped', 'Skipped'),
     ]
     SKIP_REASON_CHOICES = [
-        ('no_text',           'No text content'),
-        ('outbound',          'Outbound message'),
-        ('too_old',           'Older than 24h (history sync)'),
-        ('chat_disabled',     'AI parsing off for this chat'),
-        ('account_disabled',  'AI parsing off for this account'),
+        ('no_text',             'No text content'),
+        ('outbound',            'Outbound message'),
+        ('too_old',             'Older than 24h (history sync)'),
+        ('chat_disabled',       'AI parsing off for this chat'),
+        ('account_disabled',    'AI parsing off for this account'),
+        ('duplicate_broadcast', 'Duplicate of a recent group broadcast'),
     ]
 
     message = models.OneToOneField(

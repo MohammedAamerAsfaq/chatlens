@@ -1,7 +1,7 @@
 # ChatLens Development Document
 
 > **Status:** Living document — reflects the system as actually built, not the original plan.
-> Last updated: 2026-07-08 (contact categorization, Buying Inquiries, product match-confidence contract, embed-failure isolation)
+> Last updated: 2026-07-09 (inquiry card 3-row body, backend match_type self-consistency check, AI-formatted price list, cross-group broadcast dedup, paginated live feed)
 
 ---
 
@@ -272,7 +272,7 @@ One row per classified `WhatsAppMessage`. Created by the AI classification servi
 | id | bigint PK | |
 | message_id | FK → whatsapp_message, one-to-one | |
 | tags | jsonb (list) | one or more of `wtb`, `wts`, `price_inquiry`, `stock_inquiry`, `negotiation`, `deal_confirmation`, `greeting`, `joke`, `spam`, `other` |
-| products | jsonb (list) | `[{product_id, match_type, canonical_name, quantity, price, currency}]` snapshot at classification time. `match_type` is `"exact"` (all of model/storage/color/region matched a catalog entry), `"near"` (product_id references the closest available entry, but at least one attribute — including model tier suffix like "Pro" vs "Pro Max" — differs from what was requested), or `null` (no confident match; `product_id` is also null in that case) |
+| products | jsonb (list) | `[{product_id, match_type, canonical_name, quantity, price, currency}]` snapshot at classification time. `match_type` is `"exact"` (all of model/storage/color/region matched a catalog entry), `"near"` (product_id references the closest available entry, but at least one attribute — including model tier suffix like "Pro" vs "Pro Max" — differs from what was requested), or `null` (no confident match; `product_id` is also null in that case). Every `"exact"` claim is re-checked server-side against the AI's own `canonical_name` before saving — see "Backend self-consistency check" in §12 |
 | is_inquiry | boolean | true only for a genuine buy/sell opportunity |
 | inquiry_type | varchar(10) | `buy` / `sell` / `both` |
 | ai_summary | text | one-sentence AI summary |
@@ -316,12 +316,12 @@ An `Inquiry` represents a business opportunity, not a single message — multipl
 
 ### 6.11 trading_prompt_config
 
-Operator-editable overrides for the three AI prompts used by the trading pipeline. Falls back to the built-in default body when no row exists for a key.
+Operator-editable overrides for the four AI prompts used by the trading pipeline. Falls back to the built-in default body when no row exists for a key. All four show up automatically on the AI Instructions screen (§16) — the list is driven by a dict in `PromptConfigViewSet`, not hardcoded per-screen, so a new key needs no frontend change to appear there.
 
 | Column | Type | Notes |
 |---|---|---|
 | id | bigint PK | |
-| key | varchar(100), unique | `product_extraction`, `inquiry_classification`, or `inventory_update` |
+| key | varchar(100), unique | `product_extraction`, `inquiry_classification`, `inventory_update`, or `price_list_format` |
 | label | varchar(200) | |
 | body | text | the prompt text sent to the AI |
 | updated_at | timestamptz | |
@@ -356,7 +356,7 @@ One row per **live** message evaluated for AI classification eligibility — bot
 | account_id | FK → whatsapp_account | |
 | chat_id | FK → whatsapp_chat, nullable | |
 | status | varchar(10) | `sent` or `skipped` |
-| skip_reason | varchar(30) | blank when `status=sent`; else one of `no_text`, `outbound`, `too_old`, `chat_disabled`, `account_disabled` |
+| skip_reason | varchar(30) | blank when `status=sent`; else one of `no_text`, `outbound`, `too_old`, `chat_disabled`, `account_disabled`, `duplicate_broadcast` (§12) |
 | message_preview | varchar(200) | first 200 chars of `message_text` |
 | created_at | timestamptz, indexed | |
 
@@ -389,6 +389,19 @@ On creation, one `SupplierQuote` row is auto-generated for every contact current
 | created_at / updated_at | timestamptz | |
 
 **Constraints:** `UNIQUE(buying_inquiry_id, supplier_id)`
+
+### 6.15 trading_formatted_price_list
+
+Singleton table (always exactly one row, `pk=1`) holding the AI-formatted price list text, regenerated on demand from the current in-stock (`qty > 0`), priced, active catalog via the `price_list_format` prompt (§6.11). This exact text — not an ad hoc client-built string — is what the Trading Dashboard's "Price List" button sends.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint PK | always `1` |
+| body | text | the AI-formatted price list, WhatsApp-ready |
+| generated_at | timestamptz nullable | when it was last (re)generated |
+| updated_at | timestamptz | auto-updated on every save |
+
+Regenerated only on demand (Products screen → "Price List" → Regenerate, §16) — never automatically on product/inventory changes, so it doesn't burn an AI call on every edit.
 
 ---
 
@@ -559,17 +572,19 @@ Session auth + CSRF, gated behind the login endpoints in §11.1.
 | POST | `/api/products/parse-inventory/` | AI-extract qty/cost/sale price from free text |
 | POST | `/api/products/bulk-update-inventory/` | Apply parsed inventory update |
 | GET  | `/api/products/stats/` | Per-product WTB/WTS counts |
-| GET/PATCH | `/api/inquiries/` | Inquiry list/detail + status/remarks update |
+| GET  | `/api/products/price-list/` | Current AI-formatted price list (§6.15), `{body, generated_at}` |
+| POST | `/api/products/regenerate-price-list/` | Re-run the `price_list_format` prompt against the current in-stock catalog and persist the result |
+| GET/PATCH | `/api/inquiries/` | Inquiry list/detail + status/remarks update. Serialized inquiries include `source_message_text` — the exact original text of the first linked message, used verbatim (not re-summarized) in the Trading Dashboard card body and the "WA" reply prefill |
 | GET  | `/api/inquiries/stats/` | Dashboard aggregates |
-| GET  | `/api/inquiries/open-feed/` | Live feed of open inquiries |
+| GET  | `/api/inquiries/open-feed/` | Paginated live feed, `{count, results}`. Params: `status`, `account`, `type` (`buy`/`sell` — WTB/WTS are fetched as two independent paginated requests, not one combined list), `limit` (default 50, max 1000). `count` is the true total for the filter, so the frontend can detect truncation and load more instead of silently capping at `limit` |
 | GET  | `/api/inquiries/classification-activity/` | Recent classification events (diagnostics) |
 | POST | `/api/inquiries/retry-inquiries/` | Re-run classification for failed/skipped inquiries |
 | POST | `/api/inquiries/backfill-classify/` | Classify recent unclassified messages (<24h old) |
 | GET  | `/api/classifications/` | Read-only classification records, filterable by message |
-| GET/PATCH/DELETE | `/api/prompts/` | Prompt override CRUD |
+| GET/PATCH/DELETE | `/api/prompts/` | Prompt override CRUD (4 keys, §6.11) |
 | GET/PATCH | `/api/prompts/active-agent/` | Active AI agent/model config for trading |
 | GET  | `/api/agent-logs/` | AI call audit log (tokens, duration, success/error) |
-| GET  | `/api/ai-parsing-logs/` | Per-message sent/skipped routing log (§6.13), filterable by `account`/`status`/`skip_reason` |
+| GET  | `/api/ai-parsing-logs/` | Per-message sent/skipped routing log (§6.13), filterable by `account`/`status`/`skip_reason` (now includes `duplicate_broadcast`, §12) |
 | GET/POST/PATCH/DELETE | `/api/buying-inquiries/` | Buying Inquiry CRUD (§6.14); create auto-populates supplier cards |
 | POST | `/api/buying-inquiries/:id/add-supplier/` | Add one more supplier card to an existing buying inquiry |
 | PATCH/DELETE | `/api/supplier-quotes/:id/` | Log a quote (`status`, `quoted_price`, `quoted_currency`, `quote_note`) or remove a supplier card |
@@ -624,7 +639,7 @@ ingest_message / ingest_batch
          embedding-provider rough patch, not isolated to any one chat.
       2. _log_ai_parsing_and_classify(message):
            - _classify_skip_reason(message) → None (send) or one of:
-                no_text | outbound | too_old (>24h) | chat_disabled | account_disabled
+                no_text | outbound | too_old (>24h) | chat_disabled | account_disabled | duplicate_broadcast
            - AiParsingLog.objects.update_or_create(message=..., status=sent|skipped, skip_reason=...)
            - if not skipped → classify_message(message)
 ```
@@ -633,9 +648,13 @@ ingest_message / ingest_batch
 
 History-sync batch messages (`ingest_batch`) are still embedded but never classified or logged to `trading_ai_parsing_log` — they would all read as `too_old` and just add noise.
 
-**Classification prompt context:** `classify_message` passes the sender's *existing* `whatsapp_contact.category` into the prompt (`"not set"` if blank) alongside the product master block (§6.8, now qty>0 filtered) — see §6.9 for the resulting `suggested_contact_category` output and §6.9's `match_type` field for the exact/near/null product-matching contract. Both are prompt-instruction-only mechanisms; no code-side matching or validation logic re-derives them (see below).
+**Cross-group broadcast dedup (`duplicate_broadcast`):** traders routinely post the identical WTB/WTS list to many different WhatsApp groups within minutes of each other. Before this check, every repost triggered its own full AI classification call. `_is_duplicate_group_broadcast(message)` in `ingestion_service.py` runs last in `_classify_skip_reason` (it's the most expensive check — a `pgvector` cosine-distance query — so cheaper skip reasons short-circuit first) and only applies to `GROUP`-type chats. It compares this message's embedding (already computed by the time this runs — embed always happens before classify in the same background thread) against embeddings of messages from **any** group/contact on the same account that already produced a genuine inquiry (`is_inquiry=True`) within the last hour. A cosine-similarity match ≥0.92 — the same bar `inquiry_service.py`'s same-contact layer-2 dedup already uses — skips this message with `skip_reason='duplicate_broadcast'` instead of spending another AI call on it. Deliberately **not** scoped to the same contact or the same group (a repost from a different sender into a different group still counts — that's the whole point), and fails open (proceeds to classify normally) if this message has no embedding yet, so a lagging embedding provider never silently drops a real inquiry.
 
-**Frontend trust boundary:** `TradingView.vue` used to independently re-verify `match_type` with its own exact-string-name comparison (`isReliableMatch`) before trusting a matched product's price — this duplicated the same fuzzy-matching problem the AI is already paid to solve, with a strictly worse tool, and produced its own false positive (brand name written as a bare prefix, e.g. "Apple iPhone..." vs the catalog's brand-less "iPhone..."). `isReliableMatch` now does nothing but read `match_type !== 'near'` — the AI's verdict is authoritative; `stripBrandPrefix` remains only for cosmetic cleanup of the outgoing WhatsApp text, never for match verification.
+**Classification prompt context:** `classify_message` passes the sender's *existing* `whatsapp_contact.category` into the prompt (`"not set"` if blank) alongside the product master block (§6.8, now qty>0 filtered) — see §6.9 for the resulting `suggested_contact_category` output and §6.9's `match_type` field for the exact/near/null product-matching contract. Both are prompt-instruction-only mechanisms; no code-side matching or validation logic re-derives them (see below) — with one narrow exception (the self-consistency check, below).
+
+**Frontend trust boundary:** `TradingView.vue` used to independently re-verify `match_type` with its own exact-string-name comparison (`isReliableMatch`) before trusting a matched product's price — this duplicated the same fuzzy-matching problem the AI is already paid to solve, with a strictly worse tool, and produced its own false positive (brand name written as a bare prefix, e.g. "Apple iPhone..." vs the catalog's brand-less "iPhone..."). `isReliableMatch` now does nothing but read `match_type !== 'near'` — the AI's verdict is authoritative; `stripBrandPrefix` remains only for cosmetic cleanup of the outgoing WhatsApp text, never for match verification. The same principle was later applied to `matchInventory()`: it used to fall back to a substring search over `canonical_name` whenever `product_id` was null, silently overriding the AI's own "no confident match" decision with a guessed one — it now does nothing but look up `product_id`, full stop.
+
+**Backend self-consistency check (`_validate_exact_matches`, `classification_service.py`):** despite repeated prompt hardening (§20 Phase 9, and further rounds this phase — see Phase 10), the AI periodically still asserts `match_type="exact"` for a `product_id` whose real catalog name contradicts what it wrote into `canonical_name` for the same product line (e.g. `canonical_name` says "Blue Japan", but the linked catalog entry is actually "Orange Japan"). This is **not** a re-match — the system never tries to find a different/better `product_id` itself, which would repeat the exact mistake the frontend trust-boundary fix above corrected. It only checks whether the AI's own two answers (the real name of the product it linked, vs. the `canonical_name` it wrote for that same line) agree word-for-word; if any word from the real catalog name is entirely absent from `canonical_name`, `match_type` is downgraded to `"near"` before the classification is saved. Runs once per classification, right before the `MessageClassification` row is created, so it protects both `MessageClassification.products` and `Inquiry.products` (the latter copies directly from the former). Fails safe — a catalog lookup error leaves `products` untouched rather than blocking classification.
 
 See §6.9–6.10 for the classification/inquiry schema and the Trading Intelligence section below for the full pipeline.
 
@@ -723,12 +742,12 @@ Top nav is grouped into three hover dropdowns (`App.vue`) to keep the bar from o
 |---|---|---|---|
 | `/login` | Login | (public, no nav) | Session auth gate — only unauthenticated screen |
 | `/conversations` | Conversations | top-level | Chat list + message view, WhatsApp deep-link ("open in WhatsApp") on messages/chats |
-| `/trading` | Trading Dashboard | top-level | Live WTB/WTS feed, open-inquiry cards with status actions, urgency indicators. Per-card WhatsApp actions (all prefill the compose box via `text=`, never auto-send, and never include the customer's requested quantity in the text): **WA** — item(s) + our sale price (only when `match_type !== 'near'`); **Ask Price** (WTB + WTS) — item(s) + blank line + `Price?`; **Price List** (WTB only) — every active in-stock product as `Name - Price`. Stock hints turn amber with a ⚠ when the matched inventory item is only a `"near"` match, instead of the normal green ✓. Each card also has a quick contact-category selector (Uncategorized/Supplier/Customer/Both) that pre-fills with the AI's `suggested_contact_category` when one is pending, applied with one click; category-save failures show a dismissible error banner rather than failing silently. "Incorrect Match" status opens an inline reason prompt instead of saving immediately |
+| `/trading` | Trading Dashboard | top-level | Live WTB/WTS feed. Each card is a fixed-size header/body/footer layout: **header** is a single row (contact name/phone, category dropdown + AI-suggestion apply chip, group/community label, account badge, age); **body** is exactly 3 fixed-height rows — Summary, Original Message (verbatim `source_message_text`, not AI-summarized), Stock Suggestion — each independently click-to-expand (shows full untruncated content as an overlay) and click-elsewhere-to-collapse; **footer** has the status dropdown and WhatsApp actions. WTB and WTS columns are paginated independently (`open-feed?type=buy`/`type=sell`, §11.3) — each shows `loaded / total` in its header and infinite-scrolls to load more as you scroll that column, instead of the old single combined feed silently capped at 50 total across both columns. Stock Suggestion only ever shows products actually in stock (`qty > 0`) — a saved `sale_price` on a zero-qty item no longer displays a false ✓ "in stock". Per-card WhatsApp actions (all prefill the compose box via `text=`, never auto-send, and never include the customer's requested quantity in the text): **WA** — the sender's original message verbatim, two blank lines, "Please check price below:", then item(s) + our sale price (only when `match_type !== 'near'` and the matched product has `qty > 0`); **Ask Price** (WTB + WTS) — item(s) + blank line + `Price?`; **Price List** (WTB only) — the stored AI-formatted price list (§6.15, §11.3) sent verbatim, not built ad hoc from the product table. Stock hints turn amber with a ⚠ when the matched inventory item is only a `"near"` match, instead of the normal green ✓. Each card also has a quick contact-category selector (Uncategorized/Supplier/Customer/Both) that pre-fills with the AI's `suggested_contact_category` when one is pending, applied with one click; category-save failures show a dismissible error banner rather than failing silently. "Incorrect Match" status opens an inline reason prompt instead of saving immediately |
 | `/trading-analytics` | Trading Analytics | top-level | Product demand, source breakdown, hourly activity, response/conversion time |
 | `/buying-inquiries` | Buying Inquiries | top-level | Manually create a purchase request (§6.14); auto-populates a card per tagged supplier with Ask Price / Log Quote / No Stock actions and a status badge per supplier |
 | `/contacts` | Contacts | under **Lists** | Contact management, display name editing, LID/username alias display, per-contact AI-parse toggle, supplier/customer/both category tagging (filterable), sortable columns (Display Name/WhatsApp Name/Phone/Category/Msgs, server-side via `ordering`) |
 | `/groups` | Groups | under **Lists** | Group/community list, sync trigger, per-group AI-parse toggle |
-| `/products` | Products | under **Lists** | Product master CRUD, AI bulk-import from pasted price lists, bulk inventory update via AI. Table shows Qty/Cost/Sale/**Margin** (sale − cost) per product and a **Total PNL** badge (Σ margin × qty across the visible/filtered rows); the Aliases column was dropped from the table (still editable under "Advanced" in the Add/Edit modal). Qty/Cost/Sale/Currency are directly editable in the Add/Edit modal, plus inline click-to-edit on the Qty/Cost/Sale table cells themselves (Enter/blur to save, Escape to cancel) |
+| `/products` | Products | under **Lists** | Product master CRUD, AI bulk-import from pasted price lists, bulk inventory update via AI. Table shows Qty/Cost/Sale/**Margin** (sale − cost) per product and a **Total PNL** badge (Σ margin × qty across the visible/filtered rows); the Aliases column was dropped from the table (still editable under "Advanced" in the Add/Edit modal). Qty/Cost/Sale/Currency are directly editable in the Add/Edit modal, plus inline click-to-edit on the Qty/Cost/Sale table cells themselves (Enter/blur to save, Escape to cancel). **Price List** button opens a modal showing the current AI-formatted price list (§6.15) and when it was last generated, with a **Regenerate** button that re-runs the `price_list_format` prompt (§6.11) against the current in-stock catalog — manual only, never automatic on product/inventory changes |
 | `/` | Sessions | under **Settings** | Create/manage WhatsApp accounts, QR connect (formerly "Accounts") |
 | `/storage` | Storage | under **Settings** | Per-account storage stats, media controls, embedding status + backfill |
 | `/ai-providers` | AI Providers | under **Settings** | Manage voyage/openai/etc. provider config and API keys |
@@ -835,6 +854,8 @@ Added 2026-07-04 after QR connections were observed hanging indefinitely with no
 | 0009_buyinginquiry_supplierquote | New `trading_buying_inquiry` / `trading_supplier_quote` tables (§6.14) |
 | 0010_alter_inquiry_status | Added 10th status: `incorrect_match` |
 | 0011_inquiry_suggested_contact_category_and_more | Added `suggested_contact_category` to both `trading_inquiry` and `trading_message_classification` |
+| 0012_formattedpricelist | New `trading_formatted_price_list` singleton table (§6.15) |
+| 0013_alter_aiparsinglog_skip_reason | Added `duplicate_broadcast` to `skip_reason` choices (§6.13, §12) |
 
 ---
 
@@ -912,7 +933,18 @@ Added 2026-07-04 after QR connections were observed hanging indefinitely with no
 - Fixed a live-pipeline bug where an uncaught embedding-provider exception silently skipped classification entirely for that message (found affecting ~30% of live messages across dozens of chats during one provider rough patch) — the embed call is now isolated in its own try/except so a failure there can never block classification.
 - WhatsApp prefill text (WA / Ask Price buttons) no longer echoes the customer's requested quantity back to them.
 
-### Phase 10 — ML Intelligence (planned)
+### Phase 10 — Trading Reliability & Cost Controls (complete)
+- **Inquiry card redesign**: fixed-size header/body/footer layout, header collapsed to a single row across three iterations of feedback, body redesigned into exactly 3 fixed-height click-to-expand/collapse rows (Summary, Original Message, Stock Suggestion). New `source_message_text` field on the inquiry serializer surfaces the verbatim original message (previously only the AI summary was available to the frontend).
+- **Stock Suggestion / WA-quote qty fix**: both the card's Stock Suggestion row and the outgoing "WA" price quote used to treat a saved `sale_price` as proof of stock regardless of actual `qty`, showing a false ✓ "in stock" (and quoting a price) for zero-quantity products. Both now require `qty > 0`.
+- **`matchInventory()` trust-boundary fix**: extended the Phase 9 principle — the frontend's product matcher used to fall back to a substring search over `canonical_name` whenever the AI returned `product_id: null`, silently inventing a confident match the AI had explicitly declined to make. It now does nothing but look up `product_id`.
+- **Further `match_type` prompt hardening**, driven by real incidents traced the same way as Phase 9's: a UAE-vs-USA region rule (the two words are lexically similar and were being conflated), a rule against guessing an unrecognized region abbreviation (e.g. "jv" silently read as Japan), a rule against treating a bare short numeric reply as a reference to a product master ID, and a **MANDATORY ENUMERATION STEP** — the AI must now explicitly enumerate every catalog candidate sharing model+storage before assigning `product_id`, and when two or more candidates each match a *different* single attribute of the request (one matches color, another matches region, neither matches both), `product_id`/`match_type` must both be `null` rather than picking one and calling it `"exact"`.
+- **Backend self-consistency check** (`_validate_exact_matches`, §12): after three rounds of prompt hardening still didn't fully stop self-contradictory `"exact"` claims (canonical_name disagreeing with the catalog entry actually linked), added a narrow code-side check — not a re-match, just a word-for-word agreement check between the AI's own `canonical_name` and its own linked product's real name — that downgrades `match_type` to `"near"` on disagreement before saving.
+- **WA reply prefill** now leads with the sender's original message verbatim, then the priced item list, instead of the item list alone with no context of what was actually asked.
+- **AI-formatted price list** (§6.15, §6.11, §11.3): a 4th editable prompt (`price_list_format`) turns the current in-stock catalog into a WhatsApp-ready formatted price list on demand (Products screen, manual "Regenerate" button — never automatic). The "Price List" button on inquiry cards now sends this stored, reviewed text verbatim instead of building a plain `Name - Price` list ad hoc on every click.
+- **Live feed pagination fix**: `open-feed` used to silently cap results at 50 combined WTB+WTS records with no indication of truncation — a desk with hundreds of open inquiries only ever saw the newest 50, oldest ones invisible. Now returns a true `count` and supports a `type` filter; WTB/WTS paginate and infinite-scroll independently in the frontend.
+- **Cross-group broadcast dedup** (§12): traders posting the identical WTB/WTS list to many different groups within minutes used to trigger a full AI classification call for every repost. A new `duplicate_broadcast` skip reason, using the same embedding-similarity mechanism as the existing same-contact dedup but scoped account-wide across groups (not restricted to the same contact or group) within a 1-hour window, now catches these before they reach the AI at all.
+
+### Phase 11 — ML Intelligence (planned)
 - Lead scoring
 - ERP product master integration / two-way sync
 - Cross-account analytics rollups

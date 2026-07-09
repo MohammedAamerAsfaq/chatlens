@@ -9,7 +9,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Product, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, AgentCallLog, AiParsingLog, BuyingInquiry, SupplierQuote
+from .models import Product, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, AgentCallLog, AiParsingLog, BuyingInquiry, SupplierQuote
 from .serializers import (
     ProductSerializer,
     MessageClassificationSerializer,
@@ -213,6 +213,33 @@ class ProductViewSet(viewsets.ModelViewSet):
             invalidate_product_cache()
         return Response({'updated': updated, 'skipped': skipped})
 
+    @action(detail=False, methods=['get'], url_path='price-list')
+    def price_list(self, request):
+        """Return the current AI-formatted price list (empty body if never generated)."""
+        from apps.trading.models import FormattedPriceList
+
+        obj = FormattedPriceList.get_current()
+        return Response({
+            'body':         obj.body if obj else '',
+            'generated_at': obj.generated_at.isoformat() if obj and obj.generated_at else None,
+        })
+
+    @action(detail=False, methods=['post'], url_path='regenerate-price-list')
+    def regenerate_price_list(self, request):
+        """Re-run the AI formatting prompt against the current in-stock, priced catalog."""
+        from apps.trading.services.price_list_service import generate_price_list
+
+        try:
+            obj = generate_price_list()
+        except Exception as exc:
+            logger.exception('regenerate_price_list | failed')
+            return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({
+            'body':         obj.body,
+            'generated_at': obj.generated_at.isoformat() if obj.generated_at else None,
+        })
+
     @action(detail=False, methods=['get'], url_path='stats')
     def stats(self, request):
         today = now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -387,10 +414,16 @@ class InquiryViewSet(viewsets.GenericViewSet,
 
     @action(detail=False, methods=['get'], url_path='open-feed')
     def open_feed(self, request):
-        """Return today's inquiries for the live dashboard feed, optionally filtered by status."""
+        """
+        Return today's inquiries for the live dashboard feed, optionally filtered by
+        status/type/account. Paginated via `limit` (default 50, max 1000) — the response
+        includes `count`, the true total matching the filters, so the frontend can tell
+        when it's showing a truncated slice and load more instead of silently capping.
+        """
         account_id = request.query_params.get('account')
-        limit      = min(int(request.query_params.get('limit', 50)), 200)
+        limit      = min(int(request.query_params.get('limit', 50)), 1000)
         status_val = request.query_params.get('status', InquiryStatus.OPEN)
+        type_val   = request.query_params.get('type')
 
         today = now().replace(hour=0, minute=0, second=0, microsecond=0)
         qs = Inquiry.objects.filter(first_seen_at__gte=today).select_related('account', 'contact')
@@ -399,8 +432,14 @@ class InquiryViewSet(viewsets.GenericViewSet,
             qs = qs.filter(status=status_val)
         if account_id:
             qs = qs.filter(account_id=account_id)
+        if type_val in ('buy', 'sell'):
+            qs = qs.filter(inquiry_type=type_val)
 
-        return Response(InquirySerializer(qs.order_by('-first_seen_at')[:limit], many=True).data)
+        qs = qs.order_by('-first_seen_at')
+        return Response({
+            'count':   qs.count(),
+            'results': InquirySerializer(qs[:limit], many=True).data,
+        })
 
     @action(detail=False, methods=['get'], url_path='classification-activity')
     def classification_activity(self, request):
@@ -569,6 +608,7 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
             PromptConfig.KEY_PRODUCT_EXTRACTION:     (PRODUCT_EXTRACTION_DEFAULT,     'Product Extraction (bulk import)'),
             PromptConfig.KEY_INQUIRY_CLASSIFICATION: (INQUIRY_CLASSIFICATION_DEFAULT, 'Inquiry Classification (live messages)'),
             PromptConfig.KEY_INVENTORY_UPDATE:       (INVENTORY_UPDATE_DEFAULT,       'Inventory Update (bulk qty + price)'),
+            PromptConfig.KEY_PRICE_LIST_FORMAT:      (PRICE_LIST_FORMAT_DEFAULT,      'Price List Formatting (WhatsApp send)'),
         }
         saved = {p.key: p for p in PromptConfig.objects.all()}
         result = []
@@ -625,6 +665,7 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
             PromptConfig.KEY_PRODUCT_EXTRACTION:     'Product Extraction (bulk import)',
             PromptConfig.KEY_INQUIRY_CLASSIFICATION: 'Inquiry Classification (live messages)',
             PromptConfig.KEY_INVENTORY_UPDATE:       'Inventory Update (bulk qty + price)',
+            PromptConfig.KEY_PRICE_LIST_FORMAT:      'Price List Formatting (WhatsApp send)',
         }
         label = defaults_map.get(key, key)
         obj, _ = PromptConfig.objects.update_or_create(
