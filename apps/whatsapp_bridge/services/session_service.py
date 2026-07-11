@@ -1,5 +1,6 @@
 import logging
 from django.utils.dateparse import parse_datetime
+from django.utils.timezone import now
 from ..models import WhatsAppAccount, SessionStatus, SyncLog
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,14 @@ class SessionService:
             update_fields['last_connected_at'] = event_time
         if status in (SessionStatus.DISCONNECTED, SessionStatus.LOGGED_OUT) and event_time:
             update_fields['last_disconnected_at'] = event_time
+
+        # Only touch these when the worker explicitly reports a health verdict — a plain
+        # status ping with no health info must never silently clear a prior unhealthy flag.
+        if 'connection_unhealthy' in payload:
+            unhealthy = bool(payload['connection_unhealthy'])
+            update_fields['connection_unhealthy'] = unhealthy
+            update_fields['connection_unhealthy_reason'] = payload.get('connection_unhealthy_reason', '') or ''
+            update_fields['connection_unhealthy_since'] = now() if unhealthy else None
 
         WhatsAppAccount.objects.filter(pk=account.pk).update(**update_fields)
         account.refresh_from_db()

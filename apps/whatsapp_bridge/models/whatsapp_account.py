@@ -29,6 +29,15 @@ class WhatsAppAccount(models.Model):
     idle_disconnect_minutes = models.IntegerField(default=0)   # 0 = disabled
     auto_download_media = models.BooleanField(default=True)
     ai_parsing_enabled = models.BooleanField(default=False)
+    # Set by the worker when it detects a degraded session it can't self-heal by
+    # reconnecting — repeated Signal-protocol decrypt failures or post-connect
+    # handshake timeouts. The connection can look "connected" the whole time (WhatsApp
+    # mobile shows the linked device as active) while silently receiving nothing,
+    # because reconnecting reuses the same corrupted local key state. The only real
+    # fix is a fresh QR re-link, which establishes a brand-new session.
+    connection_unhealthy = models.BooleanField(default=False)
+    connection_unhealthy_reason = models.TextField(blank=True)
+    connection_unhealthy_since = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

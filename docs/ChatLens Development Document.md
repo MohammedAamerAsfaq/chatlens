@@ -1,7 +1,7 @@
 # ChatLens Development Document
 
 > **Status:** Living document — reflects the system as actually built, not the original plan.
-> Last updated: 2026-07-09 (inquiry card 3-row body, backend match_type self-consistency check, AI-formatted price list, cross-group broadcast dedup, paginated live feed)
+> Last updated: 2026-07-11 (broken AI Instructions prompt override incident + fix, connection-health detection attempt + production incident + revert, disconnect stale-status self-correction)
 
 ---
 
@@ -98,6 +98,9 @@ apps/
 | idle_disconnect_minutes | integer | 0 = never auto-disconnect |
 | auto_download_media | boolean | |
 | ai_parsing_enabled | boolean | account-level default for trading classification; **default `False`** (opt-in, flipped from `True` in migration `0014`) |
+| connection_unhealthy | boolean | set by the worker when it detects a degraded session that reconnecting can't fix (repeated Signal-protocol decrypt failures or post-connect handshake timeouts) — see §17.2. **Plumbing only as of migration `0018`/`0019`: no detection call site currently sets this true.** The original detection mechanism caused a production incident and was reverted; only the inert DB/API/UI plumbing remains, ready for a safe reimplementation |
+| connection_unhealthy_reason | text | human-readable reason, blank when `connection_unhealthy=False` |
+| connection_unhealthy_since | timestamptz nullable | when it was flagged; `null` when healthy |
 | created_at | timestamptz | |
 | updated_at | timestamptz | |
 
@@ -326,6 +329,8 @@ Operator-editable overrides for the four AI prompts used by the trading pipeline
 | body | text | the prompt text sent to the AI |
 | updated_at | timestamptz | |
 
+**⚠ Editor risk, confirmed by a real incident (2026-07-11):** saving a prompt here **replaces the entire body** — there is no "append" or "merge" option. A DB row was saved for `inquiry_classification` containing *only* a block of additional product-matching safety rules, with none of the base prompt underneath it (no `is_inquiry`/`tags`/`products` schema instructions, no `{product_block}` placeholder). Every classification for hours silently returned `is_inquiry: false` for genuine WTB/WTS messages — no error anywhere, since the AI just free-formed a different JSON shape on every call and `_parse_response`'s `.get(..., default)` calls quietly filled in defaults for every missing field instead of failing loudly. Caught only because inquiries visibly stopped appearing despite AI Parsing Log showing messages were being sent. **When adding rules via this screen, paste them into a full copy of the current prompt, never as a standalone replacement — always sanity-check the saved body still contains the JSON schema block at the end before trusting it.** Fixed by deleting the broken override (falls back to the Python default) and merging the valuable new rules — hard SIM-type exclusions, broader forbidden-tier-inference coverage, a rule against inferring region from stock/product_id existence — directly into `INQUIRY_CLASSIFICATION_DEFAULT` in `prompt_config.py`, so they survive future resets instead of living only in an editable DB row.
+
 ### 6.12 trading_agent_call_log
 
 Full audit trail of every AI call made by the trading pipeline (classification and product extraction), including token counts and errors — surfaced in the AI Instructions / diagnostics screen.
@@ -533,7 +538,8 @@ Session auth + CSRF, gated behind the login endpoints in §11.1.
 | PATCH | `/api/accounts/:id/update-settings/` | Update `sync_history`, `history_days`, `idle_disconnect_minutes`, `display_name`, `ai_parsing_enabled`, `auto_download_media` |
 | POST | `/api/accounts/:id/start-session/` | Start worker session |
 | GET  | `/api/accounts/:id/qr/` | Poll QR code |
-| POST | `/api/accounts/:id/disconnect/` | Disconnect session |
+| POST | `/api/accounts/:id/disconnect/` | Disconnect session — thin proxy to the worker's `/sessions/:id/disconnect`. If the worker replies 404 "Session not found" (its credentials were already cleared by a WhatsApp-side logout, or the worker restarted and never restored this session) and the DB still says otherwise, this self-corrects `session_status` to `disconnected` rather than leaving stale state that makes the button permanently unusable — see the Phase 11 incident writeup |
+| GET  | `/api/accounts/:id/sync-progress/` | Polled every 4s by `AccountCard.vue` while an account is connected. `{syncing, total_synced, total_processed, batch_count, has_live_messages, is_complete, connection_unhealthy, connection_unhealthy_reason}` — the last two are always `false`/blank right now, see §17.2 |
 | GET  | `/api/accounts/:id/storage/` | Storage stats |
 | GET/POST | `/api/accounts/:id/backup-media/`, `/restore-messages/`, `/restore-media/` | Media/message backup & restore |
 | GET  | `/api/chats/` | Chat list |
@@ -748,7 +754,7 @@ Top nav is grouped into three hover dropdowns (`App.vue`) to keep the bar from o
 | `/contacts` | Contacts | under **Lists** | Contact management, display name editing, LID/username alias display, per-contact AI-parse toggle, supplier/customer/both category tagging (filterable), sortable columns (Display Name/WhatsApp Name/Phone/Category/Msgs, server-side via `ordering`) |
 | `/groups` | Groups | under **Lists** | Group/community list, sync trigger, per-group AI-parse toggle |
 | `/products` | Products | under **Lists** | Product master CRUD, AI bulk-import from pasted price lists, bulk inventory update via AI. Table shows Qty/Cost/Sale/**Margin** (sale − cost) per product and a **Total PNL** badge (Σ margin × qty across the visible/filtered rows); the Aliases column was dropped from the table (still editable under "Advanced" in the Add/Edit modal). Qty/Cost/Sale/Currency are directly editable in the Add/Edit modal, plus inline click-to-edit on the Qty/Cost/Sale table cells themselves (Enter/blur to save, Escape to cancel). **Price List** button opens a modal showing the current AI-formatted price list (§6.15) and when it was last generated, with a **Regenerate** button that re-runs the `price_list_format` prompt (§6.11) against the current in-stock catalog — manual only, never automatic on product/inventory changes |
-| `/` | Sessions | under **Settings** | Create/manage WhatsApp accounts, QR connect (formerly "Accounts") |
+| `/` | Sessions | under **Settings** | Create/manage WhatsApp accounts, QR connect (formerly "Accounts"). `AccountCard.vue` has a red "Connection needs attention" banner for `connection_unhealthy` accounts (takes priority over the sync-progress states) — **currently dead code with no way to trigger, see §17.2**; also shows history-sync progress (awaiting/syncing/done, §11.1 `sync-progress`) |
 | `/storage` | Storage | under **Settings** | Per-account storage stats, media controls, embedding status + backfill |
 | `/ai-providers` | AI Providers | under **Settings** | Manage voyage/openai/etc. provider config and API keys |
 | `/ai-instructions` | AI Instructions | under **Settings** | Edit trading prompt overrides (§6.11), view AI agent call log/diagnostics (§6.12) |
@@ -784,6 +790,12 @@ Each active session (`this.sessions.get(sessionId)`) holds:
   lidToPhone: {},        // Map: normalized LID JID → full phone JID
                          // Populated from contacts.set and participantPn/senderPn on live messages
   usernameToPhone: {},   // Map: bare username → full phone JID, from contacts.set c.username
+  // Connection-health counters (see §17.2) — reset to 0 on every successfully-forwarded
+  // message/batch and on every fresh 'open' connect. No detection call site increments
+  // them right now, so they stay at 0 / false in practice.
+  consecutiveDecryptFailures: 0,
+  consecutiveInitQueryTimeouts: 0,
+  connectionUnhealthy: false,
 }
 ```
 
@@ -802,6 +814,20 @@ Added 2026-07-04 after QR connections were observed hanging indefinitely with no
 2. **Pre-socket-creation try/catch** in `_connect()`. Auth-state loading (`useMultiFileAuthState`), Baileys version fetching (`fetchLatestBaileysVersion`), and socket construction all happen *before* there's a socket to arm the watchdog on. If any of these throw (corrupted `creds.json`, network failure fetching the Baileys version), the session used to stay stuck at `pending_qr` with `sock: null` forever, invisible to the watchdog. This path now catches the error directly and marks the session `error` with the real exception message — no separate mechanism, just closing the same gap earlier in the lifecycle.
 
 **Surfacing to the UI:** `GET /sessions/:id/qr` (worker) returns HTTP 500 with `{error, status: 'error'}` whenever a session is in the error state, instead of an endless `202`. Django's `qr` view passes the status code straight through. `QRModal.vue`'s `poll()` no longer has a "keep polling silently" fallback for unrecognized errors — every failure path (404, 503, 500, or an unexpected network error) stops polling and shows an actionable message.
+
+### 17.2 Connection Health Detection (plumbing only — detection disabled, production incident 2026-07-11)
+
+**The problem this was meant to solve:** a session can report `connected` (and WhatsApp mobile shows the linked device as active) while its *local* copy of the Signal-protocol session is desynced enough that it can't decrypt anything, or WhatsApp's post-connect handshake keeps timing out — confirmed on a real account via `whatsapp-worker/message-logs/baileys-internal.log`: 570 "failed to decrypt message" errors and 61 "unexpected error in 'init queries'" timeouts over 5 days, with the account showing `connected` in the DB the entire time despite zero messages (live or history) actually flowing for the last ~36 hours of that window. Reconnecting doesn't fix this — it reuses the same corrupted local key state — only a fresh QR re-link (new Signal session) does.
+
+**What was built:** `WhatsAppAccount.connection_unhealthy` / `_reason` / `_since` fields (migrations `0018`/`0019`, the latter converting `_reason` from `CharField(255)` to `TextField` after a real reason string exceeded 255 chars in testing), a `connection_unhealthy` payload field on the internal `session-status` endpoint (only ever touched when the worker explicitly includes it — a plain status ping never clears a prior flag), the same field surfaced on `sync-progress` and the account serializer, and a red "Connection needs attention" banner in `AccountCard.vue` that takes priority over the normal sync-progress states.
+
+**What broke it, and why:** the worker-side detection wrapped pino's file destination (`pino.destination(filePath)`, used for Baileys' internal `warn`-level logging) in a plain JS object implementing only `.write()`, to inspect each log line for the two error patterns above. Real pino destinations (`SonicBoom`) also implement `flushSync`, `flush`, `on`, `reopen`, `end`, and `destroy` — confirmed by direct inspection of the installed pino (`9.14.0`) destination object. Something in Baileys/pino's internals called one of the missing methods and threw with nothing to catch it, deep inside Baileys' own connection/logging pipeline — not caught by `_connect()`'s existing try/catch, which only wraps the *setup* code, not every subsequent internal Baileys operation that logs through the socket's logger for the life of the connection. Result: live sessions got stuck mid-flow and stopped responding to disconnect requests, on a running worker process that (since it's a plain `node index.js`, no `--watch`) kept the broken code loaded until manually restarted.
+
+**The fix:** the destination-wrapping code was fully reverted and removed (not patched — removed, since it was never verified against pino's actual interface requirements in isolation first). The DB/API/UI plumbing above was left in place since it's inert and safe (nothing sets `connection_unhealthy=true` without a detection call site), ready for a real reimplementation.
+
+**How to reimplement this safely, next time:** do not wrap or replace pino's destination stream. Use pino's `hooks.logMethod` option instead — `pino({ level: 'warn', hooks: { logMethod(args, method, level) { /* inspect args here */ ; return method.apply(this, args) } } }, pino.destination(filePath))` — which is a supported, documented interception point that never touches the destination stream contract, leaving pino/Baileys' internal stream handling completely untouched. **Verify any change to this logger construction in isolation (a standalone `node -e` smoke test) before wiring it into a live session path** — this incident happened specifically because that verification step was skipped.
+
+A second, unrelated gap surfaced while debugging this incident: `apps/api/views.py`'s `disconnect` action used to be a pure proxy — if the worker replied 404 "Session not found" (which happens legitimately whenever the worker has no in-memory session for that ID, e.g. after the credentials-clearing logout flow above), Django relayed the 404 but left its own `session_status` untouched, permanently stuck at whatever it said before. This is now self-correcting: a 404 from the worker flips `session_status` to `disconnected` (unless already `logged_out`/`disconnected`) instead of leaving stale state with no working recovery path in the UI.
 
 ---
 
@@ -838,6 +864,8 @@ Added 2026-07-04 after QR connections were observed hanging indefinitely with no
 | 0015_droppedmessage_resolved_at_and_more | Added `resolved_at` to `whatsapp_dropped_message` + `(account, msg_id)` index |
 | 0016_whatsappcontact_category | Added `category` to contact (`supplier`/`customer`, blank default) |
 | 0017_alter_whatsappcontact_category | Added `both` to the `category` choices |
+| 0018_whatsappaccount_connection_unhealthy_and_more | Added `connection_unhealthy`, `connection_unhealthy_reason`, `connection_unhealthy_since` to account (§17.2 — plumbing only, detection disabled) |
+| 0019_alter_whatsappaccount_connection_unhealthy_reason | Converted `connection_unhealthy_reason` from `CharField(255)` to `TextField` — a real reason string exceeded 255 chars during testing |
 
 ### trading
 
@@ -944,7 +972,12 @@ Added 2026-07-04 after QR connections were observed hanging indefinitely with no
 - **Live feed pagination fix**: `open-feed` used to silently cap results at 50 combined WTB+WTS records with no indication of truncation — a desk with hundreds of open inquiries only ever saw the newest 50, oldest ones invisible. Now returns a true `count` and supports a `type` filter; WTB/WTS paginate and infinite-scroll independently in the frontend.
 - **Cross-group broadcast dedup** (§12): traders posting the identical WTB/WTS list to many different groups within minutes used to trigger a full AI classification call for every repost. A new `duplicate_broadcast` skip reason, using the same embedding-similarity mechanism as the existing same-contact dedup but scoped account-wide across groups (not restricted to the same contact or group) within a 1-hour window, now catches these before they reach the AI at all.
 
-### Phase 11 — ML Intelligence (planned)
+### Phase 11 — Prompt Integrity & Worker Stability (complete)
+- **Broken AI Instructions prompt override incident** (§6.11): a saved `inquiry_classification` override contained only a block of additional safety rules with none of the base prompt underneath — no output schema, no `{product_block}` injection point. Every classification silently returned `is_inquiry: false` for real WTB/WTS messages for hours, with no error anywhere (the AI free-formed a different JSON shape per call; `_parse_response`'s permissive `.get(..., default)` calls quietly absorbed the malformed responses instead of failing loudly). Root-caused via `AgentCallLog.raw_response` inspection across several recent calls, each showing a wildly different, schema-less JSON shape. Fixed by deleting the broken override and merging its genuinely new rules (hard SIM-type exclusions, broader forbidden-tier-inference coverage beyond Pro/Pro Max, a rule against inferring region from stock/product_id existence) into `INQUIRY_CLASSIFICATION_DEFAULT` directly, so they're not lost to a future reset.
+- **Connection-health detection: built, caused a production incident, reverted** (§17.2 has the full writeup). Attempted to detect degraded WhatsApp sessions (repeated Signal-protocol decrypt failures / handshake timeouts — confirmed via `baileys-internal.log`: 570 decrypt failures and 61 handshake timeouts on one real account, "connected" in the DB the whole time despite receiving nothing for ~36 hours) by wrapping pino's log destination with an incomplete plain-object stream. Real pino destinations implement several methods (`flushSync`, `flush`, `on`, `reopen`, `end`, `destroy`) that the plain wrapper didn't — something called one of them and threw uncaught deep inside Baileys' internals, hanging live sessions and breaking their ability to disconnect. Reverted fully rather than patched; the DB/API/UI plumbing (`connection_unhealthy` fields, `sync-progress` response fields, the `AccountCard.vue` banner) was left in place since it's inert without a detection call site, ready for a safe reimplementation via pino's `hooks.logMethod` instead of destination-wrapping.
+- **Disconnect endpoint self-correction**: `POST /api/accounts/:id/disconnect/` used to relay the worker's response verbatim, including a 404 "Session not found," without ever correcting Django's own stale `session_status` — leaving an account permanently stuck showing a Disconnect button that could never succeed. Now flips `session_status` to `disconnected` automatically whenever the worker reports no session exists, verified by re-simulating the exact broken scenario (DB said `connected`, worker said 404 → DB now self-corrects to `disconnected`).
+
+### Phase 12 — ML Intelligence (planned)
 - Lead scoring
 - ERP product master integration / two-way sync
 - Cross-account analytics rollups

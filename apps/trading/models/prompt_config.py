@@ -48,6 +48,24 @@ it as the region in canonical_name and for product_id matching when no other reg
   If sim type is mentioned but the message otherwise gives no region at all, still apply the hint \
 above (e.g. write "Hong Kong" for "single SIM") rather than leaving canonical_name without a region \
 or matching product_id against an unrelated region's catalog entry.
+  Never infer a region from which catalog entries happen to be in stock, or from a product_id simply \
+existing in the master — stock availability and catalog presence are not evidence of what region the \
+sender meant.
+
+SIM TYPE HARD EXCLUSIONS — stronger than the hints above: when the message EXPLICITLY names a SIM \
+type (not just implies one), that becomes a hard exclusion, not a soft preference:
+  Explicit "Physical SIM" / "Dual SIM" / "Nano SIM" / "Dual Physical SIM" / "2 SIM" → NEVER select a \
+catalog entry from an eSIM-only region (UAE, KSA, Japan, USA) unless that exact region was ALSO \
+explicitly written in the message.
+  Explicit "eSIM" / "eSIM only" / "no physical SIM" → NEVER select a catalog entry from a \
+physical-SIM region (Hong Kong, India, China, UK, EU, Singapore, Korea) unless that exact region was \
+ALSO explicitly written in the message.
+  If the message explicitly states BOTH a region AND a SIM type and they contradict each other under \
+the exclusions above (e.g. "17 Pro Max 256 TRA Physical SIM" — TRA/UAE is eSIM-only, but Physical SIM \
+was also explicitly requested) — do not silently resolve the contradiction or pick one over the other. \
+Preserve exactly what the sender wrote in canonical_name (both the region and the SIM type), and set \
+product_id = null, match_type = null — the request is internally contradictory and no catalog entry \
+can honestly satisfy both stated attributes at once.
 
 UNRECOGNIZED REGION TOKENS — the REGIONAL ABBREVIATIONS table above is the complete list of tokens \
 you may map to a region. If the message contains a region-looking token that is NOT in that table \
@@ -81,12 +99,16 @@ exists) — silently linking the Orange Japan or Silver UAE entry as if it were 
 WRONG, even though two of the three attributes match. The same applies when the message asks for a \
 color the master doesn't carry in that storage+region combination.
 MODEL NAME INCLUDES THE TIER SUFFIX — "iPhone 17 Pro" and "iPhone 17 Pro Max" (likewise "Plus" vs \
-base, "Ultra" vs "Plus", etc.) are DIFFERENT MODELS, not the same model in a different color. This \
-has also been a real mistake: the message asks for "17 Pro Max 256GB Orange UAE", the master only \
-has "17 Pro 256GB Orange UAE" (no "17 Pro Max" in that color+region) plus "17 Pro Max" in other \
-colors — matching the Pro (non-Max) entry as "exact" because color+storage+region happened to line \
-up is WRONG; the tier word "Max" not matching means the model name itself does not match, exactly \
-like a wrong color or region would.
+base, "Ultra" vs "Plus", "FE" vs standard, "WiFi" vs "Cellular", etc.) are DIFFERENT MODELS, not the \
+same model in a different color. Never infer one tier from another in either direction — Pro Max from \
+Pro, Pro from Pro Max, Plus from base, base from Plus, Ultra from Plus, Plus from Ultra, FE from \
+standard, standard from FE, Cellular from WiFi, WiFi from Cellular. If the sender did not explicitly \
+write the tier/suffix word, it does not exist for matching purposes. This has also been a real \
+mistake: the message asks for "17 Pro Max 256GB Orange UAE", the master only has "17 Pro 256GB Orange \
+UAE" (no "17 Pro Max" in that color+region) plus "17 Pro Max" in other colors — matching the Pro \
+(non-Max) entry as "exact" because color+storage+region happened to line up is WRONG; the tier word \
+"Max" not matching means the model name itself does not match, exactly like a wrong color or region \
+would.
 - If all four attributes match a catalog entry exactly, tier suffix included → product_id = that \
 entry's id, match_type = "exact".
 - If storage+region (and color, if present) match a catalog entry but the model name/tier does not \

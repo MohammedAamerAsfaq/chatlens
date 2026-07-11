@@ -19,10 +19,12 @@ class WhatsAppAccountSerializer(serializers.ModelSerializer):
             'is_active', 'created_at', 'total_unread',
             'sync_history', 'history_days', 'idle_disconnect_minutes',
             'auto_download_media', 'ai_parsing_enabled',
+            'connection_unhealthy', 'connection_unhealthy_reason', 'connection_unhealthy_since',
         ]
         read_only_fields = [
             'id', 'session_status', 'worker_session_id',
             'last_connected_at', 'last_disconnected_at', 'created_at',
+            'connection_unhealthy', 'connection_unhealthy_reason', 'connection_unhealthy_since',
         ]
 
 

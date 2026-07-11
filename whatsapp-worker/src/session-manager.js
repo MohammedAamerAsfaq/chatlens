@@ -106,6 +106,36 @@ class SessionManager {
     this.logger.warn({ sessionId, event }, 'DEBUG WATCH: hit for tracked contact — see debug-watch.ndjson');
   }
 
+  // NOTE: the detection side of connection_unhealthy (watching Baileys' internal logs for
+  // repeated decrypt failures / handshake timeouts) was removed here — the first attempt
+  // wrapped pino's file destination with a plain object missing methods (flushSync, flush,
+  // on, reopen, end, destroy) that pino/Baileys rely on, which broke the logging pipeline
+  // and hung live sessions. Needs a safe re-implementation (e.g. pino's `hooks.logMethod`,
+  // which doesn't touch the destination stream at all) before this is wired back up.
+  // _recordHealthySignal below and the connection_unhealthy plumbing in Django/API/UI are
+  // left in place — harmless with no detection call site, ready for that reimplementation.
+
+  // Called after any successfully-forwarded live message or history batch — proof the
+  // session is actually working. Resets the failure counters, and if the session was
+  // previously flagged unhealthy, reports the recovery so a transient issue that
+  // self-heals doesn't leave a stale "needs re-link" banner up in the UI forever.
+  _recordHealthySignal(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    const wasUnhealthy = session.connectionUnhealthy;
+    session.consecutiveDecryptFailures = 0;
+    session.consecutiveInitQueryTimeouts = 0;
+    if (!wasUnhealthy) return;
+
+    session.connectionUnhealthy = false;
+    this.logger.info({ sessionId }, 'Session recovered — clearing connection_unhealthy');
+    this.djangoClient.sendSessionStatus(sessionId, {
+      status: session.status,
+      connection_unhealthy: false,
+      connection_unhealthy_reason: '',
+    });
+  }
+
   // ─── Public API ────────────────────────────────────────────────────────────
 
   async initialize() {
@@ -178,6 +208,11 @@ class SessionManager {
       // Populated from contacts.set when c.username is present, also seeded on restore.
       // Used to resolve username-keyed chat JIDs once WhatsApp usernames roll out.
       usernameToPhone: { ...(options.usernameToPhone || {}) },
+      // Health tracking (see _recordHealthySignal below). No detection call site sets
+      // these true right now — see the NOTE near _recordHealthySignal's definition.
+      consecutiveDecryptFailures: 0,
+      consecutiveInitQueryTimeouts: 0,
+      connectionUnhealthy: false,
     });
     await this._connect(sessionId);
     return this._snapshot(sessionId);
@@ -389,11 +424,18 @@ class SessionManager {
         session.qrDataUrl = null;
         session.lastActivityAt = Date.now();
         session.reconnectAttempts = 0;
+        // A fresh socket starts with a clean slate — don't carry over failure counts
+        // from whatever this session was doing before this connect cycle.
+        const wasUnhealthy = session.connectionUnhealthy;
+        session.consecutiveDecryptFailures = 0;
+        session.consecutiveInitQueryTimeouts = 0;
+        session.connectionUnhealthy = false;
         this.logger.info({ sessionId, phone: session.phoneNumber }, 'Session connected');
         await this.djangoClient.sendSessionStatus(sessionId, {
           status: SESSION_STATUS.CONNECTED,
           phone_number: session.phoneNumber,
           display_name: session.displayName,
+          ...(wasUnhealthy ? { connection_unhealthy: false, connection_unhealthy_reason: '' } : {}),
         });
 
         // Start idle disconnect timer if configured
@@ -964,6 +1006,7 @@ class SessionManager {
     const { payload, logEntry } = built;
     try {
       await this.djangoClient.sendMessageIngest(payload);
+      this._recordHealthySignal(sessionId);
     } catch (fwdErr) {
       logEntry.forward_status = 'error';
       logEntry.forward_error  = fwdErr.message;
@@ -1013,6 +1056,7 @@ class SessionManager {
 
       try {
         await this.djangoClient.sendMessageIngestBatch(sessionId, payloads, { isLatest, received });
+        this._recordHealthySignal(sessionId);
       } catch (err) {
         forwardStatus = 'error';
         forwardError = err.message;

@@ -100,11 +100,17 @@ const syncFinished = ref(false)  // permanently true after the done badge fades
 let syncPollTimer  = null
 let syncDoneTimer  = null
 
-// null      = nothing to show (sync_history off, disconnected, or already done+faded)
-// 'awaiting'= connected + sync_history on, but no batches from WhatsApp yet
-// 'syncing' = batches actively arriving (Django has recent history_sync logs)
-// 'done'    = sync just completed (shown for 8s)
+// null       = nothing to show (sync_history off, disconnected, or already done+faded)
+// 'unhealthy'= worker detected a degraded session (repeated decrypt failures / handshake
+//              timeouts) that reconnecting can't fix — takes priority over every other
+//              state, since it explains *why* nothing else is progressing
+// 'awaiting' = connected + sync_history on, but no batches from WhatsApp yet
+// 'syncing'  = batches actively arriving (Django has recent history_sync logs)
+// 'done'     = sync just completed (shown for 8s)
 const syncState = computed(() => {
+  if (props.account.session_status === 'connected' && syncProgress.value?.connection_unhealthy) {
+    return 'unhealthy'
+  }
   if (syncFinished.value) return null
   if (syncDone.value) return 'done'
   if (!props.account.sync_history) return null
@@ -118,7 +124,9 @@ const syncState = computed(() => {
 })
 
 async function fetchSyncProgress() {
-  if (!props.account.sync_history) return
+  // Note: this endpoint now also carries connection_unhealthy, which matters regardless
+  // of the sync_history setting — an account with history sync off can still have a
+  // degraded connection that needs surfacing, so this is no longer gated on that flag.
   try {
     const { data } = await accountsApi.syncProgress(props.account.id)
     const alreadyComplete = syncProgress.value?.is_complete
@@ -151,10 +159,8 @@ function startSyncPolling() {
   syncFinished.value = false
   syncProgress.value = null
 
-  if (props.account.sync_history) {
-    fetchSyncProgress()
-    syncPollTimer = setInterval(fetchSyncProgress, 4000)
-  }
+  fetchSyncProgress()
+  syncPollTimer = setInterval(fetchSyncProgress, 4000)
 }
 
 watch(
@@ -194,11 +200,31 @@ onUnmounted(() => {
 
     <p class="text-xs text-gray-400">Last connected: {{ formatDate(account.last_connected_at) }}</p>
 
-    <!-- History sync progress — three states -->
-    <div v-if="syncState" class="flex flex-col gap-1.5 border border-gray-100 rounded-lg p-3 bg-gray-50">
+    <!-- History sync progress / connection health -->
+    <div
+      v-if="syncState"
+      class="flex flex-col gap-1.5 rounded-lg p-3 border"
+      :class="syncState === 'unhealthy' ? 'border-red-200 bg-red-50' : 'border-gray-100 bg-gray-50'"
+    >
+
+      <!-- State: unhealthy — worker detected a degraded session; re-linking is the real fix -->
+      <template v-if="syncState === 'unhealthy'">
+        <div class="flex items-center gap-2 text-xs text-red-700 font-semibold">
+          <span class="text-red-500">⚠</span>
+          Connection needs attention
+        </div>
+        <p class="text-xs text-red-700 leading-relaxed">
+          {{ syncProgress.connection_unhealthy_reason }}
+        </p>
+        <p class="text-xs text-red-600 leading-relaxed">
+          WhatsApp mobile may still show this device as active — that only means the phone-side link
+          exists, not that this session can actually send/receive. Reconnecting alone won't fix this,
+          since it reuses the same broken session state; a fresh QR re-link is needed.
+        </p>
+      </template>
 
       <!-- State: awaiting — WhatsApp is negotiating sync keys (no batches yet) -->
-      <template v-if="syncState === 'awaiting'">
+      <template v-else-if="syncState === 'awaiting'">
         <div class="flex items-center gap-2 text-xs text-gray-600 font-medium">
           <div class="w-3 h-3 rounded-full border-2 border-gray-200 border-t-green-500 animate-spin shrink-0" />
           Waiting for history sync to begin…

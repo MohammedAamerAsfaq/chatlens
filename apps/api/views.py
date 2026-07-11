@@ -13,6 +13,7 @@ from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Count, Q
 from django.utils.dateparse import parse_datetime
+from django.utils.timezone import now
 from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
@@ -21,7 +22,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact,
-    SyncLog, DroppedMessage, WhatsAppGroup,
+    SyncLog, DroppedMessage, WhatsAppGroup, SessionStatus,
 )
 from .serializers import (
     WhatsAppAccountSerializer, ChatSerializer, MessageSerializer,
@@ -84,6 +85,8 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
             return Response({
                 'syncing': False, 'total_synced': 0, 'total_processed': 0,
                 'batch_count': 0, 'is_complete': False,
+                'connection_unhealthy': account.connection_unhealthy,
+                'connection_unhealthy_reason': account.connection_unhealthy_reason,
             })
 
         logs = list(
@@ -114,6 +117,8 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
             'batch_count': len(logs),
             'has_live_messages': has_live_messages,
             'is_complete': is_complete,
+            'connection_unhealthy': account.connection_unhealthy,
+            'connection_unhealthy_reason': account.connection_unhealthy_reason,
         })
 
     @action(detail=True, methods=['get'])
@@ -459,6 +464,20 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
                 f'{WORKER_BASE_URL}/sessions/{account.pk}/disconnect',
                 timeout=10,
             )
+            # The worker is the source of truth for whether a session actually exists —
+            # if it says "not found", our stored status is stale (e.g. the worker already
+            # cleared credentials after a WhatsApp-side logout, or restarted and never
+            # restored this session) and must not be left claiming "connected" with a
+            # Disconnect button that can never succeed. Bring the DB in line with what the
+            # worker just told us, rather than only updating it when the worker proactively
+            # calls back — that callback can be missed (a crash, a dropped request) and
+            # nothing here currently notices when it is.
+            if resp.status_code == 404 and account.session_status not in (
+                SessionStatus.LOGGED_OUT, SessionStatus.DISCONNECTED,
+            ):
+                account.session_status = SessionStatus.DISCONNECTED
+                account.last_disconnected_at = now()
+                account.save(update_fields=['session_status', 'last_disconnected_at', 'updated_at'])
             return Response(resp.json(), status=resp.status_code)
         except requests.RequestException as e:
             return Response({'error': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
