@@ -98,6 +98,123 @@ def embed_messages_batch(message_ids: list[int]) -> dict:
     return {'total': len(message_ids), 'embedded': embedded, 'skipped': skipped, 'errors': errors}
 
 
+def _build_product_text(product) -> str:
+    """Compose the text we embed for a given Product — same signal the AI already
+    reads off the plain-text product master block, so retrieval and prompt injection
+    stay consistent with each other."""
+    parts = [product.brand, product.name]
+    if product.aliases:
+        parts.append(' '.join(product.aliases))
+    return ' '.join(p for p in parts if p).strip()
+
+
+def embed_product(product_id: int) -> bool:
+    """Generate and store an embedding for a single product. Returns True if stored."""
+    from apps.trading.models import Product
+    from apps.message_intelligence.models import ProductEmbedding
+    from apps.ai_providers.manager import ai_manager
+
+    product = Product.objects.get(pk=product_id)
+    text = _build_product_text(product)
+    if not text:
+        logger.debug('embed_product | skip (no text) | product_id=%s', product_id)
+        return False
+
+    config = ai_manager.active_config('embedding')
+    if config is None:
+        logger.warning('embed_product | no active embedding provider configured')
+        return False
+
+    vector = ai_manager.embed(text)
+
+    ProductEmbedding.objects.update_or_create(
+        product=product,
+        defaults={
+            'embedding': vector,
+            'embedding_model': config.model,
+            'metadata': {'provider': config.provider, 'dimensions': len(vector)},
+        },
+    )
+    logger.info('embed_product | stored | product_id=%s | dims=%s', product_id, len(vector))
+    return True
+
+
+def embed_products_batch(product_ids: list[int]) -> dict:
+    """Embed a list of products in provider-side batches. Returns counts."""
+    from apps.trading.models import Product
+    from apps.message_intelligence.models import ProductEmbedding
+    from apps.ai_providers.manager import ai_manager
+
+    config = ai_manager.active_config('embedding')
+    if config is None:
+        logger.warning('embed_products_batch | no active embedding provider')
+        return {'total': len(product_ids), 'embedded': 0, 'skipped': 0, 'errors': 0}
+
+    products = list(Product.objects.filter(pk__in=product_ids))
+    pending = [(p, _build_product_text(p)) for p in products]
+    to_embed = [(p, t) for p, t in pending if t]
+    skipped = len(pending) - len(to_embed)
+
+    embedded = errors = 0
+
+    for i in range(0, len(to_embed), BATCH_SIZE):
+        chunk = to_embed[i:i + BATCH_SIZE]
+        texts = [t for _, t in chunk]
+        try:
+            vectors = ai_manager.embed_batch(texts)
+        except Exception:
+            logger.exception('embed_products_batch | provider error | chunk_start=%s', i)
+            errors += len(chunk)
+            continue
+
+        objs = []
+        for (product, _), vector in zip(chunk, vectors):
+            objs.append(ProductEmbedding(
+                product=product,
+                embedding=vector,
+                embedding_model=config.model,
+                metadata={'provider': config.provider, 'dimensions': len(vector)},
+            ))
+
+        ProductEmbedding.objects.bulk_create(
+            objs,
+            update_conflicts=True,
+            update_fields=['embedding', 'embedding_model', 'metadata'],
+            unique_fields=['product'],
+        )
+        embedded += len(chunk)
+
+    logger.info(
+        'embed_products_batch | done | total=%s embedded=%s skipped=%s errors=%s',
+        len(product_ids), embedded, skipped, errors,
+    )
+    return {'total': len(product_ids), 'embedded': embedded, 'skipped': skipped, 'errors': errors}
+
+
+def find_similar_products(query: str, top_k: int = 10) -> list:
+    """Return top_k products most similar to query using cosine distance. Not yet wired
+    into classification — the live catalog is still small enough to send as plain text
+    in full (apps/trading/services/product_cache.py). This exists as the retrieval
+    building block for when catalog size makes that no longer true: narrow to the
+    top-K candidates here, then still hand those to the AI as text for the actual
+    exact/near/null judgment — embeddings pick candidates, they don't replace the
+    attribute-by-attribute matching the AI does."""
+    from apps.ai_providers.manager import ai_manager
+    from apps.message_intelligence.models import ProductEmbedding
+    from pgvector.django import CosineDistance
+
+    query_vec = ai_manager.embed(query)
+
+    results = (
+        ProductEmbedding.objects
+        .filter(embedding__isnull=False, product__is_active=True)
+        .annotate(distance=CosineDistance('embedding', query_vec))
+        .select_related('product')
+        .order_by('distance')[:top_k]
+    )
+    return list(results)
+
+
 def semantic_search(query: str, account_id: int, top_k: int = 10) -> list:
     """Return top_k messages most similar to query using cosine distance."""
     from apps.ai_providers.manager import ai_manager

@@ -1,5 +1,7 @@
 import json
 import logging
+import threading
+from django.db import connection as _db_conn
 from django.db.models import Count, Q
 from django.utils.timezone import now
 from datetime import timedelta
@@ -24,6 +26,42 @@ from .services.product_cache import invalidate as invalidate_product_cache
 logger = logging.getLogger(__name__)
 
 
+def _embed_product_in_background(product_id: int):
+    """Fire-and-forget embedding after a product create/update — same pattern as live
+    message embedding in ingestion_service.py. Never blocks the save request; a failure
+    here (provider hiccup) is logged and otherwise invisible, never surfaced to the user
+    editing the product, since the classification prompt still works off plain text
+    regardless of whether this embedding exists yet."""
+    def _run():
+        try:
+            from apps.message_intelligence.services.embedding_service import embed_product
+            embed_product(product_id)
+        except Exception:
+            logger.warning('Background product embedding failed for product_id=%s', product_id, exc_info=True)
+        finally:
+            _db_conn.close()
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _embed_products_batch_in_background(product_ids: list):
+    """Same as _embed_product_in_background but for a batch (bulk import) — one
+    background thread, one provider-side batch call, instead of N individual threads."""
+    if not product_ids:
+        return
+
+    def _run():
+        try:
+            from apps.message_intelligence.services.embedding_service import embed_products_batch
+            embed_products_batch(product_ids)
+        except Exception:
+            logger.warning('Background batch product embedding failed for %d product(s)', len(product_ids), exc_info=True)
+        finally:
+            _db_conn.close()
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
 class ProductViewSet(viewsets.ModelViewSet):
     serializer_class   = ProductSerializer
     permission_classes = [IsAuthenticated]
@@ -38,12 +76,14 @@ class ProductViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        serializer.save()
+        product = serializer.save()
         invalidate_product_cache()
+        _embed_product_in_background(product.pk)
 
     def perform_update(self, serializer):
-        serializer.save()
+        product = serializer.save()
         invalidate_product_cache()
+        _embed_product_in_background(product.pk)
 
     def perform_destroy(self, instance):
         instance.is_active = False
@@ -110,6 +150,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             created.append(ProductSerializer(p).data)
         if created:
             invalidate_product_cache()
+            _embed_products_batch_in_background([p['id'] for p in created])
         return Response({'created': created, 'skipped': skipped})
 
     @action(detail=False, methods=['post'], url_path='parse-inventory')

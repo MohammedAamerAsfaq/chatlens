@@ -38,6 +38,18 @@ const WATCHDOG_TIMEOUT_MS = 45000;
 const RECONNECT_BASE_DELAY_MS = 5000;
 const RECONNECT_MAX_DELAY_MS = 5 * 60 * 1000;
 
+// A session can report 'connected' (WhatsApp mobile shows the linked device as active)
+// while its LOCAL copy of the Signal-protocol session is desynced enough that it can't
+// actually decrypt anything, or WhatsApp's post-connect handshake keeps timing out.
+// Reconnecting doesn't fix either — it reuses the same corrupted key state on disk — so
+// past these thresholds (counted since the last successfully-forwarded message, not a
+// time window) the session is flagged connection_unhealthy for the UI (needs re-link).
+// This is a SEPARATE, higher-level signal from the per-occurrence WorkerAlert below —
+// every single failure gets an alert immediately; this threshold only escalates to
+// "the whole session likely needs attention" after they don't stop happening.
+const DECRYPT_FAILURE_UNHEALTHY_THRESHOLD = 15;
+const INIT_QUERY_TIMEOUT_UNHEALTHY_THRESHOLD = 5;
+
 // TEMPORARY debugging aid — investigating messages from a specific contact
 // (971521962376 / Al Thamam Ipad Almurar) vanishing with no trace in any of the
 // normal drop-reporting paths. Logs the full raw Baileys event unconditionally,
@@ -106,14 +118,113 @@ class SessionManager {
     this.logger.warn({ sessionId, event }, 'DEBUG WATCH: hit for tracked contact — see debug-watch.ndjson');
   }
 
-  // NOTE: the detection side of connection_unhealthy (watching Baileys' internal logs for
-  // repeated decrypt failures / handshake timeouts) was removed here — the first attempt
-  // wrapped pino's file destination with a plain object missing methods (flushSync, flush,
-  // on, reopen, end, destroy) that pino/Baileys rely on, which broke the logging pipeline
-  // and hung live sessions. Needs a safe re-implementation (e.g. pino's `hooks.logMethod`,
-  // which doesn't touch the destination stream at all) before this is wired back up.
-  // _recordHealthySignal below and the connection_unhealthy plumbing in Django/API/UI are
-  // left in place — harmless with no detection call site, ready for that reimplementation.
+  // Builds the logger passed to makeWASocket. Uses pino's `hooks.logMethod` to inspect
+  // every line Baileys logs internally — NOT by wrapping the destination stream (that
+  // was the previous attempt: a plain object missing methods real pino destinations
+  // require — flushSync, flush, on, reopen, end, destroy — which broke the logging
+  // pipeline and hung live sessions). `hooks.logMethod` is a documented pino extension
+  // point that intercepts the log call itself, before formatting/writing; the real
+  // destination stream (pino.destination(...)) is passed through completely untouched.
+  // Verified safe in isolation (a standalone script exercising normal/error calls and a
+  // deliberately-thrown bug inside the hook) before being wired in here.
+  _createBaileysLogger(sessionId, filePath) {
+    const self = this;
+    return pino(
+      {
+        level: 'warn',
+        hooks: {
+          logMethod(args, method, level) {
+            // Never let an inspection bug take the actual log call down with it —
+            // this is exactly the failure mode the previous destination-wrapping
+            // attempt caused, just guarded against directly this time.
+            try {
+              self._inspectBaileysLogArgs(sessionId, args, level);
+            } catch (err) {
+              self.logger.debug({ sessionId, err: err.message }, 'Baileys log inspection failed (log call unaffected)');
+            }
+            return method.apply(this, args);
+          },
+        },
+      },
+      pino.destination(filePath),
+    );
+  }
+
+  _inspectBaileysLogArgs(sessionId, args, level) {
+    // pino log calls are typically (mergingObject, msg) or (msg); msg can also live on
+    // the merging object depending on how the caller invoked it. Check both.
+    const obj = (args[0] && typeof args[0] === 'object') ? args[0] : null;
+    const msg = (typeof args[0] === 'string') ? args[0] : (obj?.msg || (typeof args[1] === 'string' ? args[1] : ''));
+    if (!msg) return;
+
+    const ERROR_LEVEL = 50;
+    let alertType = null;
+    let kind = null; // 'decrypt' | 'handshake' | null
+    if (msg.includes('failed to decrypt message')) {
+      alertType = 'decrypt_failure';
+      kind = 'decrypt';
+    } else if (msg.includes("unexpected error in 'init queries'")) {
+      alertType = 'handshake_timeout';
+      kind = 'handshake';
+    } else if (level >= ERROR_LEVEL) {
+      // Catch-all: an error-level Baileys log we don't have a specific pattern for yet.
+      // Still worth a structured alert instead of only living in the raw file — this is
+      // exactly how the two patterns above were originally found, by manually grepping.
+      alertType = 'other';
+    } else {
+      return; // warn-level, no known pattern — too noisy to alert on individually
+    }
+
+    // Every occurrence gets its own alert immediately — never thresholded/batched, so
+    // "a decrypt error should not fail silently" holds from the very first occurrence.
+    this.djangoClient.sendWorkerAlert(sessionId, {
+      alert_type: alertType,
+      severity: 'error',
+      message: msg,
+      context: obj ? this._safeAlertContext(obj) : null,
+    });
+
+    if (!kind) return;
+
+    // Session-level escalation on top of the per-occurrence alerts above — see the
+    // threshold constants' comment for why this is a separate, higher-bar signal.
+    const session = this.sessions.get(sessionId);
+    if (!session || session.connectionUnhealthy) return;
+
+    if (kind === 'decrypt') session.consecutiveDecryptFailures++;
+    else session.consecutiveInitQueryTimeouts++;
+
+    const decryptTripped = session.consecutiveDecryptFailures >= DECRYPT_FAILURE_UNHEALTHY_THRESHOLD;
+    const timeoutTripped = session.consecutiveInitQueryTimeouts >= INIT_QUERY_TIMEOUT_UNHEALTHY_THRESHOLD;
+    if (!decryptTripped && !timeoutTripped) return;
+
+    session.connectionUnhealthy = true;
+    const reason = decryptTripped
+      ? `Repeated message-decryption failures (${session.consecutiveDecryptFailures} since the last ` +
+        `successful message) — this session's encryption keys are likely out of sync. Re-linking ` +
+        `(disconnect, then scan a fresh QR code) usually resolves this; reconnecting alone won't, ` +
+        `since it reuses the same key state.`
+      : `Repeated connection setup timeouts (${session.consecutiveInitQueryTimeouts} since the last ` +
+        `successful message) — WhatsApp isn't completing the post-connect handshake for this session. ` +
+        `Re-linking (disconnect, then scan a fresh QR code) may resolve this.`;
+
+    this.logger.error({ sessionId, reason }, 'Session marked connection_unhealthy');
+    this.djangoClient.sendSessionStatus(sessionId, {
+      status: session.status,
+      connection_unhealthy: true,
+      connection_unhealthy_reason: reason,
+    });
+  }
+
+  // Baileys' log objects can carry circular structures (sockets, streams) — JSON-safe
+  // subset only, so the alert POST body itself can never be the next thing that throws.
+  _safeAlertContext(obj) {
+    try {
+      return JSON.parse(JSON.stringify(obj));
+    } catch {
+      return { unserializable: true };
+    }
+  }
 
   // Called after any successfully-forwarded live message or history batch — proof the
   // session is actually working. Resets the failure counters, and if the session was
@@ -359,16 +470,15 @@ class SessionManager {
       const { state, saveCreds } = await useMultiFileAuthState(authDir);
       const { version } = await fetchLatestBaileysVersion();
 
-      // TEMPORARY — Baileys' own internal logger was fully silenced, so any error it hits
-      // internally while decoding/decrypting a message (before ever emitting messages.upsert)
-      // was invisible to us. Our own debug tap only sees messages Baileys already turned into
-      // a WAMessage and emitted — if Baileys errors out before that point, our tap never fires.
-      // Route Baileys' internal 'warn'+ logs to a durable file so we can see what it's actually
-      // doing with the messages that never reach our event handlers.
-      // TODO: revert to pino({ level: 'silent' }) once root cause for 971521962376 is confirmed.
-      const baileysDebugLogger = pino(
-        { level: 'warn' },
-        pino.destination(path.join(this.messageLogger.logsDir, 'baileys-internal.log')),
+      // Baileys' own internal logger — routed to a durable file (Baileys errors before
+      // ever emitting messages.upsert, e.g. a decrypt failure, are otherwise invisible:
+      // our own event handlers never fire for a message that never arrives). Also feeds
+      // _inspectBaileysLogArgs via hooks.logMethod, which turns known failure patterns
+      // (decrypt failures, handshake timeouts) into structured WorkerAlert records
+      // instead of only living in this raw file.
+      const baileysDebugLogger = this._createBaileysLogger(
+        sessionId,
+        path.join(this.messageLogger.logsDir, 'baileys-internal.log'),
       );
 
       sock = makeWASocket({
@@ -640,14 +750,22 @@ class SessionManager {
         // own and must never be created as primary contacts in Django.
         if (c.id?.endsWith('@lid')) continue;
 
-        const wa_contact_id = jidNormalizedUser(c.id);
-        if (!wa_contact_id) continue;
+        // jidNormalizedUser can throw on a malformed id — this used to sit outside any
+        // try/catch, so one bad contact entry aborted this whole loop and every OTHER
+        // contact's alias mapping in the same contacts.set/upsert batch was silently
+        // lost with it (no log, no trace). Skip just the malformed one instead.
+        try {
+          const wa_contact_id = jidNormalizedUser(c.id);
+          if (!wa_contact_id) continue;
 
-        const phone_number = c.id?.endsWith('@s.whatsapp.net') ? c.id.split('@')[0] : '';
-        const lid_jid  = phoneToLid[wa_contact_id]      || null;
-        const username = phoneToUsername[wa_contact_id]  || null;
+          const phone_number = c.id?.endsWith('@s.whatsapp.net') ? c.id.split('@')[0] : '';
+          const lid_jid  = phoneToLid[wa_contact_id]      || null;
+          const username = phoneToUsername[wa_contact_id]  || null;
 
-        batch.push({ wa_contact_id, push_name: name, phone_number, lid_jid, username });
+          batch.push({ wa_contact_id, push_name: name, phone_number, lid_jid, username });
+        } catch (err) {
+          this.logger.warn({ sessionId, contactId: c.id, err: err.message }, 'Skipping malformed contact entry');
+        }
       }
 
       const validBatch = batch.filter(c => c.wa_contact_id && c.push_name);
@@ -1020,7 +1138,11 @@ class SessionManager {
   async _forwardHistoryBatch(sessionId, msgs, { isLatest = false, received = msgs.length } = {}) {
     const CHUNK_SIZE = 100;
 
-    // Build all payloads (filters protocol messages; fetches group names via cache)
+    // Build all payloads (filters protocol messages; fetches group names via cache).
+    // A build failure here is reported the same way as the live path (_reportDropped)
+    // instead of only a raw logger.warn — this function also carries reconnect-
+    // redelivered LIVE messages via the 'prepend' branch above, so this same gap
+    // silently dropped current messages too, not just historical ones.
     const built = [];
     for (const msg of msgs) {
       try {
@@ -1028,6 +1150,7 @@ class SessionManager {
         if (result) built.push(result);
       } catch (err) {
         this.logger.warn({ sessionId, msgId: msg.key?.id, err: err.message }, 'Failed to build history payload — skipping');
+        this._reportDropped(sessionId, msg, 'history_build_error');
       }
     }
 
@@ -1055,8 +1178,23 @@ class SessionManager {
       let forwardError = null;
 
       try {
-        await this.djangoClient.sendMessageIngestBatch(sessionId, payloads, { isLatest, received });
+        const result = await this.djangoClient.sendMessageIngestBatch(sessionId, payloads, { isLatest, received });
         this._recordHealthySignal(sessionId);
+        // A non-throwing response can still report per-message failures (result.errors)
+        // — Django returns 200 for the batch call itself even when some items inside it
+        // failed to persist. Previously this branch treated ANY non-throw as total
+        // success and marked every message in the chunk delivered, even ones Django
+        // just told us it lost. Django already writes its own DroppedMessage rows and a
+        // batch_partial_failure WorkerAlert for the aggregate — this just keeps the
+        // worker's own local message log honest instead of contradicting that.
+        if (result && result.errors > 0) {
+          forwardStatus = 'partial_error';
+          forwardError = `${result.errors} of ${result.total ?? payloads.length} messages in this batch failed to persist (see Django DroppedMessage/WorkerAlert)`;
+          this.logger.warn(
+            { sessionId, chunkIndex: Math.floor(i / CHUNK_SIZE), size: chunk.length, errors: result.errors },
+            'History batch chunk had partial persistence failures',
+          );
+        }
       } catch (err) {
         forwardStatus = 'error';
         forwardError = err.message;

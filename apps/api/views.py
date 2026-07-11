@@ -22,12 +22,12 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact,
-    SyncLog, DroppedMessage, WhatsAppGroup, SessionStatus,
+    SyncLog, DroppedMessage, WhatsAppGroup, SessionStatus, WorkerAlert,
 )
 from .serializers import (
     WhatsAppAccountSerializer, ChatSerializer, MessageSerializer,
     SyncLogSerializer, DroppedMessageSerializer, ContactDetailSerializer,
-    GroupSerializer, GroupDetailSerializer,
+    GroupSerializer, GroupDetailSerializer, WorkerAlertSerializer,
 )
 
 WORKER_BASE_URL = getattr(settings, 'WORKER_BASE_URL', 'http://localhost:3001')
@@ -746,6 +746,50 @@ class DroppedMessageViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(account_id=account_id)
         deleted, _ = qs.delete()
         return Response({'deleted': deleted})
+
+
+class WorkerAlertViewSet(viewsets.ReadOnlyModelViewSet):
+    """Structured, queryable record of worker-side failures that would otherwise
+    only exist in a raw log file — see WorkerAlert model docstring."""
+    serializer_class = WorkerAlertSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = ActivityPagination
+
+    def get_queryset(self):
+        qs = WorkerAlert.objects.select_related('account').order_by('-created_at')
+        account_id = self.request.query_params.get('account')
+        if account_id:
+            qs = qs.filter(account_id=account_id)
+        alert_type = self.request.query_params.get('alert_type')
+        if alert_type:
+            qs = qs.filter(alert_type=alert_type)
+        acknowledged = self.request.query_params.get('acknowledged')
+        if acknowledged == 'true':
+            qs = qs.filter(acknowledged_at__isnull=False)
+        elif acknowledged == 'false':
+            qs = qs.filter(acknowledged_at__isnull=True)
+        return qs
+
+    @action(detail=False, methods=['get'], url_path='unacknowledged-count')
+    def unacknowledged_count(self, request):
+        return Response({'count': WorkerAlert.objects.filter(acknowledged_at__isnull=True).count()})
+
+    @action(detail=True, methods=['post'], url_path='acknowledge')
+    def acknowledge(self, request, pk=None):
+        alert = self.get_object()
+        alert.acknowledged_at = now()
+        alert.acknowledged_by = request.user if request.user.is_authenticated else None
+        alert.save(update_fields=['acknowledged_at', 'acknowledged_by'])
+        return Response(WorkerAlertSerializer(alert).data)
+
+    @action(detail=False, methods=['post'], url_path='acknowledge-all')
+    def acknowledge_all(self, request):
+        qs = WorkerAlert.objects.filter(acknowledged_at__isnull=True)
+        account_id = request.query_params.get('account')
+        if account_id:
+            qs = qs.filter(account_id=account_id)
+        updated = qs.update(acknowledged_at=now(), acknowledged_by=request.user if request.user.is_authenticated else None)
+        return Response({'acknowledged': updated})
 
 
 class ContactViewSet(viewsets.ModelViewSet):

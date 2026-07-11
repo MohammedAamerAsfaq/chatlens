@@ -1,7 +1,7 @@
 # ChatLens Development Document
 
 > **Status:** Living document — reflects the system as actually built, not the original plan.
-> Last updated: 2026-07-11 (broken AI Instructions prompt override incident + fix, connection-health detection attempt + production incident + revert, disconnect stale-status self-correction)
+> Last updated: 2026-07-11 (broken AI Instructions prompt override incident + fix, inquiry_classification prompt consolidated ~50% shorter after a bloat-driven regression, product embedding infrastructure added ahead of catalog-scale need, StorageView multi-root attrs-inheritance fix, full silent-message-loss audit + root-cause fixes + new Worker Alerts system with safely-rebuilt connection-health detection)
 
 ---
 
@@ -216,6 +216,23 @@ A data migration (`0011_backfill_groups_from_chats`) seeded placeholder `whatsap
 
 Index: `USING ivfflat (embedding vector_cosine_ops)`
 
+### 6.5.1 product_embedding
+
+Mirrors `message_embedding` exactly, but one row per `Product` instead of per message. Added ahead of an anticipated catalog-size need, not because the current catalog (~30 active products) requires it — see "Product retrieval" note in §12.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint PK | |
+| product_id | FK → trading_product, one-to-one | |
+| embedding | vector(512) | voyage-3-lite embedding of `{brand} {name} {aliases}` |
+| embedding_model | varchar(255) | model identifier |
+| metadata | jsonb | |
+| created_at / updated_at | timestamptz | |
+
+Index: `USING ivfflat (embedding vector_cosine_ops)`
+
+Generated in the background (`apps/message_intelligence/services/embedding_service.py`: `embed_product` / `embed_products_batch`), fire-and-forget, triggered from `ProductViewSet.perform_create`/`perform_update`/`bulk_create` in `apps/trading/views.py` — same non-blocking pattern as live message embedding, a provider hiccup here never blocks a product save. **Not currently read by anything** — `find_similar_products()` (cosine-distance top-K lookup) exists as the retrieval building block but isn't wired into classification; the live catalog is still small enough to send as plain text in full (`product_cache.py`). See §12.
+
 ### 6.6 sync_log
 
 Audit trail for every ingestion event.
@@ -246,6 +263,26 @@ Captures every message the worker decided not to forward to Django, with its rea
 | raw_key | jsonb | `msg.key` + `_msgKeys` (field names present in `msg.message`) |
 | created_at | timestamptz | |
 | resolved_at | timestamptz nullable | set when a later message with the same `msg_id` was ingested successfully — i.e. Baileys' retry request eventually got the sender to resend and decryption succeeded. Distinguishes self-healed drops (mostly `no_message_content`) from permanent loss. |
+
+Two new `reason` values as of the silent-message-loss audit (Phase 14, §12): `history_build_error` (a `_buildPayload` throw during history-sync/redelivered-live processing, previously only a raw `logger.warn` — see §12) and `batch_persist_failed` (a message the worker successfully delivered that then failed to persist in Django — `raw_key` holds the **full original payload**, not just `msg.key`, so the content is recoverable even though the `WhatsAppMessage` row was never created).
+
+### 6.7.1 whatsapp_worker_alert
+
+Structured, queryable, UI-visible record of a worker-side failure that would otherwise only exist as an unstructured line in a raw log file — the root-cause fix for the class of bug where something goes wrong deep in the pipeline (often inside Baileys itself, before `whatsapp_dropped_message` can even see it) and the only trace is a raw text file nobody is watching. See §12 for the full mechanism and §16 for the Worker Alerts screen.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint PK | |
+| account_id | FK → whatsapp_account, nullable | null for failures with no session context (e.g. a process-level uncaught exception) |
+| alert_type | varchar(30) | `decrypt_failure` / `handshake_timeout` / `history_build_failed` / `batch_persist_failed` / `batch_partial_failure` / `drop_report_failed` / `uncaught_exception` / `other` |
+| severity | varchar(10) | `warning` / `error` |
+| message | text | human-readable summary |
+| context | jsonb nullable | raw details — the offending log line's fields, a stack trace, batch counts, etc. |
+| created_at | timestamptz | |
+| acknowledged_at | timestamptz nullable | |
+| acknowledged_by | FK → auth user, nullable | |
+
+Every occurrence is logged immediately — this is **not** a threshold/count mechanism like `whatsapp_account.connection_unhealthy` (which only flags a session as needing re-linking after repeated failures). This table is the audit trail; `connection_unhealthy` is a derived, session-level escalation built on top of the same underlying events (§17.2).
 
 ### 6.8 trading_product
 
@@ -453,7 +490,9 @@ error
 | `senderKeyDistributionMessage` | pure E2E key envelope with no user content |
 | `unresolvable_lid` | sender JID is a LID but neither `senderPn`/`participantPn` nor the session cache can resolve it to a phone JID |
 | `forward_failed` | Django returned an error on `message-ingest` |
-| `build_error` | unexpected exception in `_buildPayload` |
+| `build_error` | unexpected exception in `_buildPayload` (live path) |
+| `history_build_error` | unexpected exception in `_buildPayload` during history-sync/redelivered-live processing — previously silent, only a raw `logger.warn`, see §12 |
+| `batch_persist_failed` | Django received the message but failed to persist it — `raw_key` holds the full original payload for recovery, see §12 |
 | `messageStubType:N` | WhatsApp group notification stub (member joined, left, etc.) |
 
 `senderKeyDistributionMessage` is only dropped when the field is the **sole content** of `msg.message`. If a real message is bundled in the same envelope (combined envelope), the key distribution field is stripped and the message passes through.
@@ -473,6 +512,7 @@ All require `X-Internal-Token` header.
 | GET  | `/api/internal/whatsapp/lid-mappings/:id/` | Worker seeds `lidToPhone`/`usernameToPhone` from already-known contacts on restore, so a restart doesn't start the cache cold (was causing `unresolvable_lid` drops for known senders) |
 | POST | `/api/internal/whatsapp/contacts-update/` | Contact names from `contacts.set` / `contacts.upsert` |
 | POST | `/api/internal/whatsapp/dropped-message/` | Fire-and-forget drop notification |
+| POST | `/api/internal/whatsapp/worker-alert/` | Structured worker-failure report (§6.7.1) — `account` optional, so failures with no session context can still be recorded |
 | POST | `/api/internal/whatsapp/group-update/` | Group/community metadata from `groupFetchAllParticipating()` |
 | POST | `/api/internal/whatsapp/group-participants-update/` | Group participant list + roles |
 
@@ -558,6 +598,10 @@ Session auth + CSRF, gated behind the login endpoints in §11.1.
 | GET  | `/api/activity/` | Sync log entries |
 | GET  | `/api/dropped-messages/` | Dropped message log, filterable by `account`/`reason`; each row includes `resolved_at` if it later self-healed |
 | POST | `/api/dropped-messages/clear-all/` | Clear drop log |
+| GET  | `/api/worker-alerts/` | Worker alert log (§6.7.1), filterable by `account`/`alert_type`/`acknowledged` (`true`/`false`/omit for all) |
+| GET  | `/api/worker-alerts/unacknowledged-count/` | `{count}` — polled every 30s by the nav bar badge (§16) |
+| POST | `/api/worker-alerts/:id/acknowledge/` | Mark one alert acknowledged |
+| POST | `/api/worker-alerts/acknowledge-all/` | Mark all (optionally filtered by `account`) acknowledged |
 
 ### 11.2 Intelligence & Providers
 
@@ -620,9 +664,14 @@ _forwardMessage:
   2. djangoClient.sendMessageIngest (throws on failure)
   3. on failure → _reportDropped('forward_failed')
 
-_forwardHistoryBatch:
+_forwardHistoryBatch (also carries reconnect-redelivered LIVE messages via the 'prepend' branch):
   1. _buildPayload for each message (isHistory=true, no media download)
+     — on throw: _reportDropped('history_build_error') (§6.7, §9 — previously only a raw
+       logger.warn with no DroppedMessage row; see the silent-message-loss audit below)
   2. djangoClient.sendMessageIngestBatch
+     — inspects the response's `errors` count even on a non-throwing 200; previously any
+       non-throw was treated as total success and every message in the chunk was marked
+       delivered in the worker's own local log, even ones Django had just reported losing
 ```
 
 Django `IngestionService`:
@@ -654,13 +703,35 @@ ingest_message / ingest_batch
 
 History-sync batch messages (`ingest_batch`) are still embedded but never classified or logged to `trading_ai_parsing_log` — they would all read as `too_old` and just add noise.
 
+**Silent message-loss audit and fixes (Phase 14):** triggered by a real report ("I don't see a contact's recent messages anywhere, not even the logs") that traced to a Signal-protocol decrypt failure for that one contact — Baileys decrypts internally *before* ever emitting `messages.upsert`, so a failure there never reaches `_buildPayload`/`_reportDropped` at all; the only trace was an unstructured line in `baileys-internal.log` nobody was watching. A full audit of the ingestion pipeline for the same *category* of bug (not just that one incident) found several more. All are now fixed at the root — every occurrence in each category gets a structured `WorkerAlert` (§6.7.1) or `DroppedMessage` (§6.7) row instead of only a raw log line:
+
+1. **Decrypt failures & handshake timeouts (live *and* history)** — `_createBaileysLogger` builds the socket's Baileys logger using pino's `hooks.logMethod`, which intercepts every log call *before* formatting/writing without touching the destination stream's contract at all. `_inspectBaileysLogArgs` matches `"failed to decrypt message"` → `alert_type=decrypt_failure`, `"unexpected error in 'init queries'"` → `handshake_timeout`, and any other error-level (≥50) Baileys log against neither pattern → `alert_type=other` (a catch-all, so a genuinely new failure type doesn't stay invisible either — this is literally how the original two patterns were found, by manually grepping). Every occurrence gets its own `WorkerAlert` immediately, never batched or thresholded. Since this is the same logger instance passed to `makeWASocket` for the whole connection, it covers history-sync decrypt failures too, not just live ones — Baileys uses one logger for everything.
+
+   *Also drives `connection_unhealthy`* (§17.2) as a separate, higher-level escalation: past 15 decrypt failures or 5 handshake timeouts since the last successful message (not a time window — a healthy session never accumulates these regardless of uptime), the session is flagged for the "needs re-link" UI banner, once, not re-alerted on every subsequent failure.
+
+   *Safety lesson baked into the implementation*, from the incident that preceded this fix (§17.2 has the full postmortem): the log-inspection code is wrapped in its own try/catch, so a bug in `_inspectBaileysLogArgs` can never take the actual Baileys log call down with it — verified in isolation (a standalone script exercising normal calls, error calls, and a deliberately-thrown bug inside the hook) before being wired into a live session.
+
+2. **`_forwardHistoryBatch` build failures** — now call `_reportDropped('history_build_error')` instead of only `logger.warn`, matching the live path's existing behavior. Also closes a live-traffic gap: reconnect-redelivered live messages route through this same function via the `'prepend'` branch, so this wasn't purely a history-sync issue.
+
+3. **Django batch-ingest per-message persistence failures** — previously only counted into an aggregate `error_count`, with a log line naming just the message ID (content unrecoverable). Now writes a `DroppedMessage` row with `reason='batch_persist_failed'` and the **full original payload** in `raw_key` (not the usual `msg.key` shape — the whole payload, so the content is recoverable even though the `WhatsAppMessage` row was never created), plus a `batch_partial_failure` `WorkerAlert` for the aggregate.
+
+4. **Worker blindly trusting a non-throwing batch response** — `sendMessageIngestBatch` can return HTTP 200 with `errors > 0` (some items in the batch failed to persist server-side); the worker used to treat any non-throw as total success and mark every message in that chunk `forward_status: 'success'` in its own local log. Now inspects `result.errors` and marks the chunk `partial_error` when nonzero, so the worker's own log doesn't contradict what Django just reported losing.
+
+5. **The drop-reporting safety net's own failure was invisible** — `sendDroppedMessage` (and the new `sendWorkerAlert`) used to log a failed report at `debug` level (invisible at the default `LOG_LEVEL=info`) with no other trace — meaning the mechanism built specifically to catch drops had a hole exactly when Django was already unreachable, i.e. exactly when things were already going wrong. Both now log at `warn` and fall back to a local `failed-reports.ndjson` file (`DjangoClient._writeFallback`) so the report survives even a full Django outage.
+
+6. **No process-level exception handler anywhere in the worker** — an exception inside an async Baileys event handler (`connection.update`, `messages.upsert`, `contacts.set`, etc.) had no top-level or process-level catch; whatever was in flight died to stderr, which isn't captured anywhere durable. `index.js` now registers `process.on('uncaughtException', ...)` / `process.on('unhandledRejection', ...)`, writing a durable `process-errors.ndjson` record and a best-effort `WorkerAlert` (`account=null` — no session context at this level). Deliberately does **not** call `process.exit()` the way Node's usual guidance recommends — this deployment's process supervision isn't something this fix controls, and an unexpected full-outage crash would itself be a new failure mode; the trade-off made here favors staying up and serving every other session over a clean-slate restart.
+
+   One concrete gap this closed: `jidNormalizedUser(c.id)` in the `contacts.set`/`contacts.upsert` handler sat *outside* the try/catch protecting the rest of that loop — one malformed contact entry aborted alias-mapping for every other contact in the same batch silently. Now wrapped per-contact, logs and skips just the bad one.
+
 **Cross-group broadcast dedup (`duplicate_broadcast`):** traders routinely post the identical WTB/WTS list to many different WhatsApp groups within minutes of each other. Before this check, every repost triggered its own full AI classification call. `_is_duplicate_group_broadcast(message)` in `ingestion_service.py` runs last in `_classify_skip_reason` (it's the most expensive check — a `pgvector` cosine-distance query — so cheaper skip reasons short-circuit first) and only applies to `GROUP`-type chats. It compares this message's embedding (already computed by the time this runs — embed always happens before classify in the same background thread) against embeddings of messages from **any** group/contact on the same account that already produced a genuine inquiry (`is_inquiry=True`) within the last hour. A cosine-similarity match ≥0.92 — the same bar `inquiry_service.py`'s same-contact layer-2 dedup already uses — skips this message with `skip_reason='duplicate_broadcast'` instead of spending another AI call on it. Deliberately **not** scoped to the same contact or the same group (a repost from a different sender into a different group still counts — that's the whole point), and fails open (proceeds to classify normally) if this message has no embedding yet, so a lagging embedding provider never silently drops a real inquiry.
 
 **Classification prompt context:** `classify_message` passes the sender's *existing* `whatsapp_contact.category` into the prompt (`"not set"` if blank) alongside the product master block (§6.8, now qty>0 filtered) — see §6.9 for the resulting `suggested_contact_category` output and §6.9's `match_type` field for the exact/near/null product-matching contract. Both are prompt-instruction-only mechanisms; no code-side matching or validation logic re-derives them (see below) — with one narrow exception (the self-consistency check, below).
 
+**Product retrieval (built, not wired in):** every active product gets a background-embedded vector (§6.5.1, `product_embedding`) the moment it's created or edited, ahead of an anticipated catalog-growth need rather than a current one. `find_similar_products()` can already do a cosine-distance top-K lookup, but the product master block passed into the classification prompt above is still the *full* text list, unfiltered by retrieval — with ~30 active products that's cheap and simple, and a real test confirms why retrieval alone isn't a substitute for the matching logic anyway: querying for "iPhone 17 Pro Max 256GB Orange Japan" put the wrong-color variants within a distance of 0.06–0.09 of the correct one (0.0134) — far too close to trust a similarity threshold to make the exact/near/null call. The intended future shape, once catalog size actually requires it: use `find_similar_products()` to narrow to the top-K candidates *before* building the prompt, then still hand only those (as text, same as now) to the AI for the precise attribute-by-attribute judgment — retrieval picks candidates, it doesn't replace the reasoning.
+
 **Frontend trust boundary:** `TradingView.vue` used to independently re-verify `match_type` with its own exact-string-name comparison (`isReliableMatch`) before trusting a matched product's price — this duplicated the same fuzzy-matching problem the AI is already paid to solve, with a strictly worse tool, and produced its own false positive (brand name written as a bare prefix, e.g. "Apple iPhone..." vs the catalog's brand-less "iPhone..."). `isReliableMatch` now does nothing but read `match_type !== 'near'` — the AI's verdict is authoritative; `stripBrandPrefix` remains only for cosmetic cleanup of the outgoing WhatsApp text, never for match verification. The same principle was later applied to `matchInventory()`: it used to fall back to a substring search over `canonical_name` whenever `product_id` was null, silently overriding the AI's own "no confident match" decision with a guessed one — it now does nothing but look up `product_id`, full stop.
 
-**Backend self-consistency check (`_validate_exact_matches`, `classification_service.py`):** despite repeated prompt hardening (§20 Phase 9, and further rounds this phase — see Phase 10), the AI periodically still asserts `match_type="exact"` for a `product_id` whose real catalog name contradicts what it wrote into `canonical_name` for the same product line (e.g. `canonical_name` says "Blue Japan", but the linked catalog entry is actually "Orange Japan"). This is **not** a re-match — the system never tries to find a different/better `product_id` itself, which would repeat the exact mistake the frontend trust-boundary fix above corrected. It only checks whether the AI's own two answers (the real name of the product it linked, vs. the `canonical_name` it wrote for that same line) agree word-for-word; if any word from the real catalog name is entirely absent from `canonical_name`, `match_type` is downgraded to `"near"` before the classification is saved. Runs once per classification, right before the `MessageClassification` row is created, so it protects both `MessageClassification.products` and `Inquiry.products` (the latter copies directly from the former). Fails safe — a catalog lookup error leaves `products` untouched rather than blocking classification.
+**Backend self-consistency check (`_validate_exact_matches`, `classification_service.py`):** despite repeated prompt hardening (§20 Phase 9, and further rounds — see Phase 10, 12), the AI periodically still asserts `match_type="exact"` for a `product_id` whose real catalog name contradicts what it wrote into `canonical_name` for the same product line (e.g. `canonical_name` says "Blue Japan", but the linked catalog entry is actually "Orange Japan"). This is **not** a re-match — the system never tries to find a different/better `product_id` itself, which would repeat the exact mistake the frontend trust-boundary fix above corrected. It only checks whether the AI's own two answers (the real name of the product it linked, vs. the `canonical_name` it wrote for that same line) agree word-for-word; if any word from the real catalog name is entirely absent from `canonical_name`, `match_type` is downgraded to `"near"` before the classification is saved. Runs once per classification, right before the `MessageClassification` row is created, so it protects both `MessageClassification.products` and `Inquiry.products` (the latter copies directly from the former). Fails safe — a catalog lookup error leaves `products` untouched rather than blocking classification. This check is now the confirmed safety net for the residual matching gaps documented in Phase 12 — verified directly (not assumed) to catch and downgrade every remaining wrong-`"exact"` case found during that consolidation's testing.
 
 See §6.9–6.10 for the classification/inquiry schema and the Trading Intelligence section below for the full pipeline.
 
@@ -761,6 +832,7 @@ Top nav is grouped into three hover dropdowns (`App.vue`) to keep the bar from o
 | `/activity` | Activity Log | under **Logs** | Sync log with filter by account/type, embedding status per event |
 | `/message-logs` | Message Logs | under **Logs** | Raw per-session worker log viewer |
 | `/dropped-messages` | Dropped Messages Log | under **Logs** | All messages the worker dropped, expandable raw key with `_msgKeys`; rows that later self-healed (§6.7 `resolved_at`) show a green "Recovered" badge |
+| `/worker-alerts` | Worker Alerts | under **Logs** | Structured record of worker-side failures (§6.7.1, §12) — decrypt failures, handshake timeouts, batch persistence failures, uncaught exceptions — filterable by account/type/acknowledged, with per-row and bulk acknowledge. The top nav's **Logs** dropdown carries a red unacknowledged-count badge (polled every 30s, `GET /api/worker-alerts/unacknowledged-count/`), visible from anywhere in the app without opening the dropdown — the "admin should be notified" requirement this screen exists to satisfy |
 | `/ai-parsing-log` | AI Parsing Log | under **Logs** | Every live message and whether it was sent for AI classification or skipped, and why (§6.13) — filterable by account/status/skip reason |
 | `/inquiries` | Inquiries | not in top nav (direct URL only) | Split-panel inquiry list + detail, status workflow (10 states, see §6.10), remarks |
 
@@ -815,19 +887,17 @@ Added 2026-07-04 after QR connections were observed hanging indefinitely with no
 
 **Surfacing to the UI:** `GET /sessions/:id/qr` (worker) returns HTTP 500 with `{error, status: 'error'}` whenever a session is in the error state, instead of an endless `202`. Django's `qr` view passes the status code straight through. `QRModal.vue`'s `poll()` no longer has a "keep polling silently" fallback for unrecognized errors — every failure path (404, 503, 500, or an unexpected network error) stops polling and shows an actionable message.
 
-### 17.2 Connection Health Detection (plumbing only — detection disabled, production incident 2026-07-11)
+### 17.2 Connection Health Detection (complete — see Phase 14 for the incident and safe reimplementation)
 
-**The problem this was meant to solve:** a session can report `connected` (and WhatsApp mobile shows the linked device as active) while its *local* copy of the Signal-protocol session is desynced enough that it can't decrypt anything, or WhatsApp's post-connect handshake keeps timing out — confirmed on a real account via `whatsapp-worker/message-logs/baileys-internal.log`: 570 "failed to decrypt message" errors and 61 "unexpected error in 'init queries'" timeouts over 5 days, with the account showing `connected` in the DB the entire time despite zero messages (live or history) actually flowing for the last ~36 hours of that window. Reconnecting doesn't fix this — it reuses the same corrupted local key state — only a fresh QR re-link (new Signal session) does.
+**The problem this solves:** a session can report `connected` (and WhatsApp mobile shows the linked device as active) while its *local* copy of the Signal-protocol session is desynced enough that it can't decrypt anything, or WhatsApp's post-connect handshake keeps timing out — confirmed on a real account via `whatsapp-worker/message-logs/baileys-internal.log`: 570 "failed to decrypt message" errors and 61 "unexpected error in 'init queries'" timeouts over 5 days, with the account showing `connected` in the DB the entire time despite zero messages (live or history) actually flowing for the last ~36 hours of that window. Reconnecting doesn't fix this — it reuses the same corrupted local key state — only a fresh QR re-link (new Signal session) does.
 
-**What was built:** `WhatsAppAccount.connection_unhealthy` / `_reason` / `_since` fields (migrations `0018`/`0019`, the latter converting `_reason` from `CharField(255)` to `TextField` after a real reason string exceeded 255 chars in testing), a `connection_unhealthy` payload field on the internal `session-status` endpoint (only ever touched when the worker explicitly includes it — a plain status ping never clears a prior flag), the same field surfaced on `sync-progress` and the account serializer, and a red "Connection needs attention" banner in `AccountCard.vue` that takes priority over the normal sync-progress states.
+**What's built:** `WhatsAppAccount.connection_unhealthy` / `_reason` / `_since` fields (migrations `0018`/`0019`, the latter converting `_reason` from `CharField(255)` to `TextField` after a real reason string exceeded 255 chars in testing), a `connection_unhealthy` payload field on the internal `session-status` endpoint (only ever touched when the worker explicitly includes it — a plain status ping never clears a prior flag), the same field surfaced on `sync-progress` and the account serializer, and a red "Connection needs attention" banner in `AccountCard.vue` that takes priority over the normal sync-progress states.
 
-**What broke it, and why:** the worker-side detection wrapped pino's file destination (`pino.destination(filePath)`, used for Baileys' internal `warn`-level logging) in a plain JS object implementing only `.write()`, to inspect each log line for the two error patterns above. Real pino destinations (`SonicBoom`) also implement `flushSync`, `flush`, `on`, `reopen`, `end`, and `destroy` — confirmed by direct inspection of the installed pino (`9.14.0`) destination object. Something in Baileys/pino's internals called one of the missing methods and threw with nothing to catch it, deep inside Baileys' own connection/logging pipeline — not caught by `_connect()`'s existing try/catch, which only wraps the *setup* code, not every subsequent internal Baileys operation that logs through the socket's logger for the life of the connection. Result: live sessions got stuck mid-flow and stopped responding to disconnect requests, on a running worker process that (since it's a plain `node index.js`, no `--watch`) kept the broken code loaded until manually restarted.
+**Detection** (`_createBaileysLogger` / `_inspectBaileysLogArgs`, `session-manager.js`) uses pino's `hooks.logMethod` — an interception point that fires on every log call *before* formatting/writing, without touching the destination stream at all. Past 15 decrypt failures or 5 handshake timeouts since the last successful message (not a time window), the session flips to `connection_unhealthy` once — not re-alerted on every subsequent failure — while every individual occurrence, regardless of whether the threshold has tripped, also gets its own `WorkerAlert` (§6.7.1, §12) immediately. Verified in isolation (mocked `SessionManager` + `djangoClient`, fed real captured log line shapes) before being wired into a live session: correct pattern matching, correct escalate-once-then-stop behavior, correct per-occurrence alerting continuing after the threshold trips.
 
-**The fix:** the destination-wrapping code was fully reverted and removed (not patched — removed, since it was never verified against pino's actual interface requirements in isolation first). The DB/API/UI plumbing above was left in place since it's inert and safe (nothing sets `connection_unhealthy=true` without a detection call site), ready for a real reimplementation.
+**This was broken once, on the first attempt (2026-07-11) — worth keeping as a concrete lesson:** the first implementation wrapped pino's file destination (`pino.destination(filePath)`) in a plain JS object implementing only `.write()`. Real pino destinations (`SonicBoom`) also implement `flushSync`, `flush`, `on`, `reopen`, `end`, and `destroy` — confirmed by direct inspection of the installed pino (`9.14.0`) destination object. Something in Baileys/pino's internals called one of the missing methods and threw with nothing to catch it, deep inside Baileys' own connection/logging pipeline — not caught by `_connect()`'s existing try/catch, which only wraps the *setup* code, not every subsequent internal Baileys operation that logs through the socket's logger for the life of the connection. Result: live sessions got stuck mid-flow and stopped responding to disconnect requests, on a running worker process that (since it's a plain `node index.js`, no `--watch`) kept the broken code loaded until manually restarted. That code was fully reverted and removed (not patched — removed, since it was never verified in isolation first) before the `hooks.logMethod` rebuild above, which **was** verified in isolation first, specifically because this incident happened.
 
-**How to reimplement this safely, next time:** do not wrap or replace pino's destination stream. Use pino's `hooks.logMethod` option instead — `pino({ level: 'warn', hooks: { logMethod(args, method, level) { /* inspect args here */ ; return method.apply(this, args) } } }, pino.destination(filePath))` — which is a supported, documented interception point that never touches the destination stream contract, leaving pino/Baileys' internal stream handling completely untouched. **Verify any change to this logger construction in isolation (a standalone `node -e` smoke test) before wiring it into a live session path** — this incident happened specifically because that verification step was skipped.
-
-A second, unrelated gap surfaced while debugging this incident: `apps/api/views.py`'s `disconnect` action used to be a pure proxy — if the worker replied 404 "Session not found" (which happens legitimately whenever the worker has no in-memory session for that ID, e.g. after the credentials-clearing logout flow above), Django relayed the 404 but left its own `session_status` untouched, permanently stuck at whatever it said before. This is now self-correcting: a 404 from the worker flips `session_status` to `disconnected` (unless already `logged_out`/`disconnected`) instead of leaving stale state with no working recovery path in the UI.
+A second, unrelated gap surfaced while debugging that incident: `apps/api/views.py`'s `disconnect` action used to be a pure proxy — if the worker replied 404 "Session not found" (which happens legitimately whenever the worker has no in-memory session for that ID, e.g. after the credentials-clearing logout flow above), Django relayed the 404 but left its own `session_status` untouched, permanently stuck at whatever it said before. This is now self-correcting: a 404 from the worker flips `session_status` to `disconnected` (unless already `logged_out`/`disconnected`) instead of leaving stale state with no working recovery path in the UI.
 
 ---
 
@@ -842,6 +912,16 @@ A second, unrelated gap surfaced while debugging this incident: `apps/api/views.
 ---
 
 ## 19. Migration History
+
+### message_intelligence
+
+| Migration | Description |
+|---|---|
+| 0001_initial | `message_embedding`, `message_analysis` tables |
+| 0002_embedding_vector_index | `ivfflat` cosine-distance index on `message_embedding.embedding` |
+| 0003_resize_embedding_to_512 | Resized embedding dimensions from 1536 to 512 (voyage-3-lite) |
+| 0004_productembedding | New `product_embedding` table (§6.5.1) |
+| 0005_product_embedding_vector_index | `ivfflat` cosine-distance index on `product_embedding.embedding` |
 
 ### whatsapp_bridge
 
@@ -864,8 +944,9 @@ A second, unrelated gap surfaced while debugging this incident: `apps/api/views.
 | 0015_droppedmessage_resolved_at_and_more | Added `resolved_at` to `whatsapp_dropped_message` + `(account, msg_id)` index |
 | 0016_whatsappcontact_category | Added `category` to contact (`supplier`/`customer`, blank default) |
 | 0017_alter_whatsappcontact_category | Added `both` to the `category` choices |
-| 0018_whatsappaccount_connection_unhealthy_and_more | Added `connection_unhealthy`, `connection_unhealthy_reason`, `connection_unhealthy_since` to account (§17.2 — plumbing only, detection disabled) |
+| 0018_whatsappaccount_connection_unhealthy_and_more | Added `connection_unhealthy`, `connection_unhealthy_reason`, `connection_unhealthy_since` to account (§17.2) |
 | 0019_alter_whatsappaccount_connection_unhealthy_reason | Converted `connection_unhealthy_reason` from `CharField(255)` to `TextField` — a real reason string exceeded 255 chars during testing |
+| 0020_workeralert | New `whatsapp_worker_alert` table (§6.7.1) |
 
 ### trading
 
@@ -977,7 +1058,27 @@ A second, unrelated gap surfaced while debugging this incident: `apps/api/views.
 - **Connection-health detection: built, caused a production incident, reverted** (§17.2 has the full writeup). Attempted to detect degraded WhatsApp sessions (repeated Signal-protocol decrypt failures / handshake timeouts — confirmed via `baileys-internal.log`: 570 decrypt failures and 61 handshake timeouts on one real account, "connected" in the DB the whole time despite receiving nothing for ~36 hours) by wrapping pino's log destination with an incomplete plain-object stream. Real pino destinations implement several methods (`flushSync`, `flush`, `on`, `reopen`, `end`, `destroy`) that the plain wrapper didn't — something called one of them and threw uncaught deep inside Baileys' internals, hanging live sessions and breaking their ability to disconnect. Reverted fully rather than patched; the DB/API/UI plumbing (`connection_unhealthy` fields, `sync-progress` response fields, the `AccountCard.vue` banner) was left in place since it's inert without a detection call site, ready for a safe reimplementation via pino's `hooks.logMethod` instead of destination-wrapping.
 - **Disconnect endpoint self-correction**: `POST /api/accounts/:id/disconnect/` used to relay the worker's response verbatim, including a 404 "Session not found," without ever correcting Django's own stale `session_status` — leaving an account permanently stuck showing a Disconnect button that could never succeed. Now flips `session_status` to `disconnected` automatically whenever the worker reports no session exists, verified by re-simulating the exact broken scenario (DB said `connected`, worker said 404 → DB now self-corrects to `disconnected`).
 
-### Phase 12 — ML Intelligence (planned)
+### Phase 12 — Prompt Consolidation (complete)
+- **Root cause**: after many rounds of incremental hardening (Phase 9, 10, 11), `INQUIRY_CLASSIFICATION_DEFAULT` had grown to 16,548 characters with substantial redundancy — three separate, overlapping sections independently re-explaining "check every attribute before calling it exact" (`CRITICAL EXACT-MATCH RULE`, `MANDATORY ENUMERATION STEP`, `MANDATORY SELF-CHECK`), several near-duplicate worked examples of the same underlying mistake, and multiple separate "forbidden inference" lists. This coincided with a fresh, severe regression: a real inquiry (6 requested iPhone variants, 5 of which existed in stock with exact catalog matches) came back with `product_id: null` on every single line — confirmed via direct testing that the AI could write the *correct* catalog name into `canonical_name` while still failing to link it, and a controlled single-item test showed the same model additionally mismatching a simple, unambiguous request (asked for Orange, linked to the Silver catalog entry, called it `"exact"`). Diagnosis: prompt bloat itself, not a missing rule, degrading basic instruction-following.
+- **Fix**: rewrote `INQUIRY_CLASSIFICATION_DEFAULT` down to a single consolidated 7-step `MATCHING PROCEDURE` (enumerate → score color/region → exact/near/null decision tree → self-check) replacing the three overlapping sections, condensed the SIM-type hint/exclusion rules into one section, and cut redundant worked examples down to one per concept. Net: **7,945 characters** for the rewrite (before a further reinforcement below), roughly half the original — same rule coverage, no rule dropped.
+- **Regression found during verification, fixed same session**: re-testing against every documented failure case from Phase 9–11 (UAE-vs-USA, HK-vs-UAE, unrecognized region, bare digit, bare model code, plus the fresh 6-item and single-item cases) showed most were now fixed, but surfaced a new one: in genuinely ambiguous "two candidates, each off by a different attribute" cases, the model was silently rewriting `canonical_name` to match whichever candidate it leaned toward instead of preserving the original request — worse than the original bug in that specific way, since `canonical_name` integrity is meant to be inviolable regardless of match outcome. Fixed by adding an explicit standing rule at the top of `MATCHING PROCEDURE` ("canonical_name is a transcript of what the sender wrote, never of whichever catalog entry you end up picking or rejecting") plus a concrete worked example matching the exact failure pattern. Re-verified: `canonical_name` preservation held on retest for both cases; the underlying match_type still isn't 100% reliable on this specific two-candidates-same-attribute-different-values sub-case (a gap not fully covered by the existing rule set), but every residual case was confirmed to get caught and downgraded from `"exact"` to `"near"` by the existing `_validate_exact_matches` backend safety net (§12) before ever reaching the database — verified directly, not assumed.
+- **Net effect**: shorter, less redundant prompt; the 6-item null-everything regression is fixed; no case tested resulted in a false-confident `"exact"` or a silently corrupted `canonical_name` reaching the frontend, whether from the prompt's own correctness or the backend safety net catching what it doesn't.
+
+### Phase 13 — Product Embedding Infrastructure (complete, not yet load-bearing)
+- New `product_embedding` table (§6.5.1) and `embed_product`/`embed_products_batch`/`find_similar_products` in `apps/message_intelligence/services/embedding_service.py`, mirroring the existing message-embedding pattern exactly (same background-thread, fire-and-forget approach; a provider hiccup never blocks a product save).
+- Wired into `ProductViewSet.perform_create`/`perform_update`/`bulk_create` (`apps/trading/views.py`) so every product gets embedded the moment it's created or edited — built ahead of an anticipated catalog-growth need, not because the current ~30-product catalog requires it.
+- Backfilled all existing active products (30/30, zero errors).
+- **Deliberately not wired into classification** (§12, "Product retrieval"): confirmed via direct testing that embedding similarity alone isn't precise enough to make the exact/near/null call itself — querying for a specific color+region variant put the *wrong*-color/region variants within 0.06–0.09 cosine distance of the correct one (0.0134), far too close to trust a threshold. This infrastructure exists so that when the catalog does grow large enough that sending the full text list becomes impractical, retrieval can narrow to top-K candidates *before* prompt-building — the AI still does the final precise attribute comparison on that narrowed text list, same as today.
+
+### Phase 14 — Silent Message-Loss Audit & Worker Alerts (complete)
+- **Root cause**: a real report of a contact's recent messages not appearing anywhere — not even the drop log — traced to a Signal-protocol decrypt failure for that one contact's session. Baileys decrypts internally *before* ever emitting `messages.upsert`, so a failure there never reaches `_buildPayload`/`_reportDropped`; the only trace was an unstructured line in `baileys-internal.log` nobody was watching. Requested: a full audit for the same *category* of bug across the whole ingestion pipeline, and a root-cause fix — not a fix for that one contact's record.
+- **Audit** (background agent, read-only) found the decrypt blind spot applies identically to history-sync messages (same Baileys logger, same mechanism), plus: `_forwardHistoryBatch` silently skipping build failures with no `DroppedMessage` row (also affects reconnect-redelivered live messages via the `'prepend'` branch); Django batch-ingest losing message content on a per-item persistence failure with only an aggregate error count; the worker blindly marking an entire batch chunk "delivered" even when Django's response reported partial failures; the drop-reporting safety net itself failing silently at `debug` log level when Django was unreachable; no process-level exception handler anywhere in the worker; and one concrete instance of it (`jidNormalizedUser` outside a protecting try/catch in the contacts handler, silently losing alias mappings for an entire batch on one malformed entry).
+- **New `whatsapp_worker_alert` table** (§6.7.1): a structured, queryable, UI-visible record for this whole class of failure, populated immediately per-occurrence (not thresholded/batched) — the direct fix for "should not fail silently, a log should be created."
+- **Decrypt/handshake detection rebuilt safely**, learning directly from the pino-destination-wrapping incident that broke production earlier this same investigation (§17.2 has the full postmortem): uses pino's `hooks.logMethod` instead, which intercepts log calls without ever touching the destination stream contract. Verified in isolation — mocked `SessionManager`, fed real captured log line shapes, confirmed correct pattern matching and correct once-only threshold escalation — before being wired into the live session path.
+- **Six other fixes**, each verified individually against a real or simulated failure, not just reasoned about: history-batch build failures now report `history_build_error`; Django batch-persist failures now preserve the full original payload in `DroppedMessage.raw_key` and raise a `batch_partial_failure` alert; the worker now inspects batch-response error counts instead of assuming any non-throw means full delivery; `sendDroppedMessage`/`sendWorkerAlert` now log failures at `warn` (not `debug`) and fall back to a local `failed-reports.ndjson` file when Django is unreachable; `index.js` now has `uncaughtException`/`unhandledRejection` handlers writing a durable `process-errors.ndjson` record (deliberately not crashing the process — see §17.2 for the reasoning); the contacts handler's `jidNormalizedUser` call is now wrapped per-contact instead of aborting the whole batch.
+- **New Worker Alerts screen** (§16, `/worker-alerts`) plus a red unacknowledged-count badge on the top nav's **Logs** dropdown, polled every 30s — visible from anywhere in the app, satisfying "admin should be notified" without requiring anyone to already know to look for it.
+
+### Phase 15 — ML Intelligence (planned)
 - Lead scoring
 - ERP product master integration / two-way sync
 - Cross-account analytics rollups

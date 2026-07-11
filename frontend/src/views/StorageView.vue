@@ -2,6 +2,11 @@
 import { ref, computed, onMounted } from 'vue'
 import { accountsApi, embeddingsApi } from '@/api'
 
+// The <Teleport> below makes this a multi-root template, so Vue can't auto-inherit
+// attrs (e.g. the router's class="h-full") onto a single element — bind them
+// explicitly onto the real visual root div instead.
+defineOptions({ inheritAttrs: false })
+
 // ─── state ────────────────────────────────────────────────────────────────────
 const accounts = ref([])
 const stats    = ref({})   // { [accountId]: { db, media, error? } }
@@ -274,7 +279,7 @@ async function globalDeleteMedia() {
 </script>
 
 <template>
-  <div class="h-full w-full overflow-y-auto bg-gray-50">
+  <div class="h-full w-full overflow-y-auto bg-gray-50" v-bind="$attrs">
     <div class="max-w-4xl mx-auto px-6 py-8">
 
       <!-- ── Page header ── -->

@@ -40,6 +40,11 @@ urlpatterns = [
         name='internal-dropped-message',
     ),
     path(
+        'api/internal/whatsapp/worker-alert/',
+        views.internal_worker_alert,
+        name='internal-worker-alert',
+    ),
+    path(
         'api/internal/whatsapp/group-update/',
         views.internal_group_update,
         name='internal-group-update',

@@ -8,6 +8,7 @@ import StorageView          from '../views/StorageView.vue'
 import MessageLogsView      from '../views/MessageLogsView.vue'
 import AIProvidersView      from '../views/AIProvidersView.vue'
 import DroppedMessagesView  from '../views/DroppedMessagesView.vue'
+import WorkerAlertsView     from '../views/WorkerAlertsView.vue'
 import AiParsingLogView     from '../views/AiParsingLogView.vue'
 import ContactsView         from '../views/ContactsView.vue'
 import GroupsView           from '../views/GroupsView.vue'
@@ -29,6 +30,7 @@ const router = createRouter({
     { path: '/message-logs', name: 'message-logs', component: MessageLogsView },
     { path: '/ai-providers', name: 'ai-providers', component: AIProvidersView },
     { path: '/dropped-messages', name: 'dropped-messages', component: DroppedMessagesView },
+    { path: '/worker-alerts', name: 'worker-alerts', component: WorkerAlertsView },
     { path: '/ai-parsing-log', name: 'ai-parsing-log', component: AiParsingLogView },
     { path: '/contacts', name: 'contacts', component: ContactsView },
     { path: '/groups', name: 'groups', component: GroupsView },

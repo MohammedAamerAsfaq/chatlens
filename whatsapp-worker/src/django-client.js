@@ -1,10 +1,13 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const axios = require('axios');
 
 class DjangoClient {
-  constructor({ baseUrl, token, logger }) {
+  constructor({ baseUrl, token, logger, logsDir = null }) {
     this.logger = logger;
+    this.logsDir = logsDir;
     this.http = axios.create({
       baseURL: baseUrl,
       headers: {
@@ -13,6 +16,23 @@ class DjangoClient {
       },
       timeout: 10000,
     });
+  }
+
+  // Last-resort local record for the two safety-net reports (dropped messages,
+  // worker alerts) when Django itself can't be reached — the exact moment those
+  // reports matter most is when something is already going wrong, so their own
+  // failure path must not be a second silent hole. Best-effort: if even this
+  // write fails (disk full, permissions), there is nothing further to fall back
+  // to, but that failure is itself logged at 'error', never swallowed.
+  _writeFallback(kind, payload) {
+    if (!this.logsDir) return;
+    try {
+      const filePath = path.join(this.logsDir, 'failed-reports.ndjson');
+      const line = { ts: new Date().toISOString(), kind, payload };
+      fs.appendFileSync(filePath, JSON.stringify(line) + '\n', 'utf8');
+    } catch (err) {
+      this.logger.error({ kind, err: err.message }, 'Failed to write local fallback report — report is fully lost');
+    }
   }
 
   async sendSessionStatus(sessionId, fields) {
@@ -83,14 +103,25 @@ class DjangoClient {
   }
 
   async sendDroppedMessage(sessionId, fields) {
+    const payload = { worker_session_id: sessionId, ...fields };
     try {
-      await this.http.post('/api/internal/whatsapp/dropped-message/', {
-        worker_session_id: sessionId,
-        ...fields,
-      });
+      await this.http.post('/api/internal/whatsapp/dropped-message/', payload);
     } catch (err) {
-      // fire-and-forget — log at debug so this never spams error output
-      this.logger.debug({ sessionId, reason: fields.reason, err: err.message }, 'sendDroppedMessage failed');
+      // This is the safety net for lost messages — its own failure must be loud,
+      // not debug-level noise nobody sees, and must not be the second silent hole
+      // on top of whatever already went wrong.
+      this.logger.warn({ sessionId, reason: fields.reason, err: err.message }, 'sendDroppedMessage failed — falling back to local file');
+      this._writeFallback('dropped_message', payload);
+    }
+  }
+
+  async sendWorkerAlert(sessionId, fields) {
+    const payload = { worker_session_id: sessionId, ...fields };
+    try {
+      await this.http.post('/api/internal/whatsapp/worker-alert/', payload);
+    } catch (err) {
+      this.logger.warn({ sessionId, alertType: fields.alert_type, err: err.message }, 'sendWorkerAlert failed — falling back to local file');
+      this._writeFallback('worker_alert', payload);
     }
   }
 

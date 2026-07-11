@@ -9,7 +9,7 @@ from .services.ingestion_service import IngestionService
 from .services.session_service import SessionService
 from .models import (
     WhatsAppAccount, WhatsAppContact, WhatsAppChat, SyncLog, DroppedMessage,
-    WhatsAppGroup, WhatsAppGroupParticipant, ParticipantRole,
+    WhatsAppGroup, WhatsAppGroupParticipant, ParticipantRole, WorkerAlert,
 )
 
 logger = logging.getLogger(__name__)
@@ -460,4 +460,46 @@ def internal_dropped_message(request):
         return JsonResponse({'error': 'Account not found'}, status=404)
     except Exception as e:
         logger.exception('Error in internal_dropped_message')
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def internal_worker_alert(request):
+    """
+    Root-cause fix for silent worker-side failures (decrypt errors, handshake
+    timeouts, skipped history messages, batch persistence failures, uncaught
+    exceptions, etc.) — every occurrence lands here as a structured, queryable,
+    UI-visible record instead of only existing as a raw log line. account is
+    optional: some failures (an uncaught exception with no session context) may
+    not have one to attach.
+    """
+    if not _verify_internal_token(request):
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    alert_type = payload.get('alert_type')
+    if not alert_type:
+        return JsonResponse({'error': 'Missing alert_type'}, status=400)
+
+    account = None
+    worker_session_id = payload.get('worker_session_id')
+    if worker_session_id:
+        account = WhatsAppAccount.objects.filter(pk=worker_session_id).first()
+
+    try:
+        WorkerAlert.objects.create(
+            account=account,
+            alert_type=alert_type,
+            severity=payload.get('severity') or 'warning',
+            message=payload.get('message') or '',
+            context=payload.get('context') or None,
+        )
+        return JsonResponse({'success': True})
+    except Exception as e:
+        logger.exception('Error in internal_worker_alert')
         return JsonResponse({'error': str(e)}, status=500)

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact, SyncLog, DroppedMessage,
-    WhatsAppGroup, WhatsAppGroupParticipant,
+    WhatsAppGroup, WhatsAppGroupParticipant, WorkerAlert,
 )
 
 
@@ -154,6 +154,22 @@ class DroppedMessageSerializer(serializers.ModelSerializer):
                   'from_me', 'has_message', 'reason', 'raw_key', 'created_at', 'resolved_at']
 
     def get_account_name(self, obj):
+        return obj.account.display_name or obj.account.phone_number or f'Account #{obj.account.pk}'
+
+
+class WorkerAlertSerializer(serializers.ModelSerializer):
+    account_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WorkerAlert
+        fields = ['id', 'account', 'account_name', 'alert_type', 'severity', 'message',
+                  'context', 'created_at', 'acknowledged_at', 'acknowledged_by']
+        read_only_fields = ['id', 'account', 'account_name', 'alert_type', 'severity',
+                             'message', 'context', 'created_at', 'acknowledged_by']
+
+    def get_account_name(self, obj):
+        if not obj.account:
+            return ''
         return obj.account.display_name or obj.account.phone_number or f'Account #{obj.account.pk}'
 
 

@@ -6,7 +6,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from ..models import (
     WhatsAppAccount, WhatsAppContact, WhatsAppChat,
-    WhatsAppMessage, ChatType, SyncLog, DroppedMessage,
+    WhatsAppMessage, ChatType, SyncLog, DroppedMessage, WorkerAlert,
 )
 
 
@@ -310,6 +310,26 @@ class IngestionService:
                     'Batch ingest error for msg %s: %s',
                     payload.get('provider_message_id'), e,
                 )
+                # The worker successfully delivered this message — if we fail to persist
+                # it, the only record must not be a log line naming just the ID, with the
+                # actual content gone. Store the full payload (not just raw_key's usual
+                # msg.key shape) so the content is recoverable, same DroppedMessage table
+                # the drop-log UI already reads.
+                try:
+                    DroppedMessage.objects.create(
+                        account=account,
+                        msg_id=payload.get('provider_message_id') or None,
+                        raw_jid=payload.get('chat_id') or None,
+                        from_me=payload.get('direction') == 'outbound',
+                        has_message=True,
+                        reason='batch_persist_failed',
+                        raw_key={'payload': payload, 'error': str(e)},
+                    )
+                except Exception:
+                    logger.exception(
+                        'Failed to record batch_persist_failed drop for msg %s — content is now unrecoverable',
+                        payload.get('provider_message_id'),
+                    )
 
         sync_log = SyncLog.objects.create(
             account=account,
@@ -324,6 +344,23 @@ class IngestionService:
                 'is_latest': is_latest,
             },
         )
+
+        if error_count:
+            # No round-trip needed — Django can write its own WorkerAlert directly. The
+            # per-message DroppedMessage rows above hold the content; this is the
+            # aggregate signal that shows up in the same alert list/badge as worker-side
+            # failures, since a batch that's silently 3-errors-out-of-100 is exactly the
+            # kind of thing "admin should be notified" was about.
+            try:
+                WorkerAlert.objects.create(
+                    account=account,
+                    alert_type='batch_partial_failure',
+                    severity='error',
+                    message=f'{error_count} of {len(payloads)} messages in a history/live batch failed to persist',
+                    context={'total': len(payloads), 'errors': error_count, 'sync_log_id': sync_log.pk},
+                )
+            except Exception:
+                logger.exception('Failed to record batch_partial_failure WorkerAlert')
 
         if new_message_ids:
             _embed_in_background(new_message_ids, sync_log_id=sync_log.pk)

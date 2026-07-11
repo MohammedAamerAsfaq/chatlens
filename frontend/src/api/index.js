@@ -99,6 +99,13 @@ export const droppedApi = {
   clearAll: (params) => http.post('/dropped-messages/clear-all/', {}, { params }),
 }
 
+export const workerAlertsApi = {
+  list:               (params) => http.get('/worker-alerts/', { params }),
+  unacknowledgedCount: ()      => http.get('/worker-alerts/unacknowledged-count/'),
+  acknowledge:        (id)     => http.post(`/worker-alerts/${id}/acknowledge/`),
+  acknowledgeAll:     (params) => http.post('/worker-alerts/acknowledge-all/', {}, { params }),
+}
+
 export const groupsApi = {
   list:         (params)    => http.get('/groups/', { params }),
   get:          (id)        => http.get(`/groups/${id}/`),

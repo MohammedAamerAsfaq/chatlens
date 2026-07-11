@@ -25,6 +25,7 @@ const djangoClient = new DjangoClient({
   baseUrl: DJANGO_BASE_URL,
   token: INTERNAL_API_TOKEN,
   logger,
+  logsDir: MESSAGE_LOGS_PATH,
 });
 
 const messageLogger = new MessageLogger(MESSAGE_LOGS_PATH);
@@ -35,6 +36,49 @@ const sessionManager = new SessionManager({
   messageLogger,
   logger,
 });
+
+// Root-cause fix for "an exception inside an async Baileys event handler dies with
+// no persistent trace" — there was no top-level or process-level catch anywhere, so
+// whatever was in flight when a handler threw was lost to stderr, which isn't
+// captured anywhere durable. This can't identify which specific message/contact was
+// in flight (Node doesn't expose that), but it makes the failure itself loud and
+// durable instead of invisible — a fs.appendFileSync write (synchronous, so it
+// completes before we decide whether to exit) plus a best-effort WorkerAlert.
+//
+// Deliberately NOT calling process.exit() here, unlike Node's usual uncaughtException
+// guidance (crash and let a supervisor restart you) — this deployment's process
+// management isn't something this fix controls, and an unexpected full-outage crash
+// is itself a new failure mode we don't want to introduce sight-unseen. This trades
+// "the process might now be in a slightly undefined state" for "it keeps serving
+// every other session instead of going dark," which is the safer default here.
+function _handleFatalProcessError(kind, err) {
+  const detail = {
+    kind,
+    message: err?.message || String(err),
+    stack: err?.stack || null,
+    ts: new Date().toISOString(),
+  };
+  try {
+    const fs = require('fs');
+    const filePath = path.join(MESSAGE_LOGS_PATH, 'process-errors.ndjson');
+    fs.appendFileSync(filePath, JSON.stringify(detail) + '\n', 'utf8');
+  } catch (writeErr) {
+    // stderr is the last resort if even the durable write fails
+    console.error('Failed to write process-errors.ndjson', writeErr);
+  }
+  logger.error(detail, `Process-level ${kind} — see process-errors.ndjson`);
+  try {
+    djangoClient.sendWorkerAlert(null, {
+      alert_type: 'uncaught_exception',
+      severity: 'error',
+      message: `${kind}: ${detail.message}`,
+      context: { stack: detail.stack },
+    });
+  } catch { /* best-effort — the local file write above is the durable record either way */ }
+}
+
+process.on('uncaughtException', (err) => _handleFatalProcessError('uncaughtException', err));
+process.on('unhandledRejection', (reason) => _handleFatalProcessError('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason))));
 
 const app = express();
 app.use(express.json());

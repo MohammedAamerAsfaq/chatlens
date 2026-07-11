@@ -1,16 +1,37 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useConversationsStore } from '@/stores/conversations'
 import { useAuthStore } from '@/stores/auth.js'
+import { workerAlertsApi } from '@/api'
 
 const route  = useRoute()
 const router = useRouter()
 const store  = useConversationsStore()
 const auth   = useAuthStore()
 
-const LOG_ROUTES = ['activity', 'message-logs', 'dropped-messages', 'ai-parsing-log']
+const LOG_ROUTES = ['activity', 'message-logs', 'dropped-messages', 'worker-alerts', 'ai-parsing-log']
 const isLogsActive = computed(() => LOG_ROUTES.includes(route.name))
+
+// Nav-level visibility for worker alerts ("admin should be notified") — a badge that's
+// visible from anywhere in the app, not just when someone happens to open the Logs
+// dropdown and click through to the page.
+const unacknowledgedAlerts = ref(0)
+let alertPollTimer = null
+
+async function fetchUnacknowledgedCount() {
+  if (!auth.user) return
+  try {
+    const { data } = await workerAlertsApi.unacknowledgedCount()
+    unacknowledgedAlerts.value = data.count
+  } catch { /* non-critical — badge just won't update this cycle */ }
+}
+
+onMounted(() => {
+  fetchUnacknowledgedCount()
+  alertPollTimer = setInterval(fetchUnacknowledgedCount, 30000)
+})
+onUnmounted(() => clearInterval(alertPollTimer))
 
 const LIST_ROUTES = ['contacts', 'groups', 'products']
 const isListsActive = computed(() => LIST_ROUTES.includes(route.name))
@@ -68,6 +89,11 @@ async function handleLogout() {
       <div class="relative group">
         <button type="button" class="nav-link flex items-center gap-1" :class="{ 'nav-link-active': isLogsActive }">
           Logs
+          <span
+            v-if="unacknowledgedAlerts > 0"
+            class="bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none"
+            :title="`${unacknowledgedAlerts} unacknowledged worker alert${unacknowledgedAlerts !== 1 ? 's' : ''}`"
+          >{{ unacknowledgedAlerts > 99 ? '99+' : unacknowledgedAlerts }}</span>
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
           </svg>
@@ -76,6 +102,12 @@ async function handleLogout() {
           <RouterLink to="/activity"          class="dropdown-item" active-class="dropdown-item-active">Activity</RouterLink>
           <RouterLink to="/message-logs"      class="dropdown-item" active-class="dropdown-item-active">Message Logs</RouterLink>
           <RouterLink to="/dropped-messages"  class="dropdown-item" active-class="dropdown-item-active">Dropped</RouterLink>
+          <RouterLink to="/worker-alerts" class="dropdown-item flex items-center justify-between" active-class="dropdown-item-active">
+            Worker Alerts
+            <span v-if="unacknowledgedAlerts > 0" class="bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none ml-2">
+              {{ unacknowledgedAlerts > 99 ? '99+' : unacknowledgedAlerts }}
+            </span>
+          </RouterLink>
           <RouterLink to="/ai-parsing-log"    class="dropdown-item" active-class="dropdown-item-active">AI Parsing Log</RouterLink>
         </div>
       </div>
