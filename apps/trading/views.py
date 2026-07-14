@@ -376,11 +376,15 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='search-embeddings')
     def search_embeddings(self, request):
-        """Embedding-based fallback product search for the trading dashboard's "Auto"
-        match-fix button — only called client-side after a direct name/alias search
-        over the already-loaded catalog comes up empty (e.g. a garbled or oddly-phrased
-        request an exact/substring check can't catch). This only narrows candidates for
-        a human to confirm; it never applies a match on its own.
+        """Embedding-based product search — multi-vector (product name + every alias,
+        §6.8.1), so a query in any word order or phrasing can match. Two callers as of
+        this writing: the trading dashboard's "Auto" match-fix button (only called
+        client-side after a direct name/alias search over the loaded catalog comes up
+        empty, and never applies a match on its own — just narrows candidates for a
+        human to confirm) and the Products page's standalone "Smart Search" box (a
+        dedicated search feature, not a matching aid). `top_k` defaults to 5 to match
+        the original caller's behavior unchanged; pass a higher value for a fuller
+        result list.
         """
         from apps.message_intelligence.services.embedding_service import find_similar_products
 
@@ -389,7 +393,13 @@ class ProductViewSet(viewsets.ModelViewSet):
             return Response({'results': []})
 
         try:
-            hits = find_similar_products(query, top_k=5)
+            top_k = int(request.query_params.get('top_k', 5))
+        except (TypeError, ValueError):
+            top_k = 5
+        top_k = max(1, min(top_k, 20))
+
+        try:
+            hits = find_similar_products(query, top_k=top_k)
         except Exception as exc:
             logger.warning(f'search_embeddings | query={query!r} failed: {exc}')
             return Response({'detail': 'Embedding search unavailable'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)

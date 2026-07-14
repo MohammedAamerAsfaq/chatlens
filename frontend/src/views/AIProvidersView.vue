@@ -33,7 +33,10 @@ function emptyForm() {
     model: '',
     base_url: '',
     is_active: false,
+    rate_limit_rpm: '',
+    rate_limit_tpm: '',
     _editId: null,
+    _existingExtraConfig: {},
   }
 }
 
@@ -83,6 +86,7 @@ function openCreate() {
 }
 
 function openEdit(p) {
+  const extra = p.extra_config || {}
   form.value = {
     display_name: p.display_name,
     provider:     p.provider,
@@ -91,7 +95,10 @@ function openEdit(p) {
     model:        p.model,
     base_url:     p.base_url || '',
     is_active:    p.is_active,
+    rate_limit_rpm: extra.rate_limit_rpm ?? '',
+    rate_limit_tpm: extra.rate_limit_tpm ?? '',
     _editId:      p.id,
+    _existingExtraConfig: extra,
   }
   liveModels.value = []
   liveModelSource.value = ''
@@ -151,7 +158,15 @@ async function save() {
   saving.value    = true
   saveError.value = ''
   try {
-    const { _editId, ...payload } = form.value
+    const { _editId, _existingExtraConfig, rate_limit_rpm, rate_limit_tpm, ...payload } = form.value
+    // Merge into whatever this config's extra_config already held (e.g. agent pricing) —
+    // extra_config is a single JSON blob server-side, a plain assignment would otherwise
+    // silently wipe out unrelated settings already stored there.
+    payload.extra_config = {
+      ...(_existingExtraConfig || {}),
+      rate_limit_rpm: rate_limit_rpm === '' ? null : Number(rate_limit_rpm),
+      rate_limit_tpm: rate_limit_tpm === '' ? null : Number(rate_limit_tpm),
+    }
     // On edit, only include api_key if the user filled it in
     if (modalMode.value === 'edit' && !payload.api_key) {
       delete payload.api_key
@@ -401,6 +416,27 @@ function capabilityBadge(cap) {
               <input v-model="form.base_url" type="url"
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 placeholder="https://api.voyageai.com/v1" />
+            </div>
+
+            <div class="border border-gray-200 rounded-lg p-3">
+              <div class="text-sm font-medium text-gray-700 mb-1">Rate Limiting <span class="text-gray-400 font-normal">(optional)</span></div>
+              <p class="text-xs text-gray-500 mb-3">
+                Throttles requests to this provider so calls wait their turn instead of failing with a 429 —
+                match it to your plan tier (e.g. a free-tier key), then raise or clear it here the moment you upgrade billing.
+                Leave blank for no limit.
+              </p>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 mb-1">Requests / minute</label>
+                  <input v-model="form.rate_limit_rpm" type="number" min="0" placeholder="no limit"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 mb-1">Tokens / minute</label>
+                  <input v-model="form.rate_limit_tpm" type="number" min="0" placeholder="no limit"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+                </div>
+              </div>
             </div>
 
             <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">

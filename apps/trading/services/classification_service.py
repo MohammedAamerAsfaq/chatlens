@@ -185,6 +185,26 @@ def _validate_exact_matches(products: list) -> list:
     return products
 
 
+def validate_category_suggestion(suggestion: str, contact) -> str:
+    """
+    Self-consistency guard, not a re-derivation — same philosophy as
+    _validate_exact_matches above. "both" already covers every direction a suggestion
+    could nudge toward (supplier and customer), so per the prompt's own instructions
+    it's a final state with nothing left to suggest. Confirmed in production data that
+    the agent doesn't reliably follow this: 154 MessageClassification rows and 129
+    Inquiry rows were found suggesting a change (including outright downgrades to
+    "customer"/"supplier") away from a contact already marked "both". This never
+    invents or changes *which* category to suggest — it only enforces the one rule the
+    prompt already claims to follow, so a stray suggestion can't offer to undo an
+    already-final categorization.
+    """
+    if not suggestion or not contact:
+        return suggestion
+    if contact.category == 'both':
+        return ''
+    return suggestion
+
+
 def classify_message(message) -> None:
     """
     Classify a single WhatsAppMessage and persist a MessageClassification record.
@@ -231,6 +251,9 @@ def classify_message(message) -> None:
         return
 
     parsed['products'] = _validate_exact_matches(parsed['products'])
+    parsed['contact_category_suggestion'] = validate_category_suggestion(
+        parsed['contact_category_suggestion'], message.contact,
+    )
 
     classification = MessageClassification.objects.create(
         message      = message,

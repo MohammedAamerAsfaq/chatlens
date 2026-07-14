@@ -1,4 +1,5 @@
 import logging
+from . import rate_limiter
 from .models import AIProviderConfig
 from .providers.voyage import VoyageEmbeddingProvider
 from .providers.openai_provider import OpenAIEmbeddingProvider, OpenAIChatProvider
@@ -81,28 +82,51 @@ class AIManager:
     (and deactivate the previous one) — no code changes required.
     """
 
-    def _active(self, capability: str):
+    def _active_config(self, capability: str) -> AIProviderConfig:
         try:
-            config = AIProviderConfig.objects.get(capability=capability, is_active=True)
+            return AIProviderConfig.objects.get(capability=capability, is_active=True)
         except AIProviderConfig.DoesNotExist:
             raise RuntimeError(
                 f'No active {capability} provider configured. '
                 'Add one in AI Providers settings.'
             )
-        return build_provider(config)
+
+    def _active(self, capability: str):
+        return build_provider(self._active_config(capability))
+
+    def _throttle(self, config: AIProviderConfig, tokens_needed: int):
+        """Blocks until this config's own configured rate limit (AI Providers screen →
+        extra_config.rate_limit_rpm/rate_limit_tpm) allows another request. A no-op for
+        any config that hasn't had a limit set — existing/default behavior unchanged.
+        Keyed by config id, not provider name, so every caller sharing the same active
+        config (live message embeds, product embeds, alias embeds) draws from one real
+        shared quota instead of racing independently for the same provider-side limit."""
+        extra = config.extra_config or {}
+        rate_limiter.acquire(
+            config_id=config.id,
+            rpm=extra.get('rate_limit_rpm'),
+            tpm=extra.get('rate_limit_tpm'),
+            tokens_needed=tokens_needed,
+        )
 
     # ── Embedding ──────────────────────────────────────────────────────────────
 
     def embed(self, text: str) -> list:
-        return self._active(AIProviderConfig.CAPABILITY_EMBEDDING).embed(text)
+        config = self._active_config(AIProviderConfig.CAPABILITY_EMBEDDING)
+        self._throttle(config, rate_limiter.estimate_tokens(text))
+        return build_provider(config).embed(text)
 
     def embed_batch(self, texts: list) -> list:
-        return self._active(AIProviderConfig.CAPABILITY_EMBEDDING).embed_batch(texts)
+        config = self._active_config(AIProviderConfig.CAPABILITY_EMBEDDING)
+        self._throttle(config, sum(rate_limiter.estimate_tokens(t) for t in texts))
+        return build_provider(config).embed_batch(texts)
 
     # ── Chat ───────────────────────────────────────────────────────────────────
 
     def chat(self, messages: list, **kwargs) -> str:
-        return self._active(AIProviderConfig.CAPABILITY_CHAT).chat(messages, **kwargs)
+        config = self._active_config(AIProviderConfig.CAPABILITY_CHAT)
+        self._throttle(config, sum(rate_limiter.estimate_tokens(m.get('content', '')) for m in messages))
+        return build_provider(config).chat(messages, **kwargs)
 
     # ── Agent ──────────────────────────────────────────────────────────────────
     # Same interface as chat but routed to the active agent provider — typically
@@ -110,7 +134,9 @@ class AIManager:
     # summarisation) independently of the user-facing chat model.
 
     def agent(self, messages: list, **kwargs) -> str:
-        return self._active(AIProviderConfig.CAPABILITY_AGENT).chat(messages, **kwargs)
+        config = self._active_config(AIProviderConfig.CAPABILITY_AGENT)
+        self._throttle(config, sum(rate_limiter.estimate_tokens(m.get('content', '')) for m in messages))
+        return build_provider(config).chat(messages, **kwargs)
 
     # ── Utility ────────────────────────────────────────────────────────────────
 

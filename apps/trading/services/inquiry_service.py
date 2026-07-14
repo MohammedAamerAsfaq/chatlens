@@ -111,9 +111,16 @@ def process_inquiry(message, classification) -> None:
     if not existing:
         existing = _layer2_match(account, contact, message)
 
+    # Re-checked here too (classification_service.py already guards this at save time)
+    # since this resolves its own `contact` independently via _resolve_contact rather
+    # than reusing message.contact — belt-and-suspenders for the one rule that matters:
+    # "both" is final, nothing should ever suggest changing away from it.
+    from apps.trading.services.classification_service import validate_category_suggestion
+    suggested_category = validate_category_suggestion(classification.suggested_contact_category, contact)
+
     if existing:
         InquiryMessage.objects.get_or_create(inquiry=existing, message=message)
-        existing.suggested_contact_category = classification.suggested_contact_category
+        existing.suggested_contact_category = suggested_category
         existing.save(update_fields=['suggested_contact_category'])
         logger.info(
             'inquiry_service | linked to existing | inquiry_id=%s | message_id=%s',
@@ -136,7 +143,7 @@ def process_inquiry(message, classification) -> None:
         dedup_key    = dedup_key,
         source_type  = _derive_source_type(message.chat),
         first_seen_at = message.message_time,
-        suggested_contact_category = classification.suggested_contact_category,
+        suggested_contact_category = suggested_category,
     )
     InquiryMessage.objects.create(inquiry=inquiry, message=message)
 
@@ -156,7 +163,7 @@ def process_inquiry(message, classification) -> None:
             dedup_key    = dedup_key.replace('buy:', 'sell:', 1),
             source_type  = inquiry.source_type,
             first_seen_at = message.message_time,
-            suggested_contact_category = classification.suggested_contact_category,
+            suggested_contact_category = suggested_category,
         )
         InquiryMessage.objects.create(inquiry=sell_inquiry, message=message)
         logger.info(

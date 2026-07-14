@@ -69,3 +69,17 @@ class AIProviderConfig(models.Model):
         if len(key) <= 8:
             return '••••••••'
         return f'{key[:4]}••••{key[-4:]}'
+
+
+class AIProviderRequestLog(models.Model):
+    """One row per outbound call actually made to a provider — exists purely to enforce
+    extra_config.rate_limit_rpm/rate_limit_tpm (§ AI Providers rate limiting) *across
+    every process* sharing the same config, not just within one. An in-memory limiter
+    only sees requests made by its own process; the moment more than one process shares
+    the same API key (manage.py shell alongside runserver, multiple production workers),
+    each process's limiter under-counts the real usage and still lets the account get
+    429'd. Rows older than the rate-limit window are pruned opportunistically on each
+    acquire() call — this table never needs to grow large."""
+    config = models.ForeignKey(AIProviderConfig, on_delete=models.CASCADE, related_name='request_log')
+    tokens = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)

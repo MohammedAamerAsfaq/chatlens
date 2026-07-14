@@ -37,6 +37,55 @@
       </label>
     </div>
 
+    <!-- Smart Search — embedding-based, separate from the plain filter above. Handles
+         out-of-order/rephrased queries ("Orange 256GB 17 Pro") that a substring match
+         can't, by comparing against every product's own name AND alias embeddings. -->
+    <div class="smart-search-box">
+      <div class="smart-search-row">
+        <span class="smart-search-icon">✦</span>
+        <input
+          v-model="smartQuery"
+          class="search-input"
+          placeholder="Smart Search — any word order or phrasing (e.g. &quot;Orange 256GB 17 Pro&quot;)…"
+          @keydown.enter="runSmartSearch"
+        />
+        <button class="btn-primary sm" :disabled="smartSearching || !smartQuery.trim()" @click="runSmartSearch">
+          {{ smartSearching ? 'Searching…' : 'Smart Search' }}
+        </button>
+        <button v-if="smartSearched" class="btn-ghost sm" @click="clearSmartSearch">Clear</button>
+      </div>
+
+      <div v-if="smartError" class="bulk-error">{{ smartError }}</div>
+
+      <div v-if="smartSearched" class="smart-results">
+        <div v-if="!smartResults.length" class="empty-msg-sm">No matches found</div>
+        <table v-else class="data-table smart-results-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Brand</th>
+              <th>Match</th>
+              <th class="th-inv">Qty</th>
+              <th class="th-inv">Sale</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in smartResults" :key="r.product.id">
+              <td class="col-name">{{ r.product.name }}</td>
+              <td>{{ r.product.brand }}</td>
+              <td>
+                <span class="match-badge">~{{ Math.round((1 - r.distance) * 100) }}% match</span>
+              </td>
+              <td class="td-inv">{{ r.product.qty ?? 0 }}</td>
+              <td class="td-inv">{{ r.product.sale_price != null ? r.product.sale_price : '—' }}</td>
+              <td><button class="btn-sm" @click="openEdit(r.product)">Edit</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="table-wrap">
       <table class="data-table">
         <thead>
@@ -493,6 +542,41 @@ const products    = ref([])
 const search      = ref('')
 const showInactive = ref(false)
 const saving      = ref(false)
+
+// Smart Search — separate embedding-based search, additive to the plain filter above.
+// Deliberately search-on-submit (Enter/button), not search-as-you-type: the active
+// embedding provider may be on a rate-limited free tier (§ AI Providers rate limiting),
+// so firing a request per keystroke would be wasteful and slow to respond.
+const smartQuery     = ref('')
+const smartSearching = ref(false)
+const smartSearched  = ref(false)
+const smartResults   = ref([])
+const smartError     = ref('')
+
+async function runSmartSearch() {
+  const q = smartQuery.value.trim()
+  if (!q) return
+  smartSearching.value = true
+  smartError.value = ''
+  try {
+    const { data } = await tradingApi.searchProductEmbeddings({ q, top_k: 10 })
+    smartResults.value = data.results || []
+    smartSearched.value = true
+  } catch (e) {
+    smartError.value = e.response?.data?.detail || 'Smart search failed'
+    smartResults.value = []
+    smartSearched.value = true
+  } finally {
+    smartSearching.value = false
+  }
+}
+
+function clearSmartSearch() {
+  smartQuery.value = ''
+  smartResults.value = []
+  smartSearched.value = false
+  smartError.value = ''
+}
 
 const modal = ref({
   open: false, id: null,
@@ -951,6 +1035,15 @@ onUnmounted(stopProductModalDrag)
 .toolbar { display: flex; gap: 12px; align-items: center; }
 .search-input { flex: 1; padding: 7px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.9rem; }
 .toggle-label { font-size: 0.88rem; display: flex; gap: 6px; align-items: center; cursor: pointer; }
+.smart-search-box { background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.smart-search-row { display: flex; gap: 8px; align-items: center; }
+.smart-search-icon { color: #7c3aed; font-size: 1rem; }
+.smart-search-row .search-input { background: #fff; }
+.btn-primary.sm { padding: 6px 14px; font-size: 0.85rem; }
+.smart-results { border-top: 1px solid #ddd6fe; padding-top: 8px; }
+.smart-results-table { background: #fff; border-radius: 6px; overflow: hidden; }
+.match-badge { background: #ede9fe; color: #6d28d9; padding: 1px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+.empty-msg-sm { text-align: center; color: #9ca3af; font-size: 0.85rem; padding: 12px; }
 .table-wrap { flex: 1; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px; }
 .data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .data-table th { background: #f9fafb; padding: 10px 14px; text-align: left; font-size: 0.8rem; color: #6b7280; border-bottom: 1px solid #e5e7eb; }
