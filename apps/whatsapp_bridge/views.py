@@ -1,7 +1,7 @@
 import json
 import logging
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, models
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
@@ -10,6 +10,7 @@ from .services.session_service import SessionService
 from .models import (
     WhatsAppAccount, WhatsAppContact, WhatsAppChat, SyncLog, DroppedMessage,
     WhatsAppGroup, WhatsAppGroupParticipant, ParticipantRole, WorkerAlert,
+    StuckReceipt,
 )
 
 logger = logging.getLogger(__name__)
@@ -502,4 +503,54 @@ def internal_worker_alert(request):
         return JsonResponse({'success': True})
     except Exception as e:
         logger.exception('Error in internal_worker_alert')
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def internal_stuck_receipt(request):
+    """
+    Upserts a record of a message WhatsApp keeps asking us to resend but that our
+    send path can't fulfill (see StuckReceipt docstring). First occurrence creates
+    the row; every later occurrence of the SAME (account, remote_jid, message_id)
+    just bumps occurrence_count/last_seen_at — this is what the worker checks
+    before deciding whether to let getMessage() return null for a key instead of
+    attempting (and failing) to relay it again.
+    """
+    if not _verify_internal_token(request):
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    remote_jid = payload.get('remote_jid')
+    message_id = payload.get('message_id')
+    if not remote_jid or not message_id:
+        return JsonResponse({'error': 'Missing remote_jid or message_id'}, status=400)
+
+    account = None
+    worker_session_id = payload.get('worker_session_id')
+    if worker_session_id:
+        account = WhatsAppAccount.objects.filter(pk=worker_session_id).first()
+
+    try:
+        obj, created = StuckReceipt.objects.get_or_create(
+            account=account,
+            remote_jid=remote_jid,
+            message_id=message_id,
+            defaults={
+                'participant': payload.get('participant') or '',
+                'from_me': bool(payload.get('from_me', True)),
+                'context': payload.get('context') or None,
+            },
+        )
+        if not created:
+            obj.occurrence_count = models.F('occurrence_count') + 1
+            obj.context = payload.get('context') or obj.context
+            obj.save(update_fields=['occurrence_count', 'context', 'last_seen_at'])
+        return JsonResponse({'success': True, 'created': created})
+    except Exception as e:
+        logger.exception('Error in internal_stuck_receipt')
         return JsonResponse({'error': str(e)}, status=500)

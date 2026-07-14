@@ -57,6 +57,14 @@ class Inquiry(models.Model):
     dedup_key   = models.CharField(max_length=512, db_index=True)
     source_type = models.CharField(max_length=20, choices=SOURCE_TYPE_CHOICES)
 
+    # Manual human rating of how well the AI classified/matched THIS inquiry (1 = worst,
+    # 5 = exact) — defaults to 5 so a reviewer only has to touch the ones that are
+    # actually wrong, not attend every single inquiry to confirm the good ones.
+    classification_rating = models.PositiveSmallIntegerField(
+        default=5,
+        choices=[(i, str(i)) for i in range(1, 6)],
+    )
+
     first_seen_at = models.DateTimeField(db_index=True)
     closed_at     = models.DateTimeField(null=True, blank=True)
     created_at    = models.DateTimeField(auto_now_add=True)

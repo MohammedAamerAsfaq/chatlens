@@ -157,6 +157,15 @@ class SessionManager {
     const msg = (typeof args[0] === 'string') ? args[0] : (obj?.msg || (typeof args[1] === 'string' ? args[1] : ''));
     if (!msg) return;
 
+    // A message WhatsApp keeps asking us to resend, that our own send path can't
+    // fulfill — every repeat costs a real assertSessions() round-trip to WhatsApp's
+    // servers before it crashes in relayMessage (verified by reading Baileys' own
+    // source, not guessed). Recorded separately from the generic alert below so
+    // future repeats of the SAME message can be short-circuited via getMessage().
+    if (msg === 'error in sending message again' && obj?.key && Array.isArray(obj.ids)) {
+      this._recordStuckReceipt(sessionId, obj);
+    }
+
     const ERROR_LEVEL = 50;
     let alertType = null;
     let kind = null; // 'decrypt' | 'handshake' | null
@@ -213,6 +222,30 @@ class SessionManager {
       status: session.status,
       connection_unhealthy: true,
       connection_unhealthy_reason: reason,
+    });
+  }
+
+  // obj is the merging object from the 'error in sending message again' log call —
+  // { key: { remoteJid, id: '', fromMe, participant }, ids: [...], trace }. remoteJid
+  // on that key is frequently absent for this exact self-sync scenario (Baileys builds
+  // it from attrs.recipient, which isn't always set for a fromMe-with-no-recipient
+  // node) — fall back to participant, which is reliably present, so the dedup key
+  // Django uses stays stable across repeats of the same stuck message.
+  _recordStuckReceipt(sessionId, obj) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    const remoteJid = obj.key.remoteJid || obj.key.participant || 'unknown';
+    for (const id of obj.ids) {
+      if (id) session.knownStuckMessageIds.add(`${remoteJid}:${id}`);
+    }
+
+    this.djangoClient.sendStuckReceipt(sessionId, {
+      remote_jid: remoteJid,
+      participant: obj.key.participant || '',
+      message_id: obj.ids[0] || '',
+      from_me: !!obj.key.fromMe,
+      context: this._safeAlertContext(obj),
     });
   }
 
@@ -324,6 +357,14 @@ class SessionManager {
       consecutiveDecryptFailures: 0,
       consecutiveInitQueryTimeouts: 0,
       connectionUnhealthy: false,
+      // Messages WhatsApp keeps asking us to resend that our own send path can't
+      // fulfill (Baileys' relayMessage throws on them every time) — see
+      // _recordStuckReceipt. getMessage() below returns null for anything in here
+      // instead of the usual stub, so Baileys takes its own documented "message not
+      // available" path instead of attempting (and failing) the resend again. Reset
+      // on every process restart — a fresh process re-learns these the first time
+      // WhatsApp asks again, which costs one crash, already-safely-caught by Baileys.
+      knownStuckMessageIds: new Set(),
     });
     await this._connect(sessionId);
     return this._snapshot(sessionId);
@@ -494,7 +535,19 @@ class SessionManager {
         // With a finite history_days window, recent sync is sufficient and far faster —
         // WhatsApp sends years of CDN blobs for full sync which can take hours.
         syncFullHistory: session.syncHistory && !session.historyDays,
-        getMessage: async () => ({ conversation: '' }),
+        // Returning null (Baileys' own documented "message not available" path) for a
+        // key already recorded by _recordStuckReceipt skips relayMessage entirely for
+        // that repeat instead of attempting — and failing — the same resend again.
+        // Every other key keeps the placeholder stub, unchanged from before. Must use
+        // the exact same remoteJid-or-participant fallback _recordStuckReceipt used to
+        // build the key, since Baileys passes this same (frequently remoteJid-less) key
+        // shape into both places — a mismatched fallback here would mean the skip-list
+        // never actually matches anything.
+        getMessage: async (key) => {
+          const jidKey = key.remoteJid || key.participant || 'unknown';
+          if (session.knownStuckMessageIds.has(`${jidKey}:${key.id}`)) return null;
+          return { conversation: '' };
+        },
       });
 
       sock.ev.on('creds.update', saveCreds);
@@ -535,8 +588,13 @@ class SessionManager {
         session.lastActivityAt = Date.now();
         session.reconnectAttempts = 0;
         // A fresh socket starts with a clean slate — don't carry over failure counts
-        // from whatever this session was doing before this connect cycle.
-        const wasUnhealthy = session.connectionUnhealthy;
+        // from whatever this session was doing before this connect cycle. Always send
+        // the clear to Django unconditionally (not gated on the in-memory session's
+        // prior connectionUnhealthy value) — connection_unhealthy is persisted server
+        // side, and a re-link (disconnect + fresh QR scan) creates a brand-new in-memory
+        // session that never "was unhealthy" even though Django's stale flag from the
+        // old session is still true. Gating on local memory left that flag — and its
+        // banner — stuck forever after every re-link.
         session.consecutiveDecryptFailures = 0;
         session.consecutiveInitQueryTimeouts = 0;
         session.connectionUnhealthy = false;
@@ -545,7 +603,8 @@ class SessionManager {
           status: SESSION_STATUS.CONNECTED,
           phone_number: session.phoneNumber,
           display_name: session.displayName,
-          ...(wasUnhealthy ? { connection_unhealthy: false, connection_unhealthy_reason: '' } : {}),
+          connection_unhealthy: false,
+          connection_unhealthy_reason: '',
         });
 
         // Start idle disconnect timer if configured

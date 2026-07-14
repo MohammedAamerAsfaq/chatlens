@@ -3,20 +3,21 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useConversationsStore } from '@/stores/conversations'
 import { useAuthStore } from '@/stores/auth.js'
-import { workerAlertsApi } from '@/api'
+import { workerAlertsApi, stuckReceiptsApi } from '@/api'
 
 const route  = useRoute()
 const router = useRouter()
 const store  = useConversationsStore()
 const auth   = useAuthStore()
 
-const LOG_ROUTES = ['activity', 'message-logs', 'dropped-messages', 'worker-alerts', 'ai-parsing-log']
+const LOG_ROUTES = ['activity', 'message-logs', 'dropped-messages', 'worker-alerts', 'stuck-receipts', 'ai-parsing-log']
 const isLogsActive = computed(() => LOG_ROUTES.includes(route.name))
 
 // Nav-level visibility for worker alerts ("admin should be notified") — a badge that's
 // visible from anywhere in the app, not just when someone happens to open the Logs
 // dropdown and click through to the page.
 const unacknowledgedAlerts = ref(0)
+const unresolvedStuckReceipts = ref(0)
 let alertPollTimer = null
 
 async function fetchUnacknowledgedCount() {
@@ -25,6 +26,10 @@ async function fetchUnacknowledgedCount() {
     const { data } = await workerAlertsApi.unacknowledgedCount()
     unacknowledgedAlerts.value = data.count
   } catch { /* non-critical — badge just won't update this cycle */ }
+  try {
+    const { data } = await stuckReceiptsApi.unresolvedCount()
+    unresolvedStuckReceipts.value = data.count
+  } catch { /* non-critical — badge just won't update this cycle */ }
 }
 
 onMounted(() => {
@@ -32,6 +37,9 @@ onMounted(() => {
   alertPollTimer = setInterval(fetchUnacknowledgedCount, 30000)
 })
 onUnmounted(() => clearInterval(alertPollTimer))
+
+const REPORT_ROUTES = ['trading-analytics']
+const isReportsActive = computed(() => REPORT_ROUTES.includes(route.name))
 
 const LIST_ROUTES = ['contacts', 'groups', 'products']
 const isListsActive = computed(() => LIST_ROUTES.includes(route.name))
@@ -51,8 +59,20 @@ async function handleLogout() {
       <span class="text-green-400 font-bold text-lg mr-4">ChatLens</span>
       <RouterLink to="/conversations"   class="nav-link" active-class="nav-link-active">Conversations</RouterLink>
       <RouterLink to="/trading"            class="nav-link" active-class="nav-link-active">Trading</RouterLink>
-      <RouterLink to="/trading-analytics" class="nav-link" active-class="nav-link-active">Analytics</RouterLink>
       <RouterLink to="/buying-inquiries"  class="nav-link" active-class="nav-link-active">Buying Inquiries</RouterLink>
+
+      <!-- Reports — grouped dropdown, opens on hover -->
+      <div class="relative group">
+        <button type="button" class="nav-link flex items-center gap-1" :class="{ 'nav-link-active': isReportsActive }">
+          Reports
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </button>
+        <div class="absolute left-0 top-full hidden group-hover:block bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[170px] z-50">
+          <RouterLink to="/trading-analytics" class="dropdown-item" active-class="dropdown-item-active">Analytics</RouterLink>
+        </div>
+      </div>
 
       <!-- Lists — grouped dropdown, opens on hover -->
       <div class="relative group">
@@ -90,10 +110,10 @@ async function handleLogout() {
         <button type="button" class="nav-link flex items-center gap-1" :class="{ 'nav-link-active': isLogsActive }">
           Logs
           <span
-            v-if="unacknowledgedAlerts > 0"
+            v-if="unacknowledgedAlerts + unresolvedStuckReceipts > 0"
             class="bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none"
-            :title="`${unacknowledgedAlerts} unacknowledged worker alert${unacknowledgedAlerts !== 1 ? 's' : ''}`"
-          >{{ unacknowledgedAlerts > 99 ? '99+' : unacknowledgedAlerts }}</span>
+            :title="`${unacknowledgedAlerts} unacknowledged worker alert${unacknowledgedAlerts !== 1 ? 's' : ''}, ${unresolvedStuckReceipts} unresolved stuck receipt${unresolvedStuckReceipts !== 1 ? 's' : ''}`"
+          >{{ (unacknowledgedAlerts + unresolvedStuckReceipts) > 99 ? '99+' : (unacknowledgedAlerts + unresolvedStuckReceipts) }}</span>
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
           </svg>
@@ -106,6 +126,12 @@ async function handleLogout() {
             Worker Alerts
             <span v-if="unacknowledgedAlerts > 0" class="bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none ml-2">
               {{ unacknowledgedAlerts > 99 ? '99+' : unacknowledgedAlerts }}
+            </span>
+          </RouterLink>
+          <RouterLink to="/stuck-receipts" class="dropdown-item flex items-center justify-between" active-class="dropdown-item-active">
+            Stuck Receipts
+            <span v-if="unresolvedStuckReceipts > 0" class="bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none ml-2">
+              {{ unresolvedStuckReceipts > 99 ? '99+' : unresolvedStuckReceipts }}
             </span>
           </RouterLink>
           <RouterLink to="/ai-parsing-log"    class="dropdown-item" active-class="dropdown-item-active">AI Parsing Log</RouterLink>

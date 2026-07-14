@@ -1,5 +1,5 @@
 <template>
-  <div class="trading-view">
+  <div class="trading-view" v-bind="$attrs">
     <!-- Header -->
     <div class="trading-header">
       <div class="header-left">
@@ -13,9 +13,25 @@
           <option value="">All accounts</option>
           <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.display_name }}</option>
         </select>
+        <div class="close-stale-control">
+          <input
+            type="number"
+            v-model.number="closeStaleHours"
+            min="1"
+            step="1"
+            class="close-stale-input"
+            title="Close open inquiries older than this many hours"
+          />
+          <button class="btn-ghost sm" :disabled="closeStaleRunning" @click="runCloseStale">
+            Close Older Than {{ closeStaleHours || 1 }}h
+          </button>
+        </div>
         <button class="btn-ghost sm" @click="refresh">Refresh</button>
       </div>
     </div>
+
+    <!-- Close-stale result banner -->
+    <div v-if="closeStaleMsg" class="close-stale-msg">{{ closeStaleMsg }}</div>
 
     <!-- Error banner -->
     <div v-if="categoryError" class="error-banner">
@@ -150,6 +166,18 @@
                           Cost: {{ h.product.currency || 'USD' }} {{ h.product.cost_price }}
                         </span>
                       </span>
+                      <span v-if="h.mismatch" class="stock-hint-actions">
+                        <button
+                          class="match-fix-btn auto"
+                          @click.stop="runAutoMatch(inq, h)"
+                          title="Auto-search inventory (exact match, then embeddings) for the correct product"
+                        >Auto</button>
+                        <button
+                          class="match-fix-btn"
+                          @click.stop="toggleMatchFix(inq, h)"
+                          title="This is actually the exact match — pick the correct product"
+                        >Fix</button>
+                      </span>
                     </div>
                   </template>
                   <span v-else class="body-row-empty">No matching stock found</span>
@@ -182,6 +210,16 @@
                 <a v-if="waPriceListLink(inq)" :href="waPriceListLink(inq)" class="act-btn wa-list" title="Send full price list on WhatsApp">
                   Price List
                 </a>
+              </div>
+              <div class="rating-row">
+                <span class="rating-label">Match quality:</span>
+                <button
+                  v-for="n in 5" :key="n"
+                  class="rating-btn"
+                  :class="{ active: n === (inq.classification_rating ?? 5), low: n <= 2, mid: n === 3 }"
+                  @click="setRating(inq, n)"
+                  :title="`Rate ${n}/5 — ${n === 1 ? 'worst' : n === 5 ? 'exact' : ''}`"
+                >{{ n }}</button>
               </div>
               <div v-if="incorrectMatchForms[inq.id]?.open" class="incorrect-match-form">
                 <input
@@ -280,6 +318,18 @@
                           Cost: {{ h.product.currency || 'USD' }} {{ h.product.cost_price }}
                         </span>
                       </span>
+                      <span v-if="h.mismatch" class="stock-hint-actions">
+                        <button
+                          class="match-fix-btn auto"
+                          @click.stop="runAutoMatch(inq, h)"
+                          title="Auto-search inventory (exact match, then embeddings) for the correct product"
+                        >Auto</button>
+                        <button
+                          class="match-fix-btn"
+                          @click.stop="toggleMatchFix(inq, h)"
+                          title="This is actually the exact match — pick the correct product"
+                        >Fix</button>
+                      </span>
                     </div>
                   </template>
                   <span v-else class="body-row-empty">No matching stock found</span>
@@ -310,6 +360,16 @@
                   Ask Price
                 </a>
               </div>
+              <div class="rating-row">
+                <span class="rating-label">Match quality:</span>
+                <button
+                  v-for="n in 5" :key="n"
+                  class="rating-btn"
+                  :class="{ active: n === (inq.classification_rating ?? 5), low: n <= 2, mid: n === 3 }"
+                  @click="setRating(inq, n)"
+                  :title="`Rate ${n}/5 — ${n === 1 ? 'worst' : n === 5 ? 'exact' : ''}`"
+                >{{ n }}</button>
+              </div>
               <div v-if="incorrectMatchForms[inq.id]?.open" class="incorrect-match-form">
                 <input
                   v-model="incorrectMatchForms[inq.id].reason"
@@ -329,6 +389,114 @@
 
     </div>
   </div>
+
+  <!-- "Fix match" dialog — teleported so it isn't clipped by the card body's
+       overflow:hidden (needed for the clamped/expandable Summary/Message/Stock rows). -->
+  <Teleport to="body">
+    <div v-if="matchFixTarget" class="match-fix-backdrop">
+      <div
+        class="match-fix-dialog"
+        :style="{ transform: `translate(${matchFixDrag.x}px, ${matchFixDrag.y}px)` }"
+      >
+        <div class="match-fix-header" @mousedown="startMatchFixDrag">
+          <span class="match-fix-dialog-title">
+            Pick the correct product for "{{ matchFixTarget.hint.name }}"
+          </span>
+          <button class="match-fix-close" @mousedown.stop @click="closeMatchFix" title="Close">×</button>
+        </div>
+
+        <div v-if="autoSearchLoading" class="match-fix-status">Searching embeddings…</div>
+        <div v-if="autoSearchError" class="match-fix-error">{{ autoSearchError }}</div>
+        <template v-if="autoSearchResults?.length">
+          <div class="match-fix-section-label">Suggested matches</div>
+          <div class="match-fix-list">
+            <label v-for="r in autoSearchResults" :key="`auto-${r.product.id}`" class="match-fix-row">
+              <input type="checkbox" @change="selectMatchFix(r.product)" />
+              {{ r.product.name }}
+              <span v-if="r.product.sale_price" class="match-fix-price">· {{ r.product.currency || 'USD' }} {{ r.product.sale_price }}</span>
+              <span class="match-fix-source" :class="r.source">
+                {{ r.source === 'direct' ? 'exact' : `~${Math.round((1 - r.distance) * 100)}% match` }}
+              </span>
+            </label>
+          </div>
+        </template>
+        <div v-else-if="autoSearchResults && !autoSearchLoading" class="match-fix-status">
+          No automatic match found — search manually below
+        </div>
+
+        <div class="match-fix-section-label">Search manually</div>
+        <input
+          v-model="matchFixQuery"
+          class="match-fix-search"
+          placeholder="Search products…"
+          autofocus
+        />
+        <div class="match-fix-list">
+          <label v-for="prod in filteredMatchProducts" :key="prod.id" class="match-fix-row">
+            <input type="checkbox" @change="selectMatchFix(prod)" />
+            {{ prod.name }}
+            <span v-if="prod.sale_price" class="match-fix-price">· {{ prod.currency || 'USD' }} {{ prod.sale_price }}</span>
+          </label>
+          <div v-if="!filteredMatchProducts.length" class="match-fix-empty">No products found</div>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- Expanded Summary/Original Message/Stock Suggestion row — a centered popup instead
+       of growing in place inside the card, which used to leave a lot of dead space
+       around a short expanded row and made the card jump around in the feed. -->
+  <Teleport to="body">
+    <div v-if="expandedInquiry" class="row-expand-backdrop">
+      <div
+        class="row-expand-dialog"
+        :style="{ transform: `translate(${rowDialogDrag.x}px, ${rowDialogDrag.y}px)` }"
+      >
+        <div class="row-expand-header" @mousedown="startRowDialogDrag">
+          <span class="row-expand-title">{{ rowLabel(expandedBodyRow.row) }}</span>
+          <button class="row-expand-close" @mousedown.stop @click="collapseBodyRow" title="Close">×</button>
+        </div>
+        <div class="row-expand-content">
+          <template v-if="expandedBodyRow.row === 'summary'">
+            {{ expandedInquiry.summary || '—' }}
+          </template>
+          <template v-else-if="expandedBodyRow.row === 'message'">
+            {{ expandedInquiry.source_message_text || '—' }}
+          </template>
+          <template v-else-if="expandedBodyRow.row === 'stock'">
+            <template v-if="getInventoryHints(expandedInquiry).length">
+              <div v-for="h in getInventoryHints(expandedInquiry)" :key="h.name" class="stock-hint" :class="{ 'stock-hint-mismatch': h.mismatch }">
+                <span class="stock-icon">{{ h.mismatch ? '⚠' : '✓' }}</span>
+                {{ h.product.name }} in stock
+                <span v-if="h.mismatch" class="mismatch-tag">— not "{{ h.name }}", closest match only</span>
+                <span v-if="h.product.sale_price"> · Sale: {{ h.product.currency || 'USD' }} {{ h.product.sale_price }}</span>
+                <span> · Qty: {{ h.product.qty }}</span>
+                <span v-if="h.product.cost_price">
+                  ·
+                  <span :class="{ 'cost-loss': h.product.sale_price != null && h.product.sale_price < h.product.cost_price }">
+                    Cost: {{ h.product.currency || 'USD' }} {{ h.product.cost_price }}
+                  </span>
+                </span>
+                <span v-if="h.mismatch" class="stock-hint-actions">
+                  <button
+                    class="match-fix-btn auto"
+                    @click.stop="runAutoMatch(expandedInquiry, h)"
+                    title="Auto-search inventory (exact match, then embeddings) for the correct product"
+                  >Auto</button>
+                  <button
+                    class="match-fix-btn"
+                    @click.stop="toggleMatchFix(expandedInquiry, h)"
+                    title="This is actually the exact match — pick the correct product"
+                  >Fix</button>
+                </span>
+              </div>
+            </template>
+            <span v-else class="body-row-empty">No matching stock found</span>
+          </template>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -336,6 +504,11 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useConversationsStore } from '@/stores/conversations'
 import { accountsApi, tradingApi, contactsApi } from '../api/index.js'
+
+// The teleported "Fix match" dialog below makes this component multi-root, which breaks
+// Vue's automatic $attrs inheritance onto a single root (see the same fix on StorageView.vue) —
+// bind explicitly onto the real root div instead.
+defineOptions({ inheritAttrs: false })
 
 const router = useRouter()
 const convStore = useConversationsStore()
@@ -380,11 +553,182 @@ function isRowExpanded(inqId, row) {
 }
 
 function toggleBodyRow(inqId, row) {
-  expandedBodyRow.value = isRowExpanded(inqId, row) ? null : { inqId, row }
+  const willOpen = !isRowExpanded(inqId, row)
+  expandedBodyRow.value = willOpen ? { inqId, row } : null
+  // Always reopen centered — a drag offset from a previous popup shouldn't carry over.
+  if (willOpen) rowDialogDrag.value = { x: 0, y: 0 }
 }
 
 function collapseBodyRow() {
   expandedBodyRow.value = null
+}
+
+// Dragging for the row-expand popup below — tracked as a cumulative translate offset
+// from its default centered position, rather than absolute viewport coordinates, so it
+// doesn't need a getBoundingClientRect measurement to initialize.
+const rowDialogDrag = ref({ x: 0, y: 0 })
+let rowDragState = null
+
+function startRowDialogDrag(e) {
+  rowDragState = {
+    startX: e.clientX,
+    startY: e.clientY,
+    baseX: rowDialogDrag.value.x,
+    baseY: rowDialogDrag.value.y,
+  }
+  window.addEventListener('mousemove', onRowDialogDrag)
+  window.addEventListener('mouseup', stopRowDialogDrag)
+}
+
+function onRowDialogDrag(e) {
+  if (!rowDragState) return
+  rowDialogDrag.value = {
+    x: rowDragState.baseX + (e.clientX - rowDragState.startX),
+    y: rowDragState.baseY + (e.clientY - rowDragState.startY),
+  }
+}
+
+function stopRowDialogDrag() {
+  rowDragState = null
+  window.removeEventListener('mousemove', onRowDialogDrag)
+  window.removeEventListener('mouseup', stopRowDialogDrag)
+}
+
+// Looked up by id (not stored directly on expandedBodyRow) so the popup keeps reading
+// the same live inquiry object the feed already has — edits made from inside it (e.g.
+// a "Fix match" correction) show up immediately without a separate sync step.
+const expandedInquiry = computed(() => {
+  if (!expandedBodyRow.value) return null
+  const id = expandedBodyRow.value.inqId
+  return buyFeed.value.find(i => i.id === id) || sellFeed.value.find(i => i.id === id) || null
+})
+
+const ROW_LABELS = { summary: 'Summary', message: 'Original Message', stock: 'Stock Suggestion' }
+function rowLabel(row) {
+  return ROW_LABELS[row] || row
+}
+
+// "Fix match" dialog on a mismatch ("closest match only") stock-suggestion pill — lets a
+// human pick the actually-correct catalog product when the AI's near-match was wrong,
+// which promotes that line to match_type 'exact' server-side (the pill then renders green
+// on its own, same as any other confirmed exact match — no separate "confirmed" styling
+// needed).
+const matchFixTarget = ref(null) // { inq, hint } | null
+const matchFixQuery  = ref('')
+
+// Auto-search results (from the "Auto" button below) — null means no auto-search has
+// run yet for the currently-open dialog; [] means one ran and found nothing.
+const autoSearchResults = ref(null) // [{ product, source: 'direct'|'embedding', distance? }] | null
+const autoSearchLoading = ref(false)
+const autoSearchError   = ref('')
+
+function openMatchFix(inq, hint) {
+  matchFixTarget.value = { inq, hint }
+  matchFixQuery.value = ''
+  autoSearchResults.value = null
+  autoSearchError.value = ''
+  // Always reopen centered — a drag offset from a previous popup shouldn't carry over.
+  matchFixDrag.value = { x: 0, y: 0 }
+}
+
+function toggleMatchFix(inq, hint) {
+  const isOpen = matchFixTarget.value?.inq === inq && matchFixTarget.value?.hint === hint
+  if (isOpen) { closeMatchFix(); return }
+  openMatchFix(inq, hint)
+}
+
+function closeMatchFix() {
+  matchFixTarget.value = null
+  autoSearchResults.value = null
+  autoSearchError.value = ''
+}
+
+// Dragging for the "Fix match" popup — same cumulative-translate-offset technique as the
+// row-expand popup above, so it doesn't need a getBoundingClientRect measurement.
+const matchFixDrag = ref({ x: 0, y: 0 })
+let matchFixDragState = null
+
+function startMatchFixDrag(e) {
+  matchFixDragState = {
+    startX: e.clientX,
+    startY: e.clientY,
+    baseX: matchFixDrag.value.x,
+    baseY: matchFixDrag.value.y,
+  }
+  window.addEventListener('mousemove', onMatchFixDrag)
+  window.addEventListener('mouseup', stopMatchFixDrag)
+}
+
+function onMatchFixDrag(e) {
+  if (!matchFixDragState) return
+  matchFixDrag.value = {
+    x: matchFixDragState.baseX + (e.clientX - matchFixDragState.startX),
+    y: matchFixDragState.baseY + (e.clientY - matchFixDragState.startY),
+  }
+}
+
+function stopMatchFixDrag() {
+  matchFixDragState = null
+  window.removeEventListener('mousemove', onMatchFixDrag)
+  window.removeEventListener('mouseup', stopMatchFixDrag)
+}
+
+function normalizeForSearch(s) {
+  return (s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+// Fully client-side — allProducts is already loaded, and this is just an equality/substring
+// check, so there's no reason to round-trip to the server for it.
+function directProductSearch(query) {
+  const qNorm = normalizeForSearch(query)
+  if (!qNorm) return []
+  return (allProducts.value || []).filter(p => {
+    const nameNorm = normalizeForSearch(p.name)
+    if (qNorm === nameNorm || nameNorm.includes(qNorm) || qNorm.includes(nameNorm)) return true
+    return (p.aliases || []).some(a => normalizeForSearch(a) === qNorm)
+  })
+}
+
+// "Auto" button — tries a direct name/alias search first (instant, no network); only
+// falls back to the embedding-search endpoint when that comes up empty, since embeddings
+// are a slower, fuzzier last resort, not the first thing to reach for. Either way this
+// only *suggests* candidates — the human still has to tick a checkbox to apply one, same
+// as manual "Fix" — an automatic pick here would repeat the same kind of mismatch this
+// button exists to correct, just with an embedding-distance guess instead of the AI's.
+async function runAutoMatch(inq, hint) {
+  openMatchFix(inq, hint)
+  const direct = directProductSearch(hint.name)
+  if (direct.length) {
+    autoSearchResults.value = direct.map(product => ({ product, source: 'direct' }))
+    return
+  }
+  autoSearchLoading.value = true
+  try {
+    const { data } = await tradingApi.searchProductEmbeddings({ q: hint.name })
+    autoSearchResults.value = (data.results || []).map(r => ({ product: r.product, source: 'embedding', distance: r.distance }))
+  } catch (e) {
+    autoSearchError.value = 'Search failed: ' + (e.response?.data?.detail || e.message)
+    autoSearchResults.value = []
+  } finally {
+    autoSearchLoading.value = false
+  }
+}
+
+const filteredMatchProducts = computed(() => {
+  const q = matchFixQuery.value.trim().toLowerCase()
+  const list = allProducts.value || []
+  if (!q) return list
+  return list.filter(p =>
+    (p.name || '').toLowerCase().includes(q) || (p.brand || '').toLowerCase().includes(q)
+  )
+})
+
+async function selectMatchFix(product) {
+  const target = matchFixTarget.value
+  if (!target) return
+  const { data } = await tradingApi.correctMatch(target.inq.id, { index: target.hint.index, product_id: product.id })
+  target.inq.products = data.products
+  matchFixTarget.value = null
 }
 
 const statusFilters = [
@@ -458,14 +802,14 @@ function stripBrandPrefix(name, brand) {
 function getInventoryHints(inq) {
   if (inq.inquiry_type !== 'buy') return []
   const hints = []
-  for (const p of (inq.products || [])) {
+  ;(inq.products || []).forEach((p, index) => {
     const match = matchInventory(p)
     // A hint claims "in stock" — never show that for qty 0, even if a sale_price is
     // saved on the record (price can be set ahead of restock without meaning it's available now).
     if (match && match.qty > 0) {
-      hints.push({ name: p.canonical_name, product: match, mismatch: !isReliableMatch(p, match) })
+      hints.push({ name: p.canonical_name, product: match, mismatch: !isReliableMatch(p, match), index })
     }
-  }
+  })
   return hints
 }
 
@@ -511,6 +855,36 @@ async function refresh() {
   lastUpdate.value  = Date.now()
 }
 
+// Housekeeping sweep — closes every still-open inquiry older than N hours (optionally
+// scoped to the selected account). Never touches anything already actioned (quoted,
+// no_stock, closed, etc.), only status=open.
+const closeStaleHours   = ref(1)
+const closeStaleRunning = ref(false)
+const closeStaleMsg     = ref('')
+
+async function runCloseStale() {
+  const hours = closeStaleHours.value
+  if (!hours || hours <= 0) return
+  if (!confirm(`Close all open inquiries older than ${hours} hour(s)?`)) return
+
+  closeStaleRunning.value = true
+  closeStaleMsg.value = ''
+  try {
+    const accountParam = selectedAccount.value || undefined
+    const { data } = await tradingApi.closeStaleInquiries({
+      hours,
+      ...(accountParam ? { account: accountParam } : {}),
+    })
+    closeStaleMsg.value = `Closed ${data.closed} inquiry${data.closed === 1 ? '' : 's'}`
+    setTimeout(() => { closeStaleMsg.value = '' }, 8000)
+    await refresh()
+  } catch (e) {
+    closeStaleMsg.value = 'Failed: ' + (e.response?.data?.detail || e.message)
+  } finally {
+    closeStaleRunning.value = false
+  }
+}
+
 // Each column loads its own next page independently on scroll — doesn't touch the other
 // column, stats, or products, so scrolling one list stays cheap and doesn't disturb the other.
 async function loadMoreBuy() {
@@ -552,6 +926,15 @@ function onSellScroll(e) {
 async function act(inq, status) {
   await tradingApi.updateInquiry(inq.id, { status })
   await refresh()
+}
+
+// Manual 1-5 rating of how well the AI classified/matched this inquiry — defaults to 5
+// server-side, so a reviewer only has to touch the ones that are actually wrong instead
+// of confirming every single inquiry. Updated in place, no full refresh needed.
+async function setRating(inq, rating) {
+  if (inq.classification_rating === rating) return
+  await tradingApi.updateInquiry(inq.id, { classification_rating: rating })
+  inq.classification_rating = rating
 }
 
 // ── Quick contact categorization (supplier/customer/both) ────────────────────────
@@ -686,12 +1069,12 @@ onMounted(async () => {
   // on the Products page, not on the 15s live-feed cadence.
   tradingApi.getPriceList().then(({ data }) => { formattedPriceList.value = data.body }).catch(() => {})
   pollTimer = setInterval(refresh, 15000)
-  document.addEventListener('click', collapseBodyRow)
 })
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
-  document.removeEventListener('click', collapseBodyRow)
+  stopRowDialogDrag()
+  stopMatchFixDrag()
 })
 </script>
 
@@ -708,6 +1091,9 @@ onUnmounted(() => {
 .last-update { font-size: 0.78rem; color: #9ca3af; }
 .header-right { display: flex; gap: 10px; align-items: center; }
 .account-select { padding: 5px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.85rem; }
+.close-stale-control { display: flex; align-items: center; gap: 4px; }
+.close-stale-input { width: 52px; padding: 5px 6px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.85rem; }
+.close-stale-msg { padding: 6px 20px; font-size: 0.8rem; color: #166534; background: #f0fdf4; border-bottom: 1px solid #bbf7d0; }
 /* Stat row */
 .stat-row { display: flex; gap: 10px; padding: 12px 20px; background: #fff; border-bottom: 1px solid #e5e7eb; flex-wrap: wrap; }
 .stat-chip { padding: 10px 18px; border-radius: 8px; text-align: center; min-width: 90px; }
@@ -753,13 +1139,7 @@ onUnmounted(() => {
 .body-row-label { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.04em; color: #9ca3af; font-weight: 700; margin-bottom: 1px; }
 .body-row-content { font-size: 0.8rem; color: #374151; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .body-row-empty { color: #9ca3af; font-style: italic; }
-.body-row.expanded {
-  position: absolute; inset: 0; z-index: 30;
-  background: #fff; border: 1px solid #d1d5db; border-radius: 6px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
-  padding: 8px; overflow-y: auto; cursor: default;
-}
-.body-row.expanded .body-row-content { -webkit-line-clamp: unset; display: block; overflow: visible; }
+.body-row.expanded { background: #eff6ff; }
 .source-label { font-size: 0.73rem; color: #9ca3af; text-transform: capitalize; white-space: nowrap; flex-shrink: 0; }
 .account-badge { font-size: 0.7rem; background: #ede9fe; color: #6d28d9; padding: 1px 7px; border-radius: 999px; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
 .card-actions { display: flex; gap: 6px; align-items: center; }
@@ -771,6 +1151,26 @@ onUnmounted(() => {
 .act-btn.wa-ask { background: #fef9c3; color: #92400e; text-decoration: none; }
 .act-btn.wa-list { background: #e0e7ff; color: #4338ca; text-decoration: none; }
 .status-select-mini { padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 5px; font-size: 0.78rem; color: #374151; cursor: pointer; background: #fff; }
+.rating-row { display: flex; align-items: center; gap: 4px; margin-top: 8px; }
+.rating-label { font-size: 0.72rem; color: #9ca3af; margin-right: 2px; }
+.rating-btn {
+  width: 20px;
+  height: 20px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #fff;
+  color: #9ca3af;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+.rating-btn:hover { border-color: #9ca3af; color: #374151; }
+.rating-btn.active { color: #fff; border-color: transparent; }
+.rating-btn.active.low { background: #dc2626; }
+.rating-btn.active.mid { background: #f59e0b; }
+.rating-btn.active:not(.low):not(.mid) { background: #16a34a; }
 .incorrect-match-form { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
 .incorrect-match-input { flex: 1; padding: 4px 8px; border: 1px solid #fca5a5; border-radius: 5px; font-size: 0.78rem; min-width: 0; }
 .feed-empty { text-align: center; color: #9ca3af; font-size: 0.85rem; padding: 30px; }
@@ -785,4 +1185,118 @@ onUnmounted(() => {
 .cost-loss { color: #dc2626; font-weight: 700; }
 .stock-icon { color: #16a34a; font-weight: 700; margin-right: 3px; }
 .stock-hint-mismatch .stock-icon { color: #d97706; }
+.stock-hint-actions { float: right; display: inline-flex; gap: 4px; }
+.match-fix-btn {
+  padding: 1px 9px;
+  border: 1px solid #d97706;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: #fff;
+  color: #b45309;
+  cursor: pointer;
+}
+.match-fix-btn:hover { background: #fffbeb; }
+.match-fix-btn.auto { border-color: #2563eb; color: #1d4ed8; }
+.match-fix-btn.auto:hover { background: #eff6ff; }
+.match-fix-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.match-fix-dialog {
+  width: 640px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 64px);
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+.match-fix-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: move; user-select: none; }
+.match-fix-dialog-title { font-size: 0.85rem; font-weight: 600; color: #374151; }
+.match-fix-close {
+  border: none;
+  background: transparent;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 0 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.match-fix-close:hover { background: #f3f4f6; color: #374151; }
+.match-fix-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  font-size: 0.78rem;
+  margin-bottom: 6px;
+}
+.match-fix-list { max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.match-fix-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  color: #374151;
+  cursor: pointer;
+}
+.match-fix-row:hover { background: #f3f4f6; }
+.match-fix-price { color: #6b7280; }
+.match-fix-empty { text-align: center; color: #9ca3af; font-size: 0.78rem; padding: 8px; }
+.match-fix-status { font-size: 0.75rem; color: #6b7280; text-align: center; padding: 4px 0; }
+.match-fix-error { font-size: 0.75rem; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; padding: 4px 8px; }
+.match-fix-section-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.03em; color: #9ca3af; font-weight: 700; margin-top: 2px; }
+.match-fix-source { margin-left: auto; font-size: 0.68rem; font-weight: 600; color: #16a34a; flex-shrink: 0; }
+.match-fix-source.embedding { color: #2563eb; }
+.row-expand-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 90;
+}
+.row-expand-dialog {
+  width: 1040px;
+  min-height: 400px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 64px);
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.row-expand-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: move; user-select: none; }
+.row-expand-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: #9ca3af; font-weight: 700; }
+.row-expand-close {
+  border: none;
+  background: transparent;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 0 6px;
+  border-radius: 4px;
+}
+.row-expand-close:hover { background: #f3f4f6; color: #374151; }
+.row-expand-content { font-size: 0.9rem; color: #374151; line-height: 1.5; overflow-y: auto; white-space: pre-wrap; flex: 1; min-height: 0; }
 </style>

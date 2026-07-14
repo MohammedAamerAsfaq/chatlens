@@ -7,6 +7,20 @@
         <span class="pnl-badge" :class="totalPnl < 0 ? 'negative' : 'positive'">
           Total PNL: {{ formatMoney(totalPnl) }}
         </span>
+        <span
+          v-if="embeddingStatus"
+          class="embed-badge"
+          :class="{ warn: embeddingMissing > 0 }"
+          :title="`Products: ${embeddingStatus.products.embedded}/${embeddingStatus.products.total} · Aliases: ${embeddingStatus.aliases.embedded}/${embeddingStatus.aliases.total}`"
+        >
+          Embeddings: {{ embeddingStatus.products.embedded + embeddingStatus.aliases.embedded }}/{{ embeddingStatus.products.total + embeddingStatus.aliases.total }}
+        </span>
+        <button
+          v-if="embeddingMissing > 0"
+          class="backfill-btn"
+          :disabled="backfilling"
+          @click="runBackfillEmbeddings"
+        >{{ backfilling ? 'Backfilling…' : `Backfill (${embeddingMissing})` }}</button>
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn-ghost" @click="openBulk">Bulk Import</button>
@@ -35,12 +49,14 @@
             <th class="th-inv">Sale</th>
             <th class="th-inv">Margin</th>
             <th>Active</th>
+            <th class="th-embed" title="Whether this product's own name+brand embedding exists">Product Embedding</th>
+            <th class="th-embed" title="Whether this product's aliases each have their own embedding">Alias Embeddings</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="filtered.length === 0">
-            <td colspan="8" class="empty">No products found.</td>
+            <td colspan="11" class="empty">No products found.</td>
           </tr>
           <tr v-for="p in filtered" :key="p.id" :class="{ inactive: !p.is_active }">
             <td class="col-name">{{ p.name }}</td>
@@ -93,6 +109,17 @@
               <span :class="['status-dot', p.is_active ? 'active' : 'inactive']">
                 {{ p.is_active ? 'Active' : 'Inactive' }}
               </span>
+            </td>
+            <td class="th-embed">
+              <span :class="['embed-dot', p.has_embedding ? 'yes' : 'no']">{{ p.has_embedding ? '✓' : '✗' }}</span>
+            </td>
+            <td class="th-embed">
+              <span v-if="!p.alias_embedding_status?.total" class="muted">—</span>
+              <span
+                v-else
+                class="embed-dot"
+                :class="p.alias_embedding_status.embedded === p.alias_embedding_status.total ? 'yes' : 'partial'"
+              >{{ p.alias_embedding_status.embedded }}/{{ p.alias_embedding_status.total }}</span>
             </td>
             <td class="col-actions">
               <button class="btn-sm" @click="openEdit(p)">Edit</button>
@@ -358,62 +385,93 @@
     </div>
 
     <!-- Create / Edit modal -->
-    <div v-if="modal.open" class="modal-backdrop" @click.self="closeModal">
-      <div class="modal">
-        <h3>{{ modal.id ? 'Edit Product' : 'Add Product' }}</h3>
+    <div v-if="modal.open" class="modal-backdrop">
+      <div
+        class="modal product-modal"
+        :style="{ transform: `translate(${productModalDrag.x}px, ${productModalDrag.y}px)` }"
+      >
+        <div class="modal-head product-modal-head" @mousedown="startProductModalDrag">
+          <div>
+            <h3>{{ modal.id ? 'Edit Product' : 'Add Product' }}</h3>
+            <p class="product-modal-subtitle">Catalog details, pricing, and search aliases</p>
+          </div>
+          <button type="button" class="modal-close" @mousedown.stop @click="closeModal" title="Close">×</button>
+        </div>
 
-        <div class="form-group">
-          <label>Name *</label>
-          <input v-model="modal.name" placeholder="iPhone 17 Pro Max" />
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Brand</label>
-            <input v-model="modal.brand" placeholder="Apple" />
-          </div>
-          <div class="form-group">
-            <label>Category</label>
-            <input v-model="modal.category" placeholder="Smartphones" />
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Qty</label>
-            <input v-model.number="modal.qty" type="number" min="0" placeholder="0" />
-          </div>
-          <div class="form-group">
-            <label>Cost Price</label>
-            <input v-model="modal.cost_price" type="number" step="0.01" placeholder="e.g. 850" />
-          </div>
-          <div class="form-group">
-            <label>Sale Price</label>
-            <input v-model="modal.sale_price" type="number" step="0.01" placeholder="e.g. 950" />
-          </div>
-          <div class="form-group">
-            <label>Currency</label>
-            <input v-model="modal.currency" placeholder="USD" />
-          </div>
-        </div>
-        <details class="advanced-section">
-          <summary>Advanced (optional)</summary>
-          <div class="advanced-body">
-            <div class="form-group">
-              <label>SKU</label>
-              <input v-model="modal.sku" placeholder="Internal SKU or model number" />
+        <div class="modal-body product-modal-body">
+          <div class="product-modal-col">
+            <div class="form-section card-section">
+              <div class="section-label">Basic Info</div>
+              <div class="form-group">
+                <label>Name *</label>
+                <input v-model="modal.name" placeholder="iPhone 17 Pro Max" />
+              </div>
+              <div class="form-row form-row-3">
+                <div class="form-group">
+                  <label>Brand</label>
+                  <input v-model="modal.brand" placeholder="Apple" />
+                </div>
+                <div class="form-group">
+                  <label>Category</label>
+                  <input v-model="modal.category" placeholder="Smartphones" />
+                </div>
+                <div class="form-group">
+                  <label>SKU</label>
+                  <input v-model="modal.sku" placeholder="Internal SKU or model number" />
+                </div>
+              </div>
             </div>
-            <div class="form-group">
-              <label>
-                Custom aliases
-                <span class="hint">— only needed for internal codes the AI won't know (e.g. "SKU-4421")</span>
-              </label>
-              <textarea v-model="modal.aliasText" rows="2"
-                placeholder="comma-separated" />
-              <div class="alias-preview">
-                <span v-for="a in previewAliases" :key="a" class="alias-chip">{{ a }}</span>
+
+            <div class="form-section card-section">
+              <div class="section-label">Pricing &amp; Stock</div>
+              <div class="form-row form-row-4">
+                <div class="form-group">
+                  <label>Qty</label>
+                  <input v-model.number="modal.qty" type="number" min="0" placeholder="0" />
+                </div>
+                <div class="form-group">
+                  <label>Cost Price</label>
+                  <input v-model="modal.cost_price" type="number" step="0.01" placeholder="e.g. 850" />
+                </div>
+                <div class="form-group">
+                  <label>Sale Price</label>
+                  <input v-model="modal.sale_price" type="number" step="0.01" placeholder="e.g. 950" />
+                </div>
+                <div class="form-group">
+                  <label>Currency</label>
+                  <input v-model="modal.currency" placeholder="USD" />
+                </div>
               </div>
             </div>
           </div>
-        </details>
+
+          <div class="product-modal-col">
+            <div class="form-section card-section alias-section">
+              <div class="section-label">
+                Aliases
+                <span class="hint">— alternate names/codes customers use (e.g. "17PM 256", "SKU-4421") — each one gets its own AI embedding so search finds this product no matter how it's phrased</span>
+              </div>
+              <div class="alias-input-box">
+                <span v-for="a in modalAliases" :key="a.id" class="alias-chip removable">
+                  {{ a.alias }}
+                  <button type="button" class="alias-remove" @click="removeSavedAlias(a)" title="Remove">×</button>
+                </span>
+                <span v-for="(a, i) in pendingAliases" :key="`pending-${i}`" class="alias-chip removable pending" title="Will be saved with this product">
+                  {{ a }}
+                  <button type="button" class="alias-remove" @click="removePendingAlias(i)" title="Remove">×</button>
+                </span>
+                <input
+                  v-model="aliasInput"
+                  class="alias-input"
+                  placeholder="Type an alias, press Enter…"
+                  @keydown="handleAliasKeydown"
+                  @blur="addAliasChip"
+                />
+              </div>
+              <div v-if="aliasError" class="alias-error">{{ aliasError }}</div>
+            </div>
+          </div>
+        </div>
 
         <div class="modal-actions">
           <button class="btn-ghost" @click="closeModal">Cancel</button>
@@ -427,7 +485,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { tradingApi } from '../api/index.js'
 
@@ -438,8 +496,18 @@ const saving      = ref(false)
 
 const modal = ref({
   open: false, id: null,
-  name: '', brand: '', category: '', sku: '', aliasText: '',
+  name: '', brand: '', category: '', sku: '',
 })
+
+// Aliases are managed live via their own endpoints, independent of the main product
+// save — modalAliases holds already-persisted rows (edit mode, fetched on open),
+// pendingAliases holds not-yet-persisted strings (create mode, flushed to the API
+// right after the product itself is created).
+const modalAliases   = ref([])
+const pendingAliases = ref([])
+const aliasInput      = ref('')
+const aliasSaving     = ref(false)
+const aliasError      = ref('')
 
 const bulk = ref({
   open: false, tab: 'structured',
@@ -496,13 +564,6 @@ async function regeneratePriceList() {
   }
 }
 
-const previewAliases = computed(() =>
-  modal.value.aliasText
-    .split(',')
-    .map(a => a.trim())
-    .filter(Boolean)
-)
-
 function margin(p) {
   if (p.cost_price == null || p.sale_price == null) return null
   return p.sale_price - p.cost_price
@@ -536,6 +597,34 @@ const totalPnl = computed(() =>
 async function load() {
   const { data } = await tradingApi.listProducts({ active: 'all' })
   products.value = data
+}
+
+// Embedding coverage — the only durable signal that a background embedding job
+// silently failed (provider hiccup, rate limit, etc.), since those failures only
+// ever land in a console warning with nothing persisted otherwise.
+const embeddingStatus = ref(null)
+const backfilling     = ref(false)
+
+const embeddingMissing = computed(() => {
+  if (!embeddingStatus.value) return 0
+  return embeddingStatus.value.products.missing + embeddingStatus.value.aliases.missing
+})
+
+async function loadEmbeddingStatus() {
+  try {
+    const { data } = await tradingApi.getEmbeddingStatus()
+    embeddingStatus.value = data
+  } catch { /* non-critical — badge just won't show this cycle */ }
+}
+
+async function runBackfillEmbeddings() {
+  backfilling.value = true
+  try {
+    await tradingApi.backfillEmbeddings()
+    await loadEmbeddingStatus()
+  } finally {
+    backfilling.value = false
+  }
 }
 
 // ── Inline cell edit (Qty / Cost / Sale) ────────────────────────────────────────
@@ -577,27 +666,129 @@ function handleCellKeydown(e, p, field) {
   }
 }
 
-function openCreate() {
-  modal.value = {
-    open: true, id: null, name: '', brand: '', category: '', sku: '', aliasText: '',
-    qty: 0, cost_price: '', sale_price: '', currency: 'USD',
+// Dragging for the product modal — cumulative translate offset from its default
+// centered position, same technique used for the trading-desk popups.
+const productModalDrag = ref({ x: 0, y: 0 })
+let productModalDragState = null
+
+function startProductModalDrag(e) {
+  productModalDragState = {
+    startX: e.clientX,
+    startY: e.clientY,
+    baseX: productModalDrag.value.x,
+    baseY: productModalDrag.value.y,
+  }
+  window.addEventListener('mousemove', onProductModalDrag)
+  window.addEventListener('mouseup', stopProductModalDrag)
+}
+
+function onProductModalDrag(e) {
+  if (!productModalDragState) return
+  productModalDrag.value = {
+    x: productModalDragState.baseX + (e.clientX - productModalDragState.startX),
+    y: productModalDragState.baseY + (e.clientY - productModalDragState.startY),
   }
 }
 
-function openEdit(p) {
+function stopProductModalDrag() {
+  productModalDragState = null
+  window.removeEventListener('mousemove', onProductModalDrag)
+  window.removeEventListener('mouseup', stopProductModalDrag)
+}
+
+function resetAliasState() {
+  modalAliases.value = []
+  pendingAliases.value = []
+  aliasInput.value = ''
+  aliasError.value = ''
+}
+
+function openCreate() {
+  modal.value = {
+    open: true, id: null, name: '', brand: '', category: '', sku: '',
+    qty: 0, cost_price: '', sale_price: '', currency: 'USD',
+  }
+  productModalDrag.value = { x: 0, y: 0 }
+  resetAliasState()
+}
+
+async function openEdit(p) {
   modal.value = {
     open: true, id: p.id,
     name: p.name, brand: p.brand, category: p.category, sku: p.sku,
-    aliasText: p.aliases.join(', '),
     qty: p.qty ?? 0,
     cost_price: p.cost_price ?? '',
     sale_price: p.sale_price ?? '',
     currency: p.currency || 'USD',
   }
+  productModalDrag.value = { x: 0, y: 0 }
+  resetAliasState()
+  try {
+    const { data } = await tradingApi.listProductAliases(p.id)
+    modalAliases.value = data
+  } catch { /* non-critical — alias section just starts empty */ }
 }
 
 function closeModal() {
   modal.value.open = false
+  loadEmbeddingStatus()
+}
+
+// Enter or comma commits the current text as a chip. In edit mode this persists
+// immediately (its own embedding gets queued server-side); in create mode it's held
+// locally and flushed right after the product itself is created (see save()).
+async function addAliasChip() {
+  const text = aliasInput.value.trim().replace(/,+$/, '').trim()
+  if (!text) return
+  aliasInput.value = ''
+  aliasError.value = ''
+
+  if (!modal.value.id) {
+    if (!pendingAliases.value.some(a => a.toLowerCase() === text.toLowerCase())) {
+      pendingAliases.value.push(text)
+    }
+    return
+  }
+
+  aliasSaving.value = true
+  try {
+    const { data } = await tradingApi.addProductAlias(modal.value.id, text)
+    modalAliases.value.push(data)
+  } catch (e) {
+    aliasError.value = e.response?.data?.detail || 'Failed to add alias'
+  } finally {
+    aliasSaving.value = false
+  }
+}
+
+function handleAliasKeydown(e) {
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault()
+    addAliasChip()
+    return
+  }
+  // Backspace on an empty input removes the most recently added chip — the one
+  // immediately to the left of the cursor, same convention as Gmail's "To" field.
+  if (e.key === 'Backspace' && !aliasInput.value) {
+    if (pendingAliases.value.length) {
+      removePendingAlias(pendingAliases.value.length - 1)
+    } else if (modalAliases.value.length) {
+      removeSavedAlias(modalAliases.value[modalAliases.value.length - 1])
+    }
+  }
+}
+
+function removePendingAlias(i) {
+  pendingAliases.value.splice(i, 1)
+}
+
+async function removeSavedAlias(alias) {
+  try {
+    await tradingApi.deleteProductAlias(modal.value.id, alias.id)
+    modalAliases.value = modalAliases.value.filter(a => a.id !== alias.id)
+  } catch {
+    aliasError.value = 'Failed to remove alias'
+  }
 }
 
 async function save() {
@@ -609,7 +800,6 @@ async function save() {
       brand:     modal.value.brand.trim(),
       category:  modal.value.category.trim(),
       sku:       modal.value.sku.trim(),
-      aliases:   previewAliases.value,
       is_active: true,
       qty:        modal.value.qty === '' || modal.value.qty == null ? 0 : Number(modal.value.qty),
       cost_price: modal.value.cost_price === '' || modal.value.cost_price == null ? null : Number(modal.value.cost_price),
@@ -619,7 +809,10 @@ async function save() {
     if (modal.value.id) {
       await tradingApi.updateProduct(modal.value.id, payload)
     } else {
-      await tradingApi.createProduct(payload)
+      const { data } = await tradingApi.createProduct(payload)
+      for (const alias of pendingAliases.value) {
+        await tradingApi.addProductAlias(data.id, alias).catch(() => {})
+      }
     }
     closeModal()
     await load()
@@ -737,7 +930,8 @@ async function deactivate(p) {
   await load()
 }
 
-onMounted(load)
+onMounted(() => { load(); loadEmbeddingStatus() })
+onUnmounted(stopProductModalDrag)
 </script>
 
 <style scoped>
@@ -749,6 +943,11 @@ onMounted(load)
 .pnl-badge { border-radius: 999px; padding: 2px 10px; font-size: 0.8rem; font-weight: 600; }
 .pnl-badge.positive { background: #dcfce7; color: #15803d; }
 .pnl-badge.negative { background: #fee2e2; color: #dc2626; }
+.embed-badge { border-radius: 999px; padding: 2px 10px; font-size: 0.8rem; font-weight: 600; background: #e0e7ff; color: #4338ca; }
+.embed-badge.warn { background: #fef9c3; color: #92400e; }
+.backfill-btn { padding: 4px 12px; border: 1px solid #f59e0b; border-radius: 999px; background: #fffbeb; color: #92400e; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
+.backfill-btn:hover { background: #fef3c7; }
+.backfill-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .toolbar { display: flex; gap: 12px; align-items: center; }
 .search-input { flex: 1; padding: 7px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.9rem; }
 .toggle-label { font-size: 0.88rem; display: flex; gap: 6px; align-items: center; cursor: pointer; }
@@ -770,6 +969,11 @@ onMounted(load)
 .status-dot { font-size: 0.8rem; font-weight: 500; }
 .status-dot.active { color: #16a34a; }
 .status-dot.inactive { color: #9ca3af; }
+.th-embed { text-align: center; font-size: 0.78rem; }
+.embed-dot { font-weight: 600; }
+.embed-dot.yes { color: #16a34a; }
+.embed-dot.no { color: #dc2626; }
+.embed-dot.partial { color: #d97706; }
 .empty { text-align: center; color: #9ca3af; padding: 40px; }
 .muted { color: #9ca3af; }
 .btn-primary { padding: 7px 16px; background: #2563eb; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
@@ -785,13 +989,14 @@ onMounted(load)
 .modal-foot { padding: 14px 24px; border-top: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; background: #fff; }
 .foot-spacer { flex: 1; }
 .foot-actions { display: flex; gap: 8px; }
-.form-group { display: flex; flex-direction: column; gap: 4px; }
+.form-group { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .form-group label { font-size: 0.83rem; color: #374151; font-weight: 500; }
-.form-group input, .form-group textarea { padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.9rem; }
-.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-group input, .form-group textarea { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.9rem; }
+.form-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.form-row-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.form-row-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .hint { font-weight: 400; color: #6b7280; }
-.alias-preview { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; min-height: 20px; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.modal-actions { padding: 14px 24px; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
 .preview-table { width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
 .modal-wide { width: 700px; }
 .tab-bar { display: flex; gap: 0; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
@@ -813,15 +1018,66 @@ onMounted(load)
 .preview-table-wrap { max-height: 240px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 6px; }
 .inline-input { width: 100%; border: none; background: transparent; font-size: 0.85rem; padding: 2px 4px; outline: none; }
 .inline-input:focus { background: #eff6ff; border-radius: 3px; }
-.prompt-details { border: 1px solid #e5e7eb; border-radius: 6px; font-size: 0.83rem; }
-.prompt-details summary { padding: 7px 12px; cursor: pointer; color: #6b7280; user-select: none; }
-.prompt-details summary:hover { color: #374151; }
-.prompt-pre { margin: 0; padding: 10px 14px; background: #f9fafb; border-top: 1px solid #e5e7eb; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; color: #374151; border-radius: 0 0 6px 6px; }
-.prompt-editable { width: 100%; resize: vertical; border: none; outline: none; box-sizing: border-box; line-height: 1.5; }
-.advanced-section { border: 1px solid #e5e7eb; border-radius: 6px; padding: 0; }
-.advanced-section summary { padding: 8px 12px; font-size: 0.83rem; color: #6b7280; cursor: pointer; user-select: none; }
-.advanced-section summary:hover { color: #374151; }
-.advanced-body { display: flex; flex-direction: column; gap: 12px; padding: 12px; border-top: 1px solid #e5e7eb; }
+/* Product create/edit modal */
+.product-modal {
+  width: 1200px;
+  max-width: calc(100vw - 32px);
+  max-height: 85vh;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.product-modal-head {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 24px;
+  background: linear-gradient(to bottom, #fafbff, #ffffff);
+  border-bottom: 1px solid #e5e7eb;
+  cursor: move;
+  user-select: none;
+}
+.product-modal-head h3 { margin: 0 0 2px; }
+.product-modal-subtitle { margin: 0; font-size: 0.8rem; color: #9ca3af; }
+.modal-close {
+  border: none;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.modal-close:hover { background: #f3f4f6; color: #374151; }
+.product-modal-body { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.product-modal-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.card-section {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.alias-section { flex: 1; }
+.form-section { display: flex; flex-direction: column; gap: 12px; }
+.section-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: #9ca3af; font-weight: 700; }
+.alias-input-box {
+  display: flex; flex-wrap: wrap; align-content: flex-start; align-items: center; gap: 6px;
+  padding: 10px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff;
+  min-height: 200px; max-height: 340px; overflow-y: auto;
+}
+.alias-input-box:focus-within { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+.alias-chip.removable { display: inline-flex; align-items: center; gap: 4px; }
+.alias-chip.pending { background: #fef9c3; color: #92400e; }
+.alias-remove { border: none; background: transparent; color: inherit; opacity: 0.6; cursor: pointer; font-size: 0.9rem; line-height: 1; padding: 0; }
+.alias-remove:hover { opacity: 1; }
+.alias-input { flex: 1; min-width: 140px; border: none; outline: none; font-size: 0.85rem; padding: 3px 2px; }
+.alias-error { color: #dc2626; font-size: 0.8rem; }
+@media (max-width: 860px) {
+  .product-modal-body { grid-template-columns: 1fr; }
+}
 /* Inventory */
 .btn-inv { border-color: #6366f1; color: #4f46e5; }
 .btn-inv:hover { background: #eef2ff; }

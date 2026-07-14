@@ -6,9 +6,31 @@ logger = logging.getLogger(__name__)
 
 _WORD_RE = re.compile(r'[a-z0-9]+')
 
+# Product-line/brand words that routinely appear in a catalog name but that a customer
+# almost never types when requesting a product ("iPhone 17 Pro Max..." vs. the sender's
+# own "17 pro max...") — harmless omissions, not a sign of a wrong match. Extend this if
+# the catalog grows beyond Apple devices.
+_COSMETIC_WORDS = {'iphone', 'ipad', 'apple'}
+_STORAGE_UNIT_RE = re.compile(r'^(\d+)(gb|tb)$')
+
 
 def _words(text: str) -> set:
     return set(_WORD_RE.findall((text or '').lower()))
+
+
+def _normalize_attribute_words(words: set) -> set:
+    """Collapse cosmetic-only differences before comparing two word sets for the same
+    product: a bare storage number ("256") and its unit-suffixed form ("256gb") name the
+    same attribute, and brand/product-line words are routinely omitted by customers
+    without changing what they're asking for — neither should register as a mismatch.
+    """
+    out = set()
+    for w in words:
+        if w in _COSMETIC_WORDS:
+            continue
+        m = _STORAGE_UNIT_RE.match(w)
+        out.add(m.group(1) if m else w)
+    return out
 
 # Valid tag values the AI may return
 VALID_TAGS = {
@@ -150,8 +172,8 @@ def _validate_exact_matches(products: list) -> list:
     for p in products:
         if p['match_type'] != 'exact' or p['product_id'] not in names:
             continue
-        real_words = _words(names[p['product_id']])
-        claimed_words = _words(p['canonical_name'])
+        real_words = _normalize_attribute_words(_words(names[p['product_id']]))
+        claimed_words = _normalize_attribute_words(_words(p['canonical_name']))
         if not real_words <= claimed_words:
             logger.warning(
                 'classify_message | exact match self-contradiction | product_id=%s | '

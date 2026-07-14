@@ -106,6 +106,12 @@ export const workerAlertsApi = {
   acknowledgeAll:     (params) => http.post('/worker-alerts/acknowledge-all/', {}, { params }),
 }
 
+export const stuckReceiptsApi = {
+  list:            (params) => http.get('/stuck-receipts/', { params }),
+  unresolvedCount:  ()      => http.get('/stuck-receipts/unresolved-count/'),
+  resolve:          (id)    => http.post(`/stuck-receipts/${id}/resolve/`),
+}
+
 export const groupsApi = {
   list:         (params)    => http.get('/groups/', { params }),
   get:          (id)        => http.get(`/groups/${id}/`),
@@ -121,6 +127,12 @@ export const tradingApi = {
   updateProduct:  (id, data)    => http.patch(`/products/${id}/`, data),
   deleteProduct:  (id)          => http.delete(`/products/${id}/`),
   getProductStats:(params)      => http.get('/products/stats/', { params }),
+
+  // Product aliases — each one gets its own embedding (see backend ProductAliasEmbedding),
+  // so these are managed live/independently of the main product create/update.
+  listProductAliases:  (productId)         => http.get(`/products/${productId}/aliases/`),
+  addProductAlias:     (productId, alias)  => http.post(`/products/${productId}/aliases/`, { alias }),
+  deleteProductAlias:  (productId, aliasId) => http.delete(`/products/${productId}/aliases/${aliasId}/`),
 
   // Bulk product helpers
   parseProductText:     (text)           => http.post('/products/parse-text/', { text }),
@@ -150,6 +162,11 @@ export const tradingApi = {
   getClassificationActivity: (params)  => http.get('/inquiries/classification-activity/', { params }),
   backfillClassify:       (data)        => http.post('/inquiries/backfill-classify/', data),
   retryInquiries:         (data)        => http.post('/inquiries/retry-inquiries/', data),
+  correctMatch:           (id, data)    => http.post(`/inquiries/${id}/correct-match/`, data),
+  searchProductEmbeddings: (params)    => http.get('/products/search-embeddings/', { params }),
+  getEmbeddingStatus:      ()          => http.get('/products/embedding-status/'),
+  backfillEmbeddings:      ()          => http.post('/products/backfill-embeddings/'),
+  closeStaleInquiries:    (data)        => http.post('/inquiries/close-stale/', data),
 
   // Buying Inquiries (manual RFQ-to-suppliers workflow)
   listBuyingInquiries:  (params)     => http.get('/buying-inquiries/', { params }),

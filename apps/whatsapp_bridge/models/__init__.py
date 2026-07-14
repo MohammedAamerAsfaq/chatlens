@@ -6,6 +6,7 @@ from .sync_log import SyncLog
 from .dropped_message import DroppedMessage
 from .whatsapp_group import WhatsAppGroup, WhatsAppGroupParticipant, ParticipantRole
 from .worker_alert import WorkerAlert
+from .stuck_receipt import StuckReceipt
 
 __all__ = [
     'WhatsAppAccount',
@@ -23,4 +24,5 @@ __all__ = [
     'WhatsAppGroupParticipant',
     'ParticipantRole',
     'WorkerAlert',
+    'StuckReceipt',
 ]

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact, SyncLog, DroppedMessage,
-    WhatsAppGroup, WhatsAppGroupParticipant, WorkerAlert,
+    WhatsAppGroup, WhatsAppGroupParticipant, WorkerAlert, StuckReceipt,
 )
 
 
@@ -166,6 +166,29 @@ class WorkerAlertSerializer(serializers.ModelSerializer):
                   'context', 'created_at', 'acknowledged_at', 'acknowledged_by']
         read_only_fields = ['id', 'account', 'account_name', 'alert_type', 'severity',
                              'message', 'context', 'created_at', 'acknowledged_by']
+
+    def get_account_name(self, obj):
+        if not obj.account:
+            return None
+        return obj.account.display_name or obj.account.phone_number or f'Account #{obj.account.pk}'
+
+
+class StuckReceiptSerializer(serializers.ModelSerializer):
+    account_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StuckReceipt
+        fields = ['id', 'account', 'account_name', 'remote_jid', 'participant', 'message_id',
+                  'from_me', 'context', 'occurrence_count', 'first_seen_at', 'last_seen_at',
+                  'resolved_at', 'resolved_by']
+        read_only_fields = ['id', 'account', 'account_name', 'remote_jid', 'participant',
+                             'message_id', 'from_me', 'context', 'occurrence_count',
+                             'first_seen_at', 'last_seen_at', 'resolved_by']
+
+    def get_account_name(self, obj):
+        if not obj.account:
+            return None
+        return obj.account.display_name or obj.account.phone_number or f'Account #{obj.account.pk}'
 
     def get_account_name(self, obj):
         if not obj.account:

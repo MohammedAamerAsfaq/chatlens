@@ -1,17 +1,52 @@
 from rest_framework import serializers
 from .models import (
-    Product, MessageClassification, Inquiry, InquiryMessage, AiParsingLog,
+    Product, ProductAlias, MessageClassification, Inquiry, InquiryMessage, AiParsingLog,
     BuyingInquiry, SupplierQuote,
 )
 
 
 class ProductSerializer(serializers.ModelSerializer):
+    # Read-only convenience list for display/search — managed for real via the
+    # dedicated /products/{id}/aliases/ endpoints (ProductAliasSerializer below),
+    # never written through this serializer.
+    aliases = serializers.SerializerMethodField()
+    # Per-row embedding visibility for the product table — same signal as
+    # /products/embedding-status/'s aggregate counts, just broken out per product so a
+    # specific silently-failed background embed (see backfill-embeddings) can be spotted
+    # without cross-referencing anything.
+    has_embedding          = serializers.SerializerMethodField()
+    alias_embedding_status = serializers.SerializerMethodField()
+
     class Meta:
         model  = Product
         fields = ['id', 'name', 'brand', 'category', 'sku', 'aliases', 'is_active',
                   'qty', 'cost_price', 'sale_price', 'currency',
+                  'has_embedding', 'alias_embedding_status',
                   'created_at', 'updated_at']
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'aliases', 'has_embedding', 'alias_embedding_status',
+                             'created_at', 'updated_at']
+
+    def get_aliases(self, obj):
+        return [a.alias for a in obj.alias_set.all()]
+
+    def get_has_embedding(self, obj):
+        emb = getattr(obj, 'embedding', None)
+        return bool(emb and emb.embedding is not None)
+
+    def get_alias_embedding_status(self, obj):
+        aliases = list(obj.alias_set.all())
+        embedded = sum(
+            1 for a in aliases
+            if (emb := getattr(a, 'embedding', None)) and emb.embedding is not None
+        )
+        return {'embedded': embedded, 'total': len(aliases)}
+
+
+class ProductAliasSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductAlias
+        fields = ['id', 'product', 'alias', 'created_at']
+        read_only_fields = ['id', 'product', 'created_at']
 
 
 class MessageClassificationSerializer(serializers.ModelSerializer):
@@ -84,7 +119,7 @@ class InquirySerializer(serializers.ModelSerializer):
             'inquiry_type', 'status', 'products', 'summary', 'remarks',
             'dedup_key', 'source_type', 'source_chat_id', 'source_message_id',
             'source_message_time', 'source_message_text', 'first_seen_at', 'closed_at',
-            'age_seconds', 'created_at', 'updated_at',
+            'classification_rating', 'age_seconds', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'account', 'account_name', 'contact', 'contact_name', 'contact_phone',

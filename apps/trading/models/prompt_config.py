@@ -82,10 +82,16 @@ picked is exactly as wrong as picking it.
 still reflects exactly what the message requested.
 7. Self-check, silently, before your final answer, two comparisons: (a) does canonical_name still \
 say exactly what the sender wrote, unchanged by whichever candidate you considered? (b) if product_id \
-is set, find its exact line in PRODUCT MASTER above and compare it word-by-word against \
-canonical_name — the master list is the only source of truth, not general knowledge of what a model \
-"usually" comes in. If even one word differs (brand aside), match_type cannot be "exact" — downgrade \
-to "near" or null.
+is set, find its exact line in PRODUCT MASTER above and compare it ATTRIBUTE BY ATTRIBUTE — model, \
+tier suffix, storage size, color, region — against canonical_name; this is not a word-by-word string \
+match. Cosmetic differences never count against "exact": a missing/present storage unit suffix \
+("256" vs "256GB"), capitalization, spacing/punctuation, whether the brand name is written at all, \
+and a regional abbreviation already normalized above (e.g. canonical_name says "TRA", the master \
+line says "UAE" — that is the same region, not a mismatch). Only a genuine attribute difference — a \
+different storage number, a different color word, a different region, a different tier suffix — \
+forces a downgrade to "near" or null. Example: canonical_name "17 pro max 256 silver UAE" against \
+master line "iPhone 17 Pro Max 256GB Silver UAE" — model, tier, storage, color, and region all match; \
+the missing "iPhone"/"GB" and the casing are cosmetic only, so match_type stays "exact".
 
 A short standalone reply with no product words, spec, or brand at all (a lone "3", "ok", a bare \
 price, an emoji) is NOT a product inquiry by itself, even if a similar-looking ID exists in PRODUCT \

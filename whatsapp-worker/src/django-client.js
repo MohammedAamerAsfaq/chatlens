@@ -125,6 +125,16 @@ class DjangoClient {
     }
   }
 
+  async sendStuckReceipt(sessionId, fields) {
+    const payload = { worker_session_id: sessionId, ...fields };
+    try {
+      await this.http.post('/api/internal/whatsapp/stuck-receipt/', payload);
+    } catch (err) {
+      this.logger.warn({ sessionId, messageId: fields.message_id, err: err.message }, 'sendStuckReceipt failed — falling back to local file');
+      this._writeFallback('stuck_receipt', payload);
+    }
+  }
+
   async sendContactsUpdate(sessionId, contacts) {
     if (!contacts.length) return;
     try {

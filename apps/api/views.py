@@ -23,11 +23,13 @@ from rest_framework.response import Response
 from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact,
     SyncLog, DroppedMessage, WhatsAppGroup, SessionStatus, WorkerAlert,
+    StuckReceipt,
 )
 from .serializers import (
     WhatsAppAccountSerializer, ChatSerializer, MessageSerializer,
     SyncLogSerializer, DroppedMessageSerializer, ContactDetailSerializer,
     GroupSerializer, GroupDetailSerializer, WorkerAlertSerializer,
+    StuckReceiptSerializer,
 )
 
 WORKER_BASE_URL = getattr(settings, 'WORKER_BASE_URL', 'http://localhost:3001')
@@ -790,6 +792,40 @@ class WorkerAlertViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(account_id=account_id)
         updated = qs.update(acknowledged_at=now(), acknowledged_by=request.user if request.user.is_authenticated else None)
         return Response({'acknowledged': updated})
+
+
+class StuckReceiptViewSet(viewsets.ReadOnlyModelViewSet):
+    """Messages WhatsApp keeps asking us to resend that our own send path can't
+    fulfill — see StuckReceipt model docstring. Resolving one here is just a
+    review/audit marker; it does not affect the worker's in-memory skip-list
+    (that's keyed off the row's mere existence, not its resolved_at)."""
+    serializer_class = StuckReceiptSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = ActivityPagination
+
+    def get_queryset(self):
+        qs = StuckReceipt.objects.select_related('account').order_by('-last_seen_at')
+        account_id = self.request.query_params.get('account')
+        if account_id:
+            qs = qs.filter(account_id=account_id)
+        resolved = self.request.query_params.get('resolved')
+        if resolved == 'true':
+            qs = qs.filter(resolved_at__isnull=False)
+        elif resolved == 'false':
+            qs = qs.filter(resolved_at__isnull=True)
+        return qs
+
+    @action(detail=False, methods=['get'], url_path='unresolved-count')
+    def unresolved_count(self, request):
+        return Response({'count': StuckReceipt.objects.filter(resolved_at__isnull=True).count()})
+
+    @action(detail=True, methods=['post'], url_path='resolve')
+    def resolve(self, request, pk=None):
+        receipt = self.get_object()
+        receipt.resolved_at = now()
+        receipt.resolved_by = request.user if request.user.is_authenticated else None
+        receipt.save(update_fields=['resolved_at', 'resolved_by'])
+        return Response(StuckReceiptSerializer(receipt).data)
 
 
 class ContactViewSet(viewsets.ModelViewSet):

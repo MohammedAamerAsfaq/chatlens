@@ -3,17 +3,18 @@ import logging
 import threading
 from django.db import connection as _db_conn
 from django.db.models import Count, Q
-from django.utils.timezone import now
-from datetime import timedelta
+from django.utils.timezone import now, make_aware
+from datetime import timedelta, date as _date, datetime as _datetime, time as _time
 from rest_framework import viewsets, mixins, status
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Product, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, AgentCallLog, AiParsingLog, BuyingInquiry, SupplierQuote
+from .models import Product, ProductAlias, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, AgentCallLog, AiParsingLog, BuyingInquiry, SupplierQuote
 from .serializers import (
     ProductSerializer,
+    ProductAliasSerializer,
     MessageClassificationSerializer,
     InquirySerializer,
     InquiryDetailSerializer,
@@ -24,6 +25,28 @@ from .serializers import (
 from .services.product_cache import invalidate as invalidate_product_cache
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_date_range(request):
+    """(start, end) timezone-aware datetimes for the requested date_from/date_to query
+    params (YYYY-MM-DD, inclusive on both ends). Defaults to "today" (a single day) when
+    neither is given — preserves the existing behavior for callers that don't pass them,
+    e.g. the Trading Dashboard's stat chips, which must keep showing today-only numbers.
+    """
+    date_from = request.query_params.get('date_from')
+    date_to   = request.query_params.get('date_to')
+
+    if date_from:
+        start = make_aware(_datetime.combine(_date.fromisoformat(date_from), _time.min))
+    else:
+        start = now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    if date_to:
+        end = make_aware(_datetime.combine(_date.fromisoformat(date_to), _time.min)) + timedelta(days=1)
+    else:
+        end = start + timedelta(days=1)
+
+    return start, end
 
 
 def _embed_product_in_background(product_id: int):
@@ -62,12 +85,43 @@ def _embed_products_batch_in_background(product_ids: list):
     threading.Thread(target=_run, daemon=True).start()
 
 
+def _embed_alias_in_background(alias_id: int):
+    """Same pattern as _embed_product_in_background, for a single new/edited alias."""
+    def _run():
+        try:
+            from apps.message_intelligence.services.embedding_service import embed_product_alias
+            embed_product_alias(alias_id)
+        except Exception:
+            logger.warning('Background alias embedding failed for alias_id=%s', alias_id, exc_info=True)
+        finally:
+            _db_conn.close()
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _embed_aliases_batch_in_background(alias_ids: list):
+    """Same as _embed_alias_in_background but for a batch (bulk import)."""
+    if not alias_ids:
+        return
+
+    def _run():
+        try:
+            from apps.message_intelligence.services.embedding_service import embed_product_aliases_batch
+            embed_product_aliases_batch(alias_ids)
+        except Exception:
+            logger.warning('Background batch alias embedding failed for %d alias(es)', len(alias_ids), exc_info=True)
+        finally:
+            _db_conn.close()
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
 class ProductViewSet(viewsets.ModelViewSet):
     serializer_class   = ProductSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        qs = Product.objects.all()
+        qs = Product.objects.all().select_related('embedding').prefetch_related('alias_set__embedding')
         active = self.request.query_params.get('active')
         if active == 'true':
             qs = qs.filter(is_active=True)
@@ -133,6 +187,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         """Create multiple products; skips names that already exist (case-insensitive)."""
         items = request.data.get('products') or []
         created, skipped = [], []
+        new_alias_ids = []
         for item in items:
             name = (item.get('name') or '').strip()
             if not name:
@@ -145,13 +200,51 @@ class ProductViewSet(viewsets.ModelViewSet):
                 brand=(item.get('brand') or '').strip(),
                 category=(item.get('category') or '').strip(),
                 sku=(item.get('sku') or '').strip(),
-                aliases=item.get('aliases') or [],
             )
+            seen = set()
+            for raw in (item.get('aliases') or []):
+                alias_text = (raw or '').strip()
+                key = alias_text.lower()
+                if not alias_text or key in seen:
+                    continue
+                seen.add(key)
+                new_alias_ids.append(ProductAlias.objects.create(product=p, alias=alias_text).pk)
             created.append(ProductSerializer(p).data)
         if created:
             invalidate_product_cache()
             _embed_products_batch_in_background([p['id'] for p in created])
+            _embed_aliases_batch_in_background(new_alias_ids)
         return Response({'created': created, 'skipped': skipped})
+
+    @action(detail=True, methods=['get', 'post'], url_path='aliases')
+    def aliases(self, request, pk=None):
+        """List or add aliases for one product. Each addition gets its own embedding
+        (see ProductAliasEmbedding) — this is the CRUD surface the frontend's alias
+        chip input in the product form talks to; it's independent of the main
+        product PATCH/PUT, so adding an alias never requires re-saving the product."""
+        product = self.get_object()
+        if request.method == 'GET':
+            return Response(ProductAliasSerializer(product.alias_set.all(), many=True).data)
+
+        alias_text = (request.data.get('alias') or '').strip()
+        if not alias_text:
+            return Response({'detail': 'alias is required'}, status=status.HTTP_400_BAD_REQUEST)
+        if product.alias_set.filter(alias__iexact=alias_text).exists():
+            return Response({'detail': 'This alias already exists for this product'}, status=status.HTTP_400_BAD_REQUEST)
+
+        obj = ProductAlias.objects.create(product=product, alias=alias_text)
+        invalidate_product_cache()
+        _embed_alias_in_background(obj.pk)
+        return Response(ProductAliasSerializer(obj).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['delete'], url_path=r'aliases/(?P<alias_id>\d+)')
+    def delete_alias(self, request, pk=None, alias_id=None):
+        product = self.get_object()
+        deleted, _ = product.alias_set.filter(pk=alias_id).delete()
+        if not deleted:
+            return Response({'detail': 'Alias not found'}, status=status.HTTP_404_NOT_FOUND)
+        invalidate_product_cache()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=False, methods=['post'], url_path='parse-inventory')
     def parse_inventory(self, request):
@@ -281,12 +374,92 @@ class ProductViewSet(viewsets.ModelViewSet):
             'generated_at': obj.generated_at.isoformat() if obj.generated_at else None,
         })
 
+    @action(detail=False, methods=['get'], url_path='search-embeddings')
+    def search_embeddings(self, request):
+        """Embedding-based fallback product search for the trading dashboard's "Auto"
+        match-fix button — only called client-side after a direct name/alias search
+        over the already-loaded catalog comes up empty (e.g. a garbled or oddly-phrased
+        request an exact/substring check can't catch). This only narrows candidates for
+        a human to confirm; it never applies a match on its own.
+        """
+        from apps.message_intelligence.services.embedding_service import find_similar_products
+
+        query = request.query_params.get('q', '').strip()
+        if not query:
+            return Response({'results': []})
+
+        try:
+            hits = find_similar_products(query, top_k=5)
+        except Exception as exc:
+            logger.warning(f'search_embeddings | query={query!r} failed: {exc}')
+            return Response({'detail': 'Embedding search unavailable'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        results = [
+            {'product': ProductSerializer(hit.product).data, 'distance': round(float(hit.distance), 4)}
+            for hit in hits
+        ]
+        return Response({'results': results})
+
+    @action(detail=False, methods=['get'], url_path='embedding-status')
+    def embedding_status(self, request):
+        """Counts of embedded vs. missing for products and their aliases — the only
+        durable signal for a background embedding job that failed (a provider hiccup,
+        rate limit, etc.). Those failures only ever land in a console warning with
+        nothing persisted, so "missing an embedding" is itself the record; this and
+        backfill-embeddings below are how that gets noticed and fixed instead of
+        silently sitting broken forever."""
+        from apps.message_intelligence.models import ProductEmbedding, ProductAliasEmbedding
+
+        product_total = Product.objects.filter(is_active=True).count()
+        product_embedded = ProductEmbedding.objects.filter(
+            product__is_active=True, embedding__isnull=False,
+        ).count()
+
+        alias_total = ProductAlias.objects.filter(product__is_active=True).count()
+        alias_embedded = ProductAliasEmbedding.objects.filter(
+            alias__product__is_active=True, embedding__isnull=False,
+        ).count()
+
+        return Response({
+            'products': {'total': product_total, 'embedded': product_embedded, 'missing': product_total - product_embedded},
+            'aliases':  {'total': alias_total, 'embedded': alias_embedded, 'missing': alias_total - alias_embedded},
+        })
+
+    @action(detail=False, methods=['post'], url_path='backfill-embeddings')
+    def backfill_embeddings(self, request):
+        """Re-attempt embedding for every active product/alias that doesn't have one yet.
+        Synchronous (not fire-and-forget) — this is an explicit, user-initiated action on
+        a small catalog, so it's more useful to wait a second and report real counts than
+        to say "queued" and leave the same invisibility problem this exists to fix."""
+        from apps.message_intelligence.services.embedding_service import (
+            embed_products_batch, embed_product_aliases_batch,
+        )
+        from apps.message_intelligence.models import ProductEmbedding, ProductAliasEmbedding
+
+        missing_product_ids = list(
+            Product.objects.filter(is_active=True)
+            .exclude(id__in=ProductEmbedding.objects.filter(embedding__isnull=False).values('product_id'))
+            .values_list('id', flat=True)
+        )
+        missing_alias_ids = list(
+            ProductAlias.objects.filter(product__is_active=True)
+            .exclude(id__in=ProductAliasEmbedding.objects.filter(embedding__isnull=False).values('alias_id'))
+            .values_list('id', flat=True)
+        )
+
+        product_result = embed_products_batch(missing_product_ids) if missing_product_ids else \
+            {'total': 0, 'embedded': 0, 'skipped': 0, 'errors': 0}
+        alias_result = embed_product_aliases_batch(missing_alias_ids) if missing_alias_ids else \
+            {'total': 0, 'embedded': 0, 'skipped': 0, 'errors': 0}
+
+        return Response({'products': product_result, 'aliases': alias_result})
+
     @action(detail=False, methods=['get'], url_path='stats')
     def stats(self, request):
-        today = now().replace(hour=0, minute=0, second=0, microsecond=0)
+        start, end = _resolve_date_range(request)
         account_id = request.query_params.get('account')
 
-        qs = Inquiry.objects.filter(first_seen_at__gte=today)
+        qs = Inquiry.objects.filter(first_seen_at__gte=start, first_seen_at__lt=end)
         if account_id:
             qs = qs.filter(account_id=account_id)
 
@@ -350,6 +523,7 @@ class InquiryViewSet(viewsets.GenericViewSet,
         inquiry = self.get_object()
         status_val = request.data.get('status')
         remarks    = request.data.get('remarks')
+        rating     = request.data.get('classification_rating')
 
         update_fields = ['updated_at']
         if status_val and status_val in InquiryStatus.values:
@@ -361,16 +535,80 @@ class InquiryViewSet(viewsets.GenericViewSet,
         if remarks is not None:
             inquiry.remarks = remarks
             update_fields.append('remarks')
+        if rating is not None:
+            try:
+                rating = int(rating)
+            except (TypeError, ValueError):
+                return Response({'detail': 'classification_rating must be an integer 1-5'}, status=status.HTTP_400_BAD_REQUEST)
+            if rating not in (1, 2, 3, 4, 5):
+                return Response({'detail': 'classification_rating must be an integer 1-5'}, status=status.HTTP_400_BAD_REQUEST)
+            inquiry.classification_rating = rating
+            update_fields.append('classification_rating')
 
         inquiry.save(update_fields=update_fields)
         return Response(InquiryDetailSerializer(inquiry).data)
 
+    @action(detail=True, methods=['post'], url_path='correct-match')
+    def correct_match(self, request, pk=None):
+        """Manually override the AI's product match for one line item — for when a
+        'closest match only' pick was actually exact. `products` is a plain JSONField
+        list with no per-item id, so the frontend addresses a line by its array index.
+        """
+        inquiry = self.get_object()
+        index = request.data.get('index')
+        product_id = request.data.get('product_id')
+        if index is None or product_id is None:
+            return Response({'detail': 'index and product_id are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        products = inquiry.products or []
+        try:
+            index = int(index)
+            line = products[index]
+        except (ValueError, TypeError, IndexError):
+            return Response({'detail': 'invalid index'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist:
+            return Response({'detail': 'product not found'}, status=status.HTTP_400_BAD_REQUEST)
+
+        line['product_id'] = product.id
+        line['match_type'] = 'exact'
+        line['manually_corrected'] = True
+        inquiry.products = products
+        inquiry.save(update_fields=['products', 'updated_at'])
+        return Response(InquiryDetailSerializer(inquiry).data)
+
+    @action(detail=False, methods=['post'], url_path='close-stale')
+    def close_stale(self, request):
+        """Bulk-close inquiries that have sat 'open' longer than a given age — the
+        dashboard's "Close inquiries older than N hrs" housekeeping sweep. Only ever
+        touches status=open records; anything already actioned (quoted, no_stock,
+        closed, etc.) is left alone, so this can't undo someone else's status choice.
+        """
+        try:
+            hours = float(request.data.get('hours'))
+            if hours <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            return Response({'detail': 'hours must be a positive number'}, status=status.HTTP_400_BAD_REQUEST)
+
+        cutoff = now() - timedelta(hours=hours)
+        qs = Inquiry.objects.filter(status=InquiryStatus.OPEN, first_seen_at__lte=cutoff)
+
+        account_id = request.data.get('account')
+        if account_id:
+            qs = qs.filter(account_id=account_id)
+
+        closed_count = qs.update(status=InquiryStatus.CLOSED, closed_at=now())
+        return Response({'closed': closed_count})
+
     @action(detail=False, methods=['get'], url_path='stats')
     def stats(self, request):
-        today = now().replace(hour=0, minute=0, second=0, microsecond=0)
+        start, end = _resolve_date_range(request)
         account_id = request.query_params.get('account')
 
-        qs = Inquiry.objects.filter(first_seen_at__gte=today)
+        qs = Inquiry.objects.filter(first_seen_at__gte=start, first_seen_at__lt=end)
         if account_id:
             qs = qs.filter(account_id=account_id)
 
@@ -395,18 +633,33 @@ class InquiryViewSet(viewsets.GenericViewSet,
             for src in ('direct', 'group', 'community')
         }
 
-        # Hourly timeline for today (0-23)
+        # Hourly timeline for a single-day range; daily buckets for anything longer —
+        # 24 hourly bars for a multi-week range would be either meaningless (all lumped
+        # into "today") or absurdly wide (one bar per hour of every day), so the
+        # granularity adapts to the selected range instead.
         timeline = []
-        for hour in range(24):
-            slot_start = today + timedelta(hours=hour)
-            slot_end   = slot_start + timedelta(hours=1)
-            if slot_start > now():
-                break
-            row = qs.filter(first_seen_at__gte=slot_start, first_seen_at__lt=slot_end).aggregate(
-                wtb=Count('id', filter=Q(inquiry_type='buy')),
-                wts=Count('id', filter=Q(inquiry_type='sell')),
-            )
-            timeline.append({'hour': slot_start.strftime('%H:%M'), **row})
+        timeline_granularity = 'hourly' if (end - start) <= timedelta(days=1) else 'daily'
+        if timeline_granularity == 'hourly':
+            for hour in range(24):
+                slot_start = start + timedelta(hours=hour)
+                slot_end   = slot_start + timedelta(hours=1)
+                if slot_start > now():
+                    break
+                row = qs.filter(first_seen_at__gte=slot_start, first_seen_at__lt=slot_end).aggregate(
+                    wtb=Count('id', filter=Q(inquiry_type='buy')),
+                    wts=Count('id', filter=Q(inquiry_type='sell')),
+                )
+                timeline.append({'hour': slot_start.strftime('%H:%M'), **row})
+        else:
+            day_start = start
+            while day_start < end and day_start <= now():
+                day_end = day_start + timedelta(days=1)
+                row = qs.filter(first_seen_at__gte=day_start, first_seen_at__lt=day_end).aggregate(
+                    wtb=Count('id', filter=Q(inquiry_type='buy')),
+                    wts=Count('id', filter=Q(inquiry_type='sell')),
+                )
+                timeline.append({'hour': day_start.strftime('%b %d'), **row})
+                day_start = day_end
 
         # Average response time (minutes) for closed/deal-done inquiries
         closed_qs = qs.filter(
@@ -451,6 +704,11 @@ class InquiryViewSet(viewsets.GenericViewSet,
             'avg_response_minutes': avg_response,
             'avg_deal_minutes':     avg_deal,
             'timeline':             timeline,
+            'timeline_granularity': timeline_granularity,
+            'range': {
+                'date_from': start.date().isoformat(),
+                'date_to':   (end - timedelta(days=1)).date().isoformat(),
+            },
         })
 
     @action(detail=False, methods=['get'], url_path='open-feed')
@@ -487,9 +745,9 @@ class InquiryViewSet(viewsets.GenericViewSet,
         """Summary of recent classification results — useful for diagnosing the pipeline."""
         from apps.trading.models import MessageClassification, InquiryMessage
         account_id = request.query_params.get('account')
-        today = now().replace(hour=0, minute=0, second=0, microsecond=0)
+        start, end = _resolve_date_range(request)
 
-        qs = MessageClassification.objects.filter(classified_at__gte=today)
+        qs = MessageClassification.objects.filter(classified_at__gte=start, classified_at__lt=end)
         if account_id:
             qs = qs.filter(message__account_id=account_id)
 

@@ -45,6 +45,11 @@ urlpatterns = [
         name='internal-worker-alert',
     ),
     path(
+        'api/internal/whatsapp/stuck-receipt/',
+        views.internal_stuck_receipt,
+        name='internal-stuck-receipt',
+    ),
+    path(
         'api/internal/whatsapp/group-update/',
         views.internal_group_update,
         name='internal-group-update',

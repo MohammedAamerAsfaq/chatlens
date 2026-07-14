@@ -6,7 +6,6 @@ class Product(models.Model):
     brand     = models.CharField(max_length=100, blank=True)
     category  = models.CharField(max_length=100, blank=True)
     sku       = models.CharField(max_length=100, blank=True)
-    aliases    = models.JSONField(default=list)
     is_active  = models.BooleanField(default=True)
     # Inventory
     qty        = models.IntegerField(default=0)

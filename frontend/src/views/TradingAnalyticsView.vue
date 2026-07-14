@@ -7,6 +7,9 @@
         <span class="last-update">Updated {{ lastUpdateLabel }}</span>
       </div>
       <div class="header-right">
+        <select v-model="selectedRange" @change="refresh" class="account-select">
+          <option v-for="p in RANGE_PRESETS" :key="p.label" :value="p.label">{{ p.label }}</option>
+        </select>
         <select v-model="selectedAccount" @change="refresh" class="account-select">
           <option value="">All accounts</option>
           <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.display_name }}</option>
@@ -20,7 +23,7 @@
       <!-- AI Pipeline -->
       <div class="section-card">
         <div class="section-title-row">
-          <span class="section-title">AI Pipeline (Today)</span>
+          <span class="section-title">AI Pipeline ({{ selectedRange }})</span>
           <div class="section-actions">
             <button class="btn-ghost sm" @click="runBackfill" title="Classify recent unclassified messages">Backfill</button>
             <button
@@ -51,7 +54,7 @@
             <span class="mc-summary">{{ mc.summary || mc.tags?.join(', ') }}</span>
           </div>
         </div>
-        <div v-else-if="classifyActivity" class="empty-msg">No classifications today</div>
+        <div v-else-if="classifyActivity" class="empty-msg">No classifications {{ selectedRange === 'Today' ? 'today' : 'in this range' }}</div>
       </div>
 
       <!-- Two-column row: Source Breakdown + Hourly Activity -->
@@ -59,7 +62,7 @@
 
         <!-- Source Breakdown -->
         <div class="section-card">
-          <div class="section-title">Source Breakdown (Today)</div>
+          <div class="section-title">Source Breakdown ({{ selectedRange }})</div>
           <table class="mini-table">
             <thead><tr><th>Source</th><th>WTB</th><th>WTS</th><th>Total</th></tr></thead>
             <tbody>
@@ -75,7 +78,7 @@
 
         <!-- Hourly Activity -->
         <div class="section-card" v-if="stats.timeline?.length">
-          <div class="section-title">Hourly Activity</div>
+          <div class="section-title">{{ stats.timeline_granularity === 'daily' ? 'Daily Activity' : 'Hourly Activity' }}</div>
           <div class="chart-wrap">
             <div
               v-for="slot in stats.timeline" :key="slot.hour"
@@ -98,7 +101,7 @@
 
       <!-- Product Activity -->
       <div class="section-card" v-if="productStats.length">
-        <div class="section-title">Product Activity (Today)</div>
+        <div class="section-title">Product Activity ({{ selectedRange }})</div>
         <table class="mini-table wide">
           <thead>
             <tr><th>Product</th><th>WTB</th><th>WTS</th><th>Deals</th><th>Total</th></tr>
@@ -114,7 +117,7 @@
           </tbody>
         </table>
       </div>
-      <div v-else-if="!loading" class="section-card empty-msg">No product activity today.</div>
+      <div v-else-if="!loading" class="section-card empty-msg">No product activity {{ selectedRange === 'Today' ? 'today' : 'in this range' }}.</div>
 
     </div>
   </div>
@@ -124,8 +127,62 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { accountsApi, tradingApi } from '../api/index.js'
 
+function fmtDate(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function startOfWeek(d) {
+  // Monday-start week
+  const date = new Date(d)
+  const dow = date.getDay()
+  date.setDate(date.getDate() + ((dow === 0 ? -6 : 1) - dow))
+  return date
+}
+
+const RANGE_PRESETS = [
+  { label: 'Today',        range: () => { const t = new Date(); return [t, t] } },
+  { label: 'Yesterday',    range: () => { const t = new Date(); t.setDate(t.getDate() - 1); return [t, t] } },
+  { label: 'This Week',    range: () => [startOfWeek(new Date()), new Date()] },
+  { label: 'Last Week',    range: () => {
+      const s = startOfWeek(new Date()); s.setDate(s.getDate() - 7)
+      const e = new Date(s); e.setDate(e.getDate() + 6)
+      return [s, e]
+    } },
+  { label: 'This Month',   range: () => { const n = new Date(); return [new Date(n.getFullYear(), n.getMonth(), 1), n] } },
+  { label: 'Last Month',   range: () => {
+      const n = new Date()
+      return [new Date(n.getFullYear(), n.getMonth() - 1, 1), new Date(n.getFullYear(), n.getMonth(), 0)]
+    } },
+  { label: 'This Quarter', range: () => {
+      const n = new Date(); const q = Math.floor(n.getMonth() / 3)
+      return [new Date(n.getFullYear(), q * 3, 1), n]
+    } },
+  { label: 'Last Quarter', range: () => {
+      const n = new Date()
+      let q = Math.floor(n.getMonth() / 3) - 1
+      let y = n.getFullYear()
+      if (q < 0) { q = 3; y -= 1 }
+      return [new Date(y, q * 3, 1), new Date(y, q * 3 + 3, 0)]
+    } },
+  { label: 'This Year',    range: () => { const n = new Date(); return [new Date(n.getFullYear(), 0, 1), n] } },
+  { label: 'Last Year',    range: () => {
+      const n = new Date()
+      return [new Date(n.getFullYear() - 1, 0, 1), new Date(n.getFullYear() - 1, 11, 31)]
+    } },
+]
+
+function resolveDateParams() {
+  const preset = RANGE_PRESETS.find(p => p.label === selectedRange.value) || RANGE_PRESETS[0]
+  const [from, to] = preset.range()
+  return { date_from: fmtDate(from), date_to: fmtDate(to) }
+}
+
 const accounts         = ref([])
 const selectedAccount  = ref('')
+const selectedRange    = ref('Today')
 const stats            = ref({})
 const productStats     = ref([])
 const classifyActivity = ref(null)
@@ -153,7 +210,7 @@ function barHeight(val) {
 
 async function refresh() {
   const accountParam = selectedAccount.value || undefined
-  const params = accountParam ? { account: accountParam } : {}
+  const params = { ...resolveDateParams(), ...(accountParam ? { account: accountParam } : {}) }
   const [statsRes, prodRes, actRes] = await Promise.all([
     tradingApi.getStats(params),
     tradingApi.getProductStats(params),
