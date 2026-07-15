@@ -111,10 +111,17 @@ def _build_product_text(product) -> str:
 
 
 def _build_alias_text(product_alias) -> str:
-    """Compose the text we embed for a single ProductAlias — deliberately just the bare
-    alias string (no brand/name mixed in), so its vector represents that one phrasing on
-    its own rather than being pulled toward the product's canonical name."""
-    return (product_alias.alias or '').strip()
+    """Compose the text we embed for a single ProductAlias — the product's own brand +
+    name, followed by the alias. Still one vector per alias (multi-vector retrieval is
+    unchanged: a query is compared against every phrasing independently, best one wins),
+    but a bare short alias like "jp" embeds almost meaninglessly on its own — too little
+    text for the model to anchor a vector to. Giving it its product's context means the
+    vector represents "this specific product, referred to this way" instead of a
+    near-empty string floating alone in embedding space, without needing to know or
+    special-case what the alias means (region code, color shorthand, submodel, etc.)."""
+    product = product_alias.product
+    parts = [product.brand, product.name, product_alias.alias]
+    return ' '.join(p for p in parts if p).strip()
 
 
 def embed_product(product_id: int) -> bool:
@@ -206,7 +213,7 @@ def embed_product_alias(alias_id: int) -> bool:
     from apps.message_intelligence.models import ProductAliasEmbedding
     from apps.ai_providers.manager import ai_manager
 
-    alias = ProductAlias.objects.get(pk=alias_id)
+    alias = ProductAlias.objects.select_related('product').get(pk=alias_id)
     text = _build_alias_text(alias)
     if not text:
         logger.debug('embed_product_alias | skip (no text) | alias_id=%s', alias_id)
@@ -242,7 +249,7 @@ def embed_product_aliases_batch(alias_ids: list[int]) -> dict:
         logger.warning('embed_product_aliases_batch | no active embedding provider')
         return {'total': len(alias_ids), 'embedded': 0, 'skipped': 0, 'errors': 0}
 
-    aliases = list(ProductAlias.objects.filter(pk__in=alias_ids))
+    aliases = list(ProductAlias.objects.select_related('product').filter(pk__in=alias_ids))
     pending = [(a, _build_alias_text(a)) for a in aliases]
     to_embed = [(a, t) for a, t in pending if t]
     skipped = len(pending) - len(to_embed)
@@ -294,6 +301,29 @@ class SimilarProduct:
         self.distance = distance
 
 
+_SIMILAR_PRODUCTS_SQL = """
+    WITH scored AS (
+        SELECT p.id AS product_id, (pe.embedding <=> %(qv)s::vector) AS distance
+        FROM product_embedding pe
+        JOIN trading_product p ON p.id = pe.product_id
+        WHERE pe.embedding IS NOT NULL AND p.is_active = TRUE
+
+        UNION ALL
+
+        SELECT pa.product_id AS product_id, (pae.embedding <=> %(qv)s::vector) AS distance
+        FROM product_alias_embedding pae
+        JOIN trading_product_alias pa ON pa.id = pae.alias_id
+        JOIN trading_product p ON p.id = pa.product_id
+        WHERE pae.embedding IS NOT NULL AND p.is_active = TRUE
+    )
+    SELECT product_id, MIN(distance) AS best_distance
+    FROM scored
+    GROUP BY product_id
+    ORDER BY best_distance ASC
+    LIMIT %(top_k)s
+"""
+
+
 def find_similar_products(query: str, top_k: int = 10) -> list:
     """Return top_k products most similar to query using cosine distance — comparing
     the query against BOTH each product's own name embedding AND every one of its
@@ -306,37 +336,39 @@ def find_similar_products(query: str, top_k: int = 10) -> list:
     the retrieval building block for when catalog size makes that no longer true:
     narrow to the top-K candidates here, then still hand those to the AI as text for the
     actual exact/near/null judgment — embeddings pick candidates, they don't replace the
-    attribute-by-attribute matching the AI does."""
+    attribute-by-attribute matching the AI does.
+
+    The product-vs-alias merge (keep whichever vector scores best per product) runs
+    entirely in SQL — one UNION ALL of both tables' distances, grouped by product_id
+    with MIN(), ordered and limited there — rather than pulling every active product's
+    and every alias's embedding into Python and reducing them in a dict. The earlier
+    version did exactly that: two full queries fetched in full, merged in a Python loop.
+    Harmless at ~30 products, but designed for a catalog this embedding infrastructure
+    was explicitly built ahead of (§ product embedding infra) to eventually be much
+    larger — at that scale, only ever materializing top_k rows back into Django,
+    instead of the whole active catalog on every search, is the difference that matters.
+    """
+    from django.db import connection
+    from pgvector import Vector
     from apps.ai_providers.manager import ai_manager
-    from apps.message_intelligence.models import ProductEmbedding, ProductAliasEmbedding
-    from pgvector.django import CosineDistance
+    from apps.trading.models import Product
 
     query_vec = ai_manager.embed(query)
+    query_vec_text = Vector(query_vec).to_text()
 
-    product_hits = (
-        ProductEmbedding.objects
-        .filter(embedding__isnull=False, product__is_active=True)
-        .annotate(distance=CosineDistance('embedding', query_vec))
-        .select_related('product')
-    )
-    alias_hits = (
-        ProductAliasEmbedding.objects
-        .filter(embedding__isnull=False, alias__product__is_active=True)
-        .annotate(distance=CosineDistance('embedding', query_vec))
-        .select_related('alias__product')
-    )
+    with connection.cursor() as cursor:
+        cursor.execute(_SIMILAR_PRODUCTS_SQL, {'qv': query_vec_text, 'top_k': top_k})
+        rows = cursor.fetchall()  # [(product_id, distance), ...] already ranked + limited
 
-    best_by_product: dict[int, SimilarProduct] = {}
-    for hit in product_hits:
-        best_by_product[hit.product_id] = SimilarProduct(hit.product, hit.distance)
-    for hit in alias_hits:
-        product = hit.alias.product
-        existing = best_by_product.get(product.id)
-        if existing is None or hit.distance < existing.distance:
-            best_by_product[product.id] = SimilarProduct(product, hit.distance)
+    if not rows:
+        return []
 
-    ranked = sorted(best_by_product.values(), key=lambda r: r.distance)
-    return ranked[:top_k]
+    products_by_id = Product.objects.in_bulk([product_id for product_id, _ in rows])
+    return [
+        SimilarProduct(products_by_id[product_id], float(distance))
+        for product_id, distance in rows
+        if product_id in products_by_id
+    ]
 
 
 def semantic_search(query: str, account_id: int, top_k: int = 10) -> list:
