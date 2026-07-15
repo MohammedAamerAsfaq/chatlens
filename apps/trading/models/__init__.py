@@ -1,5 +1,6 @@
 from .product import Product
 from .product_alias import ProductAlias
+from .product_attribute import ProductAttribute
 from .message_classification import MessageClassification, MessageTag
 from .inquiry import Inquiry, InquiryMessage, InquiryStatus
 from .prompt_config import PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT
@@ -11,6 +12,7 @@ from .price_list import FormattedPriceList
 __all__ = [
     'Product',
     'ProductAlias',
+    'ProductAttribute',
     'MessageClassification', 'MessageTag',
     'Inquiry', 'InquiryMessage', 'InquiryStatus',
     'PromptConfig', 'PRODUCT_EXTRACTION_DEFAULT', 'INQUIRY_CLASSIFICATION_DEFAULT', 'INVENTORY_UPDATE_DEFAULT', 'PRICE_LIST_FORMAT_DEFAULT',

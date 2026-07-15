@@ -134,6 +134,13 @@ export const tradingApi = {
   addProductAlias:     (productId, alias)  => http.post(`/products/${productId}/aliases/`, { alias }),
   deleteProductAlias:  (productId, aliasId) => http.delete(`/products/${productId}/aliases/${aliasId}/`),
 
+  // Product attributes — hot-addable key/value pairs, independent of the main product
+  // create/update, same live-CRUD pattern as aliases above.
+  listProductAttributes:  (productId)                  => http.get(`/products/${productId}/attributes/`),
+  addProductAttribute:    (productId, key, value)       => http.post(`/products/${productId}/attributes/`, { key, value }),
+  updateProductAttribute: (productId, attributeId, patch) => http.patch(`/products/${productId}/attributes/${attributeId}/`, patch),
+  deleteProductAttribute: (productId, attributeId)      => http.delete(`/products/${productId}/attributes/${attributeId}/`),
+
   // Bulk product helpers
   parseProductText:     (text)           => http.post('/products/parse-text/', { text }),
   bulkCreateProducts:   (products)       => http.post('/products/bulk-create/', { products }),

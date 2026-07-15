@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import (
-    Product, ProductAlias, MessageClassification, Inquiry, InquiryMessage, AiParsingLog,
-    BuyingInquiry, SupplierQuote,
+    Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryMessage,
+    AiParsingLog, BuyingInquiry, SupplierQuote,
 )
 
 
@@ -10,6 +10,9 @@ class ProductSerializer(serializers.ModelSerializer):
     # dedicated /products/{id}/aliases/ endpoints (ProductAliasSerializer below),
     # never written through this serializer.
     aliases = serializers.SerializerMethodField()
+    # Same convenience-list pattern as aliases — managed via /products/{id}/attributes/
+    # (ProductAttributeSerializer below), never written through this serializer.
+    attributes = serializers.SerializerMethodField()
     # Per-row embedding visibility for the product table — same signal as
     # /products/embedding-status/'s aggregate counts, just broken out per product so a
     # specific silently-failed background embed (see backfill-embeddings) can be spotted
@@ -19,15 +22,18 @@ class ProductSerializer(serializers.ModelSerializer):
 
     class Meta:
         model  = Product
-        fields = ['id', 'name', 'brand', 'category', 'sku', 'aliases', 'is_active',
+        fields = ['id', 'name', 'brand', 'category', 'sku', 'aliases', 'attributes', 'is_active',
                   'qty', 'cost_price', 'sale_price', 'currency',
                   'has_embedding', 'alias_embedding_status',
                   'created_at', 'updated_at']
-        read_only_fields = ['id', 'aliases', 'has_embedding', 'alias_embedding_status',
+        read_only_fields = ['id', 'aliases', 'attributes', 'has_embedding', 'alias_embedding_status',
                              'created_at', 'updated_at']
 
     def get_aliases(self, obj):
         return [a.alias for a in obj.alias_set.all()]
+
+    def get_attributes(self, obj):
+        return ProductAttributeSerializer(obj.attribute_set.all(), many=True).data
 
     def get_has_embedding(self, obj):
         emb = getattr(obj, 'embedding', None)
@@ -47,6 +53,13 @@ class ProductAliasSerializer(serializers.ModelSerializer):
         model = ProductAlias
         fields = ['id', 'product', 'alias', 'created_at']
         read_only_fields = ['id', 'product', 'created_at']
+
+
+class ProductAttributeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductAttribute
+        fields = ['id', 'product', 'key', 'value', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'product', 'created_at', 'updated_at']
 
 
 class MessageClassificationSerializer(serializers.ModelSerializer):

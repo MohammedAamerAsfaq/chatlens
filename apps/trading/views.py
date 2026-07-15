@@ -11,10 +11,11 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Product, ProductAlias, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, AgentCallLog, AiParsingLog, BuyingInquiry, SupplierQuote
+from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, AgentCallLog, AiParsingLog, BuyingInquiry, SupplierQuote
 from .serializers import (
     ProductSerializer,
     ProductAliasSerializer,
+    ProductAttributeSerializer,
     MessageClassificationSerializer,
     InquirySerializer,
     InquiryDetailSerializer,
@@ -121,7 +122,7 @@ class ProductViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        qs = Product.objects.all().select_related('embedding').prefetch_related('alias_set__embedding')
+        qs = Product.objects.all().select_related('embedding').prefetch_related('alias_set__embedding', 'attribute_set')
         active = self.request.query_params.get('active')
         if active == 'true':
             qs = qs.filter(is_active=True)
@@ -245,6 +246,53 @@ class ProductViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Alias not found'}, status=status.HTTP_404_NOT_FOUND)
         invalidate_product_cache()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['get', 'post'], url_path='attributes')
+    def attributes(self, request, pk=None):
+        """List or add hot key/value attributes for one product — arbitrary per-product
+        details (color, warranty, etc.) that don't warrant their own column on Product."""
+        product = self.get_object()
+        if request.method == 'GET':
+            return Response(ProductAttributeSerializer(product.attribute_set.all(), many=True).data)
+
+        key   = (request.data.get('key') or '').strip()
+        value = (request.data.get('value') or '').strip()
+        if not key:
+            return Response({'detail': 'key is required'}, status=status.HTTP_400_BAD_REQUEST)
+        if product.attribute_set.filter(key__iexact=key).exists():
+            return Response({'detail': 'This key already exists for this product'}, status=status.HTTP_400_BAD_REQUEST)
+
+        obj = ProductAttribute.objects.create(product=product, key=key, value=value)
+        return Response(ProductAttributeSerializer(obj).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['patch', 'delete'], url_path=r'attributes/(?P<attribute_id>\d+)')
+    def edit_attribute(self, request, pk=None, attribute_id=None):
+        product = self.get_object()
+        try:
+            attr = product.attribute_set.get(pk=attribute_id)
+        except ProductAttribute.DoesNotExist:
+            return Response({'detail': 'Attribute not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.method == 'DELETE':
+            attr.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        key   = request.data.get('key')
+        value = request.data.get('value')
+        update_fields = ['updated_at']
+        if key is not None:
+            key = key.strip()
+            if not key:
+                return Response({'detail': 'key cannot be empty'}, status=status.HTTP_400_BAD_REQUEST)
+            if product.attribute_set.filter(key__iexact=key).exclude(pk=attr.pk).exists():
+                return Response({'detail': 'This key already exists for this product'}, status=status.HTTP_400_BAD_REQUEST)
+            attr.key = key
+            update_fields.append('key')
+        if value is not None:
+            attr.value = value.strip()
+            update_fields.append('value')
+        attr.save(update_fields=update_fields)
+        return Response(ProductAttributeSerializer(attr).data)
 
     @action(detail=False, methods=['post'], url_path='parse-inventory')
     def parse_inventory(self, request):

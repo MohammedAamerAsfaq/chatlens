@@ -100,12 +100,13 @@
             <th>Active</th>
             <th class="th-embed" title="Whether this product's own name+brand embedding exists">Product Embedding</th>
             <th class="th-embed" title="Whether this product's aliases each have their own embedding">Alias Embeddings</th>
+            <th class="th-embed" title="Number of hot-added key/value attributes on this product">Attributes</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="filtered.length === 0">
-            <td colspan="11" class="empty">No products found.</td>
+            <td colspan="12" class="empty">No products found.</td>
           </tr>
           <tr v-for="p in filtered" :key="p.id" :class="{ inactive: !p.is_active }">
             <td class="col-name">{{ p.name }}</td>
@@ -169,6 +170,10 @@
                 class="embed-dot"
                 :class="p.alias_embedding_status.embedded === p.alias_embedding_status.total ? 'yes' : 'partial'"
               >{{ p.alias_embedding_status.embedded }}/{{ p.alias_embedding_status.total }}</span>
+            </td>
+            <td class="th-embed">
+              <span v-if="!p.attributes?.length" class="muted">—</span>
+              <span v-else class="embed-dot yes">{{ p.attributes.length }}</span>
             </td>
             <td class="col-actions">
               <button class="btn-sm" @click="openEdit(p)">Edit</button>
@@ -519,6 +524,49 @@
               </div>
               <div v-if="aliasError" class="alias-error">{{ aliasError }}</div>
             </div>
+
+            <div class="form-section card-section attribute-section">
+              <div class="section-label">
+                Attributes
+                <span class="hint">— hot-add any extra key/value detail for this product (e.g. "Color: Silver", "Warranty: 1 year")</span>
+              </div>
+              <div class="attribute-list">
+                <div v-for="a in modalAttributes" :key="a.id" class="attribute-row">
+                  <input
+                    class="attribute-key"
+                    :value="a.key"
+                    @change="updateSavedAttribute(a, { key: $event.target.value })"
+                  />
+                  <input
+                    class="attribute-value"
+                    :value="a.value"
+                    @change="updateSavedAttribute(a, { value: $event.target.value })"
+                  />
+                  <button type="button" class="alias-remove" @click="removeSavedAttribute(a)" title="Remove">×</button>
+                </div>
+                <div v-for="(a, i) in pendingAttributes" :key="`pending-attr-${i}`" class="attribute-row pending" title="Will be saved with this product">
+                  <input class="attribute-key" :value="a.key" disabled />
+                  <input class="attribute-value" :value="a.value" disabled />
+                  <button type="button" class="alias-remove" @click="removePendingAttribute(i)" title="Remove">×</button>
+                </div>
+                <div class="attribute-row attribute-row-new">
+                  <input
+                    v-model="newAttrKey"
+                    class="attribute-key"
+                    placeholder="Key (e.g. Color)"
+                    @keydown.enter.prevent="addAttribute"
+                  />
+                  <input
+                    v-model="newAttrValue"
+                    class="attribute-value"
+                    placeholder="Value (e.g. Silver)"
+                    @keydown.enter.prevent="addAttribute"
+                  />
+                  <button type="button" class="btn-ghost attribute-add" :disabled="!newAttrKey.trim()" @click="addAttribute">Add</button>
+                </div>
+              </div>
+              <div v-if="attrError" class="alias-error">{{ attrError }}</div>
+            </div>
           </div>
         </div>
 
@@ -592,6 +640,15 @@ const pendingAliases = ref([])
 const aliasInput      = ref('')
 const aliasSaving     = ref(false)
 const aliasError      = ref('')
+
+// Attributes — same live-CRUD-independent-of-product-save pattern as aliases above,
+// just key/value pairs instead of a single string.
+const modalAttributes   = ref([])
+const pendingAttributes = ref([])
+const newAttrKey    = ref('')
+const newAttrValue  = ref('')
+const attrSaving    = ref(false)
+const attrError     = ref('')
 
 const bulk = ref({
   open: false, tab: 'structured',
@@ -787,6 +844,14 @@ function resetAliasState() {
   aliasError.value = ''
 }
 
+function resetAttributeState() {
+  modalAttributes.value = []
+  pendingAttributes.value = []
+  newAttrKey.value = ''
+  newAttrValue.value = ''
+  attrError.value = ''
+}
+
 function openCreate() {
   modal.value = {
     open: true, id: null, name: '', brand: '', category: '', sku: '',
@@ -794,6 +859,7 @@ function openCreate() {
   }
   productModalDrag.value = { x: 0, y: 0 }
   resetAliasState()
+  resetAttributeState()
 }
 
 async function openEdit(p) {
@@ -807,10 +873,15 @@ async function openEdit(p) {
   }
   productModalDrag.value = { x: 0, y: 0 }
   resetAliasState()
+  resetAttributeState()
   try {
     const { data } = await tradingApi.listProductAliases(p.id)
     modalAliases.value = data
   } catch { /* non-critical — alias section just starts empty */ }
+  try {
+    const { data } = await tradingApi.listProductAttributes(p.id)
+    modalAttributes.value = data
+  } catch { /* non-critical — attribute section just starts empty */ }
 }
 
 function closeModal() {
@@ -875,6 +946,60 @@ async function removeSavedAlias(alias) {
   }
 }
 
+// Same create-vs-edit split as aliases: pendingAttributes holds not-yet-persisted
+// key/value pairs in create mode, flushed right after the product itself is created.
+async function addAttribute() {
+  const key = newAttrKey.value.trim()
+  const value = newAttrValue.value.trim()
+  if (!key) return
+  attrError.value = ''
+
+  if (!modal.value.id) {
+    if (!pendingAttributes.value.some(a => a.key.toLowerCase() === key.toLowerCase())) {
+      pendingAttributes.value.push({ key, value })
+    }
+    newAttrKey.value = ''
+    newAttrValue.value = ''
+    return
+  }
+
+  attrSaving.value = true
+  try {
+    const { data } = await tradingApi.addProductAttribute(modal.value.id, key, value)
+    modalAttributes.value.push(data)
+    newAttrKey.value = ''
+    newAttrValue.value = ''
+  } catch (e) {
+    attrError.value = e.response?.data?.detail || 'Failed to add attribute'
+  } finally {
+    attrSaving.value = false
+  }
+}
+
+function removePendingAttribute(i) {
+  pendingAttributes.value.splice(i, 1)
+}
+
+async function removeSavedAttribute(attr) {
+  try {
+    await tradingApi.deleteProductAttribute(modal.value.id, attr.id)
+    modalAttributes.value = modalAttributes.value.filter(a => a.id !== attr.id)
+  } catch {
+    attrError.value = 'Failed to remove attribute'
+  }
+}
+
+async function updateSavedAttribute(attr, patch) {
+  attrError.value = ''
+  try {
+    const { data } = await tradingApi.updateProductAttribute(modal.value.id, attr.id, patch)
+    const idx = modalAttributes.value.findIndex(a => a.id === attr.id)
+    if (idx !== -1) modalAttributes.value[idx] = data
+  } catch (e) {
+    attrError.value = e.response?.data?.detail || 'Failed to update attribute'
+  }
+}
+
 async function save() {
   if (!modal.value.name.trim()) return
   saving.value = true
@@ -896,6 +1021,9 @@ async function save() {
       const { data } = await tradingApi.createProduct(payload)
       for (const alias of pendingAliases.value) {
         await tradingApi.addProductAlias(data.id, alias).catch(() => {})
+      }
+      for (const attr of pendingAttributes.value) {
+        await tradingApi.addProductAttribute(data.id, attr.key, attr.value).catch(() => {})
       }
     }
     closeModal()
@@ -1168,6 +1296,17 @@ onUnmounted(stopProductModalDrag)
 .alias-remove:hover { opacity: 1; }
 .alias-input { flex: 1; min-width: 140px; border: none; outline: none; font-size: 0.85rem; padding: 3px 2px; }
 .alias-error { color: #dc2626; font-size: 0.8rem; }
+.attribute-section { flex: 1; }
+.attribute-list { display: flex; flex-direction: column; gap: 6px; }
+.attribute-row { display: flex; align-items: center; gap: 6px; }
+.attribute-row.pending { opacity: 0.7; }
+.attribute-key {
+  flex: 0 0 38%; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.85rem;
+  padding: 6px 8px; background: #fff; font-weight: 500;
+}
+.attribute-value { flex: 1; min-width: 0; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.85rem; padding: 6px 8px; background: #fff; }
+.attribute-row-new .attribute-key, .attribute-row-new .attribute-value { background: #fff; }
+.attribute-add { flex-shrink: 0; padding: 6px 12px; font-size: 0.82rem; }
 @media (max-width: 860px) {
   .product-modal-body { grid-template-columns: 1fr; }
 }
