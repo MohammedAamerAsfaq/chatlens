@@ -22,13 +22,16 @@
         <select v-model="filters.status" @change="load">
           <option value="">All</option>
           <option value="open">Open</option>
+          <option value="requested_price">Requested Price</option>
           <option value="quoted_waiting">Quoted - Waiting</option>
           <option value="price_high">Price High</option>
           <option value="no_stock">No Stock</option>
+          <option value="currently_in_stock">Currently In Stock</option>
           <option value="not_dealing">Product Not Dealing with ATM</option>
           <option value="irrelevant">Irrelevant</option>
           <option value="closed">Closed</option>
           <option value="deal_done">Deal Done</option>
+          <option value="tracking">Tracking</option>
           <option value="incorrect_match">Incorrect Match</option>
         </select>
       </div>
@@ -176,13 +179,16 @@
           <div class="status-update-row">
             <select v-model="pendingStatus" class="status-select">
               <option value="open">Open</option>
+              <option value="requested_price">Requested Price</option>
               <option value="quoted_waiting">Quoted - Waiting</option>
               <option value="price_high">Price High</option>
               <option value="no_stock">No Stock</option>
+              <option value="currently_in_stock">Currently In Stock</option>
               <option value="not_dealing">Product Not Dealing with ATM</option>
               <option value="irrelevant">Irrelevant</option>
               <option value="closed">Closed</option>
               <option value="deal_done">Deal Done</option>
+              <option value="tracking">Tracking</option>
               <option value="incorrect_match">Incorrect Match</option>
             </select>
             <button
@@ -300,13 +306,16 @@ function formatDatetime(iso) {
 function statusLabel(s) {
   return {
     open:           'Open',
+    requested_price: 'Requested Price',
     quoted_waiting: 'Quoted - Waiting',
     price_high:     'Price High',
     no_stock:       'No Stock',
+    currently_in_stock: 'Currently In Stock',
     not_dealing:    'Not Dealing ATM',
     irrelevant:     'Irrelevant',
     closed:         'Closed',
     deal_done:      'Deal Done',
+    tracking:       'Tracking',
     incorrect_match: 'Incorrect Match',
   }[s] || s
 }
@@ -348,13 +357,16 @@ onMounted(async () => {
 .source-badge { background: #f3f4f6; color: #6b7280; padding: 1px 6px; border-radius: 4px; font-size: 0.73rem; text-transform: capitalize; }
 .status-badge { padding: 1px 7px; border-radius: 4px; font-size: 0.73rem; font-weight: 600; white-space: nowrap; }
 .status-badge.open           { background: #fef9c3; color: #854d0e; }
+.status-badge.requested_price { background: #fef3c7; color: #92400e; }
 .status-badge.quoted_waiting { background: #dbeafe; color: #1e40af; }
 .status-badge.price_high     { background: #ffedd5; color: #9a3412; }
 .status-badge.no_stock       { background: #fee2e2; color: #991b1b; }
+.status-badge.currently_in_stock { background: #dcfce7; color: #166534; }
 .status-badge.not_dealing    { background: #f3f4f6; color: #374151; }
 .status-badge.irrelevant     { background: #f3f4f6; color: #9ca3af; }
 .status-badge.closed         { background: #f3f4f6; color: #6b7280; }
 .status-badge.deal_done      { background: #dcfce7; color: #166534; }
+.status-badge.tracking       { background: #e0e7ff; color: #3730a3; }
 .status-badge.incorrect_match { background: #fee2e2; color: #991b1b; }
 .product-count { font-size: 0.73rem; color: #6b7280; }
 .empty-state { padding: 40px; text-align: center; color: #9ca3af; font-size: 0.9rem; }

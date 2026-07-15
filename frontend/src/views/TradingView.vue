@@ -188,13 +188,16 @@
               <div class="card-actions">
                 <select class="status-select-mini" @change="setStatus(inq, $event)">
                   <option value="" disabled selected>Set status…</option>
+                  <option value="requested_price">Requested Price</option>
                   <option value="quoted_waiting">Quoted - Waiting</option>
                   <option value="no_response">No Response</option>
                   <option value="price_high">Price High</option>
                   <option value="no_stock">No Stock</option>
+                  <option value="currently_in_stock">Currently In Stock</option>
                   <option value="not_dealing">Not Dealing ATM</option>
                   <option value="irrelevant">Irrelevant</option>
                   <option value="closed">Close</option>
+                  <option value="tracking">Tracking</option>
                   <option value="incorrect_match">Incorrect Match</option>
                 </select>
                 <button class="act-btn close" @click="act(inq, 'closed')">Close</button>
@@ -340,13 +343,16 @@
               <div class="card-actions">
                 <select class="status-select-mini" @change="setStatus(inq, $event)">
                   <option value="" disabled selected>Set status…</option>
+                  <option value="requested_price">Requested Price</option>
                   <option value="quoted_waiting">Quoted - Waiting</option>
                   <option value="no_response">No Response</option>
                   <option value="price_high">Price High</option>
                   <option value="no_stock">No Stock</option>
+                  <option value="currently_in_stock">Currently In Stock</option>
                   <option value="not_dealing">Not Dealing ATM</option>
                   <option value="irrelevant">Irrelevant</option>
                   <option value="closed">Close</option>
+                  <option value="tracking">Tracking</option>
                   <option value="incorrect_match">Incorrect Match</option>
                 </select>
                 <button class="act-btn close" @click="act(inq, 'closed')">Close</button>
@@ -734,14 +740,17 @@ async function selectMatchFix(product) {
 const statusFilters = [
   { value: 'all',            label: 'All Today' },
   { value: 'open',           label: 'Open' },
+  { value: 'requested_price', label: 'Requested Price' },
   { value: 'quoted_waiting', label: 'Quoted - Waiting' },
   { value: 'no_response',    label: 'No Response' },
   { value: 'price_high',     label: 'Price High' },
   { value: 'no_stock',       label: 'No Stock' },
+  { value: 'currently_in_stock', label: 'Currently In Stock' },
   { value: 'not_dealing',    label: 'Not Dealing' },
   { value: 'irrelevant',     label: 'Irrelevant' },
   { value: 'closed',         label: 'Closed' },
   { value: 'deal_done',      label: 'Deal Done' },
+  { value: 'tracking',       label: 'Tracking' },
   { value: 'incorrect_match', label: 'Incorrect Match' },
 ]
 

@@ -9,7 +9,13 @@
       <div class="header-right">
         <select v-model="selectedRange" @change="refresh" class="account-select">
           <option v-for="p in RANGE_PRESETS" :key="p.label" :value="p.label">{{ p.label }}</option>
+          <option value="Custom">Custom range…</option>
         </select>
+        <template v-if="selectedRange === 'Custom'">
+          <input type="date" v-model="customFrom" class="account-select" :max="customTo || undefined" @change="refresh" />
+          <span class="range-sep">to</span>
+          <input type="date" v-model="customTo" class="account-select" :min="customFrom || undefined" @change="refresh" />
+        </template>
         <select v-model="selectedAccount" @change="refresh" class="account-select">
           <option value="">All accounts</option>
           <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.display_name }}</option>
@@ -175,6 +181,9 @@ const RANGE_PRESETS = [
 ]
 
 function resolveDateParams() {
+  if (selectedRange.value === 'Custom') {
+    return { date_from: customFrom.value || fmtDate(new Date()), date_to: customTo.value || customFrom.value || fmtDate(new Date()) }
+  }
   const preset = RANGE_PRESETS.find(p => p.label === selectedRange.value) || RANGE_PRESETS[0]
   const [from, to] = preset.range()
   return { date_from: fmtDate(from), date_to: fmtDate(to) }
@@ -183,6 +192,8 @@ function resolveDateParams() {
 const accounts         = ref([])
 const selectedAccount  = ref('')
 const selectedRange    = ref('Today')
+const customFrom       = ref('')
+const customTo         = ref('')
 const stats            = ref({})
 const productStats     = ref([])
 const classifyActivity = ref(null)
@@ -280,6 +291,7 @@ onUnmounted(() => {
 .last-update { font-size: 0.78rem; color: #9ca3af; }
 .header-right { display: flex; gap: 10px; align-items: center; }
 .account-select { padding: 5px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.85rem; }
+.range-sep { font-size: 0.8rem; color: #9ca3af; }
 .btn-ghost { padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 6px; background: transparent; cursor: pointer; font-size: 0.85rem; }
 .btn-ghost.sm { padding: 4px 10px; font-size: 0.8rem; }
 .btn-retry { padding: 4px 10px; font-size: 0.8rem; border: 1px solid #f59e0b; border-radius: 6px; background: #fffbeb; color: #92400e; cursor: pointer; font-weight: 600; }

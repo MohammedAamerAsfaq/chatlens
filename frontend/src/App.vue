@@ -38,7 +38,7 @@ onMounted(() => {
 })
 onUnmounted(() => clearInterval(alertPollTimer))
 
-const REPORT_ROUTES = ['trading-analytics']
+const REPORT_ROUTES = ['trading-analytics', 'report-summary']
 const isReportsActive = computed(() => REPORT_ROUTES.includes(route.name))
 
 const LIST_ROUTES = ['contacts', 'groups', 'products']
@@ -71,6 +71,7 @@ async function handleLogout() {
         </button>
         <div class="absolute left-0 top-full hidden group-hover:block bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[170px] z-50">
           <RouterLink to="/trading-analytics" class="dropdown-item" active-class="dropdown-item-active">Analytics</RouterLink>
+          <RouterLink to="/report-summary" class="dropdown-item" active-class="dropdown-item-active">Summary</RouterLink>
         </div>
       </div>
 

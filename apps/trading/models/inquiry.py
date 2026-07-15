@@ -2,15 +2,18 @@ from django.db import models
 
 
 class InquiryStatus(models.TextChoices):
-    OPEN           = 'open',           'Open'
-    QUOTED_WAITING = 'quoted_waiting', 'Quoted - Waiting'
+    OPEN            = 'open',            'Open'
+    REQUESTED_PRICE = 'requested_price',  'Requested Price'
+    QUOTED_WAITING  = 'quoted_waiting',   'Quoted - Waiting'
     NO_RESPONSE    = 'no_response',    'No Response'
     PRICE_HIGH     = 'price_high',     'Price High'
     NO_STOCK       = 'no_stock',       'No Stock'
+    CURRENTLY_IN_STOCK = 'currently_in_stock', 'Currently In Stock'
     NOT_DEALING    = 'not_dealing',    'Product Not Dealing with ATM'
     IRRELEVANT     = 'irrelevant',     'Irrelevant'
     CLOSED         = 'closed',         'Closed'
     DEAL_DONE      = 'deal_done',      'Deal Done'
+    TRACKING       = 'tracking',       'Tracking'
     INCORRECT_MATCH = 'incorrect_match', 'Incorrect Match'
 
 

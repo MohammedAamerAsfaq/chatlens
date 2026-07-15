@@ -1181,3 +1181,102 @@ class SupplierQuoteViewSet(
         quote.asked_at = now()
         quote.save(update_fields=['status', 'asked_at', 'updated_at'])
         return Response(SupplierQuoteSerializer(quote).data)
+
+
+class ReportViewSet(viewsets.ViewSet):
+    """Cross-cutting reporting endpoints — not tied to one model's CRUD surface the
+    way ProductViewSet/InquiryViewSet are, so it lives on its own instead of being
+    bolted onto whichever viewset happens to own the most of the numbers."""
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'], url_path='summary')
+    def summary(self, request):
+        """
+        Headline counts for the Reports > Summary page: messages received, inquiries
+        created, WTB/WTS split, how many inquiries matched something in our own
+        catalog, and how many only got a 'near' (not exact) match. Filtered by the
+        same account + date_from/date_to params as every other report/stats endpoint.
+
+        'Related to own stock' means at least one line item in the inquiry's
+        `products` resolved to a real product_id — i.e. we actually carry that SKU —
+        regardless of that product's *current* qty (qty could have changed since the
+        inquiry was raised; the AI only ever offers qty>0 products as matches at
+        classification time, so a resolved product_id already reflects "in stock
+        then"). 'Near matches' means at least one line item was flagged match_type
+        'near' (a plausible but not confident match) rather than 'exact'. Both are
+        also broken out by WTB/WTS (total_wtb_own_stock, total_wts_own_stock,
+        total_wtb_near_match, total_wts_near_match).
+        """
+        from apps.whatsapp_bridge.models import WhatsAppMessage
+
+        start, end = _resolve_date_range(request)
+        account_id = request.query_params.get('account')
+
+        messages_qs = WhatsAppMessage.objects.filter(
+            direction='inbound', message_time__gte=start, message_time__lt=end,
+        )
+        inquiries_qs = Inquiry.objects.filter(first_seen_at__gte=start, first_seen_at__lt=end)
+        if account_id:
+            messages_qs = messages_qs.filter(account_id=account_id)
+            inquiries_qs = inquiries_qs.filter(account_id=account_id)
+
+        totals = inquiries_qs.aggregate(
+            wtb_total=Count('id', filter=Q(inquiry_type='buy')),
+            wts_total=Count('id', filter=Q(inquiry_type='sell')),
+        )
+
+        # Both remaining counts (and their WTB/WTS breakdowns) depend on inspecting
+        # each inquiry's `products` JSON list (no per-item rows to aggregate over in
+        # SQL) — one pass over the already date/account-filtered set, not the whole
+        # table.
+        own_stock_count = 0
+        near_match_count = 0
+        own_stock_wtb = own_stock_wts = 0
+        near_match_wtb = near_match_wts = 0
+        for inquiry_type, products in inquiries_qs.values_list('inquiry_type', 'products'):
+            has_stock_match = False
+            has_near_match = False
+            for item in (products or []):
+                if item.get('product_id') is not None:
+                    has_stock_match = True
+                if item.get('match_type') == 'near':
+                    has_near_match = True
+            if has_stock_match:
+                own_stock_count += 1
+                if inquiry_type == 'buy':
+                    own_stock_wtb += 1
+                elif inquiry_type == 'sell':
+                    own_stock_wts += 1
+            if has_near_match:
+                near_match_count += 1
+                if inquiry_type == 'buy':
+                    near_match_wtb += 1
+                elif inquiry_type == 'sell':
+                    near_match_wts += 1
+
+        status_counts = {
+            row['status']: row['c']
+            for row in inquiries_qs.values('status').annotate(c=Count('id'))
+        }
+        status_breakdown = [
+            {'status': value, 'label': label, 'count': status_counts.get(value, 0)}
+            for value, label in InquiryStatus.choices
+        ]
+
+        return Response({
+            'total_messages_received':  messages_qs.count(),
+            'total_inquiries_created':  inquiries_qs.count(),
+            'total_wtb':                totals['wtb_total'],
+            'total_wts':                totals['wts_total'],
+            'total_own_stock_matches':  own_stock_count,
+            'total_near_matches':       near_match_count,
+            'total_wtb_own_stock':      own_stock_wtb,
+            'total_wts_own_stock':      own_stock_wts,
+            'total_wtb_near_match':     near_match_wtb,
+            'total_wts_near_match':     near_match_wts,
+            'status_breakdown':         status_breakdown,
+            'range': {
+                'date_from': start.date().isoformat(),
+                'date_to':   (end - timedelta(days=1)).date().isoformat(),
+            },
+        })

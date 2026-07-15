@@ -175,6 +175,9 @@ export const tradingApi = {
   backfillEmbeddings:      ()          => http.post('/products/backfill-embeddings/'),
   closeStaleInquiries:    (data)        => http.post('/inquiries/close-stale/', data),
 
+  // Reports
+  getReportSummary: (params) => http.get('/reports/summary/', { params }),
+
   // Buying Inquiries (manual RFQ-to-suppliers workflow)
   listBuyingInquiries:  (params)     => http.get('/buying-inquiries/', { params }),
   createBuyingInquiry:  (data)       => http.post('/buying-inquiries/', data),
