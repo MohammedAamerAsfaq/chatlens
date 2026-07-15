@@ -799,6 +799,12 @@ function stripBrandPrefix(name, brand) {
   return s.trim()
 }
 
+// Looks up a hot-added key/value attribute (§ ProductAttribute) on the matched catalog
+// row — used to prefix outgoing reply text with the region flag when one is set.
+function attributeValue(match, key) {
+  return match?.attributes?.find(a => a.key === key)?.value || ''
+}
+
 function getInventoryHints(inq) {
   if (inq.inquiry_type !== 'buy') return []
   const hints = []
@@ -1001,6 +1007,8 @@ function waPrefillText(inq) {
     let line = p.canonical_name || match?.name
     if (!line) continue
     line = stripBrandPrefix(line, match?.brand)
+    const flag = attributeValue(match, 'Flag')
+    if (flag) line = `${flag} ${line}`
     // Only attach the matched price when it's actually the same product requested —
     // never quote a price that belongs to a different model/color/region than the line says.
     // Also never quote a price for something we have zero units of.
@@ -1033,6 +1041,8 @@ function waAskPriceText(inq) {
     let line = p.canonical_name
     if (!line) continue
     line = line.replace(/^\[[^\]]*\]\s*/, '')
+    const flag = attributeValue(matchInventory(p), 'Flag')
+    if (flag) line = `${flag} ${line}`
     lines.push(line)
   }
   return lines.length ? `${lines.join('\n')}\n\nPrice?` : 'Price?'
