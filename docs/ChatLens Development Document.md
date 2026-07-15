@@ -1,7 +1,9 @@
 # ChatLens Development Document
 
 > **Status:** Living document — reflects the system as actually built, not the original plan.
-> Last updated: 2026-07-14 (Trading Analytics date-range filter + close-stale housekeeping, human-in-the-loop match correction — Fix/Auto/embedding search + 1-5 classification rating, popup/modal UX overhaul made draggable and click-outside-proof across the trading desk and Products page, Worker Alerts list-endpoint bug fix, `connection_unhealthy` clear-on-reconnect bug fix, new Stuck Receipts system, product aliases rebuilt from a JSON list into a first-class `ProductAlias` model with per-alias embeddings and multi-vector retrieval, embedding-status/backfill visibility)
+> Last updated: 2026-07-15 (hot-addable `ProductAttribute` key/value model + UI, product naming & SKU-completion standard documented in §6.8.3)
+>
+> Previous: 2026-07-14 (Trading Analytics date-range filter + close-stale housekeeping, human-in-the-loop match correction — Fix/Auto/embedding search + 1-5 classification rating, popup/modal UX overhaul made draggable and click-outside-proof across the trading desk and Products page, Worker Alerts list-endpoint bug fix, `connection_unhealthy` clear-on-reconnect bug fix, new Stuck Receipts system, product aliases rebuilt from a JSON list into a first-class `ProductAlias` model with per-alias embeddings and multi-vector retrieval, embedding-status/backfill visibility)
 
 ---
 
@@ -362,6 +364,44 @@ Both embed in the background (fire-and-forget, same pattern as §6.5.1) from exa
 - `GET /products/embedding-status/` — `{products: {total, embedded, missing}, aliases: {total, embedded, missing}}`.
 - `POST /products/backfill-embeddings/` — synchronously (not fire-and-forget — this is a deliberate, waited-for user action) re-embeds every active product/alias currently missing one and returns real counts, not just "queued."
 - Products screen shows an "Embeddings: X/Y" badge (turns amber when anything's missing) and a "Backfill (N)" button that only appears when there's a gap, plus the per-row Product Embedding / Alias Embeddings columns mentioned above for pinpointing exactly which row is affected.
+
+### 6.8.2 trading_product_attribute
+
+Hot-addable key/value detail on a `Product` — e.g. `Color=Silver`, `Region=USA` — for anything worth recording that doesn't warrant its own column. One row per key so keys can be added, renamed, or removed per product with no schema change and no code deploy.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint PK | |
+| product_id | FK → trading_product | `related_name='attribute_set'` |
+| key | varchar(100) | |
+| value | varchar(500) | |
+| created_at / updated_at | timestamptz | |
+
+**Constraints:** `UNIQUE(product_id, key)` (case-sensitive at the DB level; the API layer additionally rejects a case-insensitive duplicate on create).
+
+CRUD: `GET`/`POST /products/:id/attributes/` (list/add), `PATCH`/`DELETE /products/:id/attributes/:attribute_id/` (rename key, edit value, or remove). Surfaced on the Products screen as an editable key/value section in the Add/Edit modal, plus an attribute-count column in the product list. Not embedded and not sent to the AI product-master block — purely structured display data, independent of the matching/embedding pipeline (§6.8.1, §15).
+
+### 6.8.3 Product naming & SKU-completion standard
+
+Established while adding the iPad Air 7 (M3) and iPad Air 8 (M4) catalog entries — the convention every new SKU variant should follow so catalog entries stay consistent and machine-parseable (the `Region`/`Flag`/`Storage`/`Color` attribute backfill in §6.8.2 depends on the name following this token order).
+
+**Name token order:** `<Product Line> <Generation> <Screen size> <Chip> <Storage> <Color> [<Region>]`
+Example: `iPad Air 8 11 inch M4 128GB Starlight`, `iPhone 17 Pro 256GB Orange Hong Kong`. Region is a trailing word/phrase and is omitted from the name only when every existing variant of that exact SKU family already shares one implied region (see "Region inference" below) — new families should still include it explicitly.
+
+**Required attributes** (`trading_product_attribute`, §6.8.2) for every SKU variant:
+- `Color` — the color word from the name, Title Case (`Starlight`, `Space Gray`).
+- `Storage` — digits only, no `GB` suffix (`128`, not `128GB`); parsed from either an `NNNGB` token or an `N/NNN` RAM/storage combo token (e.g. `8/256` → `Storage=256`).
+- `Region` — full region name (`USA`, `Hong Kong`), never the bare abbreviation.
+- `Flag` — the region's flag emoji (🇺🇸 `USA`, 🇦🇪 `UAE`, 🇭🇰 `Hong Kong`, 🇯🇵 `Japan`).
+
+**Required aliases** (`trading_product_alias`, §6.8.1) for every SKU variant — alternate phrasings a customer might type instead of the full canonical name:
+- A screen-size alternate (e.g. `11 inch`) and a quote-mark variant (e.g. `Air 11"`) when the name spells the size out fully.
+- A generation shorthand specific to that product line/generation (e.g. `Air 7` for the M3 line, `Air 8` for the M4 line) — this one **does not carry over** between generations, unlike the rest.
+- The region's flag emoji, duplicated as its own alias (not just an attribute) — a bare flag character is a real, if minimal, thing a customer might paste into a search.
+
+**Region inference:** when a new variant's name omits the region (as with the iPad Air 8 batch), the region is inferred from the only other established variant(s) of that exact SKU family already in the catalog, and stated as an explicit assumption rather than silently guessed — flag it to the user for confirmation if a family could plausibly span more than one region.
+
+**Cloning a color variant:** when asked for "N more like this, just a different color," copy every field verbatim (brand, category, sku, qty, cost_price, sale_price, currency) except the color word in the name and the `Color` attribute value — including price/stock, which are treated as SKU-family-level, not color-specific, unless told otherwise.
 
 ### 6.9 trading_message_classification
 
