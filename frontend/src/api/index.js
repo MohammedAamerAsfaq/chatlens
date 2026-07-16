@@ -178,6 +178,10 @@ export const tradingApi = {
   // Reports
   getReportSummary: (params) => http.get('/reports/summary/', { params }),
 
+  // Trading settings (hot-settable plain UI values, not AI prompts)
+  getWtsReplySettings: () => http.get('/trading-settings/wts-reply/'),
+  setWtsReplySettings: (data) => http.put('/trading-settings/wts-reply/', data),
+
   // Buying Inquiries (manual RFQ-to-suppliers workflow)
   listBuyingInquiries:  (params)     => http.get('/buying-inquiries/', { params }),
   createBuyingInquiry:  (data)       => http.post('/buying-inquiries/', data),

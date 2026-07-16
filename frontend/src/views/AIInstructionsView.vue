@@ -44,6 +44,92 @@
         </div>
       </div>
 
+      <!-- Trading reply settings card -->
+      <div class="agent-card">
+        <div class="agent-header">
+          <div class="agent-title">
+            <span class="agent-name">WhatsApp Price Reply</span>
+          </div>
+          <span class="agent-label">Trading dashboard</span>
+        </div>
+        <div class="pricing-row">
+          <div class="price-field">
+            <label>Heading text</label>
+            <input v-model="wtsReply.heading" type="text" placeholder="e.g. WTS" @keydown.enter="saveWtsReply" />
+          </div>
+          <div class="price-field">
+            <label>Blank lines after heading (0-3)</label>
+            <input v-model.number="wtsReply.heading_blank_lines" type="number" min="0" max="3" step="1"
+              style="width: 70px" @keydown.enter="saveWtsReply" />
+          </div>
+          <div class="price-field">
+            <label>Used in</label>
+            <div class="price-info">Trading dashboard → "Open in WhatsApp" price reply</div>
+          </div>
+        </div>
+        <div class="pricing-row">
+          <label class="checkbox-field">
+            <input type="checkbox" v-model="wtsReply.send_flag" />
+            Include region Flag (🇯🇵, 🇭🇰, …)
+          </label>
+          <select v-model="wtsReply.flag_position" class="pos-select">
+            <option value="prefix">Before name</option>
+            <option value="suffix">After name</option>
+          </select>
+          <label class="checkbox-field">
+            <input type="checkbox" v-model="wtsReply.send_color" />
+            Include Color as a circle emoji (⚫, 🔵, …)
+          </label>
+          <select v-model="wtsReply.color_position" class="pos-select">
+            <option value="prefix">Before name</option>
+            <option value="suffix">After name</option>
+          </select>
+        </div>
+        <div class="pricing-row">
+          <label class="checkbox-field">
+            <input type="checkbox" v-model="wtsReply.send_currency" />
+            Include currency label with price
+          </label>
+          <select v-model="wtsReply.currency_position" class="pos-select">
+            <option value="prefix">Before price</option>
+            <option value="suffix">After price</option>
+          </select>
+          <div class="price-field">
+            <label>Currency</label>
+            <input v-model="wtsReply.currency" type="text" placeholder="AED" style="width: 80px" @keydown.enter="saveWtsReply" />
+          </div>
+        </div>
+        <div class="pricing-row">
+          <label class="checkbox-field">
+            <input type="checkbox" v-model="wtsReply.send_secondary_currency" />
+            Also show a converted secondary currency
+          </label>
+          <div class="price-field">
+            <label>Secondary currency</label>
+            <input v-model="wtsReply.secondary_currency" type="text" placeholder="USD" style="width: 80px" @keydown.enter="saveWtsReply" />
+          </div>
+          <div class="price-field">
+            <label>Conversion rate (× primary)</label>
+            <input v-model.number="wtsReply.secondary_currency_rate" type="number" step="0.0001" min="0"
+              placeholder="e.g. 0.27" style="width: 100px" @keydown.enter="saveWtsReply" />
+          </div>
+        </div>
+        <div class="pricing-row">
+          <div class="price-field">
+            <label>Order items by</label>
+            <select v-model="wtsReply.sort_by" class="pos-select">
+              <option value="original">Original request order</option>
+              <option value="color">Color</option>
+              <option value="storage">Storage</option>
+              <option value="region">Region</option>
+              <option value="flag">Flag</option>
+            </select>
+          </div>
+          <button class="btn-primary btn-sm" @click="saveWtsReply">Save</button>
+          <div v-if="wtsReplySaved" class="pricing-ok">Saved.</div>
+        </div>
+      </div>
+
       <div v-if="promptsLoading" class="loading">Loading…</div>
       <div v-else class="prompt-list">
         <div v-for="p in prompts" :key="p.key" class="prompt-card">
@@ -177,6 +263,17 @@ const pricingSaved = ref(false)
 
 const agent = ref({ display_name: '', provider: '', model: '', input_price_per_1m: null, output_price_per_1m: null })
 
+const wtsReply      = ref({
+  heading: 'WTS',
+  send_flag: true, flag_position: 'prefix',
+  send_color: true, color_position: 'prefix',
+  send_currency: true, currency_position: 'prefix', currency: 'AED',
+  send_secondary_currency: false, secondary_currency: 'USD', secondary_currency_rate: 0.27,
+  sort_by: 'original',
+  heading_blank_lines: 0,
+})
+const wtsReplySaved = ref(false)
+
 function tokenCount(text) { return Math.round((text || '').length / 4) }
 
 function inputCost(text) {
@@ -188,12 +285,14 @@ function inputCost(text) {
 async function loadPrompts() {
   promptsLoading.value = true
   try {
-    const [pr, ar] = await Promise.all([
+    const [pr, ar, wr] = await Promise.all([
       tradingApi.listPrompts(),
       tradingApi.getActiveAgent().catch(() => ({ data: {} })),
+      tradingApi.getWtsReplySettings().catch(() => ({ data: {} })),
     ])
     prompts.value = pr.data
     Object.assign(agent.value, ar.data)
+    if (wr.data.heading !== undefined) Object.assign(wtsReply.value, wr.data)
   } finally {
     promptsLoading.value = false
   }
@@ -230,6 +329,15 @@ async function savePricing() {
   })
   pricingSaved.value = true
   setTimeout(() => { pricingSaved.value = false }, 2000)
+}
+
+async function saveWtsReply() {
+  wtsReply.value.heading = wtsReply.value.heading.trim() || 'WTS'
+  wtsReplySaved.value = false
+  const { data } = await tradingApi.setWtsReplySettings(wtsReply.value)
+  wtsReply.value = data
+  wtsReplySaved.value = true
+  setTimeout(() => { wtsReplySaved.value = false }, 2000)
 }
 
 // ── Logs ───────────────────────────────────────────────────────────────────
@@ -298,6 +406,9 @@ onMounted(loadPrompts)
 .agent-provider { font-size: 0.78rem; color: #6b7280; }
 .agent-label { font-size: 0.75rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
 .pricing-row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
+.pricing-row + .pricing-row { margin-top: 12px; }
+.checkbox-field { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: #374151; cursor: pointer; }
+.pos-select { padding: 5px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.82rem; }
 .price-field { display: flex; flex-direction: column; gap: 4px; }
 .price-field label { font-size: 0.78rem; color: #374151; font-weight: 500; }
 .price-field input { padding: 5px 9px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.85rem; width: 180px; background: #fff; }

@@ -1280,3 +1280,111 @@ class ReportViewSet(viewsets.ViewSet):
                 'date_to':   (end - timedelta(days=1)).date().isoformat(),
             },
         })
+
+
+class TradingSettingsViewSet(viewsets.ViewSet):
+    """Hot-settable plain-text/toggle UI settings for the trading desk — not AI
+    prompts (see PromptConfig for those, which are LLM system prompts), just small
+    values the frontend reads when composing something itself. Backed by the
+    generic chatlens_core.SystemSettings key/value store rather than a dedicated
+    model, since it's exactly the "misc named setting" case that table exists for."""
+    permission_classes = [IsAuthenticated]
+
+    WTS_REPLY_KEY = 'trading_wts_reply_settings'
+    WTS_REPLY_DEFAULTS = {
+        'heading':          'WTS',
+        'send_flag':        True,
+        'flag_position':    'prefix',
+        'send_color':       True,
+        'color_position':   'prefix',
+        'send_currency':    True,
+        'currency_position': 'prefix',
+        'currency':         'AED',
+        'send_secondary_currency': False,
+        'secondary_currency': 'USD',
+        'secondary_currency_rate': 0.27,
+        'sort_by':          'original',
+        'heading_blank_lines': 0,
+    }
+    _POSITIONS = {'prefix', 'suffix'}
+    _SORT_OPTIONS = {'original', 'color', 'storage', 'region', 'flag'}
+    _MAX_HEADING_BLANK_LINES = 3
+
+    @action(detail=False, methods=['get', 'put'], url_path='wts-reply')
+    def wts_reply(self, request):
+        """heading: text prefixed to the WhatsApp price-reply composed from the
+        Trading dashboard. send_flag/send_color: whether each product's Flag/Color
+        attribute (§ ProductAttribute) gets folded into that reply as an emoji, and
+        flag_position/color_position (prefix|suffix) where relative to the product
+        name. send_currency/currency/currency_position: whether a currency label is
+        attached to the price, which one, and on which side. send_secondary_currency/
+        secondary_currency/secondary_currency_rate: an optional second, converted
+        amount shown alongside the primary price (converted = price * rate). sort_by:
+        'original' (the order items appear in the inquiry) or one of
+        color/storage/region/flag to group/order lines by that ProductAttribute.
+        heading_blank_lines: extra blank lines between the heading and the first
+        item, 0-3."""
+        import json
+        from apps.chatlens_core.models import SystemSettings
+
+        if request.method == 'GET':
+            obj = SystemSettings.objects.filter(key=self.WTS_REPLY_KEY).first()
+            saved = {}
+            if obj and obj.value:
+                try:
+                    saved = json.loads(obj.value)
+                except (json.JSONDecodeError, TypeError):
+                    saved = {}
+            return Response({**self.WTS_REPLY_DEFAULTS, **saved})
+
+        def position(field):
+            val = request.data.get(field)
+            return val if val in self._POSITIONS else self.WTS_REPLY_DEFAULTS[field]
+
+        def positive_float(value, default):
+            try:
+                f = float(value)
+                return f if f > 0 else default
+            except (TypeError, ValueError):
+                return default
+
+        def clamped_int(value, default, lo, hi):
+            try:
+                n = int(value)
+            except (TypeError, ValueError):
+                return default
+            return max(lo, min(hi, n))
+
+        heading = (request.data.get('heading') or '').strip() or self.WTS_REPLY_DEFAULTS['heading']
+        currency = (request.data.get('currency') or '').strip() or self.WTS_REPLY_DEFAULTS['currency']
+        secondary_currency = (request.data.get('secondary_currency') or '').strip() or self.WTS_REPLY_DEFAULTS['secondary_currency']
+        payload = {
+            'heading':           heading,
+            'send_flag':         bool(request.data.get('send_flag', True)),
+            'flag_position':     position('flag_position'),
+            'send_color':        bool(request.data.get('send_color', True)),
+            'color_position':    position('color_position'),
+            'send_currency':     bool(request.data.get('send_currency', True)),
+            'currency_position': position('currency_position'),
+            'currency':          currency,
+            'send_secondary_currency': bool(request.data.get('send_secondary_currency', False)),
+            'secondary_currency': secondary_currency,
+            'secondary_currency_rate': positive_float(
+                request.data.get('secondary_currency_rate'),
+                self.WTS_REPLY_DEFAULTS['secondary_currency_rate'],
+            ),
+            'sort_by': request.data.get('sort_by') if request.data.get('sort_by') in self._SORT_OPTIONS else self.WTS_REPLY_DEFAULTS['sort_by'],
+            'heading_blank_lines': clamped_int(
+                request.data.get('heading_blank_lines'),
+                self.WTS_REPLY_DEFAULTS['heading_blank_lines'],
+                0, self._MAX_HEADING_BLANK_LINES,
+            ),
+        }
+        SystemSettings.objects.update_or_create(
+            key=self.WTS_REPLY_KEY,
+            defaults={
+                'value': json.dumps(payload),
+                'description': 'WhatsApp price-reply composition settings for the Trading dashboard (heading text, Flag/Color attribute prefix/suffix, primary + optional secondary currency label).',
+            },
+        )
+        return Response(payload)

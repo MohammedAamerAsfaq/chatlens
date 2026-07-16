@@ -535,6 +535,17 @@ const stats             = ref({})
 const allProducts       = ref([])
 const formattedPriceList = ref('')
 const lastUpdate        = ref(null)
+// Hot-settable WhatsApp price-reply composition (§ AI Instructions > Trading
+// dashboard) — same defaults the backend falls back to.
+const wtsReply          = ref({
+  heading: 'WTS',
+  send_flag: true, flag_position: 'prefix',
+  send_color: true, color_position: 'prefix',
+  send_currency: true, currency_position: 'prefix', currency: 'AED',
+  send_secondary_currency: false, secondary_currency: 'USD', secondary_currency_rate: 0.27,
+  sort_by: 'original',
+  heading_blank_lines: 0,
+})
 
 // WTB/WTS feeds are paginated independently (each column scrolls on its own) rather than
 // a single combined list silently capped at N — the open-feed endpoint returns a real
@@ -809,9 +820,31 @@ function stripBrandPrefix(name, brand) {
 }
 
 // Looks up a hot-added key/value attribute (§ ProductAttribute) on the matched catalog
-// row — used to prefix outgoing reply text with the region flag when one is set.
+// row — used to prefix outgoing reply text with the region flag/color when set.
 function attributeValue(match, key) {
   return match?.attributes?.find(a => a.key === key)?.value || ''
+}
+
+// Maps a Color attribute value to the closest standard colored-circle emoji. Only
+// the 9 solid circles Unicode actually defines (🔴🟠🟡🟢🔵🟣🟤⚫⚪) — no dedicated
+// pink/gray circle exists, so those map to the nearest hue rather than guessing
+// with an unrelated symbol. Unrecognized color names get no emoji at all (silent
+// gap, not a wrong-colored guess).
+const COLOR_EMOJI = {
+  red: '🔴', pink: '🔴', rose: '🔴', magenta: '🔴',
+  orange: '🟠',
+  yellow: '🟡', gold: '🟡', citrus: '🟡',
+  green: '🟢', mint: '🟢',
+  blue: '🔵', sky: '🔵', navy: '🔵',
+  purple: '🟣', violet: '🟣', indigo: '🟣', lavender: '🟣',
+  brown: '🟤', bronze: '🟤', copper: '🟤', 'rose gold': '🟤',
+  black: '⚫', graphite: '⚫', midnight: '⚫', 'space gray': '⚫', 'space grey': '⚫',
+  white: '⚪', silver: '⚪', starlight: '⚪', pearl: '⚪', ivory: '⚪', grey: '⚪', gray: '⚪',
+}
+
+function colorEmoji(colorName) {
+  if (!colorName) return ''
+  return COLOR_EMOJI[colorName.trim().toLowerCase()] || ''
 }
 
 function getInventoryHints(inq) {
@@ -1009,28 +1042,74 @@ function cancelIncorrectMatch(inq) {
   if (form) form.open = false
 }
 
+// Applies a prefix/suffix token relative to a base string, per a 'prefix'|'suffix' setting.
+function affix(base, token, position) {
+  if (!token) return base
+  return position === 'suffix' ? `${base} ${token}` : `${token} ${base}`
+}
+
+// Reorders inquiry line items by a ProductAttribute value ('original' is a no-op —
+// keeps whatever order the sender's message/AI extraction produced). Items missing
+// the chosen attribute sort to the end, in their original relative order, rather
+// than being scattered arbitrarily among items that do have it.
+const SORT_ATTR_KEY = { color: 'Color', storage: 'Storage', region: 'Region', flag: 'Flag' }
+
+function sortProductsForReply(products, sortBy) {
+  const attrKey = SORT_ATTR_KEY[sortBy]
+  if (!attrKey) return products
+
+  const withMeta = products.map((p, i) => ({ p, i, val: attributeValue(matchInventory(p), attrKey) }))
+  withMeta.sort((a, b) => {
+    const aHas = a.val !== ''
+    const bHas = b.val !== ''
+    if (aHas !== bHas) return aHas ? -1 : 1
+    if (!aHas) return a.i - b.i
+    if (attrKey === 'Storage') {
+      const an = parseInt(a.val, 10)
+      const bn = parseInt(b.val, 10)
+      if (!Number.isNaN(an) && !Number.isNaN(bn) && an !== bn) return an - bn
+    }
+    return a.val.localeCompare(b.val, undefined, { sensitivity: 'base' }) || (a.i - b.i)
+  })
+  return withMeta.map(x => x.p)
+}
+
 function waPrefillText(inq) {
+  const r = wtsReply.value
   const lines = []
-  for (const p of (inq.products || [])) {
+  for (const p of sortProductsForReply(inq.products || [], r.sort_by)) {
     const match = matchInventory(p)
     let line = p.canonical_name || match?.name
     if (!line) continue
     line = stripBrandPrefix(line, match?.brand)
-    const flag = attributeValue(match, 'Flag')
-    if (flag) line = `${flag} ${line}`
+    if (r.send_flag) {
+      line = affix(line, attributeValue(match, 'Flag'), r.flag_position)
+    }
+    if (r.send_color) {
+      line = affix(line, colorEmoji(attributeValue(match, 'Color')), r.color_position)
+    }
     // Only attach the matched price when it's actually the same product requested —
     // never quote a price that belongs to a different model/color/region than the line says.
     // Also never quote a price for something we have zero units of.
-    if (match?.sale_price != null && match.qty > 0 && isReliableMatch(p, match)) line += ` - ${match.sale_price}`
+    if (match?.sale_price != null && match.qty > 0 && isReliableMatch(p, match)) {
+      let price = r.send_currency && r.currency ? affix(String(match.sale_price), r.currency, r.currency_position) : String(match.sale_price)
+      if (r.send_secondary_currency && r.secondary_currency && r.secondary_currency_rate) {
+        const converted = Math.round(match.sale_price * r.secondary_currency_rate * 100) / 100
+        price += ` (≈ ${r.secondary_currency} ${converted})`
+      }
+      line += ` - ${price}`
+    }
     lines.push(line)
   }
-  const offer    = lines.join('\n')
-  const original = inq.source_message_text || ''
-  if (!offer) return original
-  if (!original) return `Please check price below:\n${offer}`
-  // Quote the sender's own message back to them, then two blank lines, then our offer —
-  // gives them the context of what they asked for before they hit the price.
-  return `${original}\n\n\nPlease check price below:\n${offer}`
+  const offer = lines.join('\n')
+  if (!offer) return ''
+  // Deliberately does not quote the sender's own message back — just our prices,
+  // prefixed with a hot-settable heading (§ AI Instructions > Trading dashboard).
+  // One newline always separates heading from items; heading_blank_lines (0-3)
+  // adds extra blank lines on top of that base separator.
+  const blankLines = Math.max(0, Math.min(3, r.heading_blank_lines || 0))
+  const separator = '\n'.repeat(1 + blankLines)
+  return `${r.heading}${separator}${offer}`
 }
 
 function waLink(inq) {
@@ -1087,6 +1166,7 @@ onMounted(async () => {
   // Fetched once, not on every poll — it only changes when someone hits "Regenerate"
   // on the Products page, not on the 15s live-feed cadence.
   tradingApi.getPriceList().then(({ data }) => { formattedPriceList.value = data.body }).catch(() => {})
+  tradingApi.getWtsReplySettings().then(({ data }) => { Object.assign(wtsReply.value, data) }).catch(() => {})
   pollTimer = setInterval(refresh, 15000)
 })
 
