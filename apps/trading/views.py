@@ -11,7 +11,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, AgentCallLog, AiParsingLog, BuyingInquiry, SupplierQuote
+from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, AgentCallLog, AiParsingLog, BuyingInquiry, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture
 from .serializers import (
     ProductSerializer,
     ProductAliasSerializer,
@@ -22,6 +22,8 @@ from .serializers import (
     AiParsingLogSerializer,
     BuyingInquirySerializer,
     SupplierQuoteSerializer,
+    AutomationRuleSerializer,
+    AutomatedPriceCaptureSerializer,
 )
 from .services.product_cache import invalidate as invalidate_product_cache
 
@@ -966,6 +968,8 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
             PromptConfig.KEY_INQUIRY_CLASSIFICATION: (INQUIRY_CLASSIFICATION_DEFAULT, 'Inquiry Classification (live messages)'),
             PromptConfig.KEY_INVENTORY_UPDATE:       (INVENTORY_UPDATE_DEFAULT,       'Inventory Update (bulk qty + price)'),
             PromptConfig.KEY_PRICE_LIST_FORMAT:      (PRICE_LIST_FORMAT_DEFAULT,      'Price List Formatting (WhatsApp send)'),
+            PromptConfig.KEY_QTY_COST_UPDATE:        (QTY_COST_UPDATE_DEFAULT,        'Qty & Cost Update (Product Price Update page)'),
+            PromptConfig.KEY_SALE_PRICE_UPDATE:      (SALE_PRICE_UPDATE_DEFAULT,      'Sale Price Update (Product Price Update page)'),
         }
         saved = {p.key: p for p in PromptConfig.objects.all()}
         result = []
@@ -1023,6 +1027,8 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
             PromptConfig.KEY_INQUIRY_CLASSIFICATION: 'Inquiry Classification (live messages)',
             PromptConfig.KEY_INVENTORY_UPDATE:       'Inventory Update (bulk qty + price)',
             PromptConfig.KEY_PRICE_LIST_FORMAT:      'Price List Formatting (WhatsApp send)',
+            PromptConfig.KEY_QTY_COST_UPDATE:        'Qty & Cost Update (Product Price Update page)',
+            PromptConfig.KEY_SALE_PRICE_UPDATE:      'Sale Price Update (Product Price Update page)',
         }
         label = defaults_map.get(key, key)
         obj, _ = PromptConfig.objects.update_or_create(
@@ -1388,3 +1394,176 @@ class TradingSettingsViewSet(viewsets.ViewSet):
             },
         )
         return Response(payload)
+
+
+class ProductPriceUpdateViewSet(viewsets.ViewSet):
+    """New, independent qty/cost and sale-price update pipeline for the "Product Price
+    Update" page — deliberately separate from ProductViewSet.parse_inventory/
+    bulk_update_inventory (the existing combined-textbox Update Inventory feature on
+    the Products page) rather than a replacement for it, per explicit instruction.
+
+    Two distinct two-list AI matching processes, each with its own prompt
+    (PromptConfig.KEY_QTY_COST_UPDATE / KEY_SALE_PRICE_UPDATE): a supplier's qty/cost
+    list matched against our own inventory, and a separate external sale-price list
+    matched against our own inventory. Kept as two processes, not one combined
+    textbox, because the two source lists come from different parties with different
+    naming conventions — mixing them the way the older feature does makes the AI's
+    matching job harder, not easier."""
+    permission_classes = [IsAuthenticated]
+
+    def _parse(self, request, prompt_key, prompt_default):
+        text = (request.data.get('text') or '').strip()
+        if not text:
+            return Response({'error': 'text is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.trading.services.price_update_service import parse_against_inventory
+
+        try:
+            items = parse_against_inventory(text, prompt_key, prompt_default)
+            return Response({'items': items})
+        except Exception as exc:
+            logger.exception('ProductPriceUpdateViewSet | parse failed | prompt_key=%s', prompt_key)
+            return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def _apply(self, request, fields):
+        """fields: iterable of (payload_key, product_attr) pairs to copy across,
+        e.g. [('qty', 'qty'), ('cost_price', 'cost_price')]."""
+        from apps.trading.services.price_update_service import apply_items_to_inventory
+
+        items = request.data.get('items') or []
+        result = apply_items_to_inventory(items, fields)
+        return Response(result)
+
+    @action(detail=False, methods=['post'], url_path='parse-qty-cost')
+    def parse_qty_cost(self, request):
+        """Supplier qty/cost list → matched against our own inventory."""
+        return self._parse(request, PromptConfig.KEY_QTY_COST_UPDATE, QTY_COST_UPDATE_DEFAULT)
+
+    @action(detail=False, methods=['post'], url_path='apply-qty-cost')
+    def apply_qty_cost(self, request):
+        return self._apply(request, [('qty', 'qty'), ('cost_price', 'cost_price')])
+
+    @action(detail=False, methods=['post'], url_path='parse-sale-price')
+    def parse_sale_price(self, request):
+        """External sale-price list → matched against our own inventory."""
+        return self._parse(request, PromptConfig.KEY_SALE_PRICE_UPDATE, SALE_PRICE_UPDATE_DEFAULT)
+
+    @action(detail=False, methods=['post'], url_path='apply-sale-price')
+    def apply_sale_price(self, request):
+        return self._apply(request, [('sale_price', 'sale_price')])
+
+
+class AutomationRuleViewSet(viewsets.ModelViewSet):
+    """CRUD for the Product Price Update page's Automated Price Update rules
+    (Sale Price tab only — see apps.trading.services.price_update_automation for
+    the matching/apply logic this configures). Each rule's `sources` list is
+    replaced wholesale on every create/update — simpler and safer than diffing
+    individual source rows for what's a small, human-edited list."""
+    serializer_class = AutomationRuleSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = AutomationRule.objects.all().prefetch_related('sources__contact', 'sources__group').order_by('-created_at')
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        rule = serializer.save()
+        self._sync_sources(rule, request.data.get('sources') or [])
+        return Response(AutomationRuleSerializer(rule).data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        rule = serializer.save()
+        if 'sources' in request.data:
+            self._sync_sources(rule, request.data.get('sources') or [])
+        return Response(AutomationRuleSerializer(rule).data)
+
+    def _sync_sources(self, rule, sources_data):
+        valid_types = dict(AutomationRuleSource.SOURCE_TYPE_CHOICES)
+        rule.sources.all().delete()
+        objs = []
+        for s in sources_data:
+            source_type = s.get('source_type')
+            if source_type not in valid_types:
+                continue
+            contact_id = s.get('contact_id')
+            group_id = s.get('group_id')
+            if source_type == AutomationRuleSource.SOURCE_CONTACT and not contact_id:
+                continue
+            if source_type == AutomationRuleSource.SOURCE_GROUP and not group_id:
+                continue
+            if source_type == AutomationRuleSource.SOURCE_CONTACT_IN_GROUP and not (contact_id and group_id):
+                continue
+            objs.append(AutomationRuleSource(
+                rule=rule,
+                source_type=source_type,
+                contact_id=contact_id if source_type != AutomationRuleSource.SOURCE_GROUP else None,
+                group_id=group_id if source_type != AutomationRuleSource.SOURCE_CONTACT else None,
+            ))
+        if objs:
+            AutomationRuleSource.objects.bulk_create(objs)
+
+    @action(detail=True, methods=['post'], url_path='toggle')
+    def toggle(self, request, pk=None):
+        rule = self.get_object()
+        rule.is_active = not rule.is_active
+        rule.save(update_fields=['is_active', 'updated_at'])
+        return Response(AutomationRuleSerializer(rule).data)
+
+
+class AutomatedPriceCaptureViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin):
+    """Read/review surface for the "Recent detections" feed — a human confirms
+    (apply, with optional edits to the parsed items) or dismisses (ignore) each
+    queued capture. Auto-applied captures show up here too, already resolved,
+    purely as an audit trail."""
+    serializer_class = AutomatedPriceCaptureSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = (
+            AutomatedPriceCapture.objects
+            .select_related('rule', 'message', 'message__contact', 'message__chat')
+            .order_by('-created_at')
+        )
+        status_ = self.request.query_params.get('status')
+        if status_:
+            qs = qs.filter(status=status_)
+        return qs
+
+    @action(detail=True, methods=['post'], url_path='apply')
+    def apply(self, request, pk=None):
+        capture = self.get_object()
+        if capture.status != AutomatedPriceCapture.STATUS_QUEUED:
+            return Response({'detail': 'This capture has already been processed.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        items = request.data.get('items')
+        if items is not None:
+            capture.items = items
+            capture.save(update_fields=['items'])
+
+        from apps.trading.services.price_update_automation import apply_capture
+        apply_capture(capture)
+        capture.refresh_from_db()
+        return Response(AutomatedPriceCaptureSerializer(capture).data)
+
+    @action(detail=True, methods=['post'], url_path='ignore')
+    def ignore(self, request, pk=None):
+        capture = self.get_object()
+        if capture.status != AutomatedPriceCapture.STATUS_QUEUED:
+            return Response({'detail': 'This capture has already been processed.'}, status=status.HTTP_400_BAD_REQUEST)
+        capture.status = AutomatedPriceCapture.STATUS_IGNORED
+        capture.save(update_fields=['status'])
+        return Response(AutomatedPriceCaptureSerializer(capture).data)
+
+    @action(detail=False, methods=['get'], url_path='summary')
+    def summary(self, request):
+        """Headline counts for the Automated Price Updates summary strip."""
+        week_ago = now() - timedelta(days=7)
+        return Response({
+            'active_rules':       AutomationRule.objects.filter(is_active=True).count(),
+            'watched_sources':    AutomationRuleSource.objects.count(),
+            'captured_this_week': AutomatedPriceCapture.objects.filter(created_at__gte=week_ago).count(),
+            'queued':             AutomatedPriceCapture.objects.filter(status=AutomatedPriceCapture.STATUS_QUEUED).count(),
+        })

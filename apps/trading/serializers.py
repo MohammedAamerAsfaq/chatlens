@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import (
     Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryMessage,
     AiParsingLog, BuyingInquiry, SupplierQuote,
+    AutomationRule, AutomationRuleSource, AutomatedPriceCapture,
 )
 
 
@@ -239,3 +240,73 @@ class BuyingInquirySerializer(serializers.ModelSerializer):
     def get_account_name(self, obj):
         a = obj.account
         return a.display_name or a.phone_number or f'Account {a.pk}'
+
+
+def _contact_label(contact) -> str:
+    return contact.display_name or contact.push_name or contact.phone_number or contact.wa_contact_id
+
+
+class AutomationRuleSourceSerializer(serializers.ModelSerializer):
+    contact_name = serializers.SerializerMethodField()
+    group_name   = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AutomationRuleSource
+        fields = ['id', 'source_type', 'contact', 'contact_name', 'group', 'group_name']
+        read_only_fields = ['id', 'contact_name', 'group_name']
+
+    def get_contact_name(self, obj):
+        return _contact_label(obj.contact) if obj.contact else None
+
+    def get_group_name(self, obj):
+        return obj.group.name if obj.group else None
+
+
+class AutomationRuleSerializer(serializers.ModelSerializer):
+    # Sources are managed via the nested list here on read, but writes go through
+    # AutomationRuleViewSet's own create/update (which replaces the whole set
+    # atomically) — plain ModelSerializer nested-write semantics are the wrong fit
+    # for "replace this rule's entire source list every save."
+    sources = AutomationRuleSourceSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = AutomationRule
+        fields = [
+            'id', 'name', 'is_active', 'trigger_heading', 'trigger_ai_detect',
+            'action_mode', 'sources', 'last_triggered_at', 'trigger_count',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'sources', 'last_triggered_at', 'trigger_count', 'created_at', 'updated_at']
+
+
+class AutomatedPriceCaptureSerializer(serializers.ModelSerializer):
+    rule_name    = serializers.CharField(source='rule.name', default=None, read_only=True)
+    source_name  = serializers.SerializerMethodField()
+    source_kind  = serializers.SerializerMethodField()
+    group_name   = serializers.SerializerMethodField()
+    message_text = serializers.CharField(source='message.message_text', read_only=True)
+    message_time = serializers.DateTimeField(source='message.message_time', read_only=True)
+
+    class Meta:
+        model = AutomatedPriceCapture
+        fields = [
+            'id', 'rule', 'rule_name', 'message', 'source_name', 'source_kind', 'group_name',
+            'message_text', 'message_time', 'items', 'status', 'created_at', 'applied_at',
+        ]
+        read_only_fields = fields
+
+    def get_source_name(self, obj):
+        contact = obj.message.contact
+        return _contact_label(contact) if contact else (obj.message.sender_number or None)
+
+    def get_source_kind(self, obj):
+        from apps.whatsapp_bridge.models import ChatType
+        chat = obj.message.chat
+        return 'group' if (chat and chat.chat_type == ChatType.GROUP) else 'direct'
+
+    def get_group_name(self, obj):
+        from apps.whatsapp_bridge.models import ChatType
+        chat = obj.message.chat
+        if chat and chat.chat_type == ChatType.GROUP:
+            return chat.name or chat.wa_chat_id
+        return None

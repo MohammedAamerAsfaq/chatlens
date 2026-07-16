@@ -138,6 +138,16 @@ def _log_ai_parsing_and_classify(message) -> None:
         from apps.trading.services.classification_service import classify_message
         classify_message(message)
 
+        # Automated Price Update rules (Product Price Update > Sale Price) — same
+        # eligibility gate as classification above, so a message that wouldn't be
+        # classified (chat/account disabled, too old, etc.) isn't checked here
+        # either. Never allowed to break ingestion/classification on failure.
+        try:
+            from apps.trading.services.price_update_automation import check_automation_rules
+            check_automation_rules(message)
+        except Exception:
+            logger.exception('check_automation_rules failed | message_id=%s', message.pk)
+
 
 def _embed_in_background(message_ids: list, sync_log_id: int = None):
     """Fire-and-forget embedding in a daemon thread — never blocks the HTTP response.

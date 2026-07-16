@@ -209,17 +209,78 @@ commentary before or after.\
 """
 
 
+QTY_COST_UPDATE_DEFAULT = """\
+You have two lists below.
+
+LIST 1 is a supplier's stock list — product names with quantity and/or cost price, worded
+however the supplier wrote them.
+
+LIST 2 is our own inventory (product_id and name):
+{product_block}
+
+Match each LIST 1 item to the correct LIST 2 product by meaning — model, storage, color,
+and region may be worded differently between the two lists, so match on what the product
+actually is, not exact text. Only set product_id when you are confident it is the same
+product; leave it null if unsure rather than guessing.
+
+Return ONLY a raw JSON array, one entry per LIST 1 item, matching this schema exactly:
+[
+  {
+    "product_id": <int or null>,
+    "canonical_name": "<the matched LIST 2 name, or the LIST 1 text as written if unmatched>",
+    "qty": <int or null>,
+    "cost_price": <float or null>,
+    "currency": "<string, default \"USD\">"
+  }
+]
+No markdown, no explanation — raw JSON only.\
+"""
+
+
+SALE_PRICE_UPDATE_DEFAULT = """\
+You have two lists below.
+
+LIST 1 is a price list from an external source — product names with selling prices, worded
+however that source wrote them.
+
+LIST 2 is our own inventory (product_id and name):
+{product_block}
+
+Match each LIST 1 item to the correct LIST 2 product by meaning — model, storage, color,
+and region may be worded differently between the two lists, so match on what the product
+actually is, not exact text. Only set product_id when you are confident it is the same
+product; leave it null if unsure rather than guessing.
+
+Return ONLY a raw JSON array, one entry per LIST 1 item, matching this schema exactly:
+[
+  {
+    "product_id": <int or null>,
+    "canonical_name": "<the matched LIST 2 name, or the LIST 1 text as written if unmatched>",
+    "sale_price": <float or null>,
+    "currency": "<string, default \"USD\">"
+  }
+]
+No markdown, no explanation — raw JSON only.\
+"""
+
+
 class PromptConfig(models.Model):
     KEY_PRODUCT_EXTRACTION      = 'product_extraction'
     KEY_INQUIRY_CLASSIFICATION  = 'inquiry_classification'
     KEY_INVENTORY_UPDATE        = 'inventory_update'
     KEY_PRICE_LIST_FORMAT       = 'price_list_format'
+    # New, independent qty/cost and sale-price update pipeline (§ Product Price Update
+    # page) — deliberately separate from KEY_INVENTORY_UPDATE above, not a replacement.
+    KEY_QTY_COST_UPDATE         = 'qty_cost_update'
+    KEY_SALE_PRICE_UPDATE       = 'sale_price_update'
 
     KEYS = [
         (KEY_PRODUCT_EXTRACTION,     'Product Extraction (bulk import)'),
         (KEY_INQUIRY_CLASSIFICATION, 'Inquiry Classification (live messages)'),
         (KEY_INVENTORY_UPDATE,       'Inventory Update (bulk qty + price)'),
         (KEY_PRICE_LIST_FORMAT,      'Price List Formatting (WhatsApp send)'),
+        (KEY_QTY_COST_UPDATE,        'Qty & Cost Update (Product Price Update page)'),
+        (KEY_SALE_PRICE_UPDATE,      'Sale Price Update (Product Price Update page)'),
     ]
 
     key        = models.CharField(max_length=100, unique=True)

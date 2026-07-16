@@ -151,6 +151,24 @@ export const tradingApi = {
   getPriceList:         ()               => http.get('/products/price-list/'),
   regeneratePriceList:  ()               => http.post('/products/regenerate-price-list/'),
 
+  // Product Price Update page — new, independent qty/cost + sale-price pipeline,
+  // separate from parseInventory/bulkUpdateInventory above.
+  parseQtyCost:    (text)  => http.post('/product-price-update/parse-qty-cost/', { text }),
+  applyQtyCost:    (items) => http.post('/product-price-update/apply-qty-cost/', { items }),
+  parseSalePrice:  (text)  => http.post('/product-price-update/parse-sale-price/', { text }),
+  applySalePrice:  (items) => http.post('/product-price-update/apply-sale-price/', { items }),
+
+  // Automated Price Updates (Sale Price tab) — watch rules + review queue
+  listAutomationRules:   ()          => http.get('/automation-rules/'),
+  createAutomationRule:  (data)      => http.post('/automation-rules/', data),
+  updateAutomationRule:  (id, data)  => http.patch(`/automation-rules/${id}/`, data),
+  deleteAutomationRule:  (id)        => http.delete(`/automation-rules/${id}/`),
+  toggleAutomationRule:  (id)        => http.post(`/automation-rules/${id}/toggle/`),
+  listPriceCaptures:     (params)    => http.get('/automated-price-captures/', { params }),
+  captureSummary:        ()          => http.get('/automated-price-captures/summary/'),
+  applyPriceCapture:     (id, items) => http.post(`/automated-price-captures/${id}/apply/`, items ? { items } : {}),
+  ignorePriceCapture:    (id)        => http.post(`/automated-price-captures/${id}/ignore/`),
+
   // AI Prompts
   listPrompts:      ()            => http.get('/prompts/'),
   savePrompt:       (key, body)   => http.patch(`/prompts/${key}/`, { body }),
