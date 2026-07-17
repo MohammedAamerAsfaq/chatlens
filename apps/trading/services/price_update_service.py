@@ -38,30 +38,61 @@ def parse_against_inventory(text: str, prompt_key: str, prompt_default: str) -> 
     return items
 
 
-def apply_items_to_inventory(items: list, fields: list) -> dict:
+def _match_product(item: dict):
+    """Resolve one parsed item to a Product: by product_id first, then by exact
+    (case-insensitive) name among active products. Returns (product_or_None, name)."""
+    from apps.trading.models import Product
+
+    product_id = item.get('product_id')
+    name = (item.get('canonical_name') or '').strip()
+
+    product = None
+    if product_id:
+        product = Product.objects.filter(pk=product_id).first()
+    if not product and name:
+        product = Product.objects.filter(name__iexact=name, is_active=True).first()
+    return product, name
+
+
+def preview_zero_candidates(items: list) -> dict:
+    """Dry-run companion to apply_items_to_inventory(zero_unmatched_qty=True) —
+    resolves which active, currently-nonzero-qty products would be zeroed by this
+    exact item list, without writing anything. Lets the UI show a confirmation
+    count before an apply that would zero stock."""
+    from apps.trading.models import Product
+
+    matched_ids = {product.pk for item in items if (product := _match_product(item)[0])}
+    missing = list(
+        Product.objects.filter(is_active=True).exclude(pk__in=matched_ids).exclude(qty=0)
+        .order_by('name').values('id', 'name', 'qty')
+    )
+    return {'count': len(missing), 'products': missing}
+
+
+def apply_items_to_inventory(items: list, fields: list, zero_unmatched_qty: bool = False) -> dict:
     """Writes parsed items back onto Product rows. `fields` is a list of
     (payload_key, product_attr) pairs to copy across when present, e.g.
     [('qty', 'qty'), ('cost_price', 'cost_price')] or [('sale_price', 'sale_price')].
-    Returns {'updated': [ProductSerializer dicts], 'skipped': [name-or-id strings]}."""
-    from apps.trading.models import Product
+
+    `zero_unmatched_qty`: when True, every active product NOT among the matched
+    items has its qty set to 0 — the qty/cost list is a supplier's current stock,
+    so anything we hold that they didn't list is no longer available from them.
+    Only meaningful for the qty/cost process; sale-price updates never zero stock.
+
+    Returns {'updated': [...], 'skipped': [name-or-id strings], 'zeroed': [...]}."""
     from apps.trading.serializers import ProductSerializer
     from apps.trading.services.product_cache import invalidate as invalidate_product_cache
 
     updated, skipped = [], []
+    matched_ids = set()
 
     for item in items:
-        product_id = item.get('product_id')
-        name = (item.get('canonical_name') or '').strip()
-
-        product = None
-        if product_id:
-            product = Product.objects.filter(pk=product_id).first()
-        if not product and name:
-            product = Product.objects.filter(name__iexact=name, is_active=True).first()
+        product, name = _match_product(item)
         if not product:
-            skipped.append(name or str(product_id))
+            skipped.append(name or str(item.get('product_id')))
             continue
 
+        matched_ids.add(product.pk)
         update_fields = ['updated_at']
         for payload_key, product_attr in fields:
             value = item.get(payload_key)
@@ -76,6 +107,15 @@ def apply_items_to_inventory(items: list, fields: list) -> dict:
         product.save(update_fields=update_fields)
         updated.append(ProductSerializer(product).data)
 
-    if updated:
+    zeroed = []
+    if zero_unmatched_qty:
+        from apps.trading.models import Product
+        missing = Product.objects.filter(is_active=True).exclude(pk__in=matched_ids).exclude(qty=0)
+        for product in missing:
+            product.qty = 0
+            product.save(update_fields=['qty', 'updated_at'])
+            zeroed.append(ProductSerializer(product).data)
+
+    if updated or zeroed:
         invalidate_product_cache()
-    return {'updated': updated, 'skipped': skipped}
+    return {'updated': updated, 'skipped': skipped, 'zeroed': zeroed}

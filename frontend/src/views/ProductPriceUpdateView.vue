@@ -72,6 +72,9 @@
           <span v-if="qtyCost.result.skipped.length">
             · {{ qtyCost.result.skipped.length }} skipped (not found): {{ qtyCost.result.skipped.join(', ') }}
           </span>
+          <span v-if="qtyCost.result.zeroed && qtyCost.result.zeroed.length">
+            · {{ qtyCost.result.zeroed.length }} not in this list, qty set to 0: {{ qtyCost.result.zeroed.map(p => p.name).join(', ') }}
+          </span>
         </div>
       </template>
 
@@ -704,6 +707,17 @@ async function applyQtyCost() {
   qtyCost.value.applying = true
   qtyCost.value.result = null
   try {
+    // apply-qty-cost zeroes any active product not in this list — confirm with
+    // the user first so a short/partial paste can't silently wipe stock.
+    const { data: zeroPreview } = await tradingApi.previewZeroQty(qtyCost.value.preview)
+    if (zeroPreview.count > 0) {
+      const names = zeroPreview.products.slice(0, 15).map(p => p.name).join(', ')
+      const more  = zeroPreview.count > 15 ? ` …and ${zeroPreview.count - 15} more` : ''
+      const confirmed = window.confirm(
+        `${zeroPreview.count} product(s) not in this list will have their qty set to 0:\n\n${names}${more}\n\nContinue?`
+      )
+      if (!confirmed) return
+    }
     const { data } = await tradingApi.applyQtyCost(qtyCost.value.preview)
     qtyCost.value.result = data
     qtyCost.value.preview = []

@@ -1,36 +1,7 @@
 import json
 import logging
-import re
 
 logger = logging.getLogger(__name__)
-
-_WORD_RE = re.compile(r'[a-z0-9]+')
-
-# Product-line/brand words that routinely appear in a catalog name but that a customer
-# almost never types when requesting a product ("iPhone 17 Pro Max..." vs. the sender's
-# own "17 pro max...") — harmless omissions, not a sign of a wrong match. Extend this if
-# the catalog grows beyond Apple devices.
-_COSMETIC_WORDS = {'iphone', 'ipad', 'apple'}
-_STORAGE_UNIT_RE = re.compile(r'^(\d+)(gb|tb)$')
-
-
-def _words(text: str) -> set:
-    return set(_WORD_RE.findall((text or '').lower()))
-
-
-def _normalize_attribute_words(words: set) -> set:
-    """Collapse cosmetic-only differences before comparing two word sets for the same
-    product: a bare storage number ("256") and its unit-suffixed form ("256gb") name the
-    same attribute, and brand/product-line words are routinely omitted by customers
-    without changing what they're asking for — neither should register as a mismatch.
-    """
-    out = set()
-    for w in words:
-        if w in _COSMETIC_WORDS:
-            continue
-        m = _STORAGE_UNIT_RE.match(w)
-        out.add(m.group(1) if m else w)
-    return out
 
 # Valid tag values the AI may return
 VALID_TAGS = {
@@ -144,51 +115,9 @@ def _parse_response(raw: str) -> dict:
     }
 
 
-def _validate_exact_matches(products: list) -> list:
-    """
-    Self-consistency guard, not a re-match: the agent occasionally claims
-    match_type="exact" for a product_id whose real catalog name contradicts what
-    it wrote into canonical_name for the same product (e.g. canonical_name says
-    "Blue" but the linked catalog entry is actually "Orange"). We never try to
-    find a different/better product_id ourselves — that's the agent's job. We
-    only check whether the agent's own two answers (product_id's real name vs.
-    canonical_name) agree, and downgrade match_type to "near" when they don't,
-    so a self-contradictory "exact" never reaches the UI as a confident match.
-    """
-    exact_ids = {
-        p['product_id'] for p in products
-        if p['match_type'] == 'exact' and p['product_id'] is not None
-    }
-    if not exact_ids:
-        return products
-
-    try:
-        from apps.trading.models import Product
-        names = dict(Product.objects.filter(id__in=exact_ids).values_list('id', 'name'))
-    except Exception:
-        logger.exception('_validate_exact_matches | catalog lookup failed')
-        return products
-
-    for p in products:
-        if p['match_type'] != 'exact' or p['product_id'] not in names:
-            continue
-        real_words = _normalize_attribute_words(_words(names[p['product_id']]))
-        claimed_words = _normalize_attribute_words(_words(p['canonical_name']))
-        if not real_words <= claimed_words:
-            logger.warning(
-                'classify_message | exact match self-contradiction | product_id=%s | '
-                'catalog_name=%r | canonical_name=%r | missing_words=%s',
-                p['product_id'], names[p['product_id']], p['canonical_name'],
-                real_words - claimed_words,
-            )
-            p['match_type'] = 'near'
-    return products
-
-
 def validate_category_suggestion(suggestion: str, contact) -> str:
     """
-    Self-consistency guard, not a re-derivation — same philosophy as
-    _validate_exact_matches above. "both" already covers every direction a suggestion
+    Self-consistency guard: "both" already covers every direction a suggestion
     could nudge toward (supplier and customer), so per the prompt's own instructions
     it's a final state with nothing left to suggest. Confirmed in production data that
     the agent doesn't reliably follow this: 154 MessageClassification rows and 129
@@ -196,7 +125,12 @@ def validate_category_suggestion(suggestion: str, contact) -> str:
     "customer"/"supplier") away from a contact already marked "both". This never
     invents or changes *which* category to suggest — it only enforces the one rule the
     prompt already claims to follow, so a stray suggestion can't offer to undo an
-    already-final categorization.
+    already-final categorization. Unlike the product-match guard this deliberately
+    doesn't try to verify (removed — see git history — it was re-deciding a semantic
+    judgment call, "does this canonical_name mean the same product as the catalog
+    entry", using brittle string matching instead of trusting the model that already
+    made that call correctly), this only checks a hard structural fact: is the
+    existing category already "both". Nothing here requires language understanding.
     """
     if not suggestion or not contact:
         return suggestion
@@ -250,7 +184,6 @@ def classify_message(message) -> None:
         )
         return
 
-    parsed['products'] = _validate_exact_matches(parsed['products'])
     parsed['contact_category_suggestion'] = validate_category_suggestion(
         parsed['contact_category_suggestion'], message.contact,
     )

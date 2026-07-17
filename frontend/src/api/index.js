@@ -155,6 +155,7 @@ export const tradingApi = {
   // separate from parseInventory/bulkUpdateInventory above.
   parseQtyCost:    (text)  => http.post('/product-price-update/parse-qty-cost/', { text }),
   applyQtyCost:    (items) => http.post('/product-price-update/apply-qty-cost/', { items }),
+  previewZeroQty:  (items) => http.post('/product-price-update/preview-zero-qty/', { items }),
   parseSalePrice:  (text)  => http.post('/product-price-update/parse-sale-price/', { text }),
   applySalePrice:  (items) => http.post('/product-price-update/apply-sale-price/', { items }),
 

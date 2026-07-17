@@ -85,13 +85,9 @@ def _is_duplicate_group_broadcast(message) -> bool:
     return False
 
 
-def _classify_skip_reason(message) -> str | None:
-    """Return the AiParsingLog skip_reason code, or None if the message should
-    be sent for AI classification.
-
-    Tri-state per-chat override: chat.ai_parsing=True forces on, False forces off,
-    None inherits account.ai_parsing_enabled global toggle.
-    """
+def _base_eligibility_skip_reason(message) -> str | None:
+    """Checks shared by both AI classification and automation-rule matching:
+    must have text, be inbound, and not be a history-sync message older than 24h."""
     from django.utils.timezone import now
     if not message.message_text:
         return 'no_text'
@@ -100,6 +96,19 @@ def _classify_skip_reason(message) -> str | None:
     age_seconds = (now() - message.message_time).total_seconds()
     if age_seconds > 86400:  # older than 24 h — history-sync message
         return 'too_old'
+    return None
+
+
+def _classify_skip_reason(message) -> str | None:
+    """Return the AiParsingLog skip_reason code, or None if the message should
+    be sent for AI classification.
+
+    Tri-state per-chat override: chat.ai_parsing=True forces on, False forces off,
+    None inherits account.ai_parsing_enabled global toggle.
+    """
+    reason = _base_eligibility_skip_reason(message)
+    if reason:
+        return reason
 
     # Tri-state: per-chat setting takes priority over account global.
     chat_override = getattr(message.chat, 'ai_parsing', None)
@@ -115,6 +124,21 @@ def _classify_skip_reason(message) -> str | None:
     if _is_duplicate_group_broadcast(message):
         return 'duplicate_broadcast'
 
+    return None
+
+
+def _automation_skip_reason(message) -> str | None:
+    """Eligibility gate for automation-rule matching. Deliberately does NOT
+    check the chat/account ai_parsing toggle — that toggle controls whether a
+    chat's messages get classified as inquiries, which is a separate concern
+    from whether a specifically-configured watch rule should fire on it. A
+    rule watching a contact inside a group where AI classification is off
+    (e.g. an internal staff group) must still be able to fire."""
+    reason = _base_eligibility_skip_reason(message)
+    if reason:
+        return reason
+    if _is_duplicate_group_broadcast(message):
+        return 'duplicate_broadcast'
     return None
 
 
@@ -138,10 +162,11 @@ def _log_ai_parsing_and_classify(message) -> None:
         from apps.trading.services.classification_service import classify_message
         classify_message(message)
 
-        # Automated Price Update rules (Product Price Update > Sale Price) — same
-        # eligibility gate as classification above, so a message that wouldn't be
-        # classified (chat/account disabled, too old, etc.) isn't checked here
-        # either. Never allowed to break ingestion/classification on failure.
+    # Automated Price Update rules (Product Price Update > Sale Price) — gated
+    # independently of AI classification (see _automation_skip_reason) so a rule
+    # can still fire inside a chat that has AI classification turned off. Never
+    # allowed to break ingestion/classification on failure.
+    if not _automation_skip_reason(message):
         try:
             from apps.trading.services.price_update_automation import check_automation_rules
             check_automation_rules(message)

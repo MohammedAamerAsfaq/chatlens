@@ -1,9 +1,11 @@
 """
 Automated price-list detection — the "Automated Price Updates" section of the
-Product Price Update page (Sale Price tab only). Called once per classify-eligible
-inbound message from apps.whatsapp_bridge.services.ingestion_service, using the
-exact same eligibility gate as trading classification (_classify_skip_reason), so
-there's no separate/looser filter deciding what's "worth checking."
+Product Price Update page (Sale Price tab only). Called once per inbound message
+from apps.whatsapp_bridge.services.ingestion_service, gated by its own
+eligibility check (_automation_skip_reason) rather than the AI-classification
+gate — a rule must be able to fire inside a chat that has AI classification
+(inquiry detection) turned off, e.g. an internal staff group where you don't
+want inquiry noise but still want one specific contact's price lists captured.
 
 Design: a message is matched against each active AutomationRule's watched sources
 (contact DM / whole group / one contact scoped to one group — independently

@@ -66,9 +66,10 @@ includes its tier suffix — "Pro"/"Pro Max", "Plus"/base, "Ultra"/"Plus", "FE"/
 sender didn't write the suffix, it does not exist for matching.
 2. Score each candidate: does its color match the request (yes/no)? Does its region match (yes/no)?
 3. Exactly one candidate scores yes/yes on both → product_id = that entry, match_type = "exact".
-4. Zero candidates score yes/yes, but exactly one candidate is off by only one attribute (color, \
-region, or tier) → product_id = that entry, match_type = "near". Being the only candidate present \
-does NOT make it correct on its own — it must still genuinely be a one-attribute-off match.
+4. Zero candidates score yes/yes, but exactly one candidate is off by only one attribute (color or \
+region — NEVER tier: a tier mismatch was already excluded from the candidate pool in step 1, tier is \
+not a "near" attribute) → product_id = that entry, match_type = "near". Being the only candidate \
+present does NOT make it correct on its own — it must still genuinely be a one-attribute-off match.
 5. Zero candidates score yes/yes, and two or more candidates are each off by a DIFFERENT single \
 attribute (one matches color but not region, another matches region but not color) — this is \
 genuinely ambiguous with no single closest one. product_id = null, match_type = null, and \
@@ -87,9 +88,10 @@ tier suffix, storage size, color, region — against canonical_name; this is not
 match. Cosmetic differences never count against "exact": a missing/present storage unit suffix \
 ("256" vs "256GB"), capitalization, spacing/punctuation, whether the brand name is written at all, \
 and a regional abbreviation already normalized above (e.g. canonical_name says "TRA", the master \
-line says "UAE" — that is the same region, not a mismatch). Only a genuine attribute difference — a \
-different storage number, a different color word, a different region, a different tier suffix — \
-forces a downgrade to "near" or null. Example: canonical_name "17 pro max 256 silver UAE" against \
+line says "UAE" — that is the same region, not a mismatch). A genuine storage or color or region \
+difference forces a downgrade to "near"; a tier suffix difference forces a downgrade all the way to \
+null (never "near" — tier is a different model, per step 1, not a "near" attribute). Example: \
+canonical_name "17 pro max 256 silver UAE" against \
 master line "iPhone 17 Pro Max 256GB Silver UAE" — model, tier, storage, color, and region all match; \
 the missing "iPhone"/"GB" and the casing are cosmetic only, so match_type stays "exact".
 

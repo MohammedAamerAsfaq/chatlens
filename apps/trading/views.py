@@ -1425,13 +1425,13 @@ class ProductPriceUpdateViewSet(viewsets.ViewSet):
             logger.exception('ProductPriceUpdateViewSet | parse failed | prompt_key=%s', prompt_key)
             return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    def _apply(self, request, fields):
+    def _apply(self, request, fields, zero_unmatched_qty=False):
         """fields: iterable of (payload_key, product_attr) pairs to copy across,
         e.g. [('qty', 'qty'), ('cost_price', 'cost_price')]."""
         from apps.trading.services.price_update_service import apply_items_to_inventory
 
         items = request.data.get('items') or []
-        result = apply_items_to_inventory(items, fields)
+        result = apply_items_to_inventory(items, fields, zero_unmatched_qty=zero_unmatched_qty)
         return Response(result)
 
     @action(detail=False, methods=['post'], url_path='parse-qty-cost')
@@ -1441,7 +1441,20 @@ class ProductPriceUpdateViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['post'], url_path='apply-qty-cost')
     def apply_qty_cost(self, request):
-        return self._apply(request, [('qty', 'qty'), ('cost_price', 'cost_price')])
+        # The qty/cost list is a supplier's current stock — anything we hold that
+        # they didn't list this time is no longer available from them, so it's
+        # zeroed out rather than left showing stale (possibly nonzero) qty.
+        return self._apply(request, [('qty', 'qty'), ('cost_price', 'cost_price')], zero_unmatched_qty=True)
+
+    @action(detail=False, methods=['post'], url_path='preview-zero-qty')
+    def preview_zero_qty(self, request):
+        """Dry-run for the qty/cost apply's zero-out step — returns which active
+        products would have qty set to 0 by this exact item list, without writing
+        anything, so the frontend can confirm with the user before applying."""
+        from apps.trading.services.price_update_service import preview_zero_candidates
+
+        items = request.data.get('items') or []
+        return Response(preview_zero_candidates(items))
 
     @action(detail=False, methods=['post'], url_path='parse-sale-price')
     def parse_sale_price(self, request):
