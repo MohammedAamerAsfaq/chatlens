@@ -1461,7 +1461,9 @@ class AutomationRuleViewSet(viewsets.ModelViewSet):
     individual source rows for what's a small, human-edited list."""
     serializer_class = AutomationRuleSerializer
     permission_classes = [IsAuthenticated]
-    queryset = AutomationRule.objects.all().prefetch_related('sources__contact', 'sources__group').order_by('-created_at')
+    queryset = AutomationRule.objects.all().prefetch_related(
+        'sources__contact__account', 'sources__group__account',
+    ).order_by('-created_at')
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)

@@ -121,9 +121,17 @@ def _process_match(rule, message) -> None:
         # itself found nothing price-list-shaped here — not a false "queued" entry.
         return
 
+    # Test mode still runs the real match + parse (so an AI-detect-gated rule is
+    # genuinely exercised, not just assumed to pass) but never applies anything and
+    # never needs review — it's purely "yes, this rule fires and here's what it
+    # would have found."
+    initial_status = (
+        AutomatedPriceCapture.STATUS_TEST if rule.action_mode == rule.ACTION_TEST
+        else AutomatedPriceCapture.STATUS_QUEUED
+    )
     capture = AutomatedPriceCapture.objects.create(
         rule=rule, message=message, items=priced_items,
-        status=AutomatedPriceCapture.STATUS_QUEUED,
+        status=initial_status,
     )
 
     AutomationRule.objects.filter(pk=rule.pk).update(

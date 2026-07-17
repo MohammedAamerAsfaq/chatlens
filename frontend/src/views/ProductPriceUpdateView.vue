@@ -210,8 +210,18 @@
                 <div class="chip-row">
                   <span v-for="s in rule.sources" :key="s.id" :class="['chip', s.source_type === 'group' && 'group', s.source_type === 'contact_in_group' && 'in-group']">
                     <span class="chip-kind">{{ s.source_type === 'contact' ? 'DM' : s.source_type === 'group' ? 'Group' : 'In group' }}</span>
-                    {{ s.source_type === 'group' ? s.group_name : s.contact_name }}
-                    <span v-if="s.source_type === 'contact_in_group'" class="via-group">→ {{ s.group_name }}</span>
+                    <template v-if="s.source_type === 'group'">
+                      {{ s.group_name }}
+                      <span v-if="s.group_account_name" class="chip-account">{{ s.group_account_name }}</span>
+                    </template>
+                    <template v-else>
+                      {{ s.contact_name }}
+                      <span v-if="s.contact_account_name" class="chip-account">{{ s.contact_account_name }}</span>
+                      <span v-if="s.source_type === 'contact_in_group'" class="via-group">
+                        → {{ s.group_name }}
+                        <span v-if="s.group_account_name" class="chip-account">{{ s.group_account_name }}</span>
+                      </span>
+                    </template>
                   </span>
                   <span v-if="!rule.sources.length" class="muted">no sources</span>
                 </div>
@@ -226,8 +236,8 @@
               </div>
               <div>
                 <div class="rule-field-label">On match</div>
-                <span :class="['action-mode', rule.action_mode === 'auto' ? 'auto' : 'review']">
-                  {{ rule.action_mode === 'auto' ? '⚡ Auto-apply' : '📥 Send for review' }}
+                <span :class="['action-mode', rule.action_mode]">
+                  {{ rule.action_mode === 'auto' ? '⚡ Auto-apply' : rule.action_mode === 'test' ? '🧪 Test rule' : '📥 Send for review' }}
                 </span>
               </div>
             </div>
@@ -265,7 +275,8 @@
                   <input v-model="contactQuery" @input="searchContacts" class="fake-input-real" placeholder="Search a contact…" />
                   <div v-if="contactOptions.length" class="search-results">
                     <div v-for="c in contactOptions" :key="c.id" class="search-result" @click="addContactSource(c)">
-                      {{ c.display_name || c.push_name || c.phone_number }}
+                      <span>{{ contactLabel(c) }}</span>
+                      <span class="search-result-account">{{ accountName(c.account_id) }}</span>
                     </div>
                   </div>
                 </div>
@@ -276,7 +287,10 @@
                 <div class="source-option-body">
                   <input v-model="groupQuery" @input="searchGroups" class="fake-input-real" placeholder="Search a group…" />
                   <div v-if="groupOptions.length" class="search-results">
-                    <div v-for="g in groupOptions" :key="g.id" class="search-result" @click="addGroupSource(g)">{{ g.name }}</div>
+                    <div v-for="g in groupOptions" :key="g.id" class="search-result" @click="addGroupSource(g)">
+                      <span>{{ g.name }}</span>
+                      <span class="search-result-account">{{ accountName(g.account_id) }}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -290,7 +304,10 @@
                     <span v-else class="fake-select">{{ igSelectedGroup.name }} <span class="x" @click="igSelectedGroup = null">✕</span></span>
                   </div>
                   <div v-if="igGroupOptions.length && !igSelectedGroup" class="search-results">
-                    <div v-for="g in igGroupOptions" :key="g.id" class="search-result" @click="selectIgGroup(g)">{{ g.name }}</div>
+                    <div v-for="g in igGroupOptions" :key="g.id" class="search-result" @click="selectIgGroup(g)">
+                      <span>{{ g.name }}</span>
+                      <span class="search-result-account">{{ accountName(g.account_id) }}</span>
+                    </div>
                   </div>
                   <div v-if="igSelectedGroup" class="in-group-row" style="margin-top: 8px;">
                     <span class="igp-label">listen only to</span>
@@ -298,7 +315,8 @@
                   </div>
                   <div v-if="igContactOptions.length" class="search-results">
                     <div v-for="c in igContactOptions" :key="c.id" class="search-result" @click="addContactInGroupSource(c)">
-                      {{ c.display_name || c.push_name || c.phone_number }}
+                      <span>{{ contactLabel(c) }}</span>
+                      <span class="search-result-account">{{ accountName(c.account_id) }}</span>
                     </div>
                   </div>
                 </div>
@@ -309,8 +327,18 @@
             <div class="chip-row watching-row">
               <span v-for="(s, i) in ruleForm.sources" :key="i" :class="['chip', s.source_type === 'group' && 'group', s.source_type === 'contact_in_group' && 'in-group']">
                 <span class="chip-kind">{{ s.source_type === 'contact' ? 'DM' : s.source_type === 'group' ? 'Group' : 'In group' }}</span>
-                {{ s.source_type === 'group' ? s.group_name : s.contact_name }}
-                <span v-if="s.source_type === 'contact_in_group'" class="via-group">→ {{ s.group_name }}</span>
+                <template v-if="s.source_type === 'group'">
+                  {{ s.group_name }}
+                  <span v-if="s.group_account_name" class="chip-account">{{ s.group_account_name }}</span>
+                </template>
+                <template v-else>
+                  {{ s.contact_name }}
+                  <span v-if="s.contact_account_name" class="chip-account">{{ s.contact_account_name }}</span>
+                  <span v-if="s.source_type === 'contact_in_group'" class="via-group">
+                    → {{ s.group_name }}
+                    <span v-if="s.group_account_name" class="chip-account">{{ s.group_account_name }}</span>
+                  </span>
+                </template>
                 <span class="x" @click="ruleForm.sources.splice(i, 1)">✕</span>
               </span>
               <span v-if="!ruleForm.sources.length" class="muted">none added yet</span>
@@ -338,8 +366,12 @@
               <div class="segmented">
                 <button :class="{ sel: ruleForm.action_mode === 'review' }" @click="ruleForm.action_mode = 'review'">Send for review</button>
                 <button :class="{ sel: ruleForm.action_mode === 'auto' }" @click="ruleForm.action_mode = 'auto'">Auto-apply</button>
+                <button :class="{ sel: ruleForm.action_mode === 'test' }" @click="ruleForm.action_mode = 'test'">🧪 Test rule</button>
               </div>
-              <span class="field-hint">Review queues it below; auto-apply updates prices with no confirmation step.</span>
+              <span class="field-hint">
+                Review queues it below; auto-apply updates prices with no confirmation step; test rule never touches
+                inventory or needs review — it just confirms in Recent detections that this rule fires correctly.
+              </span>
             </div>
           </div>
 
@@ -360,6 +392,7 @@
           <button :class="['filter-chip', captureFilter === 'queued' && 'sel']" @click="filterCaptures('queued')">Awaiting review</button>
           <button :class="['filter-chip', captureFilter === 'applied' && 'sel']" @click="filterCaptures('applied')">Applied</button>
           <button :class="['filter-chip', captureFilter === 'ignored' && 'sel']" @click="filterCaptures('ignored')">Ignored</button>
+          <button :class="['filter-chip', captureFilter === 'test' && 'sel']" @click="filterCaptures('test')">🧪 Test matches</button>
         </div>
 
         <div v-if="!captures.length" class="empty-msg">No detections yet.</div>
@@ -380,7 +413,11 @@
                 <button class="btn-sm" @click="applyCapture(cap)">Apply ({{ cap.items.length }})</button>
                 <button class="btn-sm danger" @click="ignoreCapture(cap)">Ignore</button>
               </template>
-              <span v-else :class="['feed-outcome', cap.status]">{{ cap.status === 'applied' ? `Applied · ${cap.items.length} updated` : 'Ignored' }}</span>
+              <span v-else :class="['feed-outcome', cap.status]">
+                {{ cap.status === 'applied' ? `Applied · ${cap.items.length} updated`
+                   : cap.status === 'test' ? `🧪 Rule works · ${cap.items.length} would update`
+                   : 'Ignored' }}
+              </span>
             </div>
           </div>
         </div>
@@ -392,9 +429,28 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
-import { tradingApi, contactsApi, groupsApi } from '../api/index.js'
+import { tradingApi, contactsApi, groupsApi, accountsApi } from '../api/index.js'
 
 const activeTab = ref('qty_cost')
+const accounts  = ref([])
+
+// Contact/group search results can span multiple WhatsApp accounts with similarly
+// named contacts — shown next to each result so it's unambiguous which one you're
+// picking, matching by account_id rather than assuming a single-account setup.
+function accountName(accountId) {
+  const a = accounts.value.find(x => x.id === accountId)
+  return a ? (a.display_name || a.phone_number || `Account ${a.id}`) : ''
+}
+
+// WhatsApp's own name for the contact (push_name) leads, with the locally
+// saved/edited name (display_name) in brackets when it differs —
+// e.g. "Laeeq Bhai Dubai (Laeeq Ahmed)".
+function contactLabel(c) {
+  const whatsappName = c.push_name || c.phone_number || c.wa_contact_id
+  const savedName = c.display_name
+  if (savedName && savedName !== whatsappName) return `${whatsappName} (${savedName})`
+  return whatsappName
+}
 const agentPricing = ref({ input_price_per_1m: null })
 
 function formatDate(iso) {
@@ -458,8 +514,8 @@ function editRule(rule) {
     action_mode: rule.action_mode,
     sources: rule.sources.map(s => ({
       source_type: s.source_type,
-      contact_id: s.contact, contact_name: s.contact_name,
-      group_id: s.group, group_name: s.group_name,
+      contact_id: s.contact, contact_name: s.contact_name, contact_account_name: s.contact_account_name,
+      group_id: s.group, group_name: s.group_name, group_account_name: s.group_account_name,
     })),
   }
   ruleFormError.value = ''
@@ -545,9 +601,9 @@ const searchContacts = debounce(async () => {
 })
 
 function addContactSource(c) {
-  const name = c.display_name || c.push_name || c.phone_number
+  const name = contactLabel(c)
   if (!ruleForm.value.sources.some(s => s.source_type === 'contact' && s.contact_id === c.id)) {
-    ruleForm.value.sources.push({ source_type: 'contact', contact_id: c.id, contact_name: name })
+    ruleForm.value.sources.push({ source_type: 'contact', contact_id: c.id, contact_name: name, contact_account_name: accountName(c.account_id) })
   }
   contactQuery.value = ''
   contactOptions.value = []
@@ -564,7 +620,7 @@ const searchGroups = debounce(async () => {
 
 function addGroupSource(g) {
   if (!ruleForm.value.sources.some(s => s.source_type === 'group' && s.group_id === g.id)) {
-    ruleForm.value.sources.push({ source_type: 'group', group_id: g.id, group_name: g.name })
+    ruleForm.value.sources.push({ source_type: 'group', group_id: g.id, group_name: g.name, group_account_name: accountName(g.account_id) })
   }
   groupQuery.value = ''
   groupOptions.value = []
@@ -590,21 +646,24 @@ const igContactOptions = ref([])
 const searchIgContacts = debounce(async () => {
   const q = igContactQuery.value.trim()
   if (!q) { igContactOptions.value = []; return }
-  const { data } = await contactsApi.list({ search: q })
+  const params = { search: q }
+  if (igSelectedGroup.value) params.account = igSelectedGroup.value.account_id
+  const { data } = await contactsApi.list(params)
   igContactOptions.value = (data.results || data || []).slice(0, 8)
 })
 
 function addContactInGroupSource(c) {
   if (!igSelectedGroup.value) return
-  const name = c.display_name || c.push_name || c.phone_number
+  const name = contactLabel(c)
   const exists = ruleForm.value.sources.some(
     s => s.source_type === 'contact_in_group' && s.contact_id === c.id && s.group_id === igSelectedGroup.value.id,
   )
   if (!exists) {
     ruleForm.value.sources.push({
       source_type: 'contact_in_group',
-      contact_id: c.id, contact_name: name,
+      contact_id: c.id, contact_name: name, contact_account_name: accountName(c.account_id),
       group_id: igSelectedGroup.value.id, group_name: igSelectedGroup.value.name,
+      group_account_name: accountName(igSelectedGroup.value.account_id),
     })
   }
   igContactQuery.value = ''
@@ -688,6 +747,7 @@ async function applySalePrice() {
 onMounted(() => {
   tradingApi.getActiveAgent().then(r => { agentPricing.value = r.data }).catch(() => {})
   loadAutomation().catch(() => {})
+  accountsApi.list().then(r => { accounts.value = r.data }).catch(() => {})
 })
 </script>
 
@@ -780,6 +840,8 @@ onMounted(() => {
 .chip.in-group { border-color: #0d7a70; background: #e3f5f2; }
 .chip.in-group .chip-kind { color: #0d7a70; }
 .chip .via-group { color: #0d7a70; font-weight: 600; }
+.chip-account { color: #9ca3af; font-size: 0.68rem; margin-left: 2px; }
+.chip-account::before { content: '· '; }
 .chip .x { color: #9ca3af; margin-left: 3px; cursor: pointer; }
 
 .cond-list { display: flex; flex-direction: column; gap: 5px; }
@@ -792,6 +854,7 @@ onMounted(() => {
 .action-mode { display: inline-flex; align-items: center; gap: 5px; font-size: 0.78rem; font-weight: 600; padding: 4px 9px; border-radius: 6px; }
 .action-mode.review { background: #fdf3e3; color: #b45309; }
 .action-mode.auto { background: #eafaf0; color: #16a34a; }
+.action-mode.test { background: #e3f5f2; color: #0d7a70; }
 .rule-meta { margin-top: 8px; font-size: 0.72rem; color: #9ca3af; }
 
 .add-rule-btn { display: flex; align-items: center; justify-content: center; width: 100%; padding: 10px; border-radius: 10px; border: 1.5px dashed #d1d5db; background: transparent; color: #6b7280; font-size: 0.82rem; font-weight: 600; cursor: pointer; margin-bottom: 24px; }
@@ -816,8 +879,9 @@ onMounted(() => {
 .source-option-title { font-size: 0.75rem; font-weight: 650; color: #1f2937; }
 .source-option-body { position: relative; }
 .search-results { position: absolute; z-index: 10; top: 100%; left: 0; right: 0; margin-top: 3px; background: #fff; border: 1px solid #d1d5db; border-radius: 7px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); max-height: 160px; overflow-y: auto; }
-.search-result { padding: 6px 10px; font-size: 0.78rem; cursor: pointer; }
+.search-result { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 6px 10px; font-size: 0.78rem; cursor: pointer; }
 .search-result:hover { background: #f3f4f6; }
+.search-result-account { flex-shrink: 0; font-size: 0.68rem; color: #9ca3af; white-space: nowrap; }
 .in-group-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 .igp-label { font-size: 0.75rem; color: #6b7280; white-space: nowrap; }
 .fake-select { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border: 1px solid #d1d5db; border-radius: 7px; background: #fff; font-size: 0.78rem; font-weight: 500; }
@@ -844,6 +908,7 @@ onMounted(() => {
 .feed-outcome { font-size: 0.7rem; font-weight: 700; padding: 4px 9px; border-radius: 20px; white-space: nowrap; }
 .feed-outcome.applied { background: #eafaf0; color: #16a34a; }
 .feed-outcome.ignored { background: #f3f4f6; color: #9ca3af; }
+.feed-outcome.test { background: #e3f5f2; color: #0d7a70; }
 
 .segmented { display: inline-flex; border: 1px solid #d1d5db; border-radius: 7px; overflow: hidden; }
 .segmented button { padding: 7px 14px; border: none; background: #f9fafb; color: #6b7280; font-size: 0.78rem; font-weight: 600; cursor: pointer; border-right: 1px solid #d1d5db; }

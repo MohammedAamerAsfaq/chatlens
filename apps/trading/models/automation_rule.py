@@ -7,14 +7,18 @@ class AutomationRule(models.Model):
     section (Sale Price tab only) — when an inbound message from one of this rule's
     watched sources satisfies its trigger condition, the message text is run through
     the same AI sale-price matching process as the manual flow
-    (PromptConfig.KEY_SALE_PRICE_UPDATE), and the result is either queued for human
-    review or applied immediately, per action_mode.
+    (PromptConfig.KEY_SALE_PRICE_UPDATE). Per action_mode, the result is queued for
+    human review, applied immediately, or — for ACTION_TEST — just recorded as a
+    "this rule fires correctly" confirmation with no inventory change and nothing
+    left needing review.
     """
     ACTION_REVIEW = 'review'
     ACTION_AUTO   = 'auto'
+    ACTION_TEST   = 'test'
     ACTION_CHOICES = [
         (ACTION_REVIEW, 'Send for review'),
         (ACTION_AUTO,   'Auto-apply'),
+        (ACTION_TEST,   'Test rule'),
     ]
 
     name       = models.CharField(max_length=200)
@@ -89,10 +93,12 @@ class AutomatedPriceCapture(models.Model):
     STATUS_QUEUED  = 'queued'
     STATUS_APPLIED = 'applied'
     STATUS_IGNORED = 'ignored'
+    STATUS_TEST    = 'test'
     STATUS_CHOICES = [
         (STATUS_QUEUED,  'Queued'),
         (STATUS_APPLIED, 'Applied'),
         (STATUS_IGNORED, 'Ignored'),
+        (STATUS_TEST,    'Test match'),
     ]
 
     rule = models.ForeignKey(

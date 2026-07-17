@@ -243,23 +243,50 @@ class BuyingInquirySerializer(serializers.ModelSerializer):
 
 
 def _contact_label(contact) -> str:
-    return contact.display_name or contact.push_name or contact.phone_number or contact.wa_contact_id
+    """WhatsApp's own name for this contact (push_name) leads, with the locally
+    saved/edited name (display_name) alongside in brackets when it differs —
+    e.g. "Laeeq Bhai Dubai (Laeeq Ahmed)". Falls back to phone/wa_contact_id when
+    push_name is missing."""
+    whatsapp_name = contact.push_name or contact.phone_number or contact.wa_contact_id
+    saved_name = contact.display_name
+    if saved_name and saved_name != whatsapp_name:
+        return f'{whatsapp_name} ({saved_name})'
+    return whatsapp_name
+
+
+def _account_label(account) -> str:
+    return account.display_name or account.phone_number or f'Account {account.id}'
 
 
 class AutomationRuleSourceSerializer(serializers.ModelSerializer):
     contact_name = serializers.SerializerMethodField()
     group_name   = serializers.SerializerMethodField()
+    # Contacts/groups with the same name can exist on different linked WhatsApp
+    # accounts — shown separately for contact vs. group (not one shared field) so a
+    # contact_in_group source visibly shows if they were mismatched across accounts,
+    # which the picker doesn't currently prevent at the data-entry step.
+    contact_account_name = serializers.SerializerMethodField()
+    group_account_name   = serializers.SerializerMethodField()
 
     class Meta:
         model = AutomationRuleSource
-        fields = ['id', 'source_type', 'contact', 'contact_name', 'group', 'group_name']
-        read_only_fields = ['id', 'contact_name', 'group_name']
+        fields = [
+            'id', 'source_type', 'contact', 'contact_name', 'contact_account_name',
+            'group', 'group_name', 'group_account_name',
+        ]
+        read_only_fields = ['id', 'contact_name', 'contact_account_name', 'group_name', 'group_account_name']
 
     def get_contact_name(self, obj):
         return _contact_label(obj.contact) if obj.contact else None
 
     def get_group_name(self, obj):
         return obj.group.name if obj.group else None
+
+    def get_contact_account_name(self, obj):
+        return _account_label(obj.contact.account) if obj.contact else None
+
+    def get_group_account_name(self, obj):
+        return _account_label(obj.group.account) if obj.group else None
 
 
 class AutomationRuleSerializer(serializers.ModelSerializer):

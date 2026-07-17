@@ -200,7 +200,12 @@
                   <option value="tracking">Tracking</option>
                   <option value="incorrect_match">Incorrect Match</option>
                 </select>
-                <button class="act-btn close" @click="act(inq, 'closed')">Close</button>
+                <button
+                  class="act-btn close"
+                  :disabled="isFreshInquiry(inq)"
+                  :title="isFreshInquiry(inq) ? 'Just appeared — wait a moment to avoid closing it by accident' : ''"
+                  @click="act(inq, 'closed')"
+                >Close</button>
                 <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
                 <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id, inq.account, inq.source_message_id, inq.source_message_time)" title="Open conversation">Chat →</button>
                 <a v-if="waLink(inq)" :href="waLink(inq)" class="act-btn wa" title="Open in WhatsApp">
@@ -355,7 +360,12 @@
                   <option value="tracking">Tracking</option>
                   <option value="incorrect_match">Incorrect Match</option>
                 </select>
-                <button class="act-btn close" @click="act(inq, 'closed')">Close</button>
+                <button
+                  class="act-btn close"
+                  :disabled="isFreshInquiry(inq)"
+                  :title="isFreshInquiry(inq) ? 'Just appeared — wait a moment to avoid closing it by accident' : ''"
+                  @click="act(inq, 'closed')"
+                >Close</button>
                 <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
                 <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id, inq.account, inq.source_message_id, inq.source_message_time)" title="Open conversation">Chat →</button>
                 <a v-if="waLink(inq)" :href="waLink(inq)" class="act-btn wa" title="Open in WhatsApp">
@@ -559,6 +569,17 @@ const sellLimit        = ref(50)
 const buyLoadingMore   = ref(false)
 const sellLoadingMore  = ref(false)
 let   pollTimer        = null
+
+// Ticks once a second so `isFreshInquiry` re-evaluates and the Close button
+// re-enables itself without needing a manual refresh.
+const nowTick = ref(Date.now())
+let   freshnessTimer = null
+const CLOSE_GUARD_MS = 5000
+
+function isFreshInquiry(inq) {
+  if (!inq.created_at) return false
+  return nowTick.value - new Date(inq.created_at).getTime() < CLOSE_GUARD_MS
+}
 
 // Expand/collapse state for card-body rows (Summary / Original Message / Stock Suggestion).
 // Only one row across all cards can be expanded at a time; clicking the row again or
@@ -1168,10 +1189,12 @@ onMounted(async () => {
   tradingApi.getPriceList().then(({ data }) => { formattedPriceList.value = data.body }).catch(() => {})
   tradingApi.getWtsReplySettings().then(({ data }) => { Object.assign(wtsReply.value, data) }).catch(() => {})
   pollTimer = setInterval(refresh, 15000)
+  freshnessTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
 })
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
+  if (freshnessTimer) clearInterval(freshnessTimer)
   stopRowDialogDrag()
   stopMatchFixDrag()
 })
@@ -1244,6 +1267,7 @@ onUnmounted(() => {
 .card-actions { display: flex; gap: 6px; align-items: center; }
 .act-btn { padding: 4px 12px; border: none; border-radius: 5px; cursor: pointer; font-size: 0.8rem; font-weight: 500; }
 .act-btn.close { background: #f3f4f6; color: #374151; }
+.act-btn.close:disabled { opacity: 0.45; cursor: not-allowed; }
 .act-btn.deal  { background: #16a34a; color: #fff; }
 .act-btn.chat  { background: #eff6ff; color: #1d4ed8; margin-left: auto; }
 .act-btn.wa    { background: #dcfce7; color: #16a34a; display: flex; align-items: center; gap: 3px; text-decoration: none; }
