@@ -29,6 +29,15 @@ logger = logging.getLogger(__name__)
 DUPLICATE_BROADCAST_WINDOW_MINUTES   = 60
 DUPLICATE_BROADCAST_SIMILARITY_THRESHOLD = 0.92  # same bar as inquiry_service's layer-2 match
 
+# A match against a message in the SAME chat only counts as a duplicate within this tight
+# window — an accidental double-paste/double-send. Beyond it, two similarly-worded messages
+# in the same chat are far more likely to be genuinely distinct sequential requests (e.g.
+# same model, different region/storage/qty — "Silver Japan 10pc" then "Silver USA 15pc" ten
+# minutes later) than a repost of the same ask. Cross-chat matches keep the full
+# DUPLICATE_BROADCAST_WINDOW_MINUTES — that's this check's actual intended case (the same
+# list posted to several different groups), where a wider window is exactly the point.
+DUPLICATE_BROADCAST_SAME_CHAT_WINDOW_SECONDS = 60
+
 
 def _is_duplicate_group_broadcast(message) -> bool:
     """
@@ -40,6 +49,8 @@ def _is_duplicate_group_broadcast(message) -> bool:
     a repost from a different sender/group still counts) already produced a genuine
     inquiry (is_inquiry=True) via AI classification within the last hour, and this
     message's embedding is a close semantic match, skip classifying this one again.
+    A same-chat match is held to a much tighter time window — see
+    DUPLICATE_BROADCAST_SAME_CHAT_WINDOW_SECONDS above.
 
     Only applies to GROUP chats — direct 1:1 messages are never dropped this way, and
     if this message has no embedding yet (embedding provider lagged/failed), we fail
@@ -70,16 +81,24 @@ def _is_duplicate_group_broadcast(message) -> bool:
                 embedding__isnull=False,
             )
             .exclude(message_id=message.pk)
+            .select_related('message')
             .annotate(distance=CosineDistance('embedding', my_emb.embedding))
             .order_by('distance')
             .first()
         )
-        if candidate and candidate.distance <= (1 - DUPLICATE_BROADCAST_SIMILARITY_THRESHOLD):
-            logger.info(
-                'duplicate_group_broadcast | message_id=%s matches earlier message_id=%s | distance=%.4f',
-                message.pk, candidate.message_id, candidate.distance,
-            )
-            return True
+        if not candidate or candidate.distance > (1 - DUPLICATE_BROADCAST_SIMILARITY_THRESHOLD):
+            return False
+
+        if candidate.message.chat_id == message.chat_id:
+            gap_seconds = abs((message.message_time - candidate.message.message_time).total_seconds())
+            if gap_seconds > DUPLICATE_BROADCAST_SAME_CHAT_WINDOW_SECONDS:
+                return False
+
+        logger.info(
+            'duplicate_group_broadcast | message_id=%s matches earlier message_id=%s | distance=%.4f',
+            message.pk, candidate.message_id, candidate.distance,
+        )
+        return True
     except Exception:
         logger.debug('duplicate_group_broadcast | check failed, failing open', exc_info=True)
     return False
