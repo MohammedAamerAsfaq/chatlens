@@ -897,6 +897,30 @@ class ContactViewSet(viewsets.ModelViewSet):
         serializer.save()
         return Response(serializer.data)
 
+    @action(detail=True, methods=['patch'], url_path='confirm-category')
+    def confirm_category(self, request, pk=None):
+        """Applies a category the user accepted from an inquiry's "AI suggests..."
+        button — distinct from partial_update (the Contacts page's deliberate manual
+        edit) because this value can be stale: it was computed from the contact's
+        category at classification time, and a *different* inquiry from the same
+        contact may have already moved it to "both" since then (nothing retroactively
+        clears an older inquiry's stored suggestion). "both" is a final state (see
+        validate_category_suggestion), so if the contact is already "both" by the
+        time this save actually runs, the incoming value is silently ignored rather
+        than letting a stale click downgrade it back to "supplier"/"customer".
+        """
+        contact = self.get_object()
+        if contact.category == 'both':
+            return Response(self.get_serializer(contact).data)
+
+        category = request.data.get('category')
+        if category not in ('supplier', 'customer', 'both'):
+            return Response({'detail': 'category must be one of supplier, customer, both'}, status=status.HTTP_400_BAD_REQUEST)
+
+        contact.category = category
+        contact.save(update_fields=['category', 'updated_at'])
+        return Response(self.get_serializer(contact).data)
+
     @action(detail=True, methods=['patch'], url_path='set-ai-parsing')
     def set_ai_parsing(self, request, pk=None):
         contact = self.get_object()

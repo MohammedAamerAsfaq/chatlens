@@ -119,7 +119,7 @@
                 <button
                   v-if="hasSuggestion(inq)"
                   class="category-suggestion-chip"
-                  @click="setContactCategory(inq, inq.suggested_contact_category)"
+                  @click="applySuggestedCategory(inq)"
                   :title="`AI suggests: ${categoryLabel(inq.suggested_contact_category)} — click to confirm`"
                 >✓ Apply</button>
                 <span class="source-label">{{ inq.source_type }}</span>
@@ -279,7 +279,7 @@
                 <button
                   v-if="hasSuggestion(inq)"
                   class="category-suggestion-chip"
-                  @click="setContactCategory(inq, inq.suggested_contact_category)"
+                  @click="applySuggestedCategory(inq)"
                   :title="`AI suggests: ${categoryLabel(inq.suggested_contact_category)} — click to confirm`"
                 >✓ Apply</button>
                 <span class="source-label">{{ inq.source_type }}</span>
@@ -1025,11 +1025,30 @@ function categoryDisplayValue(inq) {
   return hasSuggestion(inq) ? inq.suggested_contact_category : (inq.contact_category || '')
 }
 
+// Manual dropdown pick — a deliberate human choice (e.g. correcting a wrong "both"),
+// always applied as-is regardless of the contact's current category.
 async function setContactCategory(inq, value) {
   if (!inq.contact) return
   try {
     await contactsApi.update(inq.contact, { category: value })
     inq.contact_category = value
+    categoryError.value = ''
+  } catch (err) {
+    categoryError.value = `Failed to update contact category: ${err.response?.data?.detail || err.message}`
+  }
+}
+
+// "✓ Apply" button on an "AI suggests..." chip — the suggestion can be stale (computed
+// at classification time, before a *different* inquiry from the same contact already
+// moved it to "both"), so this goes through confirm-category, which re-checks on save
+// and silently ignores the click if the contact is already "both" — instead of letting
+// a stale suggestion downgrade it back to "supplier"/"customer".
+async function applySuggestedCategory(inq) {
+  if (!inq.contact) return
+  try {
+    const { data } = await contactsApi.confirmCategory(inq.contact, inq.suggested_contact_category)
+    inq.contact_category = data.category
+    inq.suggested_contact_category = data.category
     categoryError.value = ''
   } catch (err) {
     categoryError.value = `Failed to update contact category: ${err.response?.data?.detail || err.message}`

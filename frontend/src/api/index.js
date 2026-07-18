@@ -83,10 +83,11 @@ export const messageLogsApi = {
 }
 
 export const contactsApi = {
-  list:         (params)       => http.get('/contacts/', { params }),
-  stats:        (params)       => http.get('/contacts/stats/', { params }),
-  update:       (id, data)     => http.patch(`/contacts/${id}/`, data),
-  setAiParsing: (id, value)    => http.patch(`/contacts/${id}/set-ai-parsing/`, { ai_parsing: value }),
+  list:            (params)       => http.get('/contacts/', { params }),
+  stats:           (params)       => http.get('/contacts/stats/', { params }),
+  update:          (id, data)     => http.patch(`/contacts/${id}/`, data),
+  setAiParsing:    (id, value)    => http.patch(`/contacts/${id}/set-ai-parsing/`, { ai_parsing: value }),
+  confirmCategory: (id, category) => http.patch(`/contacts/${id}/confirm-category/`, { category }),
 }
 
 export const embeddingsApi = {
