@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact, SyncLog, DroppedMessage,
-    WhatsAppGroup, WhatsAppGroupParticipant, WorkerAlert, StuckReceipt,
+    WhatsAppGroup, WhatsAppGroupParticipant, WorkerAlert, StuckReceipt, WhatsAppUnresolvedMessage,
 )
 
 
@@ -194,6 +194,30 @@ class StuckReceiptSerializer(serializers.ModelSerializer):
         if not obj.account:
             return ''
         return obj.account.display_name or obj.account.phone_number or f'Account #{obj.account.pk}'
+
+
+class UnresolvedMessageSerializer(serializers.ModelSerializer):
+    account_name = serializers.SerializerMethodField()
+    message_preview = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WhatsAppUnresolvedMessage
+        fields = [
+            'id', 'account', 'account_name', 'raw_jid', 'participant_jid', 'lid_jid',
+            'from_me', 'direction', 'message_type', 'message_preview', 'has_media',
+            'message_time', 'push_name', 'is_history', 'reason',
+            'resolution_status', 'resolved_contact', 'resolved_message', 'resolution_error',
+            'created_at', 'updated_at', 'resolved_at',
+        ]
+        read_only_fields = fields
+
+    def get_account_name(self, obj):
+        if not obj.account:
+            return ''
+        return obj.account.display_name or obj.account.phone_number or f'Account #{obj.account.pk}'
+
+    def get_message_preview(self, obj):
+        return (obj.message_text or '')[:200]
 
 
 class GroupParticipantSerializer(serializers.ModelSerializer):

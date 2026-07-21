@@ -87,6 +87,40 @@ class DjangoClient {
     }
   }
 
+  // Resolution source 3 for outbound/cache-miss LID resolution (see
+  // 'docs/Contact Message Loss — LID Resolution Fix Proposal.md' Fix 2) — a
+  // narrow single-LID lookup against Django's persisted whatsapp_contact.lid_jid,
+  // used when session.lidToPhone misses. Deliberately NOT wrapped in try/catch
+  // here: this is on the critical resolution path, and per the P0 message-
+  // preservation spec a failure here must be explicit to the caller (which
+  // decides whether to fall through to preserving the message as unresolved),
+  // never silently treated as "not found". Bounded by the shared axios
+  // `timeout: 10000` above — one slow/failed lookup can't hang the caller
+  // indefinitely.
+  async lookupLidMapping(sessionId, lidJid) {
+    const resp = await this.http.get(
+      `/api/internal/whatsapp/lid-mapping/${sessionId}/`,
+      { params: { lid_jid: lidJid } },
+    );
+    return resp.data; // { found: true, lid_jid, phone_jid } | { found: false }
+  }
+
+  // Durable preservation for a message with real content whose LID couldn't be
+  // resolved (see WhatsAppUnresolvedMessage). Deliberately NOT wrapped in
+  // try/catch and deliberately has NO local-file fallback on failure, unlike
+  // sendDroppedMessage/sendWorkerAlert/sendStuckReceipt above — per the P0
+  // message-preservation spec (§16), this path must never let the worker
+  // believe a message is "safely preserved" when Django persistence actually
+  // failed. The caller is responsible for treating a thrown error here as a
+  // real failure (WorkerAlert), not a second silent fallback path.
+  async sendUnresolvedMessage(sessionId, payload) {
+    const resp = await this.http.post('/api/internal/whatsapp/unresolved-message/', {
+      worker_session_id: sessionId,
+      ...payload,
+    });
+    return resp.data; // { success: true, id, resolution_status }
+  }
+
   async getLidMappings(sessionId) {
     try {
       const resp = await this.http.get(

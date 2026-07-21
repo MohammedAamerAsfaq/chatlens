@@ -23,13 +23,13 @@ from rest_framework.response import Response
 from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact,
     SyncLog, DroppedMessage, WhatsAppGroup, SessionStatus, WorkerAlert,
-    StuckReceipt,
+    StuckReceipt, WhatsAppUnresolvedMessage, ResolutionStatus,
 )
 from .serializers import (
     WhatsAppAccountSerializer, ChatSerializer, MessageSerializer,
     SyncLogSerializer, DroppedMessageSerializer, ContactDetailSerializer,
     GroupSerializer, GroupDetailSerializer, WorkerAlertSerializer,
-    StuckReceiptSerializer,
+    StuckReceiptSerializer, UnresolvedMessageSerializer,
 )
 
 WORKER_BASE_URL = getattr(settings, 'WORKER_BASE_URL', 'http://localhost:3001')
@@ -826,6 +826,44 @@ class StuckReceiptViewSet(viewsets.ReadOnlyModelViewSet):
         receipt.resolved_by = request.user if request.user.is_authenticated else None
         receipt.save(update_fields=['resolved_at', 'resolved_by'])
         return Response(StuckReceiptSerializer(receipt).data)
+
+
+class UnresolvedMessageViewSet(viewsets.ReadOnlyModelViewSet):
+    """Observability for WhatsAppUnresolvedMessage — messages preserved with real
+    content whose LID couldn't be resolved to a phone JID at ingestion time.
+    Resolution happens automatically (see IngestionService.recover_unresolved_for_lid,
+    triggered from internal_contacts_update whenever a LID→phone mapping becomes
+    known) — this viewset is read-only, purely for audit visibility. See
+    'docs/Contact Message Loss — LID Resolution Fix Proposal.md'."""
+    serializer_class = UnresolvedMessageSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = ActivityPagination
+
+    def get_queryset(self):
+        qs = (
+            WhatsAppUnresolvedMessage.objects
+            .select_related('account', 'resolved_contact', 'resolved_message')
+            .order_by('-created_at')
+        )
+        account_id = self.request.query_params.get('account')
+        if account_id:
+            qs = qs.filter(account_id=account_id)
+        resolution_status = self.request.query_params.get('resolution_status')
+        if resolution_status:
+            qs = qs.filter(resolution_status=resolution_status)
+        return qs
+
+    @action(detail=False, methods=['get'], url_path='counts')
+    def counts(self, request):
+        qs = WhatsAppUnresolvedMessage.objects
+        account_id = request.query_params.get('account')
+        if account_id:
+            qs = qs.filter(account_id=account_id)
+        return Response({
+            'pending':  qs.filter(resolution_status=ResolutionStatus.PENDING).count(),
+            'resolved': qs.filter(resolution_status=ResolutionStatus.RESOLVED).count(),
+            'failed':   qs.filter(resolution_status=ResolutionStatus.FAILED).count(),
+        })
 
 
 class ContactViewSet(viewsets.ModelViewSet):

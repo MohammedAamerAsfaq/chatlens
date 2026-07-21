@@ -25,6 +25,7 @@ class WorkerAlert(models.Model):
         ('batch_persist_failed',   'Message lost persisting a history/live batch'),
         ('batch_partial_failure',  'Batch ingest reported partial errors'),
         ('drop_report_failed',     'Worker could not report a dropped message to Django'),
+        ('unresolved_message_failed', 'Worker could not preserve an unresolved (LID-blocked) message'),
         ('uncaught_exception',     'Uncaught exception in a worker event handler'),
         ('other',                  'Other'),
     ]

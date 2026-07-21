@@ -1,5 +1,6 @@
 import json
 import logging
+import threading
 from django.conf import settings
 from django.db import IntegrityError, models
 from django.http import JsonResponse
@@ -10,7 +11,7 @@ from .services.session_service import SessionService
 from .models import (
     WhatsAppAccount, WhatsAppContact, WhatsAppChat, SyncLog, DroppedMessage,
     WhatsAppGroup, WhatsAppGroupParticipant, ParticipantRole, WorkerAlert,
-    StuckReceipt,
+    StuckReceipt, WhatsAppUnresolvedMessage,
 )
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,25 @@ logger = logging.getLogger(__name__)
 def _verify_internal_token(request) -> bool:
     token = request.headers.get('X-Internal-Token', '')
     return token == settings.INTERNAL_API_TOKEN
+
+
+def _recover_unresolved_for_lid_background(account_id, lid_jid, phone_jid):
+    """Runs off-request (see internal_contacts_update) — a failure here must not
+    look like a successful contacts-update to the worker, so it's logged loudly
+    rather than raised into a thread with nothing to catch it."""
+    try:
+        account = WhatsAppAccount.objects.get(pk=account_id)
+        result = IngestionService().recover_unresolved_for_lid(account, lid_jid, phone_jid)
+        if result['total']:
+            logger.info(
+                'recover_unresolved_for_lid | account=%s lid_jid=%s total=%s recovered=%s failed=%s',
+                account_id, lid_jid, result['total'], result['recovered'], result['failed'],
+            )
+    except Exception:
+        logger.exception(
+            'recover_unresolved_for_lid_background failed | account=%s lid_jid=%s',
+            account_id, lid_jid,
+        )
 
 
 @csrf_exempt
@@ -170,6 +190,36 @@ def internal_lid_mappings(request, session_id):
     return JsonResponse({'lid_to_phone': lid_to_phone, 'username_to_phone': username_to_phone})
 
 
+@require_GET
+def internal_lid_mapping_lookup(request, session_id):
+    """
+    Narrow, single-LID counterpart to internal_lid_mappings above — used by the
+    worker's outbound LID resolution chain (resolution source 3) when the
+    in-memory lidToPhone cache misses, instead of re-fetching every mapping for
+    the account on every message. See
+    'docs/Contact Message Loss — LID Resolution Fix Proposal.md' Fix 2.
+    """
+    if not _verify_internal_token(request):
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+
+    lid_jid = (request.GET.get('lid_jid') or '').strip()
+    if not lid_jid:
+        return JsonResponse({'error': 'Missing lid_jid'}, status=400)
+
+    try:
+        WhatsAppAccount.objects.get(pk=session_id)
+    except WhatsAppAccount.DoesNotExist:
+        return JsonResponse({'error': 'Not found'}, status=404)
+
+    contact = WhatsAppContact.objects.filter(
+        account_id=session_id, lid_jid=lid_jid,
+    ).exclude(wa_contact_id='').first()
+
+    if contact:
+        return JsonResponse({'found': True, 'lid_jid': lid_jid, 'phone_jid': contact.wa_contact_id})
+    return JsonResponse({'found': False})
+
+
 @csrf_exempt
 @require_POST
 def internal_contacts_update(request):
@@ -243,6 +293,18 @@ def internal_contacts_update(request):
                     extra['phone_number'] = phone_number
                 if extra:
                     WhatsAppContact.objects.filter(pk=contact.pk).update(**extra)
+
+            # A LID→phone mapping just became persistently known — reprocess any
+            # WhatsAppUnresolvedMessage rows parked pending exactly this LID (see
+            # 'docs/Contact Message Loss — LID Resolution Fix Proposal.md'). Backgrounded
+            # so a contacts-update batch (up to 100 contacts) never blocks on it; a no-op
+            # (cheap indexed lookup) when nothing is pending for this LID.
+            if lid_jid:
+                threading.Thread(
+                    target=_recover_unresolved_for_lid_background,
+                    args=(account.pk, lid_jid, wa_contact_id),
+                    daemon=True,
+                ).start()
 
             updated += 1
         return JsonResponse({'status': 'ok', 'updated': updated})
@@ -427,6 +489,50 @@ def internal_group_participants_update(request):
         return JsonResponse({'success': True, 'updated': updated})
     except Exception as e:
         logger.exception('Error in internal_group_participants_update')
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def internal_unresolved_message(request):
+    """
+    Durable preservation for a message that carried genuine user content but
+    arrived with a chat identity (LID) the worker could not resolve to a phone
+    JID — see WhatsAppUnresolvedMessage's docstring and
+    'docs/Contact Message Loss — LID Resolution Fix Proposal.md'. This is not a
+    diagnostic record like DroppedMessage; persistence success here is the only
+    thing that counts as "the message is safely preserved" — a non-2xx response
+    must be treated by the worker as a real failure (WorkerAlert), never as
+    though the content is safely stored somewhere.
+    """
+    if not _verify_internal_token(request):
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    worker_session_id = payload.get('worker_session_id')
+    if not worker_session_id:
+        return JsonResponse({'error': 'Missing worker_session_id'}, status=400)
+    if not payload.get('raw_jid'):
+        return JsonResponse({'error': 'Missing raw_jid'}, status=400)
+
+    try:
+        account = WhatsAppAccount.objects.get(pk=worker_session_id)
+    except WhatsAppAccount.DoesNotExist:
+        return JsonResponse({'error': 'Account not found'}, status=404)
+
+    try:
+        obj = IngestionService().preserve_unresolved_message(account, payload)
+        return JsonResponse({
+            'success': True,
+            'id': obj.pk,
+            'resolution_status': obj.resolution_status,
+        })
+    except Exception as e:
+        logger.exception('Error in internal_unresolved_message')
         return JsonResponse({'error': str(e)}, status=500)
 
 

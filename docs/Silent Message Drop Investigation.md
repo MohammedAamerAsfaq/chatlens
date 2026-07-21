@@ -1,8 +1,37 @@
 # Silent Message Drop Investigation
 
-> **Status:** 🔴 Open — actively instrumented, waiting for next occurrence.
+> **Status:** 🔴 Open — root cause narrowed as of 2026-07-21 to a WhatsApp-server-side per-device delivery gap (confirmed: the phone receives these messages, ChatLens's linked device does not). Not fixable from this codebase as currently understood. See "Update — 2026-07-21" below.
 > **Started:** 2026-07-06
 > **Scope:** Track this one specific bug (messages from a contact vanishing with zero trace in any log) until root-caused and fixed. Delete this file once resolved — it's a working log, not permanent architecture documentation (see `ChatLens Development Document.md` for that).
+
+## Update — 2026-07-21
+
+A third, independent occurrence of this exact failure shape — different contact, but now a confirmed *repeat* for that contact specifically (see below) — plus the one diagnostic this doc had been waiting on.
+
+**Contact:** Action Link Trading Llc, `971544732206@s.whatsapp.net`, LID `16011805913098@lid`, contact id 8583, account 8 ("Aamer Ashfaq") — the same "Azan" contact from the Eighth-incident outbound `unresolvable_lid` pattern, but this occurrence is a *different* failure mode (inbound-shaped zero-trace, matching this doc's original mystery, not the now-fixed outbound LID gap).
+
+Reported live: a message the user could see on their own phone was missing from ChatLens roughly 2 minutes after it arrived. Checked immediately, in the same session:
+- **DB (`whatsapp_message`):** nothing for this contact since 15:45:41 UTC — over 30 minutes before the report.
+- **Raw per-session capture log:** same — nothing since 15:45:41, while the same file was actively writing other contacts' messages up to seconds before the check.
+- **`whatsapp_dropped_message`, `WorkerAlert`:** zero rows for this contact/account in the prior 10 minutes.
+- **Baileys' internal decrypt-failure log:** no new entry — its most recent hit for this contact just matches the already-captured 15:45:41 message (a harmless duplicate-decrypt, same pattern documented in the Eighth incident).
+- **Account health:** fully connected and actively ingesting — 47 messages across other chats in the same ~17-minute window, most recent literally seconds old. Not an account-wide or worker-health issue; specific to this one contact's chat.
+
+**The load-bearing new fact:** asked the user to check whether the message was visible on the phone itself. **Confirmed yes** — the phone received it normally; only ChatLens's linked-device session did not. This is exactly the test this document's "Next steps" section (below) said would settle the question, and it comes back in favor of the theory already written there: WhatsApp's multi-device architecture delivers to each linked device (phone, personal Web, ChatLens's own linked device) independently, and this is an occasional gap in that per-device fan-out specifically for ChatLens's device — not a decrypt failure (would leave a trace), not a drop (would leave a trace), not an account-wide problem (everything else flows), and now confirmed not "the message never reached the account at all" either (the phone got it fine).
+
+**Pattern confirmation:** this makes the third distinct day (2026-07-18, 2026-07-20, 2026-07-21) this specific contact has silently dropped messages while nothing else on the account is affected — always the same contact family (Action Link Trading / Azan), never a one-off. Per this document's own "if a real pattern is found" criterion (see below), that threshold is now met. No mitigation is designed yet — see "Open decision" below.
+
+### Open decision
+
+With the phone-side confirmation, continued code-level instrumentation (more logging, more taps) has nothing left to catch — nothing arrives at any layer this codebase can observe. Two directions from here, neither implemented:
+1. **Accept as a known WhatsApp-multi-device limitation** for this contact and watch for whether it spreads to others (would suggest something linked-device-specific and possibly addressable — e.g. a stale device registration) vs. stays isolated to this one contact (would suggest something specific to their client/network, out of ChatLens's control entirely).
+2. **Design a reconciliation mitigation** — periodically compare ChatLens's view of a chat against a second independent source (there isn't currently a second source available; WhatsApp doesn't expose a "fetch missed messages" API to Baileys) to detect and backfill gaps after the fact, rather than relying solely on live delivery. Not designed — would need research into whether Baileys/WhatsApp exposes anything usable for this at all before it's even feasible.
+
+## Update — 2026-07-20
+
+The instrumentation below (`DEBUG_WATCH_JIDS` tap, `debug-watch.ndjson`) has **not been empty since occurrence #3** — as of this update it holds 299 captured events, most recently 17:51:51 UTC on 2026-07-20. Cross-referencing those hits against `whatsapp_dropped_message` found a **different, real, currently-reproducing bug** for this same contact: 11 `unresolvable_lid` drops (2026-07-07 → 2026-07-20), 100% on outbound (`fromMe: true`) self-echoes. Root cause, proposed fix, and full evidence are in `docs/Contact Message Loss — LID Resolution Fix Proposal.md` (not yet implemented).
+
+**This does not resolve occurrences #1-3 below.** Those were reported as *inbound* messages with zero trace at any layer, and the outbound LID-resolution mechanism found on 2026-07-20 doesn't touch the inbound path at all (inbound resolves live via `senderPn`, which is exactly why it never shows the same failure). The inbound mystery remains fully open. Also relevant: the same "vanishes both ways, zero trace" complaint recurred for a *different* contact (Azan / Action Link Trading) on 2026-07-20 — see `ChatLens Development Document.md` §17.2 "Sixth incident" and "Eighth incident" — reinforcing that this is a recurring, not one-off, class of problem.
 
 ---
 
@@ -48,6 +77,7 @@ Both require a worker restart to pick up (auth persists to disk, so reconnection
 1. **`whatsapp-worker/src/session-manager.js`** — `DEBUG_WATCH_JIDS` / `_isDebugWatchTarget()` / `_debugWatchLog()` (search for `TEMPORARY` comments to find all of it). Runs at the very top of both `messages.upsert` and `messaging-history.set`, before any filtering, matching this contact's LID, phone JID, participant fields, or a push-name hint (`"thamam"`) — catches the event no matter what happens to it afterward, including an unrecognized shape or a rotated/unknown LID (as long as the group is a match or the name hint fires).
    - Writes to **`whatsapp-worker/message-logs/debug-watch.ndjson`** (durable file — the worker's console/pino output is not captured anywhere persistent, so this had to be file-based, not just logged).
    - Status as of occurrence #3: **file still does not exist** — the tap has not fired for any of the three reported occurrences, despite being confirmed active (worker reconnected ~2 min before occurrence #3).
+   - **Superseded — see "Update — 2026-07-20" above.** The file now exists and holds 299 entries accumulated since. None of them are occurrences #1-3 (still zero matches for those specific reports), but the tap firing at all for *other* traffic from this contact is what surfaced the separate outbound `unresolvable_lid` pattern documented there.
 
 2. **Baileys' own internal logger** — was `pino({ level: 'silent' })`, meaning any error Baileys hits *internally* while decoding/decrypting a message (i.e. before it ever gets far enough to emit `messages.upsert`) was completely invisible to us. Our own debug tap (#1) only sees messages Baileys has already successfully turned into a `WAMessage` object — if Baileys fails earlier than that, tap #1 can't see it either.
    - Changed to `pino({ level: 'warn' }, pino.destination(...))`, writing to **`whatsapp-worker/message-logs/baileys-internal.log`**.

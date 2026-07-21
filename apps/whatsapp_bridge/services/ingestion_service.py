@@ -7,6 +7,7 @@ from django.utils.dateparse import parse_datetime
 from ..models import (
     WhatsAppAccount, WhatsAppContact, WhatsAppChat,
     WhatsAppMessage, ChatType, SyncLog, DroppedMessage, WorkerAlert,
+    WhatsAppUnresolvedMessage, ResolutionStatus,
 )
 
 
@@ -329,6 +330,143 @@ class IngestionService:
             _process_message_in_background(message.pk, sync_log_id=sync_log.pk)
 
         return message
+
+    def recover_unresolved_for_lid(self, account: WhatsAppAccount, lid_jid: str, phone_jid: str) -> dict:
+        """
+        Reprocess every `WhatsAppUnresolvedMessage` pending for (account, lid_jid)
+        now that lid_jid is known to resolve to phone_jid. Reuses the exact same
+        contact/chat/message upsert path normal ingestion uses (`_upsert_contact`/
+        `_upsert_chat`/`_insert_message`) — no separate business logic, per the
+        "preferred structure" in the P0 message-preservation spec.
+
+        Idempotent: if a row's provider_message_id already exists as a real
+        WhatsAppMessage (e.g. Baileys successfully retried delivery on its own
+        before this ran), the row is linked to that existing message instead of
+        creating a duplicate — the account+provider_message_id uniqueness on
+        WhatsAppMessage is the final backstop either way.
+
+        A per-row failure never aborts the batch and never marks that row
+        resolved without an actual WhatsAppMessage behind it — resolution_error
+        is recorded and resolution_status stays 'pending' (retryable on the next
+        successful mapping event) rather than being guessed at.
+        """
+        pending = list(
+            WhatsAppUnresolvedMessage.objects.filter(
+                account=account, lid_jid=lid_jid, resolution_status=ResolutionStatus.PENDING,
+            )
+        )
+        recovered = 0
+        failed = 0
+
+        for row in pending:
+            try:
+                existing = None
+                if row.provider_message_id:
+                    existing = WhatsAppMessage.objects.filter(
+                        account=account, provider_message_id=row.provider_message_id,
+                    ).first()
+
+                if existing:
+                    message = existing
+                else:
+                    payload = dict(row.raw_payload or {})
+                    payload['worker_session_id'] = account.pk
+                    payload['chat_id'] = phone_jid
+                    payload.setdefault('chat_type', ChatType.INDIVIDUAL)
+
+                    contact = self._upsert_contact(account, payload)
+                    chat = self._upsert_chat(account, contact, payload)
+                    message, created = self._insert_message(account, chat, contact, payload)
+                    _resolve_dropped_message(account, payload.get('provider_message_id'))
+
+                    if created:
+                        if row.is_history:
+                            # History-sourced: same treatment as ingest_batch — embed only,
+                            # never live-classified, so a resurfaced old message can't be
+                            # mistaken for a fresh real-time inquiry.
+                            if message.message_text:
+                                _embed_in_background([message.pk])
+                        else:
+                            if payload.get('direction') == 'inbound':
+                                WhatsAppChat.objects.filter(pk=chat.pk).update(unread_count=F('unread_count') + 1)
+                            sync_log = SyncLog.objects.create(
+                                account=account,
+                                event_type='message_ingest',
+                                status='success',
+                                metadata={
+                                    'provider_message_id': payload.get('provider_message_id'),
+                                    'chat_id': phone_jid,
+                                    'recovered_from_unresolved': True,
+                                    'unresolved_message_id': row.pk,
+                                },
+                            )
+                            _process_message_in_background(message.pk, sync_log_id=sync_log.pk)
+
+                row.resolution_status = ResolutionStatus.RESOLVED
+                row.resolved_contact = message.contact
+                row.resolved_message = message
+                row.resolution_error = ''
+                row.resolved_at = timezone.now()
+                row.save(update_fields=[
+                    'resolution_status', 'resolved_contact', 'resolved_message',
+                    'resolution_error', 'resolved_at', 'updated_at',
+                ])
+                recovered += 1
+            except Exception as e:
+                failed += 1
+                logger.exception(
+                    'recover_unresolved_for_lid failed | account=%s lid_jid=%s unresolved_id=%s',
+                    account.pk, lid_jid, row.pk,
+                )
+                try:
+                    row.resolution_error = str(e)
+                    row.save(update_fields=['resolution_error', 'updated_at'])
+                except Exception:
+                    logger.exception(
+                        'Failed to record resolution_error for unresolved_id=%s', row.pk,
+                    )
+
+        return {'total': len(pending), 'recovered': recovered, 'failed': failed}
+
+    def preserve_unresolved_message(self, account: WhatsAppAccount, payload: dict) -> WhatsAppUnresolvedMessage:
+        """
+        Durably record a message whose LID couldn't be resolved to a phone JID,
+        without discarding its content. Idempotent on (account, provider_message_id)
+        when a provider_message_id is present — a worker retry of the same POST
+        (e.g. it never saw our 200 due to a network blip) updates the same row
+        instead of creating a duplicate pending record for identical content.
+        """
+        provider_message_id = payload.get('provider_message_id') or None
+        message_time = parse_datetime(payload['message_time']) if payload.get('message_time') else None
+
+        fields = {
+            'raw_jid':              payload.get('raw_jid', ''),
+            'participant_jid':      payload.get('participant_jid') or '',
+            'lid_jid':              payload.get('lid_jid') or '',
+            'from_me':              bool(payload.get('from_me')),
+            'direction':            payload.get('direction') or '',
+            'message_type':         payload.get('message_type') or 'unknown',
+            'message_text':         payload.get('message_text') or '',
+            'has_media':            bool(payload.get('has_media')),
+            'message_time':         message_time,
+            'push_name':            payload.get('push_name') or '',
+            'is_history':           bool(payload.get('is_history')),
+            'reason':               payload.get('reason') or 'unresolvable_lid',
+            'raw_key':              payload.get('raw_key'),
+            'raw_payload':          payload.get('raw_payload'),
+        }
+
+        if provider_message_id:
+            obj, _ = WhatsAppUnresolvedMessage.objects.update_or_create(
+                account=account,
+                provider_message_id=provider_message_id,
+                defaults=fields,
+            )
+        else:
+            obj = WhatsAppUnresolvedMessage.objects.create(
+                account=account, provider_message_id=None, **fields,
+            )
+        return obj
 
     def ingest_batch(self, worker_session_id, payloads: list, is_latest: bool = False, received: int = None) -> dict:
         """Process a list of messages (from history sync) in one call.

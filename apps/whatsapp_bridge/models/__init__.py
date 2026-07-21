@@ -7,6 +7,7 @@ from .dropped_message import DroppedMessage
 from .whatsapp_group import WhatsAppGroup, WhatsAppGroupParticipant, ParticipantRole
 from .worker_alert import WorkerAlert
 from .stuck_receipt import StuckReceipt
+from .unresolved_message import WhatsAppUnresolvedMessage, ResolutionStatus
 
 __all__ = [
     'WhatsAppAccount',
@@ -25,4 +26,6 @@ __all__ = [
     'ParticipantRole',
     'WorkerAlert',
     'StuckReceipt',
+    'WhatsAppUnresolvedMessage',
+    'ResolutionStatus',
 ]

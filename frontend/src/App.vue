@@ -3,14 +3,14 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useConversationsStore } from '@/stores/conversations'
 import { useAuthStore } from '@/stores/auth.js'
-import { workerAlertsApi, stuckReceiptsApi } from '@/api'
+import { workerAlertsApi, stuckReceiptsApi, unresolvedMessagesApi } from '@/api'
 
 const route  = useRoute()
 const router = useRouter()
 const store  = useConversationsStore()
 const auth   = useAuthStore()
 
-const LOG_ROUTES = ['activity', 'message-logs', 'dropped-messages', 'worker-alerts', 'stuck-receipts', 'ai-parsing-log']
+const LOG_ROUTES = ['activity', 'message-logs', 'dropped-messages', 'worker-alerts', 'stuck-receipts', 'unresolved-messages', 'ai-parsing-log']
 const isLogsActive = computed(() => LOG_ROUTES.includes(route.name))
 
 // Nav-level visibility for worker alerts ("admin should be notified") — a badge that's
@@ -18,6 +18,7 @@ const isLogsActive = computed(() => LOG_ROUTES.includes(route.name))
 // dropdown and click through to the page.
 const unacknowledgedAlerts = ref(0)
 const unresolvedStuckReceipts = ref(0)
+const pendingUnresolvedMessages = ref(0)
 let alertPollTimer = null
 
 async function fetchUnacknowledgedCount() {
@@ -29,6 +30,10 @@ async function fetchUnacknowledgedCount() {
   try {
     const { data } = await stuckReceiptsApi.unresolvedCount()
     unresolvedStuckReceipts.value = data.count
+  } catch { /* non-critical — badge just won't update this cycle */ }
+  try {
+    const { data } = await unresolvedMessagesApi.counts()
+    pendingUnresolvedMessages.value = data.pending
   } catch { /* non-critical — badge just won't update this cycle */ }
 }
 
@@ -112,10 +117,10 @@ async function handleLogout() {
         <button type="button" class="nav-link flex items-center gap-1" :class="{ 'nav-link-active': isLogsActive }">
           Logs
           <span
-            v-if="unacknowledgedAlerts + unresolvedStuckReceipts > 0"
+            v-if="unacknowledgedAlerts + unresolvedStuckReceipts + pendingUnresolvedMessages > 0"
             class="bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none"
-            :title="`${unacknowledgedAlerts} unacknowledged worker alert${unacknowledgedAlerts !== 1 ? 's' : ''}, ${unresolvedStuckReceipts} unresolved stuck receipt${unresolvedStuckReceipts !== 1 ? 's' : ''}`"
-          >{{ (unacknowledgedAlerts + unresolvedStuckReceipts) > 99 ? '99+' : (unacknowledgedAlerts + unresolvedStuckReceipts) }}</span>
+            :title="`${unacknowledgedAlerts} unacknowledged worker alert${unacknowledgedAlerts !== 1 ? 's' : ''}, ${unresolvedStuckReceipts} unresolved stuck receipt${unresolvedStuckReceipts !== 1 ? 's' : ''}, ${pendingUnresolvedMessages} pending unresolved message${pendingUnresolvedMessages !== 1 ? 's' : ''}`"
+          >{{ (unacknowledgedAlerts + unresolvedStuckReceipts + pendingUnresolvedMessages) > 99 ? '99+' : (unacknowledgedAlerts + unresolvedStuckReceipts + pendingUnresolvedMessages) }}</span>
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
           </svg>
@@ -134,6 +139,12 @@ async function handleLogout() {
             Stuck Receipts
             <span v-if="unresolvedStuckReceipts > 0" class="bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none ml-2">
               {{ unresolvedStuckReceipts > 99 ? '99+' : unresolvedStuckReceipts }}
+            </span>
+          </RouterLink>
+          <RouterLink to="/unresolved-messages" class="dropdown-item flex items-center justify-between" active-class="dropdown-item-active">
+            Unresolved Messages
+            <span v-if="pendingUnresolvedMessages > 0" class="bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none ml-2">
+              {{ pendingUnresolvedMessages > 99 ? '99+' : pendingUnresolvedMessages }}
             </span>
           </RouterLink>
           <RouterLink to="/ai-parsing-log"    class="dropdown-item" active-class="dropdown-item-active">AI Parsing Log</RouterLink>

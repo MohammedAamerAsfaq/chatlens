@@ -10,6 +10,7 @@ import AIProvidersView      from '../views/AIProvidersView.vue'
 import DroppedMessagesView  from '../views/DroppedMessagesView.vue'
 import WorkerAlertsView     from '../views/WorkerAlertsView.vue'
 import StuckReceiptsView    from '../views/StuckReceiptsView.vue'
+import UnresolvedMessagesView from '../views/UnresolvedMessagesView.vue'
 import AiParsingLogView     from '../views/AiParsingLogView.vue'
 import ContactsView         from '../views/ContactsView.vue'
 import GroupsView           from '../views/GroupsView.vue'
@@ -35,6 +36,7 @@ const router = createRouter({
     { path: '/dropped-messages', name: 'dropped-messages', component: DroppedMessagesView },
     { path: '/worker-alerts', name: 'worker-alerts', component: WorkerAlertsView },
     { path: '/stuck-receipts', name: 'stuck-receipts', component: StuckReceiptsView },
+    { path: '/unresolved-messages', name: 'unresolved-messages', component: UnresolvedMessagesView },
     { path: '/ai-parsing-log', name: 'ai-parsing-log', component: AiParsingLogView },
     { path: '/contacts', name: 'contacts', component: ContactsView },
     { path: '/groups', name: 'groups', component: GroupsView },

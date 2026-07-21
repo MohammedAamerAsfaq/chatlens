@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     WhatsAppAccountViewSet, ChatViewSet, SyncLogViewSet, DroppedMessageViewSet,
     ContactViewSet, GroupViewSet, WorkerAlertViewSet, StuckReceiptViewSet,
+    UnresolvedMessageViewSet,
     auth_login_view, auth_logout_view, auth_me_view,
 )
 
@@ -13,6 +14,7 @@ router.register('activity', SyncLogViewSet, basename='activity')
 router.register('dropped-messages', DroppedMessageViewSet, basename='dropped-messages')
 router.register('worker-alerts', WorkerAlertViewSet, basename='worker-alerts')
 router.register('stuck-receipts', StuckReceiptViewSet, basename='stuck-receipts')
+router.register('unresolved-messages', UnresolvedMessageViewSet, basename='unresolved-messages')
 router.register('contacts', ContactViewSet, basename='contacts')
 router.register('groups', GroupViewSet, basename='groups')
 

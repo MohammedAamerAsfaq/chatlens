@@ -981,12 +981,32 @@ class SessionManager {
     const senderPn = msg.key.senderPn;
     const session = this.sessions.get(sessionId);
 
+    // Computed here (rather than after resolution, as before) because the LID
+    // resolution block below may need to preserve this message's full content
+    // as unresolved instead of dropping it — that requires the actual text/type/
+    // timestamp/raw payload, not just msg.key. See _preserveUnresolvedMessage.
+    const messageTimestamp = msg.messageTimestamp
+      ? new Date(Number(msg.messageTimestamp) * 1000).toISOString()
+      : new Date().toISOString();
+    const { messageType, messageText, hasMedia, mediaMimeType } = this._parseMessage(msg);
+    let safeRaw = null;
+    try { safeRaw = JSON.parse(JSON.stringify(msg)); } catch { safeRaw = null; }
+    const direction = (fromMe === true) ? 'outbound' : 'inbound';
+
     // Resolve alias JIDs → canonical phone JID so every contact has exactly one identity.
     //
     // LID priority (individual chat where remoteJid IS a LID):
     //   1. senderPn on inbound — Baileys' most reliable real-time resolution; cache it.
-    //   2. session.lidToPhone  — built from contacts.set/upsert before any messages arrive.
-    //   Drop 'unresolvable_lid' if neither resolves.
+    //   2. session.lidToPhone  — built from contacts.set/upsert before any messages arrive,
+    //      or from a prior hit on source 3 below.
+    //   3. Django's persisted whatsapp_contact.lid_jid — a single-LID lookup, for exactly
+    //      the case source 2 can't cover on its own: an outbound self-echo (fromMe:true)
+    //      never carries senderPn, so it depends entirely on the in-memory cache already
+    //      being warm — which goes cold on every worker restart if this LID's mapping
+    //      hasn't been (re)learned yet this session. See
+    //      'docs/Contact Message Loss — LID Resolution Fix Proposal.md' Fix 2.
+    //   If none of the three resolve, the message is preserved as unresolved (NOT
+    //   dropped) when it carries real content — see _preserveUnresolvedMessage.
     //
     // Username priority (individual chat where remoteJid has a non-digit local part):
     //   1. session.usernameToPhone — built from contacts.set when c.username is present.
@@ -994,7 +1014,11 @@ class SessionManager {
     //   TODO(baileys-username ~Jul 2026): Baileys may also expose msg.key.senderPn here
     //   (same field as LID resolution). Add that as priority-1 once confirmed and cache it.
     //
-    // Group JIDs and normal phone JIDs are passed through unchanged.
+    // Group JIDs and normal phone JIDs are passed through unchanged. Note: an unresolvable
+    // LID *group participant* (remoteJid is a real @g.us group; only the sender within it
+    // is an unresolvable LID) is a different, narrower case handled separately below and
+    // still hard-drops — that message's chat identity is already known, only scope for this
+    // preservation pass was the chat-level LID case per the fix-proposal document.
     let resolvedChatJid = rawJid;
     if (isLidJid) {
       const rawLidJid = jidNormalizedUser(rawJid);
@@ -1005,7 +1029,40 @@ class SessionManager {
       } else if (session.lidToPhone[rawLidJid]) {
         resolvedChatJid = session.lidToPhone[rawLidJid];
       } else {
-        return _skip('unresolvable_lid');
+        let persistedPhoneJid = null;
+        try {
+          const result = await this.djangoClient.lookupLidMapping(sessionId, rawLidJid);
+          if (result?.found && result.phone_jid) {
+            const validated = jidNormalizedUser(result.phone_jid);
+            if (validated?.endsWith('@s.whatsapp.net')) persistedPhoneJid = validated;
+          }
+        } catch (err) {
+          // Explicit, logged failure — NOT treated as "not found" and NOT a reason to
+          // guess. Falls through to preservation below exactly as a genuine miss would.
+          this.logger.warn(
+            { sessionId, msgId: msg.key?.id, rawLidJid, err: err.message },
+            'lookupLidMapping failed — preserving message as unresolved instead of guessing',
+          );
+        }
+
+        if (persistedPhoneJid) {
+          session.lidToPhone[rawLidJid] = persistedPhoneJid;
+          resolvedChatJid = persistedPhoneJid;
+        } else {
+          return await this._preserveUnresolvedMessage(sessionId, msg, {
+            reason: 'unresolvable_lid',
+            rawLidJid,
+            fromMe,
+            direction,
+            messageType,
+            messageText,
+            hasMedia,
+            mediaMimeType,
+            messageTimestamp,
+            safeRaw,
+            isHistory,
+          });
+        }
       }
     } else if (isUsernameJid) {
       const handle = rawJid.split('@')[0].toLowerCase();
@@ -1071,18 +1128,8 @@ class SessionManager {
     }
     const senderJid = jidNormalizedUser(rawSenderJid);
     const senderNumber = senderJid?.split('@')[0] || '';
-    const messageTimestamp = msg.messageTimestamp
-      ? new Date(Number(msg.messageTimestamp) * 1000).toISOString()
-      : new Date().toISOString();
-
-    const { messageType, messageText, hasMedia, mediaMimeType } = this._parseMessage(msg);
 
     const groupName = isGroup ? await this._getGroupName(session.sock, chatId) : '';
-
-    let safeRaw = null;
-    try { safeRaw = JSON.parse(JSON.stringify(msg)); } catch { safeRaw = null; }
-
-    const direction = (fromMe === true) ? 'outbound' : 'inbound';
 
     // Media download is skipped for history messages — they are old and media may have
     // expired on WhatsApp servers. Only download for live (real-time) messages.
@@ -1144,6 +1191,111 @@ class SessionManager {
     };
 
     return { payload, logEntry };
+  }
+
+  // Durable preservation for a message that carries genuine user content but whose
+  // chat-level LID couldn't be resolved to a phone JID by any of the three resolution
+  // sources in _buildPayload. Identity resolution and message preservation are
+  // separate concerns (see 'docs/Contact Message Loss — LID Resolution Fix
+  // Proposal.md') — this is the "no" branch of that split, replacing what used to be
+  // a hard _skip('unresolvable_lid') that discarded the message content entirely.
+  //
+  // Returns null either way, matching _skip's contract, so the call site in
+  // _buildPayload can `return await this._preserveUnresolvedMessage(...)` exactly
+  // like it previously did `return _skip(...)`.
+  async _preserveUnresolvedMessage(sessionId, msg, opts) {
+    const {
+      reason, rawLidJid, fromMe, direction,
+      messageType, messageText, hasMedia, mediaMimeType,
+      messageTimestamp, safeRaw, isHistory,
+    } = opts;
+
+    // Same shape _buildPayload's normal payload uses, minus chat_id/chat identity
+    // fields (unknown) — this is exactly what recover_unresolved_for_lid on the
+    // Django side expects to be able to plug a resolved chat_id into later and feed
+    // straight into the same ingestion path, without WhatsApp ever resending it.
+    const recoverablePayload = {
+      provider_message_id: msg.key?.id || null,
+      chat_type: 'individual',
+      sender_number: '',
+      push_name: msg.pushName || '',
+      group_name: '',
+      direction,
+      message_type: messageType,
+      message_text: messageText,
+      message_time: messageTimestamp,
+      has_media: hasMedia,
+      media_mime_type: mediaMimeType,
+      media_url: null,
+      raw_payload: safeRaw,
+      ...(isHistory ? { is_history: true } : {}),
+    };
+
+    const unresolvedPayload = {
+      provider_message_id: msg.key?.id || null,
+      raw_jid: msg.key?.remoteJid || null,
+      participant_jid: msg.key?.participant || '',
+      lid_jid: rawLidJid || '',
+      from_me: !!fromMe,
+      direction,
+      message_type: messageType,
+      message_text: messageText,
+      has_media: hasMedia,
+      message_time: messageTimestamp,
+      push_name: msg.pushName || '',
+      is_history: !!isHistory,
+      reason,
+      raw_key: msg.key ? this._safeAlertContext(msg.key) : null,
+      raw_payload: recoverablePayload,
+    };
+
+    this.logger.info(
+      { sessionId, msgId: msg.key?.id, jid: msg.key?.remoteJid, reason },
+      '_buildPayload unresolved — preserving content instead of dropping',
+    );
+
+    try {
+      const result = await this.djangoClient.sendUnresolvedMessage(sessionId, unresolvedPayload);
+      this.logger.warn(
+        { sessionId, msgId: msg.key?.id, jid: msg.key?.remoteJid, reason, unresolvedId: result?.id },
+        'Message preserved as unresolved (LID resolution failed)',
+      );
+    } catch (err) {
+      // Persistence failure must be loud and explicit — never treated as though the
+      // message were safely preserved, and deliberately NOT given a local-file
+      // fallback (unlike sendDroppedMessage/sendWorkerAlert/sendStuckReceipt) per
+      // the P0 spec: a second silent source of truth for the core message path is
+      // exactly the failure mode this whole change exists to eliminate.
+      this.logger.error(
+        { sessionId, msgId: msg.key?.id, jid: msg.key?.remoteJid, reason, err: err.message },
+        'Failed to preserve unresolved message — content may be lost',
+      );
+      try {
+        await this.djangoClient.sendWorkerAlert(sessionId, {
+          alert_type: 'unresolved_message_failed',
+          severity: 'error',
+          message: `Failed to persist unresolved message: ${err.message}`,
+          context: {
+            operation: 'sendUnresolvedMessage',
+            msgId: msg.key?.id || null,
+            rawJid: msg.key?.remoteJid || null,
+            lidJid: rawLidJid || null,
+            reason,
+            error: err.message,
+          },
+        });
+      } catch (alertErr) {
+        // sendWorkerAlert already has its own internal try/catch + local-file
+        // fallback (see django-client.js) — this outer catch only guards against
+        // that call itself throwing synchronously before reaching its own guard.
+        this.logger.error(
+          { sessionId, msgId: msg.key?.id, err: alertErr.message },
+          'Failed to even alert on unresolved-message persistence failure',
+        );
+      }
+    }
+
+    return null;
   }
 
   async _reportDropped(sessionId, msg, reason) {

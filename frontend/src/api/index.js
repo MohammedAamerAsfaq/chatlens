@@ -113,6 +113,11 @@ export const stuckReceiptsApi = {
   resolve:          (id)    => http.post(`/stuck-receipts/${id}/resolve/`),
 }
 
+export const unresolvedMessagesApi = {
+  list:   (params) => http.get('/unresolved-messages/', { params }),
+  counts: (params)  => http.get('/unresolved-messages/counts/', { params }),
+}
+
 export const groupsApi = {
   list:         (params)    => http.get('/groups/', { params }),
   get:          (id)        => http.get(`/groups/${id}/`),

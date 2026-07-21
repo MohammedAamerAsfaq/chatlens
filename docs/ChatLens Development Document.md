@@ -316,6 +316,45 @@ Verified in isolation (fed the exact real-world captured log shape into a mocked
 
 New Stuck Receipts screen (§16, `/stuck-receipts`) plus an unresolved-count badge on the **Logs** dropdown, same pattern as Worker Alerts.
 
+### 6.7.3 whatsapp_unresolved_message
+
+Durable preservation for a message with genuine user content whose chat-level LID could not be resolved to a phone JID at ingestion time (2026-07-21, see §13 and `docs/Contact Message Loss — LID Resolution Fix Proposal.md`). Identity resolution and message preservation are treated as separate concerns from this point on: a resolution failure no longer means the message is discarded, only that it's parked pending resolution. Distinct from `whatsapp_dropped_message` (§6.7), which remains the record for genuinely non-user-message events (protocol frames, status broadcasts, pure key-distribution envelopes) — a row here always has real content.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint PK | |
+| account_id | FK → whatsapp_account, nullable | |
+| provider_message_id | varchar(255) nullable | nullable only when WhatsApp genuinely supplied no id |
+| raw_jid | varchar(255) | original `msg.key.remoteJid` |
+| participant_jid | varchar(255) blank | |
+| lid_jid | varchar(255) blank, indexed | the LID that failed to resolve — indexed for the recovery lookup (`account, lid_jid, resolution_status`) |
+| from_me | boolean | |
+| direction | varchar(10) blank | `inbound`/`outbound` when determinable |
+| message_type / message_text / has_media | | full content, not just the key |
+| message_time | timestamptz nullable | original message timestamp, preserved through recovery so history-vs-live age rules stay correct |
+| push_name | varchar(255) blank | |
+| is_history | boolean | true for messages arriving via history sync / a reconnect `prepend` batch — routes recovery through the same live-vs-history split normal ingestion uses (no live AI classification of a resurfaced historical message) |
+| reason | varchar(50) | e.g. `unresolvable_lid` |
+| raw_key / raw_payload | jsonb nullable | `raw_payload` holds the full ingest-ready payload (same shape `message-ingest` expects, minus `chat_id`) — required for recovery, not optional |
+| resolution_status | varchar(10) | `pending` / `resolved` / `failed`, indexed |
+| resolved_contact_id / resolved_message_id | FK, nullable | set only once a real `WhatsAppMessage` actually exists — never marked resolved without one |
+| resolution_error | text blank | |
+| created_at / updated_at / resolved_at | timestamptz | |
+
+**Constraints:** `UNIQUE(account_id, provider_message_id)` where `provider_message_id` is not null (partial index).
+
+**Resolution chain that feeds this table** (`_buildPayload`, `session-manager.js`) — see §13 for the full priority order. Only reached when sources 1-3 all miss: (1) live `senderPn`/`participantPn`, (2) in-memory `session.lidToPhone`, (3) a persisted single-LID lookup against Django (`GET /api/internal/whatsapp/lid-mapping/:account_id/`, §10). Scope is deliberately limited to the chat-level LID case (an individual chat whose `remoteJid` itself is a LID) — an unresolvable LID *group participant* (the group itself is already known) still hard-drops via `whatsapp_dropped_message` unchanged, since that message's chat identity was never in question.
+
+**Preservation endpoint:** `POST /api/internal/whatsapp/unresolved-message/` (§10) — `IngestionService.preserve_unresolved_message()`, idempotent via `update_or_create` on `(account, provider_message_id)` so a worker retry of the same POST updates the same row instead of duplicating it. Deliberately has **no** local-file fallback on failure (unlike `dropped-message`/`worker-alert`/`stuck-receipt`) — a persistence failure here must be explicit (`WorkerAlert(unresolved_message_failed)`), never silently treated as "probably fine," since a second silent source of truth for the core message path is exactly the failure mode this exists to eliminate.
+
+**Automatic recovery:** `IngestionService.recover_unresolved_for_lid(account, lid_jid, phone_jid)`, triggered from `internal_contacts_update` (backgrounded in a daemon thread) whenever a contact's `lid_jid` becomes newly known — covers the mapping arriving via `contacts.set`/`contacts.upsert` from the worker. Reprocesses every `pending` row for that `(account, lid_jid)` through the *same* `_upsert_contact`/`_upsert_chat`/`_insert_message` path normal ingestion uses (no separate business logic), then routes post-processing through the normal live-vs-history split (`_process_message_in_background` for live, `_embed_in_background` only for history — never live-classifying a resurfaced historical message).
+
+**Duplicate-safe:** before reprocessing a row, recovery checks for an existing `WhatsAppMessage` by `(account, provider_message_id)` — if Baileys' own retry already delivered and ingested the message normally before recovery ran, the row is linked to that existing message and marked resolved instead of creating a duplicate. A per-row failure records `resolution_error` and leaves `resolution_status` at `pending` (retryable on the next successful mapping event) rather than being marked resolved without a real `WhatsAppMessage` behind it.
+
+**Observability:** `UnresolvedMessageViewSet` (read-only, §11) at `/unresolved-messages/` + `/unresolved-messages/counts/`; frontend page at `/unresolved-messages` (§16), plus a pending-count badge on the **Logs** dropdown, same pattern as Worker Alerts/Stuck Receipts.
+
+**Tests:** `apps/whatsapp_bridge/tests.py` (preservation idempotency incl. null-provider-id, recovery + duplicate-safety, recovery failure handling, history-vs-live post-processing, endpoint auth/validation, contacts-update recovery trigger) and `whatsapp-worker/test/session-manager.test.js` (all three resolution sources, preserve-on-total-miss, lookup-failure and persistence-failure handling, history-sync preservation, `node --test` / `npm test` in `whatsapp-worker/`).
+
 ### 6.8 trading_product
 
 Product master used for AI matching (aliases) and inventory tracking. No LIKE/fuzzy queries against aliases — matching is entirely AI-driven at classification time. Only `is_active=True AND qty > 0` rows are sent to the AI as the product master block (`product_cache.get_product_prompt_block()`) — a product with zero stock is never offered as a classification match, `exact` or `near`, even if it's otherwise a perfect spec match. Product Master screen shows a per-product Margin column, a filter-aware Total PNL badge (Σ margin × qty), a Product Embedding column and an Alias Embeddings column (§6.8.1, §20 Phase 20), an aggregate embedding-coverage badge with a one-click Backfill action, and supports inline click-to-edit on Qty/Cost/Sale directly in the table. The Add/Edit modal (§16) was rebuilt in Phase 20 into a proper two-column card-sectioned form with live alias chip management, replacing the old single free-text "Advanced" textarea.
@@ -591,7 +630,7 @@ error
 | `status@broadcast` | WhatsApp status update — not a real message |
 | `protocolMessage` | internal WA protocol signal |
 | `senderKeyDistributionMessage` | pure E2E key envelope with no user content |
-| `unresolvable_lid` | sender JID is a LID but neither `senderPn`/`participantPn` nor the session cache can resolve it to a phone JID |
+| `unresolvable_lid` | **group-participant LID only** (as of 2026-07-21) — the group itself is known, only the sender within it couldn't be resolved (`senderPn`/`participantPn`/cache all miss). A chat-level LID (individual chat) that can't be resolved is **no longer dropped here** — see §6.7.3, it's preserved as `whatsapp_unresolved_message` instead |
 | `forward_failed` | Django returned an error on `message-ingest` |
 | `build_error` | unexpected exception in `_buildPayload` (live path) |
 | `history_build_error` | unexpected exception in `_buildPayload` during history-sync/redelivered-live processing — previously silent, only a raw `logger.warn`, see §12 |
@@ -599,6 +638,8 @@ error
 | `messageStubType:N` | WhatsApp group notification stub (member joined, left, etc.) |
 
 `senderKeyDistributionMessage` is only dropped when the field is the **sole content** of `msg.message`. If a real message is bundled in the same envelope (combined envelope), the key distribution field is stripped and the message passes through.
+
+> **Resolved 2026-07-21:** the chat-level `unresolvable_lid` outbound-only drop pattern documented in §17.2 "Eighth incident" (11 confirmed drops for one contact over two weeks) no longer loses content — see §6.7.3 and `docs/Contact Message Loss — LID Resolution Fix Proposal.md`. The unrelated inbound zero-trace mystery (`Silent Message Drop Investigation.md`) is untouched by this and remains open.
 
 ---
 
@@ -613,7 +654,9 @@ All require `X-Internal-Token` header.
 | POST | `/api/internal/whatsapp/message-ingest-batch/` | History sync batch |
 | GET  | `/api/internal/whatsapp/account-settings/:id/` | Worker fetches account config at connect |
 | GET  | `/api/internal/whatsapp/lid-mappings/:id/` | Worker seeds `lidToPhone`/`usernameToPhone` from already-known contacts on restore, so a restart doesn't start the cache cold (was causing `unresolvable_lid` drops for known senders) |
-| POST | `/api/internal/whatsapp/contacts-update/` | Contact names from `contacts.set` / `contacts.upsert` |
+| GET  | `/api/internal/whatsapp/lid-mapping/:id/?lid_jid=...` | Single-LID lookup (§13 resolution source 3, §6.7.3) — used mid-message when `lidToPhone` misses, instead of refetching the whole mapping dict. `{found, lid_jid, phone_jid}` or `{found: false}` |
+| POST | `/api/internal/whatsapp/unresolved-message/` | Preserve a message with real content whose LID couldn't be resolved (§6.7.3) — never given a local-file fallback; a failure here must surface as `WorkerAlert(unresolved_message_failed)` |
+| POST | `/api/internal/whatsapp/contacts-update/` | Contact names from `contacts.set` / `contacts.upsert` — also triggers `whatsapp_unresolved_message` recovery (§6.7.3) for any LID the batch newly resolves |
 | POST | `/api/internal/whatsapp/dropped-message/` | Fire-and-forget drop notification |
 | POST | `/api/internal/whatsapp/worker-alert/` | Structured worker-failure report (§6.7.1) — `account` optional, so failures with no session context can still be recorded |
 | POST | `/api/internal/whatsapp/stuck-receipt/` | Upserts a stuck-receipt record (§6.7.2) — first occurrence of `(account, remote_jid, message_id)` creates the row, every repeat bumps `occurrence_count`/`last_seen_at` |
@@ -709,6 +752,8 @@ Session auth + CSRF, gated behind the login endpoints in §11.1.
 | GET  | `/api/stuck-receipts/` | Stuck receipt log (§6.7.2), filterable by `account`/`resolved` (`true`/`false`/omit for all) |
 | GET  | `/api/stuck-receipts/unresolved-count/` | `{count}` — polled every 30s by the nav bar badge (§16) |
 | POST | `/api/stuck-receipts/:id/resolve/` | Mark one row resolved (review marker only — doesn't affect the worker's skip-list) |
+| GET  | `/api/unresolved-messages/` | Unresolved-message log (§6.7.3), read-only, filterable by `account`/`resolution_status` |
+| GET  | `/api/unresolved-messages/counts/` | `{pending, resolved, failed}` — polled by the nav bar badge (§16) and the page's own summary tiles |
 
 ### 11.2 Intelligence & Providers
 
@@ -866,13 +911,17 @@ WhatsApp LID is a privacy feature that replaces a user's phone JID with a random
 
 ### Resolution sources (priority order)
 
-1. `msg.key.senderPn` — Baileys-provided real phone JID for inbound individual LID chats
-2. `msg.key.participantPn` — Baileys-provided real phone JID for LID group participants
-3. `session.lidToPhone` — in-memory cache populated from `contacts.set` / `contacts.upsert` at connect time and updated whenever a `senderPn`/`participantPn` is seen. Also **seeded from the DB** (`GET /api/internal/whatsapp/lid-mappings/:id/`, built from existing `whatsapp_contact.lid_jid`/`username` rows) when a session is restored on worker restart, so the cache isn't cold immediately after a restart — previously it rebuilt from scratch and dropped `unresolvable_lid` for senders that were already known contacts until a fresh `contacts.set` repopulated it.
+For a chat-level LID (an individual chat whose `remoteJid` itself is a LID) — revised 2026-07-21, see `docs/Contact Message Loss — LID Resolution Fix Proposal.md`:
+
+1. `msg.key.senderPn` — Baileys-provided real phone JID, **inbound only**. WhatsApp never supplies this for outbound self-echoes, which is why outbound resolution used to depend entirely on source 2 already being warm (11 confirmed `unresolvable_lid` drops for one contact over two weeks, 100% outbound — §17.2 "Eighth incident").
+2. `session.lidToPhone` — in-memory cache populated from `contacts.set`/`contacts.upsert` at connect time and updated whenever `senderPn`/`participantPn` is seen. Also **seeded from the DB** (`GET /api/internal/whatsapp/lid-mappings/:id/`) when a session is restored on worker restart, so the cache isn't cold immediately after a restart.
+3. **New (2026-07-21):** a persisted single-LID lookup against Django (`GET /api/internal/whatsapp/lid-mapping/:id/?lid_jid=...`, §10, §6.7.3) — queried when source 2 misses, instead of failing immediately. Closes the gap source 2 couldn't cover on its own: an outbound self-echo has no live signal at all, so without this the cache going cold on any restart meant the same contact's outbound messages kept failing until an inbound message happened to arrive first.
+
+`msg.key.participantPn` resolves the sender *within* a group whose `remoteJid` is already a known `@g.us` JID — a separate, narrower case (the chat identity isn't in question, only who sent it), unaffected by the chain above.
 
 ### Strict rule
 
-If a LID cannot be resolved to a phone JID via any of the above, the message is dropped with reason `unresolvable_lid`. Creating a phantom `@lid` contact in Django is explicitly forbidden.
+If a LID cannot be resolved to a phone JID via any of the above, creating a phantom `@lid` contact in Django remains explicitly forbidden — that part is unchanged. What changed 2026-07-21: for a chat-level LID, the message is **no longer dropped**. It's preserved as `whatsapp_unresolved_message` (§6.7.3) with full content, and automatically recovered the moment a later `contacts.set`/`contacts.upsert` resolves that LID. `unresolvable_lid` as a `whatsapp_dropped_message` reason is now scoped to the group-participant case only (§9) — that one still hard-drops, since only the *sender* is unresolvable there, not the chat itself, and preservation was scoped to the chat-level case per the fix-proposal document.
 
 ### Database
 
@@ -949,6 +998,7 @@ Top nav is grouped into four hover dropdowns (`App.vue`) to keep the bar from ov
 | `/dropped-messages` | Dropped Messages Log | under **Logs** | All messages the worker dropped, expandable raw key with `_msgKeys`; rows that later self-healed (§6.7 `resolved_at`) show a green "Recovered" badge |
 | `/worker-alerts` | Worker Alerts | under **Logs** | Structured record of worker-side failures (§6.7.1, §12) — decrypt failures, handshake timeouts, batch persistence failures, uncaught exceptions — filterable by account/type/acknowledged, with per-row and bulk acknowledge. The top nav's **Logs** dropdown carries a red unacknowledged-count badge (polled every 30s, `GET /api/worker-alerts/unacknowledged-count/`), visible from anywhere in the app without opening the dropdown — the "admin should be notified" requirement this screen exists to satisfy |
 | `/stuck-receipts` | Stuck Receipts | under **Logs** | Messages WhatsApp keeps asking the worker to resend that it can't fulfill (§6.7.2) — one row per distinct stuck message, occurrence count + last-seen so you can tell if it's still recurring, filterable by account/resolved, with per-row resolve. Same unresolved-count nav badge pattern as Worker Alerts (combined into the same **Logs** dropdown total) |
+| `/unresolved-messages` | Unresolved Messages | under **Logs** | Messages preserved with real content whose chat-level LID couldn't be resolved (§6.7.3) — pending/resolved/failed counts, filterable by account/status, expandable to full message text and (if failed) `resolution_error`. Read-only — resolution happens automatically, not from this screen. Same pending-count nav badge pattern as Worker Alerts/Stuck Receipts |
 | `/ai-parsing-log` | AI Parsing Log | under **Logs** | Every live message and whether it was sent for AI classification or skipped, and why (§6.13) — filterable by account/status/skip reason |
 | `/inquiries` | Inquiries | not in top nav (direct URL only) | Split-panel inquiry list + detail, status workflow (10 states, see §6.10), remarks |
 
@@ -1053,6 +1103,16 @@ A `MessageCounterError` at least proves something arrived and Baileys tried and 
 
 **Not a bug fix — a watch item.** Nothing to implement: there's no error to catch, no retry to add, no log path to fix. Documented per explicit instruction to track further occurrences and look for a pattern (e.g. specific contacts, specific times, correlation with other connection events) before deciding whether this needs a different kind of mitigation (e.g. periodic reconciliation against a second, independent view of the chat rather than relying solely on live delivery).
 
+**Seventh incident (2026-07-20): `StuckReceipt` root-caused — 100% concentrated on one contact, not scattered.** Routine log inspection found that **every `StuckReceipt` row ever recorded (47/47, 2026-07-14 → 2026-07-20) is the same `remote_jid`** on account 8 — not scattered across contacts as the model's docstring (§6.7.2) implies. Every occurrence shares the identical crash: `context.key.remoteJid` is absent from the retry-receipt payload Baileys builds internally for `sendMessagesAgain`, so its own `relayMessage` (`messages-send.js:257`) calls `jidDecode(undefined)` and throws `TypeError: Cannot destructure property 'user' of 'jidDecode(...)' as it is undefined`. The affected contact has a `lid_jid` alias — a possible, unproven tie to the LID-resolution fragility documented in the eighth incident below. Not fixed — the existing short-circuit (`getMessage()` returning `null` for known-stuck keys) is working as designed and already prevents repeated crashes; the open question is why this one contact's retry-receipt key is missing `remoteJid` every single time, which requires tracing Baileys' own internal retry/history store, not this codebase's ingestion path.
+
+**Eighth incident (2026-07-20): sixth incident recurred (same contact family, two days later) — two concrete, fixable silent-loss mechanisms found, distinct from the still-open zero-trace mystery.** A near-identical report came in for the same contact (Azan / Action Link Trading, account 8) and a second contact (City Choice, account 9): messages missing in both directions, zero trace anywhere — same shape as the sixth incident. Investigating triggered a full audit of the worker's error handling (not just this one contact), which found:
+
+- **A confirmed, currently-reproducing outbound-only drop pattern for LID-chat contacts** (verified via the still-active `DEBUG_WATCH_JIDS` tap from the Sixth incident — 299 captured events, 11 confirmed `unresolvable_lid` drops for that same tracked contact spanning 2026-07-07 → 2026-07-20, **100% `from_me: true`**). Root cause: outbound self-echoes never carry `senderPn` (§13's resolution-source #1 is inbound-only), so outbound LID resolution depends entirely on `session.lidToPhone` already being warm — and it goes cold on every worker restart if the mapping was never durably persisted to Django in the first place.
+- **A related reporting gap**: three of the worker's Django-reporting methods (`sendContactsUpdate`, `sendGroupUpdate`, `sendGroupParticipantsUpdate`) fail with only a transient log line — no durable fallback file, unlike their three sibling methods — so a POST failure at exactly the wrong moment permanently loses a LID mapping with no trace, directly feeding the pattern above.
+- **Four further fallback/suppression code paths** that could mask this exact bug class with zero trace if they ever fire (most notably: the LID-cache-population loop in `_sendNamedContacts` skips a malformed entry with no log at all, unlike its own sibling loop ten lines away).
+
+Root cause and proposed fix (not yet implemented, pending review) for all of the above: `docs/Contact Message Loss — LID Resolution Fix Proposal.md`. **Does not explain** the Azan/City Choice reports themselves — those resolve as plain phone JIDs, not LIDs, so this specific mechanism doesn't apply to them; they remain the same unsolved zero-trace mystery as the sixth incident, now with a second occurrence two days later. See `Silent Message Drop Investigation.md` for that still-open thread.
+
 ---
 
 ## 18. Security
@@ -1103,6 +1163,7 @@ A `MessageCounterError` at least proves something arrived and Baileys tried and 
 | 0019_alter_whatsappaccount_connection_unhealthy_reason | Converted `connection_unhealthy_reason` from `CharField(255)` to `TextField` — a real reason string exceeded 255 chars during testing |
 | 0020_workeralert | New `whatsapp_worker_alert` table (§6.7.1) |
 | 0021_stuckreceipt | New `whatsapp_stuck_receipt` table (§6.7.2) |
+| 0022_unresolved_message | New `whatsapp_unresolved_message` table (§6.7.3); added `unresolved_message_failed` to `whatsapp_worker_alert.alert_type` choices |
 
 ### trading
 
@@ -1273,3 +1334,10 @@ A `MessageCounterError` at least proves something arrived and Baileys tried and 
 - Lead scoring
 - ERP product master integration / two-way sync
 - Cross-account analytics rollups
+
+### Phase 22 — Message Preservation & Outbound LID Hardening (complete)
+- New `whatsapp_unresolved_message` table (§6.7.3, migration `0022_unresolved_message`) — a chat-level LID that can't be resolved no longer means the message is discarded; it's preserved with full content and automatically recovered once the mapping becomes known.
+- Third LID resolution source: a persisted single-LID Django lookup (§13, §10) closes the gap that used to leave outbound self-echoes dependent solely on a volatile in-memory cache.
+- Two new internal endpoints (`unresolved-message`, `lid-mapping`), one new public read-only viewset + frontend page (`/unresolved-messages`, §16), deliberately no local-file fallback on the new endpoints' failure path (§6.7.3) — a persistence failure is always explicit (`WorkerAlert`), never silently assumed safe.
+- First automated test coverage added to this codebase: `apps/whatsapp_bridge/tests.py` (Django, 17 tests) and `whatsapp-worker/test/session-manager.test.js` (Node's built-in `node:test`, 11 tests, `npm test`).
+- Full design rationale, evidence, and what remains explicitly out of scope (the unrelated inbound zero-trace mystery, and two still-pending fallback/suppression fixes) in `docs/Contact Message Loss — LID Resolution Fix Proposal.md`.
