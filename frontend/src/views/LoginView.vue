@@ -6,6 +6,7 @@
         <span class="logo-name">ChatLens</span>
       </div>
       <h1 class="login-title">Sign in</h1>
+      <p class="login-subtitle">Your company workspace will be loaded automatically after sign-in.</p>
       <form @submit.prevent="submit" class="login-form">
         <div class="field">
           <label class="field-label">Username</label>
@@ -105,7 +106,13 @@ async function submit() {
   font-size: 1.4rem;
   font-weight: 700;
   color: #111827;
+  margin: 0 0 8px;
+}
+.login-subtitle {
   margin: 0 0 24px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: #6b7280;
 }
 .login-form { display: flex; flex-direction: column; gap: 16px; }
 .field { display: flex; flex-direction: column; gap: 5px; }

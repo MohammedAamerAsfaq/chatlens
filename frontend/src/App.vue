@@ -9,6 +9,12 @@ const route  = useRoute()
 const router = useRouter()
 const store  = useConversationsStore()
 const auth   = useAuthStore()
+const currentCompany = computed(() => auth.currentCompany)
+const currentRole = computed(() => {
+  if (!auth.currentRole) return ''
+  return auth.currentRole.replaceAll('_', ' ')
+})
+const switchingCompany = ref(false)
 
 const LOG_ROUTES = ['activity', 'message-logs', 'dropped-messages', 'worker-alerts', 'stuck-receipts', 'unresolved-messages', 'ai-parsing-log']
 const isLogsActive = computed(() => LOG_ROUTES.includes(route.name))
@@ -49,19 +55,38 @@ const isReportsActive = computed(() => REPORT_ROUTES.includes(route.name))
 const LIST_ROUTES = ['contacts', 'groups', 'products', 'product-price-update']
 const isListsActive = computed(() => LIST_ROUTES.includes(route.name))
 
-const SETTINGS_ROUTES = ['sessions', 'storage', 'ai-providers', 'ai-instructions']
+const SETTINGS_ROUTES = ['sessions', 'storage', 'ai-providers', 'ai-instructions', 'tenant-admin']
 const isSettingsActive = computed(() => SETTINGS_ROUTES.includes(route.name))
 
 async function handleLogout() {
   await auth.logout()
   router.push({ name: 'login' })
 }
+
+async function handleCompanySwitch(event) {
+  const companyId = Number(event.target.value)
+  if (!companyId || companyId === currentCompany.value?.id) return
+  switchingCompany.value = true
+  try {
+    await auth.selectCompany(companyId)
+    window.location.assign('/')
+  } finally {
+    switchingCompany.value = false
+  }
+}
 </script>
 
 <template>
   <div class="h-screen bg-gray-50 flex flex-col overflow-hidden">
     <nav v-if="auth.user" class="bg-gray-900 text-white px-6 py-3 flex items-center gap-6 shadow shrink-0">
-      <span class="text-green-400 font-bold text-lg mr-4">ChatLens</span>
+      <div class="mr-4 flex items-center gap-3">
+        <span class="text-green-400 font-bold text-lg">ChatLens</span>
+        <div v-if="currentCompany" class="tenant-chip" :title="currentCompany.slug">
+          <span class="tenant-chip-label">Company</span>
+          <span class="tenant-chip-name">{{ currentCompany.name }}</span>
+          <span v-if="currentRole" class="tenant-chip-role">{{ currentRole }}</span>
+        </div>
+      </div>
       <RouterLink to="/conversations"   class="nav-link" active-class="nav-link-active">Conversations</RouterLink>
       <RouterLink to="/trading"            class="nav-link" active-class="nav-link-active">Trading</RouterLink>
       <RouterLink to="/buying-inquiries"  class="nav-link" active-class="nav-link-active">Buying Inquiries</RouterLink>
@@ -109,6 +134,7 @@ async function handleLogout() {
           <RouterLink to="/storage"         class="dropdown-item" active-class="dropdown-item-active">Storage</RouterLink>
           <RouterLink to="/ai-providers"    class="dropdown-item" active-class="dropdown-item-active">AI Providers</RouterLink>
           <RouterLink to="/ai-instructions" class="dropdown-item" active-class="dropdown-item-active">AI Instructions</RouterLink>
+          <RouterLink v-if="auth.canManageTenants" to="/tenant-admin" class="dropdown-item" active-class="dropdown-item-active">Tenant Admin</RouterLink>
         </div>
       </div>
 
@@ -149,6 +175,25 @@ async function handleLogout() {
           </RouterLink>
           <RouterLink to="/ai-parsing-log"    class="dropdown-item" active-class="dropdown-item-active">AI Parsing Log</RouterLink>
         </div>
+      </div>
+
+      <div v-if="auth.hasMultipleMemberships" class="workspace-switcher">
+        <label class="workspace-switcher-label" for="workspace-switcher">Workspace</label>
+        <select
+          id="workspace-switcher"
+          class="workspace-switcher-select"
+          :value="currentCompany?.id"
+          :disabled="switchingCompany"
+          @change="handleCompanySwitch"
+        >
+          <option
+            v-for="membership in auth.memberships"
+            :key="membership.company.id"
+            :value="membership.company.id"
+          >
+            {{ membership.company.name }}
+          </option>
+        </select>
       </div>
 
       <!-- Account switcher — shown on Conversations page -->
@@ -220,4 +265,56 @@ async function handleLogout() {
   transition: color 0.15s, border-color 0.15s;
 }
 .logout-btn:hover { color: #fff; border-color: #6b7280; }
+.tenant-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid #374151;
+  border-radius: 9999px;
+  background: rgba(17, 24, 39, 0.55);
+  color: #e5e7eb;
+  line-height: 1;
+}
+.tenant-chip-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9ca3af;
+}
+.tenant-chip-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+.tenant-chip-role {
+  font-size: 0.72rem;
+  color: #86efac;
+  text-transform: capitalize;
+}
+.workspace-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.workspace-switcher-label {
+  font-size: 0.72rem;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.workspace-switcher-select {
+  min-width: 180px;
+  background: #111827;
+  color: #f9fafb;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+}
+.workspace-switcher-select:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
 </style>

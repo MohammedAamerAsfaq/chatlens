@@ -2,6 +2,13 @@ from django.db import models
 
 
 class Product(models.Model):
+    company   = models.ForeignKey(
+        'tenancy.Company',
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name='products',
+    )
     name      = models.CharField(max_length=255)
     brand     = models.CharField(max_length=100, blank=True)
     category  = models.CharField(max_length=100, blank=True)

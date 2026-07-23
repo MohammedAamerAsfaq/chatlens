@@ -240,10 +240,13 @@ def internal_contacts_update(request):
     try:
         account = WhatsAppAccount.objects.get(pk=worker_session_id)
         updated = 0
+        skipped = 0
+        rejected = 0
         for contact_data in contacts_data:
             wa_contact_id = contact_data.get('wa_contact_id', '')
             push_name = (contact_data.get('push_name') or '').strip()
             if not wa_contact_id or not push_name:
+                skipped += 1
                 continue
 
             # LID JIDs must never be primary contact identifiers.
@@ -254,6 +257,7 @@ def internal_contacts_update(request):
                     'worker must send phone JID as wa_contact_id with lid_jid as alias',
                     wa_contact_id,
                 )
+                rejected += 1
                 continue
 
             phone_number = contact_data.get('phone_number', '')
@@ -307,7 +311,7 @@ def internal_contacts_update(request):
                 ).start()
 
             updated += 1
-        return JsonResponse({'status': 'ok', 'updated': updated})
+        return JsonResponse({'status': 'ok', 'updated': updated, 'skipped': skipped, 'rejected': rejected})
     except WhatsAppAccount.DoesNotExist:
         return JsonResponse({'error': 'Account not found'}, status=404)
     except Exception as e:

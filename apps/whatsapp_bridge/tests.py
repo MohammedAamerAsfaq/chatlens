@@ -354,3 +354,45 @@ class ContactsUpdateTriggersRecoveryTests(TestCase):
         row = WhatsAppUnresolvedMessage.objects.get(account=self.account, provider_message_id='ABC123')
         self.assertEqual(row.resolution_status, ResolutionStatus.RESOLVED)
         self.assertTrue(WhatsAppMessage.objects.filter(provider_message_id='ABC123').exists())
+
+    def test_contacts_update_reports_updated_skipped_and_rejected_counts(self):
+        resp = self.client.post(
+            '/api/internal/whatsapp/contacts-update/',
+            data=json.dumps({
+                'worker_session_id': self.account.pk,
+                'contacts': [
+                    {
+                        'wa_contact_id': '971544732206@s.whatsapp.net',
+                        'push_name': 'Azan',
+                        'phone_number': '971544732206',
+                    },
+                    {
+                        'wa_contact_id': '971500000000@s.whatsapp.net',
+                        'push_name': '',
+                    },
+                    {
+                        'wa_contact_id': '16011805913098@lid',
+                        'push_name': 'LID Primary',
+                    },
+                ],
+            }),
+            content_type='application/json',
+            **INTERNAL_HEADERS,
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {
+            'status': 'ok',
+            'updated': 1,
+            'skipped': 1,
+            'rejected': 1,
+        })
+        self.assertTrue(
+            WhatsAppContact.objects.filter(
+                account=self.account,
+                wa_contact_id='971544732206@s.whatsapp.net',
+            ).exists()
+        )
+        self.assertFalse(
+            WhatsAppContact.objects.filter(account=self.account, wa_contact_id='16011805913098@lid').exists()
+        )

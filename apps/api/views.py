@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -11,6 +12,7 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
 from django.core.serializers.json import DjangoJSONEncoder
+from django.db import transaction
 from django.db.models import Count, Q
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import now
@@ -25,6 +27,19 @@ from apps.whatsapp_bridge.models import (
     SyncLog, DroppedMessage, WhatsAppGroup, SessionStatus, WorkerAlert,
     StuckReceipt, WhatsAppUnresolvedMessage, ResolutionStatus,
 )
+from apps.tenancy.models import AccountEndpoint, CommunicationAccount, Company, CompanyMembership
+from apps.tenancy.services.access import (
+    active_membership_for_user,
+    available_companies_queryset,
+    can_user_access_company,
+    default_company_for_user,
+    is_control_company_admin,
+    scope_queryset_to_visible_accounts,
+    visible_companies_queryset,
+    visible_accounts_queryset,
+)
+from apps.tenancy.services.enrollment_service import CompanyEnrollmentService
+from apps.tenancy.services.provider_service import ProviderService
 from .serializers import (
     WhatsAppAccountSerializer, ChatSerializer, MessageSerializer,
     SyncLogSerializer, DroppedMessageSerializer, ContactDetailSerializer,
@@ -33,19 +48,65 @@ from .serializers import (
 )
 
 WORKER_BASE_URL = getattr(settings, 'WORKER_BASE_URL', 'http://localhost:3001')
+ACTIVE_COMPANY_SESSION_KEY = 'active_company_id'
+logger = logging.getLogger(__name__)
+
+
+def _visible_account_or_none(user, account_id):
+    if not account_id:
+        return None
+    return visible_accounts_queryset(user).filter(pk=account_id).first()
 
 
 class WhatsAppAccountViewSet(viewsets.ModelViewSet):
-    queryset = WhatsAppAccount.objects.all().order_by('-created_at')
     serializer_class = WhatsAppAccountSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return visible_accounts_queryset(
+            self.request.user,
+            WhatsAppAccount.objects.all().order_by('-created_at'),
+        )
 
     def perform_create(self, serializer):
         if self.request.user.is_authenticated:
             owner = self.request.user
         else:
             owner = User.objects.filter(is_superuser=True).first()
-        serializer.save(owner=owner)
+        with transaction.atomic():
+            account = serializer.save(owner=owner)
+            company = default_company_for_user(owner)
+            if not company:
+                logger.warning(
+                    'WhatsApp account created without company binding | account_id=%s owner_id=%s',
+                    account.pk, owner.pk if owner else None,
+                )
+                return
+
+            provider = ProviderService().default_provider_for_channel('whatsapp')
+            comm_account = CommunicationAccount.objects.create(
+                company=company,
+                provider=provider,
+                channel='whatsapp',
+                name=account.display_name or account.phone_number or f'WhatsApp Account #{account.pk}',
+                is_active=account.is_active,
+                external_account_id=f'whatsapp-account:{account.pk}',
+            )
+            account.communication_account = comm_account
+            update_fields = ['communication_account']
+            if account.phone_number:
+                endpoint = AccountEndpoint.objects.create(
+                    communication_account=comm_account,
+                    endpoint_type=AccountEndpoint.TYPE_PHONE,
+                    value=account.phone_number,
+                    is_primary=True,
+                    is_active=account.is_active,
+                    metadata={'source': 'api_account_create'},
+                )
+                account.primary_endpoint = endpoint
+                update_fields.append('primary_endpoint')
+            account.save(update_fields=update_fields)
+
 
     def destroy(self, request, *args, **kwargs):
         account = self.get_object()
@@ -219,7 +280,7 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
         enabled = request.data.get('enabled')
         if not isinstance(enabled, bool):
             return Response({'error': 'enabled must be a boolean'}, status=status.HTTP_400_BAD_REQUEST)
-        WhatsAppAccount.objects.update(auto_download_media=enabled)
+        self.get_queryset().update(auto_download_media=enabled)
         return Response({'enabled': enabled})
 
     @action(detail=True, methods=['get', 'delete'], url_path='message-logs')
@@ -248,8 +309,9 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='delete-all-messages')
     def delete_all_messages(self, request):
-        deleted, _ = WhatsAppMessage.objects.all().delete()
-        WhatsAppChat.objects.update(unread_count=0, last_message_at=None)
+        visible_accounts = self.get_queryset()
+        deleted, _ = WhatsAppMessage.objects.filter(chat__account__in=visible_accounts).delete()
+        WhatsAppChat.objects.filter(account__in=visible_accounts).update(unread_count=0, last_message_at=None)
         return Response({'deleted': deleted})
 
     # ------------------------------------------------------------------ #
@@ -274,17 +336,22 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='delete-all-media')
     def delete_all_media(self, request):
+        visible_account_ids = list(self.get_queryset().values_list('pk', flat=True))
         media_root = Path(settings.WORKER_MEDIA_PATH)
         removed_bytes = 0
         removed_files = 0
-        if media_root.exists():
-            for f in media_root.rglob('*'):
+        for account_id in visible_account_ids:
+            media_dir = media_root / str(account_id)
+            if not media_dir.exists():
+                continue
+            for f in media_dir.rglob('*'):
                 if f.is_file():
                     removed_bytes += f.stat().st_size
                     removed_files += 1
-            shutil.rmtree(media_root)
+            shutil.rmtree(media_dir)
+        if media_root.exists():
             media_root.mkdir(parents=True, exist_ok=True)
-        WhatsAppMessage.objects.filter(has_media=True).update(media_url='')
+        WhatsAppMessage.objects.filter(chat__account_id__in=visible_account_ids, has_media=True).update(media_url='')
         return Response({'removed_files': removed_files, 'removed_bytes': removed_bytes})
 
     # ------------------------------------------------------------------ #
@@ -439,6 +506,7 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
                     'sync_history': account.sync_history,
                     'history_days': account.history_days,
                     'idle_disconnect_minutes': account.idle_disconnect_minutes,
+                    'auto_download_media': account.auto_download_media,
                 },
                 timeout=10,
             )
@@ -490,15 +558,20 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        qs = WhatsAppChat.objects.select_related('contact').order_by('-last_message_at')
+        qs = scope_queryset_to_visible_accounts(
+            WhatsAppChat.objects.select_related('contact').order_by('-last_message_at'),
+            self.request.user,
+        )
         account_id = self.request.query_params.get('account')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            qs = qs.filter(account=_visible_account_or_none(self.request.user, account_id))
         search = self.request.query_params.get('search')
         if search:
-            qs = qs.filter(contact__display_name__icontains=search) | \
-                 qs.filter(contact__phone_number__icontains=search) | \
-                 qs.filter(wa_chat_id__icontains=search)
+            qs = qs.filter(
+                Q(contact__display_name__icontains=search) |
+                Q(contact__phone_number__icontains=search) |
+                Q(wa_chat_id__icontains=search)
+            )
         return qs
 
     @action(detail=True, methods=['get'])
@@ -656,9 +729,9 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=['post'], url_path='mark-all-read')
     def mark_all_read(self, request):
         account_id = request.query_params.get('account')
-        qs = WhatsAppChat.objects.all()
+        qs = scope_queryset_to_visible_accounts(WhatsAppChat.objects.all(), request.user)
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            qs = qs.filter(account=_visible_account_or_none(request.user, account_id))
         qs.update(unread_count=0)
         return Response({'status': 'ok'})
 
@@ -700,10 +773,13 @@ class SyncLogViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = ActivityPagination
 
     def get_queryset(self):
-        qs = SyncLog.objects.select_related('account').order_by('-created_at')
+        qs = scope_queryset_to_visible_accounts(
+            SyncLog.objects.select_related('account').order_by('-created_at'),
+            self.request.user,
+        )
         account_id = self.request.query_params.get('account')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            qs = qs.filter(account=_visible_account_or_none(self.request.user, account_id))
         event_type = self.request.query_params.get('event_type')
         if event_type:
             qs = qs.filter(event_type=event_type)
@@ -717,10 +793,10 @@ class SyncLogViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='clear-all')
     def clear_all(self, request):
-        qs = SyncLog.objects.all()
+        qs = scope_queryset_to_visible_accounts(SyncLog.objects.all(), request.user)
         account_id = request.query_params.get('account')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            qs = qs.filter(account=_visible_account_or_none(request.user, account_id))
         deleted, _ = qs.delete()
         return Response({'deleted': deleted})
 
@@ -731,10 +807,13 @@ class DroppedMessageViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = ActivityPagination
 
     def get_queryset(self):
-        qs = DroppedMessage.objects.select_related('account').order_by('-created_at')
+        qs = scope_queryset_to_visible_accounts(
+            DroppedMessage.objects.select_related('account').order_by('-created_at'),
+            self.request.user,
+        )
         account_id = self.request.query_params.get('account')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            qs = qs.filter(account=_visible_account_or_none(self.request.user, account_id))
         reason = self.request.query_params.get('reason')
         if reason:
             qs = qs.filter(reason=reason)
@@ -742,10 +821,10 @@ class DroppedMessageViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='clear-all')
     def clear_all(self, request):
-        qs = DroppedMessage.objects.all()
+        qs = scope_queryset_to_visible_accounts(DroppedMessage.objects.all(), request.user)
         account_id = request.query_params.get('account')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            qs = qs.filter(account=_visible_account_or_none(request.user, account_id))
         deleted, _ = qs.delete()
         return Response({'deleted': deleted})
 
@@ -758,10 +837,13 @@ class WorkerAlertViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = ActivityPagination
 
     def get_queryset(self):
-        qs = WorkerAlert.objects.select_related('account').order_by('-created_at')
+        qs = scope_queryset_to_visible_accounts(
+            WorkerAlert.objects.select_related('account').order_by('-created_at'),
+            self.request.user,
+        )
         account_id = self.request.query_params.get('account')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            qs = qs.filter(account=_visible_account_or_none(self.request.user, account_id))
         alert_type = self.request.query_params.get('alert_type')
         if alert_type:
             qs = qs.filter(alert_type=alert_type)
@@ -774,7 +856,11 @@ class WorkerAlertViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='unacknowledged-count')
     def unacknowledged_count(self, request):
-        return Response({'count': WorkerAlert.objects.filter(acknowledged_at__isnull=True).count()})
+        qs = scope_queryset_to_visible_accounts(
+            WorkerAlert.objects.filter(acknowledged_at__isnull=True),
+            request.user,
+        )
+        return Response({'count': qs.count()})
 
     @action(detail=True, methods=['post'], url_path='acknowledge')
     def acknowledge(self, request, pk=None):
@@ -786,10 +872,13 @@ class WorkerAlertViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='acknowledge-all')
     def acknowledge_all(self, request):
-        qs = WorkerAlert.objects.filter(acknowledged_at__isnull=True)
+        qs = scope_queryset_to_visible_accounts(
+            WorkerAlert.objects.filter(acknowledged_at__isnull=True),
+            request.user,
+        )
         account_id = request.query_params.get('account')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            qs = qs.filter(account=_visible_account_or_none(request.user, account_id))
         updated = qs.update(acknowledged_at=now(), acknowledged_by=request.user if request.user.is_authenticated else None)
         return Response({'acknowledged': updated})
 
@@ -804,10 +893,14 @@ class StuckReceiptViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = ActivityPagination
 
     def get_queryset(self):
-        qs = StuckReceipt.objects.select_related('account').order_by('-last_seen_at')
+        qs = scope_queryset_to_visible_accounts(
+            StuckReceipt.objects.select_related('account').order_by('-last_seen_at'),
+            self.request.user,
+            account_field='account',
+        )
         account_id = self.request.query_params.get('account')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            qs = qs.filter(account=_visible_account_or_none(self.request.user, account_id))
         resolved = self.request.query_params.get('resolved')
         if resolved == 'true':
             qs = qs.filter(resolved_at__isnull=False)
@@ -817,7 +910,12 @@ class StuckReceiptViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='unresolved-count')
     def unresolved_count(self, request):
-        return Response({'count': StuckReceipt.objects.filter(resolved_at__isnull=True).count()})
+        qs = scope_queryset_to_visible_accounts(
+            StuckReceipt.objects.filter(resolved_at__isnull=True),
+            request.user,
+            account_field='account',
+        )
+        return Response({'count': qs.count()})
 
     @action(detail=True, methods=['post'], url_path='resolve')
     def resolve(self, request, pk=None):
@@ -845,9 +943,10 @@ class UnresolvedMessageViewSet(viewsets.ReadOnlyModelViewSet):
             .select_related('account', 'resolved_contact', 'resolved_message')
             .order_by('-created_at')
         )
+        qs = scope_queryset_to_visible_accounts(qs, self.request.user, account_field='account')
         account_id = self.request.query_params.get('account')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            qs = qs.filter(account=_visible_account_or_none(self.request.user, account_id))
         resolution_status = self.request.query_params.get('resolution_status')
         if resolution_status:
             qs = qs.filter(resolution_status=resolution_status)
@@ -855,10 +954,14 @@ class UnresolvedMessageViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='counts')
     def counts(self, request):
-        qs = WhatsAppUnresolvedMessage.objects
+        qs = scope_queryset_to_visible_accounts(
+            WhatsAppUnresolvedMessage.objects.all(),
+            request.user,
+            account_field='account',
+        )
         account_id = request.query_params.get('account')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            qs = qs.filter(account=_visible_account_or_none(request.user, account_id))
         return Response({
             'pending':  qs.filter(resolution_status=ResolutionStatus.PENDING).count(),
             'resolved': qs.filter(resolution_status=ResolutionStatus.RESOLVED).count(),
@@ -887,6 +990,7 @@ class ContactViewSet(viewsets.ModelViewSet):
             .prefetch_related('chats')
             .annotate(message_count=Count('messages', distinct=True))
         )
+        qs = scope_queryset_to_visible_accounts(qs, self.request.user, account_field='account')
 
         ordering = self.request.query_params.get('ordering') or 'display_name'
         descending = ordering.startswith('-')
@@ -898,7 +1002,7 @@ class ContactViewSet(viewsets.ModelViewSet):
 
         account_id = self.request.query_params.get('account')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            qs = qs.filter(account=_visible_account_or_none(self.request.user, account_id))
 
         search = (self.request.query_params.get('search') or '').strip()
         if search:
@@ -979,9 +1083,9 @@ class ContactViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='stats')
     def stats(self, request):
         account_id = request.query_params.get('account')
-        qs = WhatsAppContact.objects.all()
+        qs = scope_queryset_to_visible_accounts(WhatsAppContact.objects.all(), request.user, account_field='account')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            qs = qs.filter(account=_visible_account_or_none(request.user, account_id))
         return Response({
             'total':    qs.count(),
             'phone':    qs.filter(wa_contact_id__endswith='@s.whatsapp.net').count(),
@@ -1001,11 +1105,15 @@ class GroupViewSet(viewsets.ReadOnlyModelViewSet):
         return GroupSerializer
 
     def get_queryset(self):
-        qs = WhatsAppGroup.objects.select_related('account', 'community').order_by('-updated_at')
+        qs = scope_queryset_to_visible_accounts(
+            WhatsAppGroup.objects.select_related('account', 'community').order_by('-updated_at'),
+            self.request.user,
+            account_field='account',
+        )
 
         account_id = self.request.query_params.get('account')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            qs = qs.filter(account=_visible_account_or_none(self.request.user, account_id))
 
         group_type = self.request.query_params.get('type')
         if group_type == 'community':
@@ -1026,9 +1134,9 @@ class GroupViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=['get'], url_path='stats')
     def stats(self, request):
         account_id = request.query_params.get('account')
-        qs = WhatsAppGroup.objects.all()
+        qs = scope_queryset_to_visible_accounts(WhatsAppGroup.objects.all(), request.user, account_field='account')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            qs = qs.filter(account=_visible_account_or_none(request.user, account_id))
         return Response({
             'total':       qs.count(),
             'communities': qs.filter(is_community=True).count(),
@@ -1041,9 +1149,8 @@ class GroupViewSet(viewsets.ReadOnlyModelViewSet):
         account_id = request.data.get('account')
         if not account_id:
             return Response({'error': 'account is required'}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            account = WhatsAppAccount.objects.get(pk=account_id)
-        except WhatsAppAccount.DoesNotExist:
+        account = _visible_account_or_none(request.user, account_id)
+        if not account:
             return Response({'error': 'Account not found'}, status=status.HTTP_404_NOT_FOUND)
 
         try:
@@ -1080,6 +1187,104 @@ class GroupViewSet(viewsets.ReadOnlyModelViewSet):
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
 
+def _serialize_auth_user(user):
+    current_company = default_company_for_user(user)
+    visible_companies = available_companies_queryset(user)
+    memberships = {
+        membership.company_id: membership
+        for membership in user.company_memberships.filter(
+            is_active=True,
+            company__is_active=True,
+        ).select_related('company')
+    }
+
+
+def _serialize_auth_user(user):
+    current_company = default_company_for_user(user)
+    visible_companies = available_companies_queryset(user)
+    memberships = {
+        membership.company_id: membership
+        for membership in user.company_memberships.filter(
+            is_active=True,
+            company__is_active=True,
+        ).select_related('company')
+    }
+    company_payload = None
+    if current_company:
+        current_membership = memberships.get(current_company.pk)
+        company_payload = {
+            'id': current_company.pk,
+            'name': current_company.name,
+            'slug': current_company.slug,
+            'company_type': current_company.company_type,
+            'industry_type': current_company.industry_type,
+            'role': current_membership.role if current_membership else ('super_user' if user.is_superuser else ''),
+        }
+
+    return {
+        'id': user.pk,
+        'username': user.username,
+        'email': user.email,
+        'is_superuser': user.is_superuser,
+        'current_company': company_payload,
+        'memberships': [
+            {
+                'company': {
+                    'id': company.pk,
+                    'name': company.name,
+                    'slug': company.slug,
+                    'company_type': company.company_type,
+                    'industry_type': company.industry_type,
+                },
+                'role': memberships[company.pk].role if company.pk in memberships else ('super_user' if user.is_superuser else ''),
+            }
+            for company in visible_companies
+        ],
+    }
+
+
+def _require_control_admin(request):
+    if is_control_company_admin(request.user):
+        return None
+    return Response({'detail': 'Control company admin access required'}, status=status.HTTP_403_FORBIDDEN)
+
+
+def _serialize_company(company):
+    membership_count = company.memberships.filter(is_active=True).count()
+    return {
+        'id': company.pk,
+        'name': company.name,
+        'slug': company.slug,
+        'company_type': company.company_type,
+        'industry_type': company.industry_type,
+        'is_active': company.is_active,
+        'valid_from': company.valid_from.isoformat() if company.valid_from else None,
+        'valid_until': company.valid_until.isoformat() if company.valid_until else None,
+        'notes': company.notes,
+        'membership_count': membership_count,
+        'created_at': company.created_at.isoformat() if company.created_at else None,
+    }
+
+
+def _serialize_membership(membership):
+    return {
+        'id': membership.pk,
+        'role': membership.role,
+        'is_active': membership.is_active,
+        'joined_at': membership.joined_at.isoformat() if membership.joined_at else None,
+        'company': {
+            'id': membership.company.pk,
+            'name': membership.company.name,
+            'slug': membership.company.slug,
+        },
+        'user': {
+            'id': membership.user.pk,
+            'username': membership.user.username,
+            'email': membership.user.email,
+        },
+    }
+
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def auth_login_view(request):
@@ -1089,12 +1294,15 @@ def auth_login_view(request):
     if user is None:
         return Response({'detail': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
     auth_login(request, user)
-    return Response({'id': user.pk, 'username': user.username, 'email': user.email})
+    current_company = default_company_for_user(user)
+    request.session[ACTIVE_COMPANY_SESSION_KEY] = current_company.pk if current_company else None
+    return Response(_serialize_auth_user(user))
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def auth_logout_view(request):
+    request.session.pop(ACTIVE_COMPANY_SESSION_KEY, None)
     auth_logout(request)
     return Response({'detail': 'Logged out'})
 
@@ -1103,4 +1311,108 @@ def auth_logout_view(request):
 @permission_classes([IsAuthenticated])
 def auth_me_view(request):
     u = request.user
-    return Response({'id': u.pk, 'username': u.username, 'email': u.email})
+    return Response(_serialize_auth_user(u))
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def auth_select_company_view(request):
+    company_id = request.data.get('company_id')
+    try:
+        company_id = int(company_id)
+    except (TypeError, ValueError):
+        return Response({'detail': 'company_id must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not can_user_access_company(request.user, company_id):
+        return Response({'detail': 'Company not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    request.session[ACTIVE_COMPANY_SESSION_KEY] = company_id
+    request.user.active_company = available_companies_queryset(request.user).filter(pk=company_id).first()
+    return Response(_serialize_auth_user(request.user))
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def admin_companies_view(request):
+    denied = _require_control_admin(request)
+    if denied:
+        return denied
+
+    companies = Company.objects.all().order_by('name')
+    return Response([_serialize_company(company) for company in companies])
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def admin_company_enroll_view(request):
+    denied = _require_control_admin(request)
+    if denied:
+        return denied
+
+    company_name = (request.data.get('company_name') or '').strip()
+    email = (request.data.get('email') or '').strip()
+    username = (request.data.get('username') or '').strip()
+    password = request.data.get('password') or ''
+    industry_type = (request.data.get('industry_type') or Company.INDUSTRY_GENERAL).strip()
+
+    try:
+        result = CompanyEnrollmentService().enroll_company(
+            company_name=company_name,
+            email=email,
+            username=username,
+            password=password,
+            industry_type=industry_type,
+        )
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    company = Company.objects.get(pk=result.company_id)
+    membership = CompanyMembership.objects.select_related('company', 'user').get(pk=result.membership_id)
+    return Response(
+        {
+            'company': _serialize_company(company),
+            'membership': _serialize_membership(membership),
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def admin_company_users_view(request):
+    denied = _require_control_admin(request)
+    if denied:
+        return denied
+
+    if request.method == 'GET':
+        company_id = request.query_params.get('company_id')
+        memberships = CompanyMembership.objects.select_related('company', 'user').filter(is_active=True)
+        if company_id:
+            memberships = memberships.filter(company_id=company_id)
+        memberships = memberships.order_by('company__name', 'user__username')
+        return Response([_serialize_membership(membership) for membership in memberships])
+
+    company_id = request.data.get('company_id')
+    email = (request.data.get('email') or '').strip()
+    username = (request.data.get('username') or '').strip()
+    password = request.data.get('password') or ''
+    role = (request.data.get('role') or CompanyMembership.ROLE_USER).strip()
+
+    try:
+        company = Company.objects.get(pk=company_id, is_active=True)
+    except Company.DoesNotExist:
+        return Response({'detail': 'Company not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        result = CompanyEnrollmentService().create_company_user(
+            company=company,
+            email=email,
+            username=username,
+            password=password,
+            role=role,
+        )
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    membership = CompanyMembership.objects.select_related('company', 'user').get(pk=result.membership_id)
+    return Response(_serialize_membership(membership), status=status.HTTP_201_CREATED)

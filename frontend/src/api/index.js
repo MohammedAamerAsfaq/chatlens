@@ -31,6 +31,7 @@ export const authApi = {
   login:  (data)  => http.post('/auth/login/',  data),
   logout: ()      => http.post('/auth/logout/'),
   me:     ()      => http.get('/auth/me/'),
+  selectCompany: (company_id) => http.post('/auth/select-company/', { company_id }),
 }
 
 export const accountsApi = {
@@ -230,4 +231,11 @@ export const aiProvidersApi = {
   test:        (id)            => http.post(`/ai-providers/${id}/test/`),
   meta:        ()              => http.get('/ai-providers/meta/'),
   fetchModels: (data)          => http.post('/ai-providers/fetch-models/', data),
+}
+
+export const tenantAdminApi = {
+  listCompanies: () => http.get('/admin/companies/'),
+  enrollCompany: (data) => http.post('/admin/companies/enroll/', data),
+  listUsers: (params) => http.get('/admin/users/', { params }),
+  createUser: (data) => http.post('/admin/users/', data),
 }

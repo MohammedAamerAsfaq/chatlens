@@ -29,6 +29,7 @@ INSTALLED_APPS = [
 
     'rest_framework',
 
+    'apps.tenancy',
     'apps.chatlens_core',
     'apps.whatsapp_bridge',
     'apps.message_intelligence',
@@ -43,6 +44,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'apps.tenancy.middleware.ActiveCompanyMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]

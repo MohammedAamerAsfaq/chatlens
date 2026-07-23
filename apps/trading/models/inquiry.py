@@ -28,6 +28,12 @@ class Inquiry(models.Model):
         ('community', 'Community'),
     ]
 
+    company = models.ForeignKey(
+        'tenancy.Company',
+        null=True, blank=True,
+        on_delete=models.CASCADE,
+        related_name='inquiries',
+    )
     account = models.ForeignKey(
         'whatsapp_bridge.WhatsAppAccount',
         on_delete=models.CASCADE,

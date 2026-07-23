@@ -11,15 +11,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def parse_against_inventory(text: str, prompt_key: str, prompt_default: str) -> list:
+def parse_against_inventory(text: str, prompt_key: str, prompt_default: str, company=None) -> list:
     """Runs the two-list AI match (supplier list vs. our own inventory) and returns
     the parsed items. Raises on any failure — callers decide how to surface it."""
     from apps.trading.services.product_cache import get_full_product_prompt_block
     from apps.trading.services.agent_logger import call_agent
     from apps.trading.models import PromptConfig
 
-    product_block = get_full_product_prompt_block()
-    system_prompt = PromptConfig.get_body(prompt_key, prompt_default).replace('{product_block}', product_block)
+    product_block = get_full_product_prompt_block(company=company)
+    system_prompt = PromptConfig.get_body(prompt_key, prompt_default, company=company).replace('{product_block}', product_block)
 
     raw = call_agent(
         prompt_key,
@@ -38,7 +38,7 @@ def parse_against_inventory(text: str, prompt_key: str, prompt_default: str) -> 
     return items
 
 
-def _match_product(item: dict):
+def _match_product(item: dict, company=None):
     """Resolve one parsed item to a Product: by product_id first, then by exact
     (case-insensitive) name among active products. Returns (product_or_None, name)."""
     from apps.trading.models import Product
@@ -48,28 +48,28 @@ def _match_product(item: dict):
 
     product = None
     if product_id:
-        product = Product.objects.filter(pk=product_id).first()
+        product = Product.objects.filter(pk=product_id, company=company).first()
     if not product and name:
-        product = Product.objects.filter(name__iexact=name, is_active=True).first()
+        product = Product.objects.filter(name__iexact=name, is_active=True, company=company).first()
     return product, name
 
 
-def preview_zero_candidates(items: list) -> dict:
+def preview_zero_candidates(items: list, company=None) -> dict:
     """Dry-run companion to apply_items_to_inventory(zero_unmatched_qty=True) —
     resolves which active, currently-nonzero-qty products would be zeroed by this
     exact item list, without writing anything. Lets the UI show a confirmation
     count before an apply that would zero stock."""
     from apps.trading.models import Product
 
-    matched_ids = {product.pk for item in items if (product := _match_product(item)[0])}
+    matched_ids = {product.pk for item in items if (product := _match_product(item, company=company)[0])}
     missing = list(
-        Product.objects.filter(is_active=True).exclude(pk__in=matched_ids).exclude(qty=0)
+        Product.objects.filter(is_active=True, company=company).exclude(pk__in=matched_ids).exclude(qty=0)
         .order_by('name').values('id', 'name', 'qty')
     )
     return {'count': len(missing), 'products': missing}
 
 
-def apply_items_to_inventory(items: list, fields: list, zero_unmatched_qty: bool = False) -> dict:
+def apply_items_to_inventory(items: list, fields: list, zero_unmatched_qty: bool = False, company=None) -> dict:
     """Writes parsed items back onto Product rows. `fields` is a list of
     (payload_key, product_attr) pairs to copy across when present, e.g.
     [('qty', 'qty'), ('cost_price', 'cost_price')] or [('sale_price', 'sale_price')].
@@ -87,7 +87,7 @@ def apply_items_to_inventory(items: list, fields: list, zero_unmatched_qty: bool
     matched_ids = set()
 
     for item in items:
-        product, name = _match_product(item)
+        product, name = _match_product(item, company=company)
         if not product:
             skipped.append(name or str(item.get('product_id')))
             continue
@@ -110,7 +110,7 @@ def apply_items_to_inventory(items: list, fields: list, zero_unmatched_qty: bool
     zeroed = []
     if zero_unmatched_qty:
         from apps.trading.models import Product
-        missing = Product.objects.filter(is_active=True).exclude(pk__in=matched_ids).exclude(qty=0)
+        missing = Product.objects.filter(is_active=True, company=company).exclude(pk__in=matched_ids).exclude(qty=0)
         for product in missing:
             product.qty = 0
             product.save(update_fields=['qty', 'updated_at'])

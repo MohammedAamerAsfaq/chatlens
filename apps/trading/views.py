@@ -7,10 +7,17 @@ from django.utils.timezone import now, make_aware
 from datetime import timedelta, date as _date, datetime as _datetime, time as _time
 from rest_framework import viewsets, mixins, status
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from apps.tenancy.services.access import (
+    default_company_for_user,
+    scope_queryset_to_visible_accounts,
+    scope_queryset_to_visible_companies,
+    visible_accounts_queryset,
+)
 from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, AgentCallLog, AiParsingLog, BuyingInquiry, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture
 from .serializers import (
     ProductSerializer,
@@ -28,6 +35,33 @@ from .serializers import (
 from .services.product_cache import invalidate as invalidate_product_cache
 
 logger = logging.getLogger(__name__)
+
+
+def _visible_account_or_none(user, account_id):
+    if not account_id:
+        return None
+    return visible_accounts_queryset(user).filter(pk=account_id).first()
+
+
+def _visible_product_or_none(user, product_id):
+    if not product_id:
+        return None
+    return scope_queryset_to_visible_companies(
+        Product.objects.all(),
+        user,
+        company_field='company',
+    ).filter(pk=product_id).first()
+
+
+def _visible_rule_queryset(user, qs=None):
+    qs = qs if qs is not None else AutomationRule.objects.all()
+    if user.is_superuser:
+        return qs
+    visible_account_ids = visible_accounts_queryset(user).values('pk')
+    return qs.filter(
+        Q(sources__contact__account__in=visible_account_ids) |
+        Q(sources__group__account__in=visible_account_ids)
+    ).distinct()
 
 
 def _resolve_date_range(request):
@@ -124,7 +158,11 @@ class ProductViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        qs = Product.objects.all().select_related('embedding').prefetch_related('alias_set__embedding', 'attribute_set')
+        qs = scope_queryset_to_visible_companies(
+            Product.objects.all().select_related('embedding').prefetch_related('alias_set__embedding', 'attribute_set'),
+            self.request.user,
+            company_field='company',
+        )
         active = self.request.query_params.get('active')
         if active == 'true':
             qs = qs.filter(is_active=True)
@@ -133,7 +171,8 @@ class ProductViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        product = serializer.save()
+        company = default_company_for_user(self.request.user)
+        product = serializer.save(company=company)
         invalidate_product_cache()
         _embed_product_in_background(product.pk)
 
@@ -161,6 +200,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         system_prompt = PromptConfig.get_body(
             PromptConfig.KEY_PRODUCT_EXTRACTION,
             PRODUCT_EXTRACTION_DEFAULT,
+            company=default_company_for_user(request.user),
         )
 
         messages = [
@@ -195,10 +235,11 @@ class ProductViewSet(viewsets.ModelViewSet):
             name = (item.get('name') or '').strip()
             if not name:
                 continue
-            if Product.objects.filter(name__iexact=name).exists():
+            if self.get_queryset().filter(name__iexact=name).exists():
                 skipped.append(name)
                 continue
             p = Product.objects.create(
+                company=default_company_for_user(request.user),
                 name=name,
                 brand=(item.get('brand') or '').strip(),
                 category=(item.get('category') or '').strip(),
@@ -313,10 +354,11 @@ class ProductViewSet(viewsets.ModelViewSet):
         from apps.trading.services.product_cache import get_product_prompt_block
         from apps.trading.services.agent_logger import call_agent
 
-        product_block = get_product_prompt_block()
+        product_block = get_product_prompt_block(company=default_company_for_user(request.user))
         system_prompt = PromptConfig.get_body(
             PromptConfig.KEY_INVENTORY_UPDATE,
             INVENTORY_UPDATE_DEFAULT,
+            company=default_company_for_user(request.user),
         ).replace('{product_block}', product_block)
 
         parts = []
@@ -365,12 +407,9 @@ class ProductViewSet(viewsets.ModelViewSet):
 
             product = None
             if product_id:
-                try:
-                    product = Product.objects.get(pk=product_id)
-                except Product.DoesNotExist:
-                    pass
+                product = _visible_product_or_none(request.user, product_id)
             if not product and name:
-                product = Product.objects.filter(name__iexact=name, is_active=True).first()
+                product = self.get_queryset().filter(name__iexact=name, is_active=True).first()
 
             if not product:
                 skipped.append(name or str(product_id))
@@ -402,7 +441,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         """Return the current AI-formatted price list (empty body if never generated)."""
         from apps.trading.models import FormattedPriceList
 
-        obj = FormattedPriceList.get_current()
+        obj = FormattedPriceList.get_current(company=default_company_for_user(request.user))
         return Response({
             'body':         obj.body if obj else '',
             'generated_at': obj.generated_at.isoformat() if obj and obj.generated_at else None,
@@ -414,7 +453,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         from apps.trading.services.price_list_service import generate_price_list
 
         try:
-            obj = generate_price_list()
+            obj = generate_price_list(default_company_for_user(request.user))
         except Exception as exc:
             logger.exception('regenerate_price_list | failed')
             return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -454,9 +493,11 @@ class ProductViewSet(viewsets.ModelViewSet):
             logger.warning(f'search_embeddings | query={query!r} failed: {exc}')
             return Response({'detail': 'Embedding search unavailable'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
+        visible_product_ids = set(self.get_queryset().values_list('id', flat=True))
         results = [
             {'product': ProductSerializer(hit.product).data, 'distance': round(float(hit.distance), 4)}
             for hit in hits
+            if hit.product_id in visible_product_ids
         ]
         return Response({'results': results})
 
@@ -470,14 +511,25 @@ class ProductViewSet(viewsets.ModelViewSet):
         silently sitting broken forever."""
         from apps.message_intelligence.models import ProductEmbedding, ProductAliasEmbedding
 
-        product_total = Product.objects.filter(is_active=True).count()
+        visible_products = scope_queryset_to_visible_companies(
+            Product.objects.filter(is_active=True),
+            request.user,
+            company_field='company',
+        )
+        visible_aliases = scope_queryset_to_visible_companies(
+            ProductAlias.objects.filter(product__is_active=True),
+            request.user,
+            company_field='product__company',
+        )
+
+        product_total = visible_products.count()
         product_embedded = ProductEmbedding.objects.filter(
-            product__is_active=True, embedding__isnull=False,
+            product__in=visible_products, embedding__isnull=False,
         ).count()
 
-        alias_total = ProductAlias.objects.filter(product__is_active=True).count()
+        alias_total = visible_aliases.count()
         alias_embedded = ProductAliasEmbedding.objects.filter(
-            alias__product__is_active=True, embedding__isnull=False,
+            alias__in=visible_aliases, embedding__isnull=False,
         ).count()
 
         return Response({
@@ -496,13 +548,24 @@ class ProductViewSet(viewsets.ModelViewSet):
         )
         from apps.message_intelligence.models import ProductEmbedding, ProductAliasEmbedding
 
+        visible_products = scope_queryset_to_visible_companies(
+            Product.objects.filter(is_active=True),
+            request.user,
+            company_field='company',
+        )
+        visible_aliases = scope_queryset_to_visible_companies(
+            ProductAlias.objects.filter(product__is_active=True),
+            request.user,
+            company_field='product__company',
+        )
+
         missing_product_ids = list(
-            Product.objects.filter(is_active=True)
+            visible_products
             .exclude(id__in=ProductEmbedding.objects.filter(embedding__isnull=False).values('product_id'))
             .values_list('id', flat=True)
         )
         missing_alias_ids = list(
-            ProductAlias.objects.filter(product__is_active=True)
+            visible_aliases
             .exclude(id__in=ProductAliasEmbedding.objects.filter(embedding__isnull=False).values('alias_id'))
             .values_list('id', flat=True)
         )
@@ -520,11 +583,17 @@ class ProductViewSet(viewsets.ModelViewSet):
         account_id = request.query_params.get('account')
 
         qs = Inquiry.objects.filter(first_seen_at__gte=start, first_seen_at__lt=end)
+        qs = scope_queryset_to_visible_companies(qs, request.user, company_field='company')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            visible_account = _visible_account_or_none(request.user, account_id)
+            qs = qs.filter(account=visible_account) if visible_account else qs.none()
 
         product_ids = list(
-            Product.objects.filter(is_active=True).values_list('id', 'name', 'brand')
+            scope_queryset_to_visible_companies(
+                Product.objects.filter(is_active=True),
+                request.user,
+                company_field='company',
+            ).values_list('id', 'name', 'brand')
         )
         results = []
         for pk, name, brand in product_ids:
@@ -558,11 +627,16 @@ class InquiryViewSet(viewsets.GenericViewSet,
         return InquirySerializer
 
     def get_queryset(self):
-        qs = Inquiry.objects.select_related('account', 'contact').order_by('-first_seen_at')
+        qs = scope_queryset_to_visible_companies(
+            Inquiry.objects.select_related('account', 'contact').order_by('-first_seen_at'),
+            self.request.user,
+            company_field='company',
+        )
         p = self.request.query_params
 
         if account_id := p.get('account'):
-            qs = qs.filter(account_id=account_id)
+            visible_account = _visible_account_or_none(self.request.user, account_id)
+            qs = qs.filter(account=visible_account) if visible_account else qs.none()
         if status := p.get('status'):
             qs = qs.filter(status=status)
         if inquiry_type := p.get('type'):
@@ -627,9 +701,8 @@ class InquiryViewSet(viewsets.GenericViewSet,
         except (ValueError, TypeError, IndexError):
             return Response({'detail': 'invalid index'}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            product = Product.objects.get(id=product_id)
-        except Product.DoesNotExist:
+        product = _visible_product_or_none(request.user, product_id)
+        if not product:
             return Response({'detail': 'product not found'}, status=status.HTTP_400_BAD_REQUEST)
 
         line['product_id'] = product.id
@@ -655,10 +728,12 @@ class InquiryViewSet(viewsets.GenericViewSet,
 
         cutoff = now() - timedelta(hours=hours)
         qs = Inquiry.objects.filter(status=InquiryStatus.OPEN, first_seen_at__lte=cutoff)
+        qs = scope_queryset_to_visible_companies(qs, request.user, company_field='company')
 
         account_id = request.data.get('account')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            visible_account = _visible_account_or_none(request.user, account_id)
+            qs = qs.filter(account=visible_account) if visible_account else qs.none()
 
         closed_count = qs.update(status=InquiryStatus.CLOSED, closed_at=now())
         return Response({'closed': closed_count})
@@ -669,8 +744,10 @@ class InquiryViewSet(viewsets.GenericViewSet,
         account_id = request.query_params.get('account')
 
         qs = Inquiry.objects.filter(first_seen_at__gte=start, first_seen_at__lt=end)
+        qs = scope_queryset_to_visible_companies(qs, request.user, company_field='company')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            visible_account = _visible_account_or_none(request.user, account_id)
+            qs = qs.filter(account=visible_account) if visible_account else qs.none()
 
         missed_cutoff = now() - timedelta(minutes=60)
 
@@ -786,11 +863,13 @@ class InquiryViewSet(viewsets.GenericViewSet,
 
         today = now().replace(hour=0, minute=0, second=0, microsecond=0)
         qs = Inquiry.objects.filter(first_seen_at__gte=today).select_related('account', 'contact')
+        qs = scope_queryset_to_visible_companies(qs, request.user, company_field='company')
 
         if status_val and status_val != 'all':
             qs = qs.filter(status=status_val)
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            visible_account = _visible_account_or_none(request.user, account_id)
+            qs = qs.filter(account=visible_account) if visible_account else qs.none()
         if type_val in ('buy', 'sell'):
             qs = qs.filter(inquiry_type=type_val)
 
@@ -808,8 +887,10 @@ class InquiryViewSet(viewsets.GenericViewSet,
         start, end = _resolve_date_range(request)
 
         qs = MessageClassification.objects.filter(classified_at__gte=start, classified_at__lt=end)
+        qs = scope_queryset_to_visible_accounts(qs, request.user, account_field='message__account')
         if account_id:
-            qs = qs.filter(message__account_id=account_id)
+            visible_account = _visible_account_or_none(request.user, account_id)
+            qs = qs.filter(message__account=visible_account) if visible_account else qs.none()
 
         total      = qs.count()
         as_inquiry = qs.filter(is_inquiry=True).count()
@@ -867,8 +948,10 @@ class InquiryViewSet(viewsets.GenericViewSet,
         ).exclude(inquiry_type='').select_related(
             'message', 'message__account', 'message__chat', 'message__contact',
         )
+        mc_qs = scope_queryset_to_visible_accounts(mc_qs, request.user, account_field='message__account')
         if account_id:
-            mc_qs = mc_qs.filter(message__account_id=account_id)
+            visible_account = _visible_account_or_none(request.user, account_id)
+            mc_qs = mc_qs.filter(message__account=visible_account) if visible_account else mc_qs.none()
 
         # Exclude those already linked to an Inquiry
         linked_message_ids = set(
@@ -924,8 +1007,10 @@ class InquiryViewSet(viewsets.GenericViewSet,
             .select_related('account', 'chat', 'contact')
             .order_by('-message_time')
         )
+        qs = scope_queryset_to_visible_accounts(qs, request.user, account_field='account')
         if account_id:
-            qs = qs.filter(account_id=account_id)
+            visible_account = _visible_account_or_none(request.user, account_id)
+            qs = qs.filter(account=visible_account) if visible_account else qs.none()
 
         queued = 0
         for msg in qs[:200]:
@@ -953,6 +1038,7 @@ class MessageClassificationViewSet(viewsets.GenericViewSet, mixins.ListModelMixi
 
     def get_queryset(self):
         qs = MessageClassification.objects.order_by('-classified_at')
+        qs = scope_queryset_to_visible_accounts(qs, self.request.user, account_field='message__account')
         if message_id := self.request.query_params.get('message'):
             qs = qs.filter(message_id=message_id)
         return qs
@@ -971,7 +1057,8 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
             PromptConfig.KEY_QTY_COST_UPDATE:        (QTY_COST_UPDATE_DEFAULT,        'Qty & Cost Update (Product Price Update page)'),
             PromptConfig.KEY_SALE_PRICE_UPDATE:      (SALE_PRICE_UPDATE_DEFAULT,      'Sale Price Update (Product Price Update page)'),
         }
-        saved = {p.key: p for p in PromptConfig.objects.all()}
+        company = default_company_for_user(request.user)
+        saved = {p.key: p for p in PromptConfig.objects.filter(company=company)}
         result = []
         for key, (default_body, label) in defaults.items():
             obj = saved.get(key)
@@ -1031,7 +1118,9 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
             PromptConfig.KEY_SALE_PRICE_UPDATE:      'Sale Price Update (Product Price Update page)',
         }
         label = defaults_map.get(key, key)
+        company = default_company_for_user(request.user)
         obj, _ = PromptConfig.objects.update_or_create(
+            company=company,
             key=key,
             defaults={'body': body, 'label': label},
         )
@@ -1045,7 +1134,7 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
 
     def destroy(self, request, pk=None):
         """Reset a prompt to its default by deleting the saved override."""
-        PromptConfig.objects.filter(key=pk).delete()
+        PromptConfig.objects.filter(company=default_company_for_user(request.user), key=pk).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -1118,9 +1207,11 @@ class AiParsingLogViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = AiParsingLog.objects.select_related('account', 'chat', 'message').order_by('-created_at')
+        qs = scope_queryset_to_visible_accounts(qs, self.request.user, account_field='account')
         p = self.request.query_params
         if account_id := p.get('account'):
-            qs = qs.filter(account_id=account_id)
+            visible_account = _visible_account_or_none(self.request.user, account_id)
+            qs = qs.filter(account=visible_account) if visible_account else qs.none()
         if status_ := p.get('status'):
             qs = qs.filter(status=status_)
         if reason := p.get('skip_reason'):
@@ -1139,16 +1230,21 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
             .prefetch_related('supplier_quotes__supplier')
             .order_by('-created_at')
         )
+        qs = scope_queryset_to_visible_accounts(qs, self.request.user, account_field='account')
         p = self.request.query_params
         if account_id := p.get('account'):
-            qs = qs.filter(account_id=account_id)
+            visible_account = _visible_account_or_none(self.request.user, account_id)
+            qs = qs.filter(account=visible_account) if visible_account else qs.none()
         if status_ := p.get('status'):
             qs = qs.filter(status=status_)
         return qs
 
     def perform_create(self, serializer):
         from apps.whatsapp_bridge.models import WhatsAppContact
-        inquiry = serializer.save()
+        account = _visible_account_or_none(self.request.user, self.request.data.get('account'))
+        if not account:
+            raise ValidationError({'account': 'A visible account is required to create a buying inquiry.'})
+        inquiry = serializer.save(account=account)
         # Auto-populate a supplier card for every contact currently tagged 'supplier' or
         # 'both' on this account — the user can add/remove individual suppliers afterward.
         suppliers = WhatsAppContact.objects.filter(account=inquiry.account, category__in=['supplier', 'both'])
@@ -1178,7 +1274,13 @@ class SupplierQuoteViewSet(
 ):
     serializer_class = SupplierQuoteSerializer
     permission_classes = [IsAuthenticated]
-    queryset = SupplierQuote.objects.select_related('supplier', 'buying_inquiry')
+
+    def get_queryset(self):
+        return scope_queryset_to_visible_accounts(
+            SupplierQuote.objects.select_related('supplier', 'buying_inquiry'),
+            self.request.user,
+            account_field='buying_inquiry__account',
+        )
 
     @action(detail=True, methods=['post'], url_path='ask')
     def ask(self, request, pk=None):
@@ -1222,9 +1324,16 @@ class ReportViewSet(viewsets.ViewSet):
             direction='inbound', message_time__gte=start, message_time__lt=end,
         )
         inquiries_qs = Inquiry.objects.filter(first_seen_at__gte=start, first_seen_at__lt=end)
+        messages_qs = scope_queryset_to_visible_accounts(messages_qs, request.user, account_field='account')
+        inquiries_qs = scope_queryset_to_visible_companies(inquiries_qs, request.user, company_field='company')
         if account_id:
-            messages_qs = messages_qs.filter(account_id=account_id)
-            inquiries_qs = inquiries_qs.filter(account_id=account_id)
+            visible_account = _visible_account_or_none(request.user, account_id)
+            if visible_account:
+                messages_qs = messages_qs.filter(account=visible_account)
+                inquiries_qs = inquiries_qs.filter(account=visible_account)
+            else:
+                messages_qs = messages_qs.none()
+                inquiries_qs = inquiries_qs.none()
 
         totals = inquiries_qs.aggregate(
             wtb_total=Count('id', filter=Q(inquiry_type='buy')),
@@ -1334,7 +1443,10 @@ class TradingSettingsViewSet(viewsets.ViewSet):
         from apps.chatlens_core.models import SystemSettings
 
         if request.method == 'GET':
-            obj = SystemSettings.objects.filter(key=self.WTS_REPLY_KEY).first()
+            obj = SystemSettings.objects.filter(
+                company=default_company_for_user(request.user),
+                key=self.WTS_REPLY_KEY,
+            ).first()
             saved = {}
             if obj and obj.value:
                 try:
@@ -1387,6 +1499,7 @@ class TradingSettingsViewSet(viewsets.ViewSet):
             ),
         }
         SystemSettings.objects.update_or_create(
+            company=default_company_for_user(request.user),
             key=self.WTS_REPLY_KEY,
             defaults={
                 'value': json.dumps(payload),
@@ -1419,7 +1532,12 @@ class ProductPriceUpdateViewSet(viewsets.ViewSet):
         from apps.trading.services.price_update_service import parse_against_inventory
 
         try:
-            items = parse_against_inventory(text, prompt_key, prompt_default)
+            items = parse_against_inventory(
+                text,
+                prompt_key,
+                prompt_default,
+                company=default_company_for_user(request.user),
+            )
             return Response({'items': items})
         except Exception as exc:
             logger.exception('ProductPriceUpdateViewSet | parse failed | prompt_key=%s', prompt_key)
@@ -1431,7 +1549,12 @@ class ProductPriceUpdateViewSet(viewsets.ViewSet):
         from apps.trading.services.price_update_service import apply_items_to_inventory
 
         items = request.data.get('items') or []
-        result = apply_items_to_inventory(items, fields, zero_unmatched_qty=zero_unmatched_qty)
+        result = apply_items_to_inventory(
+            items,
+            fields,
+            zero_unmatched_qty=zero_unmatched_qty,
+            company=default_company_for_user(request.user),
+        )
         return Response(result)
 
     @action(detail=False, methods=['post'], url_path='parse-qty-cost')
@@ -1454,7 +1577,7 @@ class ProductPriceUpdateViewSet(viewsets.ViewSet):
         from apps.trading.services.price_update_service import preview_zero_candidates
 
         items = request.data.get('items') or []
-        return Response(preview_zero_candidates(items))
+        return Response(preview_zero_candidates(items, company=default_company_for_user(request.user)))
 
     @action(detail=False, methods=['post'], url_path='parse-sale-price')
     def parse_sale_price(self, request):
@@ -1474,9 +1597,15 @@ class AutomationRuleViewSet(viewsets.ModelViewSet):
     individual source rows for what's a small, human-edited list."""
     serializer_class = AutomationRuleSerializer
     permission_classes = [IsAuthenticated]
-    queryset = AutomationRule.objects.all().prefetch_related(
-        'sources__contact__account', 'sources__group__account',
-    ).order_by('-created_at')
+    queryset = AutomationRule.objects.none()
+
+    def get_queryset(self):
+        return _visible_rule_queryset(
+            self.request.user,
+            AutomationRule.objects.prefetch_related(
+                'sources__contact__account', 'sources__group__account',
+            ).order_by('-created_at'),
+        )
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -1496,6 +1625,8 @@ class AutomationRuleViewSet(viewsets.ModelViewSet):
         return Response(AutomationRuleSerializer(rule).data)
 
     def _sync_sources(self, rule, sources_data):
+        from apps.whatsapp_bridge.models import WhatsAppContact, WhatsAppGroup
+
         valid_types = dict(AutomationRuleSource.SOURCE_TYPE_CHOICES)
         rule.sources.all().delete()
         objs = []
@@ -1511,6 +1642,18 @@ class AutomationRuleViewSet(viewsets.ModelViewSet):
                 continue
             if source_type == AutomationRuleSource.SOURCE_CONTACT_IN_GROUP and not (contact_id and group_id):
                 continue
+            if contact_id and not scope_queryset_to_visible_accounts(
+                WhatsAppContact.objects.filter(pk=contact_id),
+                self.request.user,
+                account_field='account',
+            ).exists():
+                raise ValidationError({'sources': f'Contact {contact_id} is not visible to this user.'})
+            if group_id and not scope_queryset_to_visible_accounts(
+                WhatsAppGroup.objects.filter(pk=group_id),
+                self.request.user,
+                account_field='account',
+            ).exists():
+                raise ValidationError({'sources': f'Group {group_id} is not visible to this user.'})
             objs.append(AutomationRuleSource(
                 rule=rule,
                 source_type=source_type,
@@ -1542,6 +1685,7 @@ class AutomatedPriceCaptureViewSet(viewsets.GenericViewSet, mixins.ListModelMixi
             .select_related('rule', 'message', 'message__contact', 'message__chat')
             .order_by('-created_at')
         )
+        qs = scope_queryset_to_visible_accounts(qs, self.request.user, account_field='message__account')
         status_ = self.request.query_params.get('status')
         if status_:
             qs = qs.filter(status=status_)
@@ -1576,9 +1720,16 @@ class AutomatedPriceCaptureViewSet(viewsets.GenericViewSet, mixins.ListModelMixi
     def summary(self, request):
         """Headline counts for the Automated Price Updates summary strip."""
         week_ago = now() - timedelta(days=7)
+        visible_rules = _visible_rule_queryset(request.user)
+        visible_rule_ids = visible_rules.values('pk')
+        visible_captures = scope_queryset_to_visible_accounts(
+            AutomatedPriceCapture.objects.all(),
+            request.user,
+            account_field='message__account',
+        )
         return Response({
-            'active_rules':       AutomationRule.objects.filter(is_active=True).count(),
-            'watched_sources':    AutomationRuleSource.objects.count(),
-            'captured_this_week': AutomatedPriceCapture.objects.filter(created_at__gte=week_ago).count(),
-            'queued':             AutomatedPriceCapture.objects.filter(status=AutomatedPriceCapture.STATUS_QUEUED).count(),
+            'active_rules':       visible_rules.filter(is_active=True).count(),
+            'watched_sources':    AutomationRuleSource.objects.filter(rule__in=visible_rule_ids).count(),
+            'captured_this_week': visible_captures.filter(created_at__gte=week_ago).count(),
+            'queued':             visible_captures.filter(status=AutomatedPriceCapture.STATUS_QUEUED).count(),
         })

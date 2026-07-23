@@ -8,6 +8,12 @@ class FormattedPriceList(models.Model):
     Used verbatim as the prefill text for the "Price List" WhatsApp button, instead of
     building that text ad hoc on every click.
     """
+    company      = models.OneToOneField(
+        'tenancy.Company',
+        null=True, blank=True,
+        on_delete=models.CASCADE,
+        related_name='formatted_price_list',
+    )
     body         = models.TextField(blank=True)
     generated_at = models.DateTimeField(null=True, blank=True)
     updated_at   = models.DateTimeField(auto_now=True)
@@ -19,5 +25,5 @@ class FormattedPriceList(models.Model):
         return f'Formatted price list (generated {self.generated_at})'
 
     @classmethod
-    def get_current(cls):
-        return cls.objects.filter(pk=1).first()
+    def get_current(cls, company=None):
+        return cls.objects.filter(company=company).first()

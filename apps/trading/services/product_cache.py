@@ -4,30 +4,40 @@ import threading
 logger = logging.getLogger(__name__)
 
 _lock  = threading.Lock()
-_cache = {'block': None}
+_cache = {}
+
+def _company_cache_key(company) -> str:
+    return str(company.pk) if company else 'none'
 
 
-def get_product_prompt_block() -> str:
+def get_product_prompt_block(company=None) -> str:
     """Return a compact product list string for AI prompt injection.
 
     Built from the active product catalogue and cached in-process.
     Call invalidate() after any product create/update/delete to force a rebuild
     on the next classification call.
     """
+    cache_key = _company_cache_key(company)
     with _lock:
-        if _cache['block'] is not None:
-            return _cache['block']
+        if cache_key in _cache:
+            return _cache[cache_key]
 
         from apps.trading.models import Product
+        products_qs = Product.objects.filter(is_active=True, qty__gt=0)
+        if company:
+            products_qs = products_qs.filter(company=company)
+        else:
+            products_qs = products_qs.none()
+
         products = list(
-            Product.objects.filter(is_active=True, qty__gt=0)
+            products_qs
             .prefetch_related('alias_set')
             .order_by('brand', 'name')
         )
 
         if not products:
-            _cache['block'] = '(no products configured)'
-            return _cache['block']
+            _cache[cache_key] = '(no products configured)'
+            return _cache[cache_key]
 
         lines = []
         for p in products:
@@ -38,19 +48,19 @@ def get_product_prompt_block() -> str:
                 line += f'  (also known as: {", ".join(aliases)})'
             lines.append(line)
 
-        _cache['block'] = '\n'.join(lines)
+        _cache[cache_key] = '\n'.join(lines)
         logger.debug('product_cache | rebuilt | products=%d', len(products))
-        return _cache['block']
+        return _cache[cache_key]
 
 
 def invalidate():
     """Invalidate the cached product block. Called when products change."""
     with _lock:
-        _cache['block'] = None
+        _cache.clear()
     logger.debug('product_cache | invalidated')
 
 
-def get_full_product_prompt_block() -> str:
+def get_full_product_prompt_block(company=None) -> str:
     """Same shape as get_product_prompt_block() but WITHOUT the qty>0 filter — every
     active product regardless of current stock level. Used by the Product Price
     Update page's qty/cost and sale-price matching (ProductPriceUpdateViewSet),
@@ -66,8 +76,13 @@ def get_full_product_prompt_block() -> str:
     the caching tradeoff that's worth it there doesn't apply here.
     """
     from apps.trading.models import Product
+    products_qs = Product.objects.filter(is_active=True)
+    if company:
+        products_qs = products_qs.filter(company=company)
+    else:
+        products_qs = products_qs.none()
     products = list(
-        Product.objects.filter(is_active=True)
+        products_qs
         .prefetch_related('alias_set')
         .order_by('brand', 'name')
     )

@@ -13,6 +13,20 @@ class SessionStatus(models.TextChoices):
 
 class WhatsAppAccount(models.Model):
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='whatsapp_accounts')
+    communication_account = models.OneToOneField(
+        'tenancy.CommunicationAccount',
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name='whatsapp_account',
+    )
+    primary_endpoint = models.ForeignKey(
+        'tenancy.AccountEndpoint',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+    )
     display_name = models.CharField(max_length=255, blank=True)
     phone_number = models.CharField(max_length=50, blank=True)
     session_status = models.CharField(

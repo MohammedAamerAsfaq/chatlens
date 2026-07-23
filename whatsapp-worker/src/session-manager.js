@@ -366,6 +366,7 @@ class SessionManager {
       // WhatsApp asks again, which costs one crash, already-safely-caught by Baileys.
       knownStuckMessageIds: new Set(),
     });
+    await this.djangoClient.replayFallbackReports?.();
     await this._connect(sessionId);
     return this._snapshot(sessionId);
   }

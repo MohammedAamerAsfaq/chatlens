@@ -26,6 +26,7 @@ VALID_CATEGORY_SUGGESTIONS = {'supplier', 'customer', 'both'}
 def _build_prompts(message, product_block: str) -> tuple[str, str]:
     from apps.whatsapp_bridge.models import ChatType
     from apps.trading.models import PromptConfig, INQUIRY_CLASSIFICATION_DEFAULT
+    from apps.tenancy.services.access import company_for_message
 
     chat = message.chat
     if chat.chat_type == ChatType.GROUP:
@@ -44,6 +45,7 @@ def _build_prompts(message, product_block: str) -> tuple[str, str]:
     system_template = PromptConfig.get_body(
         PromptConfig.KEY_INQUIRY_CLASSIFICATION,
         INQUIRY_CLASSIFICATION_DEFAULT,
+        company=company_for_message(message),
     )
     system = system_template.replace('{product_block}', product_block)
     user   = USER_PROMPT.format(
@@ -148,6 +150,7 @@ def classify_message(message) -> None:
     from apps.trading.models import MessageClassification
     from apps.trading.services.product_cache import get_product_prompt_block
     from apps.trading.services.inquiry_service import process_inquiry
+    from apps.tenancy.services.access import company_for_message
 
     msg_id = message.pk
 
@@ -159,7 +162,7 @@ def classify_message(message) -> None:
         from apps.trading.services.agent_logger import call_agent
         from apps.trading.models import AgentCallLog
 
-        product_block = get_product_prompt_block()
+        product_block = get_product_prompt_block(company=company_for_message(message))
         system_prompt, user_prompt = _build_prompts(message, product_block)
 
         raw_response = call_agent(

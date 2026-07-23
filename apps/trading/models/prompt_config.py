@@ -285,20 +285,29 @@ class PromptConfig(models.Model):
         (KEY_SALE_PRICE_UPDATE,      'Sale Price Update (Product Price Update page)'),
     ]
 
-    key        = models.CharField(max_length=100, unique=True)
+    company    = models.ForeignKey(
+        'tenancy.Company',
+        null=True, blank=True,
+        on_delete=models.CASCADE,
+        related_name='prompt_configs',
+    )
+    key        = models.CharField(max_length=100)
     label      = models.CharField(max_length=200)
     body       = models.TextField()
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = 'trading_prompt_config'
+        constraints = [
+            models.UniqueConstraint(fields=['company', 'key'], name='trading_prompt_company_key_uniq'),
+        ]
 
     def __str__(self):
         return self.label
 
     @classmethod
-    def get_body(cls, key: str, default: str) -> str:
+    def get_body(cls, key: str, default: str, company=None) -> str:
         try:
-            return cls.objects.get(key=key).body
+            return cls.objects.get(company=company, key=key).body
         except cls.DoesNotExist:
             return default

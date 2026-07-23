@@ -13,6 +13,13 @@ class WhatsAppContact(models.Model):
         on_delete=models.CASCADE,
         related_name='contacts',
     )
+    company_contact = models.ForeignKey(
+        'tenancy.CompanyContact',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='whatsapp_contacts',
+    )
     wa_contact_id = models.CharField(max_length=255, blank=True)
     # LID alias for this contact (nullable). Set when Baileys exposes the mapping.
     # wa_contact_id is ALWAYS the canonical phone JID; lid_jid is the alias only.

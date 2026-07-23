@@ -27,12 +27,95 @@ class DjangoClient {
   _writeFallback(kind, payload) {
     if (!this.logsDir) return;
     try {
-      const filePath = path.join(this.logsDir, 'failed-reports.ndjson');
+      const filePath = this._fallbackPath();
       const line = { ts: new Date().toISOString(), kind, payload };
       fs.appendFileSync(filePath, JSON.stringify(line) + '\n', 'utf8');
     } catch (err) {
       this.logger.error({ kind, err: err.message }, 'Failed to write local fallback report — report is fully lost');
     }
+  }
+
+  _fallbackPath() {
+    return path.join(this.logsDir, 'failed-reports.ndjson');
+  }
+
+  async _postReplayRecord(record) {
+    const payload = record.payload || {};
+    if (record.kind === 'contacts_update') {
+      await this.http.post('/api/internal/whatsapp/contacts-update/', payload);
+      return true;
+    }
+    if (record.kind === 'group_update') {
+      await this.http.post('/api/internal/whatsapp/group-update/', payload);
+      return true;
+    }
+    if (record.kind === 'group_participants_update') {
+      await this.http.post('/api/internal/whatsapp/group-participants-update/', payload);
+      return true;
+    }
+    return false;
+  }
+
+  async replayFallbackReports() {
+    if (!this.logsDir) return { attempted: 0, replayed: 0, retained: 0 };
+
+    const filePath = this._fallbackPath();
+    if (!fs.existsSync(filePath)) return { attempted: 0, replayed: 0, retained: 0 };
+
+    let lines;
+    try {
+      lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/).filter(Boolean);
+    } catch (err) {
+      this.logger.error({ err: err.message }, 'Failed to read fallback report file');
+      return { attempted: 0, replayed: 0, retained: 0 };
+    }
+
+    const retained = [];
+    let attempted = 0;
+    let replayed = 0;
+
+    for (const line of lines) {
+      let record;
+      try {
+        record = JSON.parse(line);
+      } catch (err) {
+        this.logger.error({ err: err.message }, 'Invalid fallback report line retained for inspection');
+        retained.push(line);
+        continue;
+      }
+
+      try {
+        const replaySafe = await this._postReplayRecord(record);
+        if (!replaySafe) {
+          retained.push(line);
+          continue;
+        }
+        attempted += 1;
+        replayed += 1;
+      } catch (err) {
+        attempted += 1;
+        retained.push(line);
+        this.logger.warn(
+          { kind: record.kind, err: err.message },
+          'Fallback report replay failed - retaining record',
+        );
+      }
+    }
+
+    try {
+      if (retained.length) {
+        fs.writeFileSync(filePath, retained.join('\n') + '\n', 'utf8');
+      } else {
+        fs.unlinkSync(filePath);
+      }
+    } catch (err) {
+      this.logger.error({ err: err.message }, 'Failed to update fallback report file after replay');
+    }
+
+    if (attempted || replayed) {
+      this.logger.info({ attempted, replayed, retained: retained.length }, 'Fallback report replay completed');
+    }
+    return { attempted, replayed, retained: retained.length };
   }
 
   async sendSessionStatus(sessionId, fields) {
@@ -171,47 +254,59 @@ class DjangoClient {
 
   async sendContactsUpdate(sessionId, contacts) {
     if (!contacts.length) return;
+    const payload = {
+      worker_session_id: sessionId,
+      contacts,
+    };
     try {
-      await this.http.post('/api/internal/whatsapp/contacts-update/', {
-        worker_session_id: sessionId,
-        contacts,
-      });
-      this.logger.info({ sessionId, count: contacts.length }, 'Contacts update sent to Django');
+      const resp = await this.http.post('/api/internal/whatsapp/contacts-update/', payload);
+      const updated = resp.data?.updated;
+      const skipped = resp.data?.skipped || 0;
+      const rejected = resp.data?.rejected || 0;
+      this.logger.info({ sessionId, count: contacts.length, updated, skipped, rejected }, 'Contacts update sent to Django');
+      if (rejected > 0) {
+        this.logger.warn({ sessionId, rejected, skipped }, 'Contacts update completed with rejected records');
+      }
     } catch (err) {
       this.logger.warn(
         { sessionId, error: err.message },
-        'Failed to send contacts update to Django',
+        'Failed to send contacts update to Django - falling back to local file',
       );
+      this._writeFallback('contacts_update', payload);
     }
   }
 
   async sendGroupUpdate(sessionId, groupPayload) {
+    const payload = {
+      worker_session_id: sessionId,
+      ...groupPayload,
+    };
     try {
-      await this.http.post('/api/internal/whatsapp/group-update/', {
-        worker_session_id: sessionId,
-        ...groupPayload,
-      });
+      await this.http.post('/api/internal/whatsapp/group-update/', payload);
     } catch (err) {
       this.logger.warn(
         { sessionId, groupId: groupPayload.group_id, error: err.message },
-        'Failed to send group update to Django',
+        'Failed to send group update to Django - falling back to local file',
       );
+      this._writeFallback('group_update', payload);
     }
   }
 
   async sendGroupParticipantsUpdate(sessionId, groupId, action, participants) {
+    const payload = {
+      worker_session_id: sessionId,
+      group_id: groupId,
+      action,
+      participants,
+    };
     try {
-      await this.http.post('/api/internal/whatsapp/group-participants-update/', {
-        worker_session_id: sessionId,
-        group_id: groupId,
-        action,
-        participants,
-      });
+      await this.http.post('/api/internal/whatsapp/group-participants-update/', payload);
     } catch (err) {
       this.logger.warn(
         { sessionId, groupId, action, error: err.message },
-        'Failed to send group participants update to Django',
+        'Failed to send group participants update to Django - falling back to local file',
       );
+      this._writeFallback('group_participants_update', payload);
     }
   }
 }

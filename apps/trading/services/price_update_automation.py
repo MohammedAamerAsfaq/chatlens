@@ -21,6 +21,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _company_for_rule_message(message):
+    from apps.tenancy.services.access import company_for_message
+
+    return company_for_message(message)
+
+
 def check_automation_rules(message) -> None:
     """Entry point called from the ingestion pipeline for one inbound message.
     Never raises — a failure here must not break message ingestion or
@@ -111,7 +117,10 @@ def _process_match(rule, message) -> None:
 
     try:
         items = parse_against_inventory(
-            message.message_text, PromptConfig.KEY_SALE_PRICE_UPDATE, SALE_PRICE_UPDATE_DEFAULT,
+            message.message_text,
+            PromptConfig.KEY_SALE_PRICE_UPDATE,
+            SALE_PRICE_UPDATE_DEFAULT,
+            company=_company_for_rule_message(message),
         )
     except Exception:
         logger.exception('check_automation_rules | parse failed | rule_id=%s | message_id=%s', rule.pk, message.pk)
@@ -157,7 +166,11 @@ def apply_capture(capture) -> None:
     from apps.trading.models import AutomatedPriceCapture
     from apps.trading.services.price_update_service import apply_items_to_inventory
 
-    apply_items_to_inventory(capture.items, [('sale_price', 'sale_price')])
+    apply_items_to_inventory(
+        capture.items,
+        [('sale_price', 'sale_price')],
+        company=_company_for_rule_message(capture.message),
+    )
     capture.status = AutomatedPriceCapture.STATUS_APPLIED
     capture.applied_at = now()
     capture.save(update_fields=['status', 'applied_at'])
