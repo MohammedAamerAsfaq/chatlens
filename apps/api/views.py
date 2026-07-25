@@ -406,6 +406,8 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
 
         restored_chats = 0
         restored_messages = 0
+        skipped_existing = 0
+        invalid_rows = 0
 
         for chat_data in data.get('chats', []):
             chat, created = WhatsAppChat.objects.get_or_create(
@@ -419,12 +421,34 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
             if created:
                 restored_chats += 1
 
+            messages = chat_data.get('messages', [])
+            incoming_ids = [
+                msg.get('provider_message_id')
+                for msg in messages
+                if msg.get('provider_message_id')
+            ]
+            existing_ids = set(
+                WhatsAppMessage.objects.filter(
+                    account=account,
+                    provider_message_id__in=incoming_ids,
+                ).values_list('provider_message_id', flat=True)
+            )
+
+            seen_ids = set()
             to_create = []
-            for msg in chat_data.get('messages', []):
+            for msg in messages:
                 pid = msg.get('provider_message_id')
                 if not pid:
+                    invalid_rows += 1
                     continue
+                if pid in existing_ids or pid in seen_ids:
+                    skipped_existing += 1
+                    continue
+                seen_ids.add(pid)
                 mt = parse_datetime(str(msg['message_time'])) if msg.get('message_time') else None
+                if mt is None:
+                    invalid_rows += 1
+                    continue
                 to_create.append(WhatsAppMessage(
                     account=account,
                     chat=chat,
@@ -441,10 +465,8 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
                 ))
 
             if to_create:
-                created_objs = WhatsAppMessage.objects.bulk_create(
-                    to_create, ignore_conflicts=True,
-                )
-                restored_messages += len(created_objs)
+                WhatsAppMessage.objects.bulk_create(to_create)
+                restored_messages += len(to_create)
 
             # Refresh chat timestamps
             latest = chat.messages.order_by('-message_time').first()
@@ -452,7 +474,12 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
                 chat.last_message_at = latest.message_time
                 chat.save(update_fields=['last_message_at'])
 
-        return Response({'restored_chats': restored_chats, 'restored_messages': restored_messages})
+        return Response({
+            'restored_chats': restored_chats,
+            'restored_messages': restored_messages,
+            'skipped_existing': skipped_existing,
+            'invalid_rows': invalid_rows,
+        })
 
     @action(detail=True, methods=['post'], url_path='restore-media')
     def restore_media(self, request, pk=None):

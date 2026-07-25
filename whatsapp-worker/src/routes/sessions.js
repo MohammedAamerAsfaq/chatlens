@@ -26,7 +26,7 @@ module.exports = function sessionsRouter(sessionManager, mediaStorePath, message
   // Body: { session_id: string }
   // Creates (or re-attaches) a WhatsApp session and begins QR generation.
   router.post('/', async (req, res) => {
-    const { session_id, sync_history, history_days, idle_disconnect_minutes } = req.body;
+    const { session_id, sync_history, history_days, idle_disconnect_minutes, auto_download_media } = req.body;
     if (!session_id) {
       return res.status(400).json({ error: 'session_id is required' });
     }
@@ -36,6 +36,7 @@ module.exports = function sessionsRouter(sessionManager, mediaStorePath, message
         sync_history,
         history_days,
         idle_disconnect_minutes,
+        auto_download_media,
       });
       return res.status(201).json(snapshot);
     } catch (err) {

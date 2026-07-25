@@ -1,7 +1,7 @@
 # Code Review Remediation Plan
 
-> **Current status:** In progress - Phase 1 tenant isolation and Phase 2 worker metadata durability have been implemented.
-> **Last updated:** 2026-07-24
+> **Current status:** In progress - Phases 1, 2, 3, and 4 have been implemented.
+> **Last updated:** 2026-07-25
 
 > **Prepared:** 2026-07-22
 > **Source:** Full-project code review requested on 2026-07-21 and follow-up planning request on 2026-07-22.
@@ -15,6 +15,8 @@
 
 - **Phase 1 - Tenant isolation and access control:** Implemented through company tenancy, company memberships, active company selection, tenant-scoped API helpers, control-company admin endpoints, and tenant-owned products/inquiries/configuration records.
 - **Phase 2 - Durable worker metadata fallback and replay:** Implemented for `sendContactsUpdate`, `sendGroupUpdate`, and `sendGroupParticipantsUpdate`. Failed metadata updates are written to `failed-reports.ndjson`, replay-safe metadata records can be replayed, and successful replay removes completed records from the fallback file.
+- **Phase 3 - Session-start settings consistency:** Implemented for manual worker session start. Django includes persisted `sync_history`, `history_days`, `idle_disconnect_minutes`, and `auto_download_media` in the worker bootstrap payload, and the worker session route forwards all of those options to `createSession`.
+- **Phase 4 - Accurate restore reporting:** Implemented for message restore. The restore endpoint pre-checks existing provider message IDs, inserts only new rows, and reports `restored_messages`, `skipped_existing`, and `invalid_rows`.
 - **Contact update rejection visibility:** `internal_contacts_update` now reports `updated`, `skipped`, and `rejected` counts so malformed LID-primary contacts are visible to the worker instead of being hidden behind a generic success response.
 
 ### Verified
@@ -27,9 +29,7 @@
 
 ### Remaining
 
-- **Phase 3 - Session-start settings consistency:** Confirm and test that fresh worker session bootstrap includes all persisted account settings, especially `auto_download_media`.
-- **Phase 4 - Accurate restore reporting:** Replace attempted-row restore counts with inserted/skipped counts.
-- **Phase 5 - Bounded background execution:** Replace unbounded daemon-thread spawning with a bounded executor or queued task system.
+- **Phase 5 - Bounded background execution:** Replace unbounded daemon-thread spawning with a bounded executor or queued task system. This phase should be implemented slowly and carefully, one change at a time, because it changes background execution behavior in the live ingestion path.
 
 ---
 

@@ -9,7 +9,7 @@ from .openai_provider import OpenAIChatProvider, OpenAIEmbeddingProvider
 # ── Chat providers ─────────────────────────────────────────────────────────────
 
 class DeepSeekChatProvider(OpenAIChatProvider):
-    def __init__(self, api_key, model='deepseek-chat', base_url=''):
+    def __init__(self, api_key, model='deepseek-v4-flash', base_url=''):
         super().__init__(api_key, model, base_url or 'https://api.deepseek.com/v1')
 
 

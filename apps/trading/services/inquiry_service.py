@@ -99,8 +99,10 @@ def process_inquiry(message, classification) -> None:
     Called from classify_message() when is_inquiry=True.
     """
     from apps.trading.models import Inquiry, InquiryMessage
+    from apps.tenancy.services.access import company_for_message
 
     account = message.account
+    company = company_for_message(message)
     contact = _resolve_contact(message)
     dedup_key = classification.dedup_key or ''
 
@@ -135,6 +137,7 @@ def process_inquiry(message, classification) -> None:
         inquiry_type = 'buy'
 
     inquiry = Inquiry.objects.create(
+        company      = company,
         account      = account,
         contact      = contact,
         inquiry_type = inquiry_type,
@@ -155,6 +158,7 @@ def process_inquiry(message, classification) -> None:
     # If the original inquiry_type was "both", also create a sell inquiry
     if classification.inquiry_type == 'both':
         sell_inquiry = Inquiry.objects.create(
+            company      = company,
             account      = account,
             contact      = contact,
             inquiry_type = 'sell',

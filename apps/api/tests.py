@@ -1,11 +1,17 @@
+import json
+
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from django.utils.timezone import now
 from rest_framework.test import APIClient
+from unittest.mock import patch
 
 from apps.chatlens_core.models import SystemSettings
 from apps.tenancy.models import CommunicationAccount, Company, CompanyMembership, ConnectionProvider
-from apps.trading.models import FormattedPriceList, Inquiry, Product, PromptConfig
-from apps.whatsapp_bridge.models import WhatsAppAccount
+from apps.trading.models import FormattedPriceList, Inquiry, MessageClassification, Product, PromptConfig
+from apps.trading.services.inquiry_service import process_inquiry
+from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppChat, WhatsAppContact, WhatsAppMessage
 
 
 class TenantScopedApiTests(TestCase):
@@ -153,6 +159,127 @@ class TenantScopedApiTests(TestCase):
         self.assertIsNotNone(account.primary_endpoint_id)
         self.assertEqual(account.primary_endpoint.value, '971500000010')
 
+    def test_start_session_sends_persisted_account_settings_to_worker(self):
+        self.account_a.sync_history = False
+        self.account_a.history_days = 14
+        self.account_a.idle_disconnect_minutes = 30
+        self.account_a.auto_download_media = False
+        self.account_a.save(update_fields=[
+            'sync_history',
+            'history_days',
+            'idle_disconnect_minutes',
+            'auto_download_media',
+        ])
+
+        class _WorkerResponse:
+            status_code = 201
+
+            def json(self):
+                return {'status': 'pending_qr'}
+
+        self.client.force_authenticate(self.user_a)
+        with patch('apps.api.views.requests.post', return_value=_WorkerResponse()) as post_mock:
+            resp = self.client.post(f'/api/accounts/{self.account_a.pk}/start-session/')
+
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(post_mock.call_count, 1)
+        self.assertEqual(post_mock.call_args.kwargs['json'], {
+            'session_id': str(self.account_a.pk),
+            'sync_history': False,
+            'history_days': 14,
+            'idle_disconnect_minutes': 30,
+            'auto_download_media': False,
+        })
+
+    def _restore_upload(self, chats):
+        return SimpleUploadedFile(
+            'backup.json',
+            json.dumps({'chats': chats}).encode('utf-8'),
+            content_type='application/json',
+        )
+
+    def _restore_chat(self, *message_ids):
+        return {
+            'wa_chat_id': '971500000099@s.whatsapp.net',
+            'chat_type': 'individual',
+            'name': 'Restore Contact',
+            'messages': [
+                {
+                    'provider_message_id': message_id,
+                    'sender_number': '971500000099',
+                    'direction': 'inbound',
+                    'message_type': 'text',
+                    'message_text': f'Message {message_id}',
+                    'message_time': now().isoformat(),
+                    'has_media': False,
+                }
+                for message_id in message_ids
+            ],
+        }
+
+    def test_restore_messages_reports_inserted_rows_for_clean_backup(self):
+        self.client.force_authenticate(self.user_a)
+
+        resp = self.client.post(
+            f'/api/accounts/{self.account_a.pk}/restore-messages/',
+            {'file': self._restore_upload([self._restore_chat('RESTORE-1', 'RESTORE-2')])},
+            format='multipart',
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['restored_messages'], 2)
+        self.assertEqual(resp.json()['skipped_existing'], 0)
+        self.assertEqual(resp.json()['invalid_rows'], 0)
+        self.assertEqual(
+            WhatsAppMessage.objects.filter(account=self.account_a, provider_message_id__startswith='RESTORE-').count(),
+            2,
+        )
+
+    def test_restore_messages_reports_existing_rows_on_repeat_backup(self):
+        self.client.force_authenticate(self.user_a)
+        backup = [self._restore_chat('RESTORE-REPEAT-1', 'RESTORE-REPEAT-2')]
+
+        first = self.client.post(
+            f'/api/accounts/{self.account_a.pk}/restore-messages/',
+            {'file': self._restore_upload(backup)},
+            format='multipart',
+        )
+        second = self.client.post(
+            f'/api/accounts/{self.account_a.pk}/restore-messages/',
+            {'file': self._restore_upload(backup)},
+            format='multipart',
+        )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.json()['restored_messages'], 2)
+        self.assertEqual(second.json()['restored_messages'], 0)
+        self.assertEqual(second.json()['skipped_existing'], 2)
+
+    def test_restore_messages_reports_partial_overlap(self):
+        self.client.force_authenticate(self.user_a)
+        initial = [self._restore_chat('RESTORE-OVERLAP-1')]
+        overlap = [self._restore_chat('RESTORE-OVERLAP-1', 'RESTORE-OVERLAP-2')]
+
+        self.client.post(
+            f'/api/accounts/{self.account_a.pk}/restore-messages/',
+            {'file': self._restore_upload(initial)},
+            format='multipart',
+        )
+        resp = self.client.post(
+            f'/api/accounts/{self.account_a.pk}/restore-messages/',
+            {'file': self._restore_upload(overlap)},
+            format='multipart',
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['restored_messages'], 1)
+        self.assertEqual(resp.json()['skipped_existing'], 1)
+        self.assertEqual(
+            WhatsAppMessage.objects.filter(account=self.account_a, provider_message_id__startswith='RESTORE-OVERLAP-').count(),
+            2,
+        )
+
     def test_bulk_inventory_update_cannot_modify_other_company_product(self):
         self.client.force_authenticate(self.user_a)
         resp = self.client.post('/api/products/bulk-update-inventory/', {
@@ -175,6 +302,57 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(resp.status_code, 400)
         self.inquiry_a.refresh_from_db()
         self.assertEqual(self.inquiry_a.products[0], {'canonical_name': 'Placeholder'})
+
+    def test_processed_inquiry_is_bound_to_message_company_and_visible(self):
+        contact = WhatsAppContact.objects.create(
+            account=self.account_a,
+            wa_contact_id='971544732206@s.whatsapp.net',
+            push_name='Buyer',
+            phone_number='971544732206',
+        )
+        chat = WhatsAppChat.objects.create(
+            account=self.account_a,
+            wa_chat_id='971544732206@s.whatsapp.net',
+            chat_type='individual',
+            contact=contact,
+        )
+        message = WhatsAppMessage.objects.create(
+            account=self.account_a,
+            chat=chat,
+            contact=contact,
+            provider_message_id='MSG-INQUIRY-COMPANY',
+            sender_number='971544732206',
+            direction='inbound',
+            message_type='text',
+            message_text='Need Product A',
+            message_time=now(),
+        )
+        classification = MessageClassification.objects.create(
+            message=message,
+            tags=['wtb'],
+            products=[{'product_id': self.product_a.pk, 'canonical_name': 'Product A'}],
+            is_inquiry=True,
+            inquiry_type='buy',
+            ai_summary='Need Product A',
+            dedup_key='buy:product-a:1:971544732206',
+            raw_response={},
+        )
+
+        process_inquiry(message, classification)
+
+        inquiry = Inquiry.objects.get(dedup_key='buy:product-a:1:971544732206')
+        self.assertEqual(inquiry.company_id, self.company_a.id)
+
+        self.client.force_authenticate(self.user_a)
+        resp = self.client.get('/api/inquiries/')
+        self.assertEqual(resp.status_code, 200)
+        ids = {row['id'] for row in resp.json()}
+        self.assertIn(inquiry.pk, ids)
+
+        resp = self.client.get('/api/inquiries/open-feed/', {'type': 'buy'})
+        self.assertEqual(resp.status_code, 200)
+        feed_ids = {row['id'] for row in resp.json()['results']}
+        self.assertIn(inquiry.pk, feed_ids)
 
     def test_prompt_configs_are_company_scoped(self):
         self.client.force_authenticate(self.user_a)
