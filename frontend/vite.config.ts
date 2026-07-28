@@ -24,4 +24,10 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    outDir: '../static/frontend',
+    assetsDir: 'assets',
+    manifest: 'manifest.json',
+    emptyOutDir: true,
+  },
 })

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChatLens</title>
+  <link rel="icon" href="{{ frontend_bundle.favicon_url }}">
+  {% if frontend_bundle.dev_server_url %}
+    <script type="module" src="{{ frontend_bundle.dev_server_url }}/@vite/client"></script>
+    <script type="module" src="{{ frontend_bundle.dev_server_url }}/src/main.ts"></script>
+  {% elif frontend_bundle.entry_js_url %}
+    {% for css_url in frontend_bundle.css_urls %}
+      <link rel="stylesheet" href="{{ css_url }}">
+    {% endfor %}
+    <script type="module" src="{{ frontend_bundle.entry_js_url }}"></script>
+  {% endif %}
+</head>
+<body>
+  <div id="app"></div>
+</body>
+</html>

@@ -29,6 +29,7 @@ ENV/
 *.log
 db.sqlite3
 staticfiles/
+static/frontend/
 media/
 
 # ─── Node.js (whatsapp-worker) ────────────────────────────────────────────────
