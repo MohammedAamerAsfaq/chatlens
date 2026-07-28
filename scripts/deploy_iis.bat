@@ -13,6 +13,15 @@ set "RESTART_IIS=0"
 
 rem WhatsApp worker controls are intentionally disabled until the worker is
 rem installed as a Windows Service. For manual worker operation, leave both as 0.
+rem
+rem When whatsapp-worker code changes after it is deployed as a service:
+rem   1. Set RUN_WORKER_NPM_INSTALL=1 if package.json/package-lock.json changed,
+rem      or if you want npm to verify dependencies every deployment.
+rem   2. Set RESTART_WORKER_SERVICE=1 so the service reloads the new worker code.
+rem   3. Confirm WORKER_SERVICE_NAME matches the Windows Service name.
+rem
+rem Until the worker is installed as a Windows Service, keep these disabled and
+rem stop/start the worker manually to avoid accidentally running duplicate workers.
 set "RUN_WORKER_NPM_INSTALL=0"
 set "RESTART_WORKER_SERVICE=0"
 set "WORKER_SERVICE_NAME=ChatLensWorker"
