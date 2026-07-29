@@ -59,6 +59,14 @@ async function disconnect() {
   emit('refresh')
 }
 
+async function softDisconnect() {
+  // Unlike disconnect() above, this doesn't log the device out of WhatsApp — the
+  // worker just ends the socket and keeps the credentials on disk, so the next
+  // Connect reconnects straight through without a fresh QR scan.
+  await store.softDisconnect(props.account.id)
+  emit('refresh')
+}
+
 async function saveSettings() {
   savingSettings.value = true
   try {
@@ -293,9 +301,19 @@ onUnmounted(() => {
       <button
         v-if="account.session_status === 'connected'"
         @click="disconnect"
+        title="Logs the device out of WhatsApp — reconnecting will need a fresh QR scan"
         class="flex-1 bg-red-500 hover:bg-red-600 text-white text-sm py-1.5 rounded-lg transition-colors"
       >
         Disconnect
+      </button>
+
+      <button
+        v-if="account.session_status === 'connected'"
+        @click="softDisconnect"
+        title="Ends the connection without logging out — reconnecting won't need a QR scan"
+        class="flex-1 bg-gray-400 hover:bg-gray-500 text-white text-sm py-1.5 rounded-lg transition-colors"
+      >
+        Soft Disconnect
       </button>
 
       <button

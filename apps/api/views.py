@@ -626,6 +626,29 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
         except requests.RequestException as e:
             return Response({'error': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
 
+    @action(detail=True, methods=['post'], url_path='soft-disconnect')
+    def soft_disconnect(self, request, pk=None):
+        """Ends the socket without a WhatsApp-side logout — credentials on disk are
+        left untouched and the worker suppresses its own auto-reconnect, so a later
+        Connect reuses the existing session instead of requiring a fresh QR scan.
+        Distinct from disconnect() above, which calls sock.logout() and revokes the
+        linked device entirely."""
+        account = self.get_object()
+        try:
+            resp = requests.post(
+                f'{WORKER_BASE_URL}/sessions/{account.pk}/soft-disconnect',
+                timeout=10,
+            )
+            if resp.status_code == 404 and account.session_status not in (
+                SessionStatus.LOGGED_OUT, SessionStatus.DISCONNECTED,
+            ):
+                account.session_status = SessionStatus.DISCONNECTED
+                account.last_disconnected_at = now()
+                account.save(update_fields=['session_status', 'last_disconnected_at', 'updated_at'])
+            return Response(resp.json(), status=resp.status_code)
+        except requests.RequestException as e:
+            return Response({'error': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+
 
 class ChatViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ChatSerializer

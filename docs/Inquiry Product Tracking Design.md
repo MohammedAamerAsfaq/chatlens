@@ -2,7 +2,8 @@
 
 ## Objective
 
-Track product mentions from inquiries in a proper structured form.
+Track product mentions from inquiries in a proper structured form, with full traceability back to
+the incoming message and parsed inquiry.
 
 The current phase is not focused on final analytics or report counting. If the data is stored
 correctly, multiple reports can be built from it later. WTB/WTS demand and supply counts are only
@@ -15,6 +16,8 @@ The long-term business questions include:
 - Which products have high demand but low or no inventory?
 - Which products have high supply but low demand?
 - Which product names are being used by parties but are not yet mapped to inventory?
+- Which source message and party caused a product mention to enter the market flow?
+- How does one product inquiry spread across contacts, groups, accounts, or time?
 
 For future reporting:
 
@@ -56,6 +59,19 @@ The main model should be `InquiryProduct`.
 
 Each extracted product line from an inquiry should create one `InquiryProduct` row.
 
+The traceability chain should be:
+
+```text
+Incoming WhatsApp message
+  -> parsed inquiry
+     -> extracted inquiry product line
+        -> inventory product when mapped
+```
+
+Traceability must start even when inventory mapping is missing or uncertain. An extracted product
+line without a `product_id` is still valuable because it records that a party mentioned that product,
+from a specific message, at a specific time.
+
 The existing `Inquiry.products` JSON should remain for now to avoid breaking current UI behavior. The new model should run alongside it until the structured design is mature.
 
 ## Proposed Model: InquiryProduct
@@ -67,6 +83,8 @@ InquiryProduct
 - company
 - inquiry
 - source_message
+- account
+- contact
 - inquiry_type
 - canonical_name
 - original_text
@@ -74,10 +92,16 @@ InquiryProduct
 - price
 - currency
 - product
+- decision_status
 - match_status
 - match_type
 - match_source
 - match_reason
+- embedding
+- embedding_model
+- embedding_metadata
+- embedding_status
+- embedding_error
 - first_seen_at
 - created_at
 - updated_at
@@ -88,6 +112,8 @@ Field meaning:
 - `company`: Tenant owner. Required for tenant isolation and analytics scoping.
 - `inquiry`: Parent inquiry.
 - `source_message`: Original WhatsApp message if available.
+- `account`: Account snapshot for fast filtering/reporting.
+- `contact`: Contact snapshot for fast filtering/reporting.
 - `inquiry_type`: Snapshot of inquiry direction: `buy`, `sell`, or `both`.
 - `canonical_name`: AI-normalized product name from the inquiry.
 - `original_text`: Sender wording if available. This may initially be empty until line-level extraction improves.
@@ -95,11 +121,53 @@ Field meaning:
 - `price`: Requested/offered price if parsed.
 - `currency`: Currency if parsed.
 - `product`: Inventory product match, nullable.
+- `decision_status`: User workflow state, such as `pending`, `mapped`, `created`, or `dismissed`.
 - `match_status`: Current tracking status, such as `exact`, `near`, `unmatched`, `manual_confirmed`, or `rejected`.
 - `match_type`: Original AI match type if applicable.
 - `match_source`: How the product was matched, such as `ai`, `alias`, `deterministic`, or `manual`.
 - `match_reason`: Short explanation for audit/debugging.
+- `embedding`: Optional line-level embedding for the extracted product mention.
+- `embedding_model`: Embedding model used.
+- `embedding_metadata`: Provider/dimension/debug details.
+- `embedding_status`: `pending`, `embedded`, `error`, or `skipped`.
+- `embedding_error`: Failure details if embedding generation failed.
 - `first_seen_at`: Inquiry/message time used for time-based analytics.
+
+## Embedding Approach
+
+`MessageEmbedding` already exists, but it represents the full WhatsApp message. That is useful for
+message search and inquiry deduplication, but it is not enough for product tracking because one
+message can contain multiple product lines.
+
+Example:
+
+```text
+WTB 17 Pro Max 512 Silver HK
+also need S25 Ultra 1TB Titanium
+```
+
+This should produce two `InquiryProduct` rows, each with its own product-level meaning. Therefore
+the product tracking module should support direct embeddings on `InquiryProduct`.
+
+For this module:
+
+- Embed the extracted product line, not the whole message.
+- Use `canonical_name` as the primary embedding text.
+- Include `original_text` when available and meaningfully different.
+- Do not introduce a separate shared embedding table at this stage.
+- If embedding fails, keep the `InquiryProduct` row and mark `embedding_status = error`.
+- Do not block inquiry creation because of embedding failure.
+
+To reduce duplicate embedding cost without adding extra schema complexity:
+
+1. Normalize `canonical_name`.
+2. Before calling the embedding provider, search for an older `InquiryProduct` in the same company
+   with the same normalized text, same embedding model, and a stored embedding.
+3. If found, copy/reuse that vector on the new row.
+4. If not found, call the embedding provider.
+
+Embeddings are a matching aid, not the final source of truth. Mapping decisions should still be
+stored explicitly in `product`, `decision_status`, `match_status`, `match_source`, and `match_reason`.
 
 ## Future Demand And Supply Counting
 
@@ -170,6 +238,78 @@ Mapping should happen in strict layers:
 Important rule:
 
 Do not silently force an alternate match when the product is uncertain. Mark it as `unmatched` or `near` and make the uncertainty visible.
+
+## Product Mention Review Interface
+
+The system should provide a separate interface for extracted product lines.
+
+Possible location:
+
+```text
+Trading -> Product Mentions
+```
+
+The interface should show:
+
+```text
+Canonical Name | Direction | Contact | Account | Source Message | Suggested Match | Decision
+```
+
+Initial actions:
+
+- Map to existing inventory product.
+- Create as new inventory product.
+- Add alias/tag to an existing product.
+- Dismiss/ignore.
+- Open source inquiry.
+- Open source message/conversation.
+
+The user should be able to take further decisions from this queue without changing the original
+message or losing the extracted product record.
+
+## Mapping, Product Creation, And Traceability
+
+Every extracted product line should be stored first, even when it cannot be mapped to inventory.
+
+If a product exists in inventory:
+
+```text
+InquiryProduct.product = existing Product
+decision_status = mapped
+```
+
+If the product does not exist:
+
+```text
+InquiryProduct.product = null
+decision_status = pending
+```
+
+The user can then either:
+
+- Map the extracted line to an existing product.
+- Create a new inventory product from the extracted line.
+- Dismiss the line if it is not useful.
+
+When a new product is created from an extracted line, the created `Product` should be linked back to
+the `InquiryProduct`. The `InquiryProduct` remains historical evidence and should not be deleted.
+
+When a line is mapped to an existing product, the sender's wording can be added as an alias/tag so
+future incoming lines can map better.
+
+This makes inventory traceability evidence-based:
+
+```text
+Product
+  -> all related InquiryProduct rows
+     -> source inquiries
+        -> source messages
+           -> contacts/groups/accounts
+```
+
+This traceability supports future analysis of how demand or supply spreads. For example, if one
+party starts searching for a product and the same product later appears from other parties, the
+system can show the first observed source message and the later related product mentions.
 
 ## Alias Discovery
 
@@ -306,8 +446,9 @@ Steps:
 2. Add migration.
 3. Backfill `InquiryProduct` rows from existing `Inquiry.products`.
 4. Update inquiry creation/update flow to write `InquiryProduct` rows alongside existing `Inquiry.products` JSON.
-5. Add internal/admin visibility to inspect stored `InquiryProduct` rows.
-6. Verify that newly created inquiries consistently create structured product mention records.
+5. Add direct `InquiryProduct` embedding fields and embedding status fields.
+6. Add internal/admin visibility to inspect stored `InquiryProduct` rows.
+7. Verify that newly created inquiries consistently create structured product mention records.
 
 Do not remove or replace `Inquiry.products` in this phase.
 
@@ -315,14 +456,13 @@ Do not remove or replace `Inquiry.products` in this phase.
 
 Phase 2:
 
-- Add alias candidate tracking.
-- Add UI to confirm/reject alias candidates.
-- Use confirmed aliases during future inventory mapping.
+- Add product mention review UI.
+- Add actions to map, create inventory product, add alias/tag, or dismiss.
 
 Phase 3:
 
-- Add discovered product candidate tracking.
-- Add UI to map/create/ignore discovered products.
+- Add alias candidate tracking if the direct review flow needs a staging layer.
+- Use confirmed aliases during future inventory mapping.
 
 Phase 4:
 

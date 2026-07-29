@@ -35,6 +35,11 @@ export const useAccountsStore = defineStore('accounts', () => {
     await fetchAccounts()
   }
 
+  async function softDisconnect(id) {
+    await accountsApi.softDisconnect(id)
+    await fetchAccounts()
+  }
+
   function updateAccount(updated) {
     const idx = accounts.value.findIndex(a => a.id === updated.id)
     if (idx !== -1) accounts.value[idx] = { ...accounts.value[idx], ...updated }
@@ -65,7 +70,7 @@ export const useAccountsStore = defineStore('accounts', () => {
 
   return {
     accounts, loading, error,
-    fetchAccounts, createAccount, startSession, disconnect,
+    fetchAccounts, createAccount, startSession, disconnect, softDisconnect,
     updateAccount, updateSettings, deleteAccount, exportAccount,
   }
 })
