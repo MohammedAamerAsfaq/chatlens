@@ -1,5 +1,6 @@
 from .whatsapp_account import WhatsAppAccount, SessionStatus
 from .whatsapp_contact import WhatsAppContact, ContactCategory
+from .contact_role_tag import ContactRoleTag
 from .whatsapp_chat import WhatsAppChat, ChatType
 from .whatsapp_message import WhatsAppMessage, MessageDirection, MessageType
 from .sync_log import SyncLog
@@ -14,6 +15,7 @@ __all__ = [
     'SessionStatus',
     'WhatsAppContact',
     'ContactCategory',
+    'ContactRoleTag',
     'WhatsAppChat',
     'ChatType',
     'WhatsAppMessage',

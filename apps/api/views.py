@@ -25,7 +25,7 @@ from rest_framework.response import Response
 from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact,
     SyncLog, DroppedMessage, WhatsAppGroup, SessionStatus, WorkerAlert,
-    StuckReceipt, WhatsAppUnresolvedMessage, ResolutionStatus,
+    StuckReceipt, WhatsAppUnresolvedMessage, ResolutionStatus, ContactRoleTag,
 )
 from apps.tenancy.models import AccountEndpoint, CommunicationAccount, Company, CompanyMembership
 from apps.tenancy.services.access import (
@@ -50,6 +50,53 @@ from .serializers import (
 WORKER_BASE_URL = getattr(settings, 'WORKER_BASE_URL', 'http://localhost:3001')
 ACTIVE_COMPANY_SESSION_KEY = 'active_company_id'
 logger = logging.getLogger(__name__)
+
+
+def _company_for_contact(contact):
+    communication_account = getattr(contact.account, 'communication_account', None)
+    return communication_account.company if communication_account and communication_account.company_id else None
+
+
+def _contact_roles(contact):
+    if hasattr(contact, '_prefetched_objects_cache') and 'role_tags' in contact._prefetched_objects_cache:
+        return {tag.role for tag in contact.role_tags.all()}
+    return set(contact.role_tags.values_list('role', flat=True))
+
+
+def _role_category_for_contact(contact):
+    roles = _contact_roles(contact)
+    if {'supplier', 'customer'}.issubset(roles):
+        return 'both'
+    if 'supplier' in roles:
+        return 'supplier'
+    if 'customer' in roles:
+        return 'customer'
+    return ''
+
+
+def _set_contact_role_tags(contact, category, source=ContactRoleTag.SOURCE_MANUAL):
+    role_map = {
+        '': set(),
+        None: set(),
+        'supplier': {ContactRoleTag.ROLE_SUPPLIER},
+        'customer': {ContactRoleTag.ROLE_CUSTOMER},
+        'both': {ContactRoleTag.ROLE_SUPPLIER, ContactRoleTag.ROLE_CUSTOMER},
+    }
+    if category not in role_map:
+        raise ValueError('category must be one of supplier, customer, both')
+
+    desired = role_map[category]
+    existing = _contact_roles(contact)
+    company = _company_for_contact(contact)
+    for role in desired - existing:
+        ContactRoleTag.objects.get_or_create(
+            contact=contact,
+            role=role,
+            defaults={'company': company, 'source': source},
+        )
+    if existing - desired:
+        contact.role_tags.filter(role__in=existing - desired).delete()
+    getattr(contact, '_prefetched_objects_cache', {}).pop('role_tags', None)
 
 
 def _visible_account_or_none(user, account_id):
@@ -1014,7 +1061,7 @@ class ContactViewSet(viewsets.ModelViewSet):
         qs = (
             WhatsAppContact.objects
             .select_related('account')
-            .prefetch_related('chats')
+            .prefetch_related('chats', 'role_tags')
             .annotate(message_count=Count('messages', distinct=True))
         )
         qs = scope_queryset_to_visible_accounts(qs, self.request.user, account_field='account')
@@ -1050,16 +1097,29 @@ class ContactViewSet(viewsets.ModelViewSet):
 
         category = self.request.query_params.get('category')
         if category is not None:
-            qs = qs.filter(category=category)
+            if category == 'both':
+                qs = qs.filter(role_tags__role='supplier').filter(role_tags__role='customer')
+            elif category in ('supplier', 'customer'):
+                qs = qs.filter(role_tags__role=category)
+            elif category in ('', 'none'):
+                qs = qs.exclude(role_tags__role__in=['supplier', 'customer'])
 
         return qs
 
     def partial_update(self, request, *args, **kwargs):
         contact = self.get_object()
-        # Only display_name and category are user-editable; ignore any other fields in request
+        category = request.data.get('category', contact.category)
+        if 'category' in request.data:
+            try:
+                _set_contact_role_tags(contact, category, source=ContactRoleTag.SOURCE_MANUAL)
+            except ValueError as exc:
+                return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Only display_name and category are user-editable; category now writes role tags
+        # while the legacy column stays synchronized for backward compatibility.
         data = {
             'display_name': request.data.get('display_name', contact.display_name),
-            'category': request.data.get('category', contact.category),
+            'category': category,
         }
         serializer = self.get_serializer(contact, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -1079,14 +1139,29 @@ class ContactViewSet(viewsets.ModelViewSet):
         than letting a stale click downgrade it back to "supplier"/"customer".
         """
         contact = self.get_object()
-        if contact.category == 'both':
-            return Response(self.get_serializer(contact).data)
-
         category = request.data.get('category')
         if category not in ('supplier', 'customer', 'both'):
             return Response({'detail': 'category must be one of supplier, customer, both'}, status=status.HTTP_400_BAD_REQUEST)
 
-        contact.category = category
+        desired = {'supplier', 'customer'} if category == 'both' else {category}
+        roles = _contact_roles(contact)
+        company = _company_for_contact(contact)
+        for role in desired - roles:
+            ContactRoleTag.objects.get_or_create(
+                contact=contact,
+                role=role,
+                defaults={'company': company, 'source': ContactRoleTag.SOURCE_AI_SUGGESTION},
+            )
+        final_roles = roles | desired
+        if {'supplier', 'customer'}.issubset(final_roles):
+            contact.category = 'both'
+        elif 'supplier' in final_roles:
+            contact.category = 'supplier'
+        elif 'customer' in final_roles:
+            contact.category = 'customer'
+        else:
+            contact.category = ''
+        getattr(contact, '_prefetched_objects_cache', {}).pop('role_tags', None)
         contact.save(update_fields=['category', 'updated_at'])
         return Response(self.get_serializer(contact).data)
 

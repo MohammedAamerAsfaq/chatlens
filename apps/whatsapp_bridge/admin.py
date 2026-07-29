@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import WhatsAppAccount, WhatsAppContact, WhatsAppChat, WhatsAppMessage, SyncLog
+from .models import ContactRoleTag, WhatsAppAccount, WhatsAppContact, WhatsAppChat, WhatsAppMessage, SyncLog
 
 
 @admin.register(WhatsAppAccount)
@@ -14,6 +14,13 @@ class WhatsAppContactAdmin(admin.ModelAdmin):
     list_display = ['display_name', 'phone_number', 'account', 'is_business', 'created_at']
     list_filter = ['is_business']
     search_fields = ['display_name', 'phone_number', 'wa_contact_id']
+
+
+@admin.register(ContactRoleTag)
+class ContactRoleTagAdmin(admin.ModelAdmin):
+    list_display = ['contact', 'role', 'company', 'source', 'created_at']
+    list_filter = ['role', 'source', 'company']
+    search_fields = ['contact__display_name', 'contact__phone_number', 'contact__wa_contact_id']
 
 
 @admin.register(WhatsAppChat)

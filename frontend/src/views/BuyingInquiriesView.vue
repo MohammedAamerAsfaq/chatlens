@@ -161,7 +161,7 @@ async function openAddSupplier(inquiry) {
     const { data } = await contactsApi.list({ account: inquiry.account, page_size: 200 })
     const results = data.results ?? data
     addSupplierState[inquiry.id].options = results.filter(c =>
-      ['supplier', 'both'].includes(c.category) && !existingIds.has(c.id)
+      ((c.role_tags || []).includes('supplier') || ['supplier', 'both'].includes(c.role_category || c.category)) && !existingIds.has(c.id)
     )
   } finally {
     addSupplierState[inquiry.id].loading = false

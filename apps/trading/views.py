@@ -628,7 +628,7 @@ class InquiryViewSet(viewsets.GenericViewSet,
 
     def get_queryset(self):
         qs = scope_queryset_to_visible_companies(
-            Inquiry.objects.select_related('account', 'contact').order_by('-first_seen_at'),
+            Inquiry.objects.select_related('account', 'contact').prefetch_related('contact__role_tags').order_by('-first_seen_at'),
             self.request.user,
             company_field='company',
         )
@@ -1294,7 +1294,7 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
         inquiry = serializer.save(account=account)
         # Auto-populate a supplier card for every contact currently tagged 'supplier' or
         # 'both' on this account — the user can add/remove individual suppliers afterward.
-        suppliers = WhatsAppContact.objects.filter(account=inquiry.account, category__in=['supplier', 'both'])
+        suppliers = WhatsAppContact.objects.filter(account=inquiry.account, role_tags__role='supplier').distinct()
         SupplierQuote.objects.bulk_create([
             SupplierQuote(buying_inquiry=inquiry, supplier=s) for s in suppliers
         ])

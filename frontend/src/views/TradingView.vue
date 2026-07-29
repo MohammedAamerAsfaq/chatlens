@@ -1134,8 +1134,8 @@ function categoryDisplayValue(inq) {
 async function setContactCategory(inq, value) {
   if (!inq.contact) return
   try {
-    await contactsApi.update(inq.contact, { category: value })
-    inq.contact_category = value
+    const { data } = await contactsApi.update(inq.contact, { category: value })
+    inq.contact_category = data.role_category || data.category || value
     categoryError.value = ''
   } catch (err) {
     categoryError.value = `Failed to update contact category: ${err.response?.data?.detail || err.message}`
@@ -1151,8 +1151,8 @@ async function applySuggestedCategory(inq) {
   if (!inq.contact) return
   try {
     const { data } = await contactsApi.confirmCategory(inq.contact, inq.suggested_contact_category)
-    inq.contact_category = data.category
-    inq.suggested_contact_category = data.category
+    inq.contact_category = data.role_category || data.category
+    inq.suggested_contact_category = inq.contact_category
     categoryError.value = ''
   } catch (err) {
     categoryError.value = `Failed to update contact category: ${err.response?.data?.detail || err.message}`

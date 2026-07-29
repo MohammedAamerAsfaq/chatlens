@@ -15,12 +15,25 @@ USER_PROMPT = """\
 Classify this message:
 
 Sender contact ID: {contact_id}
-Existing contact category: {contact_category}
+Existing contact role tags: {contact_category}
 Source: {source}
 Time: {message_time}
 Message text: "{message_text}\""""
 
 VALID_CATEGORY_SUGGESTIONS = {'supplier', 'customer', 'both'}
+
+
+def contact_role_category(contact) -> str:
+    if not contact:
+        return 'not set'
+    roles = set(contact.role_tags.values_list('role', flat=True))
+    if {'supplier', 'customer'}.issubset(roles):
+        return 'both'
+    if 'supplier' in roles:
+        return 'supplier'
+    if 'customer' in roles:
+        return 'customer'
+    return contact.category or 'not set'
 
 
 def _build_prompts(message, product_block: str) -> tuple[str, str]:
@@ -38,7 +51,7 @@ def _build_prompts(message, product_block: str) -> tuple[str, str]:
     contact_category = 'not set'
     if message.contact:
         contact_id = message.contact.wa_contact_id
-        contact_category = message.contact.category or 'not set'
+        contact_category = contact_role_category(message.contact)
     elif message.sender_number:
         contact_id = message.sender_number
 
@@ -136,7 +149,16 @@ def validate_category_suggestion(suggestion: str, contact) -> str:
     """
     if not suggestion or not contact:
         return suggestion
-    if contact.category == 'both':
+    roles = set(contact.role_tags.values_list('role', flat=True))
+    if suggestion == 'both':
+        if {'supplier', 'customer'}.issubset(roles):
+            return ''
+        if 'supplier' in roles:
+            return 'customer'
+        if 'customer' in roles:
+            return 'supplier'
+        return 'both'
+    if suggestion in roles:
         return ''
     return suggestion
 

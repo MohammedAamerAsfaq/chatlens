@@ -200,6 +200,10 @@ async function toggleContactAi(contact) {
 
 const savingCategoryId = ref(null)
 
+function contactRoleCategory(contact) {
+  return contact.role_category || contact.category || ''
+}
+
 async function setCategory(contact, value) {
   if (savingCategoryId.value === contact.id) return
   savingCategoryId.value = contact.id
@@ -474,16 +478,16 @@ async function toggleGlobalAi() {
             <!-- Category (supplier / customer) -->
             <td class="px-4 py-3">
               <select
-                :value="contact.category || ''"
+                :value="contactRoleCategory(contact)"
                 @change="setCategory(contact, $event.target.value)"
                 :disabled="savingCategoryId === contact.id"
                 :class="[
                   'text-xs font-medium px-2 py-1 rounded-full border cursor-pointer transition-colors',
-                  contact.category === 'supplier'
+                  contactRoleCategory(contact) === 'supplier'
                     ? 'bg-amber-100 border-amber-300 text-amber-700'
-                    : contact.category === 'customer'
+                    : contactRoleCategory(contact) === 'customer'
                       ? 'bg-blue-100 border-blue-300 text-blue-700'
-                      : contact.category === 'both'
+                      : contactRoleCategory(contact) === 'both'
                         ? 'bg-purple-100 border-purple-300 text-purple-700'
                         : 'bg-gray-100 border-gray-200 text-gray-500',
                 ]"

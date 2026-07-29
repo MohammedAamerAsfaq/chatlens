@@ -41,18 +41,20 @@ class ContactDetailSerializer(serializers.ModelSerializer):
     chat_db_id    = serializers.SerializerMethodField()
     contact_type  = serializers.SerializerMethodField()
     ai_parsing    = serializers.SerializerMethodField()
+    role_tags     = serializers.SerializerMethodField()
+    role_category = serializers.SerializerMethodField()
 
     class Meta:
         model = WhatsAppContact
         fields = [
             'id', 'account_id', 'wa_contact_id', 'lid_jid', 'username', 'phone_number',
-            'display_name', 'push_name', 'is_business', 'category',
+            'display_name', 'push_name', 'is_business', 'category', 'role_tags', 'role_category',
             'contact_type', 'message_count', 'chat_id', 'chat_db_id', 'ai_parsing',
             'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'account_id', 'wa_contact_id', 'lid_jid', 'username', 'phone_number',
-            'push_name', 'is_business', 'contact_type',
+            'push_name', 'is_business', 'role_tags', 'role_category', 'contact_type',
             'message_count', 'chat_id', 'chat_db_id', 'ai_parsing',
             'created_at', 'updated_at',
         ]
@@ -69,6 +71,19 @@ class ContactDetailSerializer(serializers.ModelSerializer):
         if jid.endswith('@g.us'):
             return 'group'
         return 'unknown'
+
+    def get_role_tags(self, obj):
+        return sorted(tag.role for tag in obj.role_tags.all())
+
+    def get_role_category(self, obj):
+        roles = set(self.get_role_tags(obj))
+        if {'supplier', 'customer'}.issubset(roles):
+            return 'both'
+        if 'supplier' in roles:
+            return 'supplier'
+        if 'customer' in roles:
+            return 'customer'
+        return ''
 
     def get_chat_id(self, obj):
         chat = self._first_chat(obj)

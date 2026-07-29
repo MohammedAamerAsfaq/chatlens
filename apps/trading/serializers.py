@@ -161,6 +161,13 @@ class InquirySerializer(serializers.ModelSerializer):
     def get_contact_category(self, obj):
         if not obj.contact:
             return ''
+        roles = set(obj.contact.role_tags.values_list('role', flat=True))
+        if {'supplier', 'customer'}.issubset(roles):
+            return 'both'
+        if 'supplier' in roles:
+            return 'supplier'
+        if 'customer' in roles:
+            return 'customer'
         return obj.contact.category or ''
 
     def get_age_seconds(self, obj):
