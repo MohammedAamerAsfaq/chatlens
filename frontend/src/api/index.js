@@ -196,6 +196,7 @@ export const tradingApi = {
   backfillClassify:       (data)        => http.post('/inquiries/backfill-classify/', data),
   retryInquiries:         (data)        => http.post('/inquiries/retry-inquiries/', data),
   correctMatch:           (id, data)    => http.post(`/inquiries/${id}/correct-match/`, data),
+  verifyMatch:            (id, data)    => http.post(`/inquiries/${id}/verify-match/`, data),
   searchProductEmbeddings: (params)    => http.get('/products/search-embeddings/', { params }),
   getEmbeddingStatus:      ()          => http.get('/products/embedding-status/'),
   backfillEmbeddings:      ()          => http.post('/products/backfill-embeddings/'),

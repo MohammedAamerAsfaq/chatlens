@@ -266,6 +266,35 @@ No markdown, no explanation — raw JSON only.\
 """
 
 
+MATCH_VERIFICATION_DEFAULT = """\
+You are auditing one manually selected stock suggestion for a B2B trading inquiry.
+
+Compare the original WhatsApp message, the AI inquiry summary, the parsed inquiry product line,
+and the suggested stock product. Decide whether the stock suggestion is the same product the
+customer requested.
+
+Rules:
+- Treat model tier as strict. Pro and Pro Max are different products; this is never a near match.
+- Treat storage, color, region/spec, SIM type, and major variant as product-defining attributes.
+- Exact means all product-defining attributes match after normal abbreviation normalization.
+- Near means only one non-tier attribute is different or uncertain, and the suggested product could
+  still be useful as a closest alternative.
+- Incorrect means the suggestion is a different product, wrong tier, wrong storage, or otherwise not
+  acceptable as the requested item.
+- Unknown means the available text is not enough to judge.
+- Do not recommend changing the catalog unless the stock suggestion is actually wrong.
+
+Return ONLY valid JSON, no markdown, matching this schema exactly:
+{
+  "verdict": "exact" | "near" | "incorrect" | "unknown",
+  "is_acceptable": <bool>,
+  "reason": "<short human-readable explanation>",
+  "detected_differences": ["<difference>", "..."],
+  "recommended_action": "keep" | "mark_near" | "remove_match" | "manual_review"
+}\
+"""
+
+
 class PromptConfig(models.Model):
     KEY_PRODUCT_EXTRACTION      = 'product_extraction'
     KEY_INQUIRY_CLASSIFICATION  = 'inquiry_classification'
@@ -275,6 +304,7 @@ class PromptConfig(models.Model):
     # page) — deliberately separate from KEY_INVENTORY_UPDATE above, not a replacement.
     KEY_QTY_COST_UPDATE         = 'qty_cost_update'
     KEY_SALE_PRICE_UPDATE       = 'sale_price_update'
+    KEY_MATCH_VERIFICATION      = 'match_verification'
 
     KEYS = [
         (KEY_PRODUCT_EXTRACTION,     'Product Extraction (bulk import)'),
@@ -283,6 +313,7 @@ class PromptConfig(models.Model):
         (KEY_PRICE_LIST_FORMAT,      'Price List Formatting (WhatsApp send)'),
         (KEY_QTY_COST_UPDATE,        'Qty & Cost Update (Product Price Update page)'),
         (KEY_SALE_PRICE_UPDATE,      'Sale Price Update (Product Price Update page)'),
+        (KEY_MATCH_VERIFICATION,     'Inquiry Match Verification (manual review)'),
     ]
 
     company    = models.ForeignKey(

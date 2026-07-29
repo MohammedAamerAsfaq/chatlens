@@ -18,7 +18,7 @@ from apps.tenancy.services.access import (
     scope_queryset_to_visible_companies,
     visible_accounts_queryset,
 )
-from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, AgentCallLog, AiParsingLog, BuyingInquiry, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture
+from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, BuyingInquiry, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture
 from .serializers import (
     ProductSerializer,
     ProductAliasSerializer,
@@ -712,6 +712,51 @@ class InquiryViewSet(viewsets.GenericViewSet,
         inquiry.save(update_fields=['products', 'updated_at'])
         return Response(InquiryDetailSerializer(inquiry).data)
 
+    @action(detail=True, methods=['post'], url_path='verify-match')
+    def verify_match(self, request, pk=None):
+        """Manually ask the configured AI agent to audit one stock suggestion.
+
+        This is intentionally read-only: it reports whether the shown stock suggestion
+        matches the original message and AI summary, but never silently changes the
+        stored inquiry product match.
+        """
+        inquiry = self.get_object()
+        index = request.data.get('index')
+        if index is None:
+            return Response({'detail': 'index is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        products = inquiry.products or []
+        try:
+            index = int(index)
+            line = products[index]
+        except (ValueError, TypeError, IndexError):
+            return Response({'detail': 'invalid index'}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(line, dict):
+            return Response({'detail': 'invalid product line'}, status=status.HTTP_400_BAD_REQUEST)
+
+        product_id = line.get('product_id')
+        if not product_id:
+            return Response({'detail': 'product line has no stock suggestion'}, status=status.HTTP_400_BAD_REQUEST)
+        product = _visible_product_or_none(request.user, product_id)
+        if not product:
+            return Response({'detail': 'product not found'}, status=status.HTTP_400_BAD_REQUEST)
+        if inquiry.company_id and product.company_id != inquiry.company_id:
+            return Response({'detail': 'product does not belong to this inquiry company'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            from apps.trading.services.match_verification_service import verify_inquiry_match
+            result = verify_inquiry_match(inquiry, line, product)
+        except Exception:
+            logger.exception(
+                'InquiryViewSet.verify_match | failed | inquiry_id=%s | index=%s | product_id=%s',
+                inquiry.pk,
+                index,
+                product_id,
+            )
+            return Response({'detail': 'match verification failed'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        return Response(result)
+
     @action(detail=False, methods=['post'], url_path='close-stale')
     def close_stale(self, request):
         """Bulk-close inquiries that have sat 'open' longer than a given age — the
@@ -1056,6 +1101,7 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
             PromptConfig.KEY_PRICE_LIST_FORMAT:      (PRICE_LIST_FORMAT_DEFAULT,      'Price List Formatting (WhatsApp send)'),
             PromptConfig.KEY_QTY_COST_UPDATE:        (QTY_COST_UPDATE_DEFAULT,        'Qty & Cost Update (Product Price Update page)'),
             PromptConfig.KEY_SALE_PRICE_UPDATE:      (SALE_PRICE_UPDATE_DEFAULT,      'Sale Price Update (Product Price Update page)'),
+            PromptConfig.KEY_MATCH_VERIFICATION:     (MATCH_VERIFICATION_DEFAULT,     'Inquiry Match Verification (manual review)'),
         }
         company = default_company_for_user(request.user)
         saved = {p.key: p for p in PromptConfig.objects.filter(company=company)}
@@ -1116,6 +1162,7 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
             PromptConfig.KEY_PRICE_LIST_FORMAT:      'Price List Formatting (WhatsApp send)',
             PromptConfig.KEY_QTY_COST_UPDATE:        'Qty & Cost Update (Product Price Update page)',
             PromptConfig.KEY_SALE_PRICE_UPDATE:      'Sale Price Update (Product Price Update page)',
+            PromptConfig.KEY_MATCH_VERIFICATION:     'Inquiry Match Verification (manual review)',
         }
         label = defaults_map.get(key, key)
         company = default_company_for_user(request.user)

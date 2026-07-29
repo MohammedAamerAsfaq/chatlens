@@ -50,6 +50,15 @@ const RECONNECT_MAX_DELAY_MS = 5 * 60 * 1000;
 const DECRYPT_FAILURE_UNHEALTHY_THRESHOLD = 15;
 const INIT_QUERY_TIMEOUT_UNHEALTHY_THRESHOLD = 5;
 
+function _parseWhatsAppWebVersion(value) {
+  if (!value) return null;
+  const parts = String(value).split(',').map(part => Number.parseInt(part.trim(), 10));
+  if (parts.length !== 3 || parts.some(part => !Number.isInteger(part))) {
+    throw new Error('WHATSAPP_WEB_VERSION must contain three comma-separated integers, e.g. 2,3000,1035194821');
+  }
+  return parts;
+}
+
 // TEMPORARY debugging aid — investigating messages from a specific contact
 // (971521962376 / Al Thamam Ipad Almurar) vanishing with no trace in any of the
 // normal drop-reporting paths. Logs the full raw Baileys event unconditionally,
@@ -321,6 +330,7 @@ class SessionManager {
       sock: null,
       status: SESSION_STATUS.PENDING_QR,
       qrDataUrl: null,
+      qrEverGenerated: false,
       phoneNumber: null,
       displayName: null,
       // Sync settings
@@ -510,7 +520,21 @@ class SessionManager {
       fs.mkdirSync(authDir, { recursive: true });
 
       const { state, saveCreds } = await useMultiFileAuthState(authDir);
-      const { version } = await fetchLatestBaileysVersion();
+      const configuredVersion = _parseWhatsAppWebVersion(process.env.WHATSAPP_WEB_VERSION);
+      const versionInfo = configuredVersion
+        ? { version: configuredVersion, isLatest: null, source: 'env' }
+        : { ...(await fetchLatestBaileysVersion()), source: 'fetchLatestBaileysVersion' };
+      this.logger.info(
+        {
+          sessionId,
+          version: versionInfo.version,
+          isLatest: versionInfo.isLatest,
+          source: versionInfo.source,
+          fetchError: versionInfo.error?.code || versionInfo.error?.message || null,
+        },
+        'Using Baileys WhatsApp Web version',
+      );
+      const { version } = versionInfo;
 
       // Baileys' own internal logger — routed to a durable file (Baileys errors before
       // ever emitting messages.upsert, e.g. a decrypt failure, are otherwise invisible:
@@ -571,6 +595,7 @@ class SessionManager {
 
       if (qr) {
         session.qrDataUrl = await QRCode.toDataURL(qr);
+        session.qrEverGenerated = true;
         session.status = SESSION_STATUS.QR_GENERATED;
         this._armWatchdog(sessionId);
         this.logger.info({ sessionId }, 'QR generated');
@@ -630,6 +655,15 @@ class SessionManager {
       if (connection === 'close') {
         const code = lastDisconnect?.error?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
+        const closeDetail = {
+          code,
+          loggedOut,
+          message: lastDisconnect?.error?.message || '',
+          name: lastDisconnect?.error?.name || '',
+          stack: lastDisconnect?.error?.stack || '',
+          output: lastDisconnect?.error?.output || null,
+          data: lastDisconnect?.error?.data || null,
+        };
 
         if (session.idleTimer) { clearInterval(session.idleTimer); session.idleTimer = null; }
         this._clearWatchdog(session);
@@ -645,7 +679,29 @@ class SessionManager {
 
         session.status = loggedOut ? SESSION_STATUS.LOGGED_OUT : SESSION_STATUS.DISCONNECTED;
         session.sock = null;
-        this.logger.info({ sessionId, code, loggedOut }, 'Session closed');
+        this.logger.info({ sessionId, ...closeDetail }, 'Session closed');
+
+        if (!loggedOut && !session.qrEverGenerated) {
+          const authDir = path.join(this.sessionStorePath, sessionId);
+          const credsFile = path.join(authDir, 'creds.json');
+          if (fs.existsSync(authDir) && !fs.existsSync(credsFile)) {
+            try {
+              fs.rmSync(authDir, { recursive: true });
+              this.logger.info({ sessionId }, 'Pre-QR close left no credentials — cleared empty auth folder');
+            } catch (err) {
+              this.logger.error({ sessionId, err: err.message }, 'Failed to clear empty pre-QR auth folder');
+            }
+          }
+
+          session.status = SESSION_STATUS.ERROR;
+          session.lastError = `WhatsApp closed the connection before QR generation (code ${code || 'unknown'}).`;
+          session.preventReconnect = true;
+          await this.djangoClient.sendSessionStatus(sessionId, {
+            status: SESSION_STATUS.ERROR,
+          });
+          this.logger.error({ sessionId, ...closeDetail }, 'Pre-QR connection closed — not reconnecting automatically');
+          return;
+        }
 
         if (loggedOut) {
           // Delete credentials right now — don't defer this to the next createSession()

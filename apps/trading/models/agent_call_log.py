@@ -4,10 +4,12 @@ from django.db import models
 class AgentCallLog(models.Model):
     PURPOSE_CLASSIFICATION    = 'classification'
     PURPOSE_PRODUCT_EXTRACTION = 'product_extraction'
+    PURPOSE_MATCH_VERIFICATION = 'match_verification'
 
     PURPOSE_CHOICES = [
         (PURPOSE_CLASSIFICATION,     'Inquiry Classification'),
         (PURPOSE_PRODUCT_EXTRACTION, 'Product Extraction'),
+        (PURPOSE_MATCH_VERIFICATION, 'Inquiry Match Verification'),
     ]
 
     purpose      = models.CharField(max_length=50, choices=PURPOSE_CHOICES, db_index=True)

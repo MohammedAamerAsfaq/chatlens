@@ -166,18 +166,35 @@
                           Cost: {{ h.product.currency || 'USD' }} {{ h.product.cost_price }}
                         </span>
                       </span>
-                      <span v-if="h.mismatch" class="stock-hint-actions">
+                      <span class="stock-hint-actions">
                         <button
+                          class="match-fix-btn verify"
+                          :disabled="matchVerificationFor(inq, h)?.loading"
+                          @click.stop="verifyStockMatch(inq, h)"
+                          title="Ask AI to compare original message, summary, and this stock suggestion"
+                        >{{ matchVerificationFor(inq, h)?.loading ? 'Checking' : 'Verify' }}</button>
+                        <button
+                          v-if="h.mismatch"
                           class="match-fix-btn auto"
                           @click.stop="runAutoMatch(inq, h)"
                           title="Auto-search inventory (exact match, then embeddings) for the correct product"
                         >Auto</button>
                         <button
+                          v-if="h.mismatch"
                           class="match-fix-btn"
                           @click.stop="toggleMatchFix(inq, h)"
                           title="This is actually the exact match — pick the correct product"
                         >Fix</button>
                       </span>
+                      <div
+                        v-if="matchVerificationFor(inq, h)"
+                        class="match-verify-result"
+                        :class="`verdict-${matchVerificationFor(inq, h).verdict || 'unknown'}`"
+                      >
+                        <strong>{{ matchVerificationLabel(matchVerificationFor(inq, h)) }}</strong>
+                        <span v-if="matchVerificationFor(inq, h).reason"> - {{ matchVerificationFor(inq, h).reason }}</span>
+                        <span v-if="matchVerificationFor(inq, h).error"> - {{ matchVerificationFor(inq, h).error }}</span>
+                      </div>
                     </div>
                   </template>
                   <span v-else class="body-row-empty">No matching stock found</span>
@@ -326,18 +343,35 @@
                           Cost: {{ h.product.currency || 'USD' }} {{ h.product.cost_price }}
                         </span>
                       </span>
-                      <span v-if="h.mismatch" class="stock-hint-actions">
+                      <span class="stock-hint-actions">
                         <button
+                          class="match-fix-btn verify"
+                          :disabled="matchVerificationFor(inq, h)?.loading"
+                          @click.stop="verifyStockMatch(inq, h)"
+                          title="Ask AI to compare original message, summary, and this stock suggestion"
+                        >{{ matchVerificationFor(inq, h)?.loading ? 'Checking' : 'Verify' }}</button>
+                        <button
+                          v-if="h.mismatch"
                           class="match-fix-btn auto"
                           @click.stop="runAutoMatch(inq, h)"
                           title="Auto-search inventory (exact match, then embeddings) for the correct product"
                         >Auto</button>
                         <button
+                          v-if="h.mismatch"
                           class="match-fix-btn"
                           @click.stop="toggleMatchFix(inq, h)"
                           title="This is actually the exact match — pick the correct product"
                         >Fix</button>
                       </span>
+                      <div
+                        v-if="matchVerificationFor(inq, h)"
+                        class="match-verify-result"
+                        :class="`verdict-${matchVerificationFor(inq, h).verdict || 'unknown'}`"
+                      >
+                        <strong>{{ matchVerificationLabel(matchVerificationFor(inq, h)) }}</strong>
+                        <span v-if="matchVerificationFor(inq, h).reason"> - {{ matchVerificationFor(inq, h).reason }}</span>
+                        <span v-if="matchVerificationFor(inq, h).error"> - {{ matchVerificationFor(inq, h).error }}</span>
+                      </div>
                     </div>
                   </template>
                   <span v-else class="body-row-empty">No matching stock found</span>
@@ -493,18 +527,35 @@
                     Cost: {{ h.product.currency || 'USD' }} {{ h.product.cost_price }}
                   </span>
                 </span>
-                <span v-if="h.mismatch" class="stock-hint-actions">
+                <span class="stock-hint-actions">
                   <button
+                    class="match-fix-btn verify"
+                    :disabled="matchVerificationFor(expandedInquiry, h)?.loading"
+                    @click.stop="verifyStockMatch(expandedInquiry, h)"
+                    title="Ask AI to compare original message, summary, and this stock suggestion"
+                  >{{ matchVerificationFor(expandedInquiry, h)?.loading ? 'Checking' : 'Verify' }}</button>
+                  <button
+                    v-if="h.mismatch"
                     class="match-fix-btn auto"
                     @click.stop="runAutoMatch(expandedInquiry, h)"
                     title="Auto-search inventory (exact match, then embeddings) for the correct product"
                   >Auto</button>
                   <button
+                    v-if="h.mismatch"
                     class="match-fix-btn"
                     @click.stop="toggleMatchFix(expandedInquiry, h)"
                     title="This is actually the exact match — pick the correct product"
                   >Fix</button>
                 </span>
+                <div
+                  v-if="matchVerificationFor(expandedInquiry, h)"
+                  class="match-verify-result"
+                  :class="`verdict-${matchVerificationFor(expandedInquiry, h).verdict || 'unknown'}`"
+                >
+                  <strong>{{ matchVerificationLabel(matchVerificationFor(expandedInquiry, h)) }}</strong>
+                  <span v-if="matchVerificationFor(expandedInquiry, h).reason"> - {{ matchVerificationFor(expandedInquiry, h).reason }}</span>
+                  <span v-if="matchVerificationFor(expandedInquiry, h).error"> - {{ matchVerificationFor(expandedInquiry, h).error }}</span>
+                </div>
               </div>
             </template>
             <span v-else class="body-row-empty">No matching stock found</span>
@@ -659,6 +710,59 @@ const matchFixQuery  = ref('')
 const autoSearchResults = ref(null) // [{ product, source: 'direct'|'embedding', distance? }] | null
 const autoSearchLoading = ref(false)
 const autoSearchError   = ref('')
+const matchVerifications = ref({})
+
+function matchVerificationKey(inq, hint) {
+  return `${inq?.id || 'unknown'}:${hint?.index ?? 'unknown'}`
+}
+
+function matchVerificationFor(inq, hint) {
+  return matchVerifications.value[matchVerificationKey(inq, hint)] || null
+}
+
+function matchVerificationLabel(result) {
+  if (!result) return ''
+  if (result.loading) return 'Checking match'
+  if (result.error) return 'Verification failed'
+  const labels = {
+    exact: 'AI says exact match',
+    near: 'AI says near match',
+    incorrect: 'AI says incorrect match',
+    unknown: 'AI could not verify',
+  }
+  return labels[result.verdict] || 'AI could not verify'
+}
+
+async function verifyStockMatch(inq, hint) {
+  const key = matchVerificationKey(inq, hint)
+  matchVerifications.value = {
+    ...matchVerifications.value,
+    [key]: { loading: true, verdict: 'unknown', reason: '' },
+  }
+  try {
+    const { data } = await tradingApi.verifyMatch(inq.id, { index: hint.index })
+    matchVerifications.value = {
+      ...matchVerifications.value,
+      [key]: {
+        loading: false,
+        verdict: data.verdict || 'unknown',
+        reason: data.reason || '',
+        detected_differences: data.detected_differences || [],
+        recommended_action: data.recommended_action || 'manual_review',
+        is_acceptable: !!data.is_acceptable,
+      },
+    }
+  } catch (e) {
+    matchVerifications.value = {
+      ...matchVerifications.value,
+      [key]: {
+        loading: false,
+        verdict: 'unknown',
+        error: e.response?.data?.detail || e.message || 'Verification failed',
+      },
+    }
+  }
+}
 
 function openMatchFix(inq, hint) {
   matchFixTarget.value = { inq, hint }
@@ -1341,6 +1445,22 @@ onUnmounted(() => {
 .match-fix-btn:hover { background: #fffbeb; }
 .match-fix-btn.auto { border-color: #2563eb; color: #1d4ed8; }
 .match-fix-btn.auto:hover { background: #eff6ff; }
+.match-fix-btn.verify { border-color: #64748b; color: #334155; }
+.match-fix-btn.verify:hover { background: #f8fafc; }
+.match-fix-btn:disabled { opacity: 0.65; cursor: wait; }
+.match-verify-result {
+  clear: both;
+  margin-top: 5px;
+  padding: 4px 7px;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+  background: #f9fafb;
+  color: #374151;
+}
+.match-verify-result.verdict-exact { background: #ecfdf5; border-color: #86efac; color: #166534; }
+.match-verify-result.verdict-near { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
+.match-verify-result.verdict-incorrect { background: #fef2f2; border-color: #fca5a5; color: #b91c1c; }
+.match-verify-result.verdict-unknown { background: #f8fafc; border-color: #cbd5e1; color: #475569; }
 .match-fix-backdrop {
   position: fixed;
   inset: 0;
