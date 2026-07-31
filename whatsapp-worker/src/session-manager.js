@@ -318,8 +318,10 @@ class SessionManager {
       return this._snapshot(sessionId);
     }
 
+    const authDir = path.join(this.sessionStorePath, sessionId);
+    const credsFile = path.join(authDir, 'creds.json');
+
     if (existing?.status === SESSION_STATUS.LOGGED_OUT) {
-      const authDir = path.join(this.sessionStorePath, sessionId);
       if (fs.existsSync(authDir)) {
         fs.rmSync(authDir, { recursive: true });
         this.logger.info({ sessionId }, 'Cleared logged-out credentials — fresh QR will be generated');
@@ -331,6 +333,7 @@ class SessionManager {
       status: SESSION_STATUS.PENDING_QR,
       qrDataUrl: null,
       qrEverGenerated: false,
+      hasCredentials: fs.existsSync(credsFile),
       phoneNumber: null,
       displayName: null,
       // Sync settings
@@ -575,7 +578,10 @@ class SessionManager {
         },
       });
 
-      sock.ev.on('creds.update', saveCreds);
+      sock.ev.on('creds.update', async () => {
+        await saveCreds();
+        session.hasCredentials = true;
+      });
     } catch (err) {
       this.logger.error({ sessionId, error: err.message }, 'Failed to initialize connection');
       session.sock = null;
@@ -608,6 +614,7 @@ class SessionManager {
         this._clearWatchdog(session);
         const me = sock.user;
         session.status = SESSION_STATUS.CONNECTED;
+        session.hasCredentials = true;
         session.phoneNumber = me?.id?.split(':')[0] || null;
         session.displayName = me?.name || null;
         session.qrDataUrl = null;
@@ -681,7 +688,7 @@ class SessionManager {
         session.sock = null;
         this.logger.info({ sessionId, ...closeDetail }, 'Session closed');
 
-        if (!loggedOut && !session.qrEverGenerated) {
+        if (!loggedOut && !session.qrEverGenerated && !session.hasCredentials) {
           const authDir = path.join(this.sessionStorePath, sessionId);
           const credsFile = path.join(authDir, 'creds.json');
           if (fs.existsSync(authDir) && !fs.existsSync(credsFile)) {
