@@ -9,9 +9,9 @@ from django.views.decorators.http import require_POST, require_GET
 from .services.ingestion_service import IngestionService
 from .services.session_service import SessionService
 from .models import (
-    WhatsAppAccount, WhatsAppContact, WhatsAppChat, SyncLog, DroppedMessage,
+    WhatsAppAccount, WhatsAppContact, WhatsAppChat, WhatsAppMessage, SyncLog, DroppedMessage,
     WhatsAppGroup, WhatsAppGroupParticipant, ParticipantRole, WorkerAlert,
-    StuckReceipt, WhatsAppUnresolvedMessage,
+    StuckReceipt, WhatsAppUnresolvedMessage, BaileysEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -571,6 +571,72 @@ def internal_dropped_message(request):
         return JsonResponse({'error': 'Account not found'}, status=404)
     except Exception as e:
         logger.exception('Error in internal_dropped_message')
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def internal_baileys_event(request):
+    if not _verify_internal_token(request):
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    event_type = payload.get('event_type')
+    event_stage = payload.get('event_stage')
+    status = payload.get('status')
+    if not event_type or not event_stage or not status:
+        return JsonResponse({'error': 'Missing event_type, event_stage, or status'}, status=400)
+
+    account = None
+    worker_session_id = payload.get('worker_session_id')
+    if worker_session_id:
+        account = WhatsAppAccount.objects.filter(pk=worker_session_id).first()
+        if not account:
+            return JsonResponse({'error': 'Account not found'}, status=404)
+
+    whatsapp_message = None
+    django_message_id = payload.get('django_message_id')
+    provider_message_id = payload.get('provider_message_id') or ''
+    if django_message_id:
+        whatsapp_message = WhatsAppMessage.objects.filter(pk=django_message_id).first()
+    if not whatsapp_message and account and provider_message_id:
+        whatsapp_message = WhatsAppMessage.objects.filter(
+            account=account,
+            provider_message_id=provider_message_id,
+        ).first()
+
+    try:
+        event = BaileysEvent.objects.create(
+            account=account,
+            whatsapp_message=whatsapp_message,
+            session_id=str(worker_session_id or ''),
+            event_type=event_type,
+            event_stage=event_stage,
+            status=status,
+            provider_message_id=provider_message_id,
+            raw_jid=payload.get('raw_jid') or '',
+            remote_jid=payload.get('remote_jid') or '',
+            participant_jid=payload.get('participant_jid') or '',
+            participant_pn=payload.get('participant_pn') or '',
+            sender_jid=payload.get('sender_jid') or '',
+            sender_number=payload.get('sender_number') or '',
+            push_name=payload.get('push_name') or '',
+            direction=payload.get('direction') or '',
+            message_type=payload.get('message_type') or '',
+            upsert_type=payload.get('upsert_type') or '',
+            reason=payload.get('reason') or '',
+            error_message=payload.get('error_message') or '',
+            raw_key=payload.get('raw_key') or None,
+            raw_payload=payload.get('raw_payload') or None,
+            metadata=payload.get('metadata') or None,
+        )
+        return JsonResponse({'success': True, 'id': event.pk})
+    except Exception as e:
+        logger.exception('Error in internal_baileys_event')
         return JsonResponse({'error': str(e)}, status=500)
 
 

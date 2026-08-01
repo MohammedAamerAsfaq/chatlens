@@ -16,7 +16,7 @@ const currentRole = computed(() => {
 })
 const switchingCompany = ref(false)
 
-const LOG_ROUTES = ['activity', 'message-logs', 'dropped-messages', 'worker-alerts', 'stuck-receipts', 'unresolved-messages', 'ai-parsing-log']
+const LOG_ROUTES = ['activity', 'message-logs', 'dropped-messages', 'worker-alerts', 'baileys-events', 'stuck-receipts', 'unresolved-messages', 'ai-parsing-log']
 const isLogsActive = computed(() => LOG_ROUTES.includes(route.name))
 
 // Nav-level visibility for worker alerts ("admin should be notified") — a badge that's
@@ -155,6 +155,7 @@ async function handleCompanySwitch(event) {
           <RouterLink to="/activity"          class="dropdown-item" active-class="dropdown-item-active">Activity</RouterLink>
           <RouterLink to="/message-logs"      class="dropdown-item" active-class="dropdown-item-active">Message Logs</RouterLink>
           <RouterLink to="/dropped-messages"  class="dropdown-item" active-class="dropdown-item-active">Dropped</RouterLink>
+          <RouterLink to="/baileys-events"    class="dropdown-item" active-class="dropdown-item-active">Baileys Events</RouterLink>
           <RouterLink to="/worker-alerts" class="dropdown-item flex items-center justify-between" active-class="dropdown-item-active">
             Worker Alerts
             <span v-if="unacknowledgedAlerts > 0" class="bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none ml-2">

@@ -50,6 +50,11 @@ urlpatterns = [
         name='internal-dropped-message',
     ),
     path(
+        'api/internal/whatsapp/baileys-event/',
+        views.internal_baileys_event,
+        name='internal-baileys-event',
+    ),
+    path(
         'api/internal/whatsapp/worker-alert/',
         views.internal_worker_alert,
         name='internal-worker-alert',

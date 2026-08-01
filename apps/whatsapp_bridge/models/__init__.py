@@ -9,6 +9,7 @@ from .whatsapp_group import WhatsAppGroup, WhatsAppGroupParticipant, Participant
 from .worker_alert import WorkerAlert
 from .stuck_receipt import StuckReceipt
 from .unresolved_message import WhatsAppUnresolvedMessage, ResolutionStatus
+from .baileys_event import BaileysEvent, BaileysEventStage, BaileysEventStatus
 
 __all__ = [
     'WhatsAppAccount',
@@ -30,4 +31,7 @@ __all__ = [
     'StuckReceipt',
     'WhatsAppUnresolvedMessage',
     'ResolutionStatus',
+    'BaileysEvent',
+    'BaileysEventStage',
+    'BaileysEventStatus',
 ]

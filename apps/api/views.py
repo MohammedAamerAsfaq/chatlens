@@ -26,6 +26,7 @@ from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact,
     SyncLog, DroppedMessage, WhatsAppGroup, SessionStatus, WorkerAlert,
     StuckReceipt, WhatsAppUnresolvedMessage, ResolutionStatus, ContactRoleTag,
+    BaileysEvent,
 )
 from apps.tenancy.models import AccountEndpoint, CommunicationAccount, Company, CompanyMembership
 from apps.tenancy.services.access import (
@@ -44,7 +45,7 @@ from .serializers import (
     WhatsAppAccountSerializer, ChatSerializer, MessageSerializer,
     SyncLogSerializer, DroppedMessageSerializer, ContactDetailSerializer,
     GroupSerializer, GroupDetailSerializer, WorkerAlertSerializer,
-    StuckReceiptSerializer, UnresolvedMessageSerializer,
+    StuckReceiptSerializer, UnresolvedMessageSerializer, BaileysEventSerializer,
 )
 
 WORKER_BASE_URL = getattr(settings, 'WORKER_BASE_URL', 'http://localhost:3001')
@@ -978,6 +979,55 @@ class WorkerAlertViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(account=_visible_account_or_none(request.user, account_id))
         updated = qs.update(acknowledged_at=now(), acknowledged_by=request.user if request.user.is_authenticated else None)
         return Response({'acknowledged': updated})
+
+
+class BaileysEventViewSet(viewsets.ReadOnlyModelViewSet):
+    """Per-message Baileys audit trail for both successful and failed worker
+    decisions. This is intentionally read-only from the UI; writes come only
+    from the internal worker endpoint."""
+    serializer_class = BaileysEventSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = ActivityPagination
+
+    def get_queryset(self):
+        qs = scope_queryset_to_visible_accounts(
+            BaileysEvent.objects.select_related('account', 'whatsapp_message').order_by('-created_at'),
+            self.request.user,
+            account_field='account',
+        )
+        account_id = self.request.query_params.get('account')
+        if account_id:
+            qs = qs.filter(account=_visible_account_or_none(self.request.user, account_id))
+        event_stage = self.request.query_params.get('event_stage')
+        if event_stage:
+            qs = qs.filter(event_stage=event_stage)
+        event_type = self.request.query_params.get('event_type')
+        if event_type:
+            qs = qs.filter(event_type=event_type)
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        reason = self.request.query_params.get('reason')
+        if reason:
+            qs = qs.filter(reason=reason)
+        provider_message_id = self.request.query_params.get('provider_message_id')
+        if provider_message_id:
+            qs = qs.filter(provider_message_id=provider_message_id)
+        search = (self.request.query_params.get('search') or '').strip()
+        if search:
+            qs = qs.filter(
+                Q(provider_message_id__icontains=search)
+                | Q(raw_jid__icontains=search)
+                | Q(remote_jid__icontains=search)
+                | Q(participant_jid__icontains=search)
+                | Q(participant_pn__icontains=search)
+                | Q(sender_jid__icontains=search)
+                | Q(sender_number__icontains=search)
+                | Q(push_name__icontains=search)
+                | Q(reason__icontains=search)
+                | Q(error_message__icontains=search)
+            )
+        return qs
 
 
 class StuckReceiptViewSet(viewsets.ReadOnlyModelViewSet):

@@ -2,6 +2,7 @@ from rest_framework import serializers
 from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact, SyncLog, DroppedMessage,
     WhatsAppGroup, WhatsAppGroupParticipant, WorkerAlert, StuckReceipt, WhatsAppUnresolvedMessage,
+    BaileysEvent,
 )
 
 
@@ -185,6 +186,27 @@ class WorkerAlertSerializer(serializers.ModelSerializer):
     def get_account_name(self, obj):
         if not obj.account:
             return None
+        return obj.account.display_name or obj.account.phone_number or f'Account #{obj.account.pk}'
+
+
+class BaileysEventSerializer(serializers.ModelSerializer):
+    account_name = serializers.SerializerMethodField()
+    django_message_id = serializers.IntegerField(source='whatsapp_message_id', read_only=True)
+
+    class Meta:
+        model = BaileysEvent
+        fields = [
+            'id', 'account', 'account_name', 'session_id', 'event_type', 'event_stage',
+            'status', 'provider_message_id', 'django_message_id', 'raw_jid', 'remote_jid',
+            'participant_jid', 'participant_pn', 'sender_jid', 'sender_number',
+            'push_name', 'direction', 'message_type', 'upsert_type', 'reason',
+            'error_message', 'raw_key', 'raw_payload', 'metadata', 'created_at',
+        ]
+        read_only_fields = fields
+
+    def get_account_name(self, obj):
+        if not obj.account:
+            return ''
         return obj.account.display_name or obj.account.phone_number or f'Account #{obj.account.pk}'
 
 

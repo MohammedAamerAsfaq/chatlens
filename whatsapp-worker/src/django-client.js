@@ -138,7 +138,8 @@ class DjangoClient {
 
   async sendMessageIngest(payload) {
     try {
-      await this.http.post('/api/internal/whatsapp/message-ingest/', payload);
+      const resp = await this.http.post('/api/internal/whatsapp/message-ingest/', payload);
+      return resp.data;
     } catch (err) {
       this.logger.error(
         { msgId: payload.provider_message_id, error: err.message },
@@ -229,6 +230,23 @@ class DjangoClient {
       // on top of whatever already went wrong.
       this.logger.warn({ sessionId, reason: fields.reason, err: err.message }, 'sendDroppedMessage failed — falling back to local file');
       this._writeFallback('dropped_message', payload);
+    }
+  }
+
+  async sendBaileysEvent(sessionId, fields) {
+    const payload = { worker_session_id: sessionId, ...fields };
+    try {
+      await this.http.post('/api/internal/whatsapp/baileys-event/', payload);
+    } catch (err) {
+      this.logger.warn(
+        {
+          sessionId,
+          eventType: fields.event_type,
+          msgId: fields.provider_message_id,
+          err: err.message,
+        },
+        'sendBaileysEvent failed - event was not persisted',
+      );
     }
   }
 

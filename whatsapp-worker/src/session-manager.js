@@ -201,6 +201,20 @@ class SessionManager {
       message: msg,
       context: obj ? this._safeAlertContext(obj) : null,
     });
+    this.djangoClient.sendBaileysEvent(sessionId, {
+      event_type: 'baileys_internal_log',
+      event_stage: 'internal',
+      status: 'failure',
+      provider_message_id: obj?.key?.id || obj?.ids?.[0] || '',
+      raw_jid: obj?.key?.remoteJid || obj?.key?.participant || '',
+      remote_jid: obj?.key?.remoteJid || '',
+      participant_jid: obj?.key?.participant || '',
+      direction: obj?.key?.fromMe === true ? 'outbound' : (obj?.key?.fromMe === false ? 'inbound' : ''),
+      reason: alertType,
+      error_message: msg,
+      raw_key: obj?.key || null,
+      metadata: obj ? this._safeAlertContext(obj) : null,
+    });
 
     if (!kind) return;
 
@@ -762,6 +776,13 @@ class SessionManager {
           try { safeMsg = JSON.parse(JSON.stringify(m)); } catch { safeMsg = { unserializable: true }; }
           this._debugWatchLog(sessionId, 'messages.upsert', safeMsg, { type });
         }
+        this._recordBaileysEvent(sessionId, m, {
+          event_type: 'messages.upsert',
+          event_stage: 'received',
+          status: 'info',
+          upsert_type: type || '',
+          metadata: { has_message: !!m.message },
+        });
       }
 
       // 'prepend' arrives when WhatsApp delivers missed messages after a reconnect.
@@ -819,6 +840,12 @@ class SessionManager {
           try { safeMsg = JSON.parse(JSON.stringify(m)); } catch { safeMsg = { unserializable: true }; }
           this._debugWatchLog(sessionId, 'messaging-history.set', safeMsg);
         }
+        this._recordBaileysEvent(sessionId, m, {
+          event_type: 'messaging-history.set',
+          event_stage: 'history',
+          status: 'info',
+          metadata: { is_latest: !!isLatest, has_message: !!m.message },
+        });
       }
 
       let filtered = messages.filter(m => m.key?.remoteJid && m.message);
@@ -1362,11 +1389,54 @@ class SessionManager {
     return null;
   }
 
+  _baileysEventPayload(sessionId, msg, fields = {}) {
+    const key = msg?.key || {};
+    const parsed = msg?.message ? this._parseMessage(msg) : {};
+    const participant = key.participant || '';
+    const participantPn = key.participantPn || key.senderPn || '';
+    const remoteJid = key.remoteJid || '';
+    const senderJid = key.fromMe ? remoteJid : (participantPn || participant || remoteJid);
+    const senderNumber = senderJid?.endsWith('@s.whatsapp.net') ? senderJid.split('@')[0] : '';
+
+    return {
+      event_type: fields.event_type,
+      event_stage: fields.event_stage,
+      status: fields.status,
+      provider_message_id: key.id || fields.provider_message_id || '',
+      raw_jid: remoteJid,
+      remote_jid: remoteJid,
+      participant_jid: participant,
+      participant_pn: participantPn,
+      sender_jid: senderJid,
+      sender_number: senderNumber,
+      push_name: msg?.pushName || '',
+      direction: key.fromMe === true ? 'outbound' : (key.fromMe === false ? 'inbound' : ''),
+      message_type: parsed.messageType || '',
+      raw_key: key ? this._safeAlertContext({ ...key, _msgKeys: Object.keys(msg?.message || {}) }) : null,
+      ...fields,
+    };
+  }
+
+  _recordBaileysEvent(sessionId, msg, fields = {}) {
+    this.djangoClient.sendBaileysEvent(
+      sessionId,
+      this._baileysEventPayload(sessionId, msg, fields),
+    );
+  }
+
   async _reportDropped(sessionId, msg, reason) {
     this.logger.info(
       { sessionId, msgId: msg.key?.id, jid: msg.key?.remoteJid, hasMsg: !!msg.message, reason },
       'message dropped before Django',
     );
+    this._recordBaileysEvent(sessionId, msg, {
+      event_type: 'message_dropped',
+      event_stage: 'filtered',
+      status: 'skipped',
+      reason,
+      raw_payload: this._safeAlertContext(msg),
+      metadata: { has_message: !!msg.message },
+    });
     // Fire-and-forget — don't await so the upsert loop is never blocked by HTTP
     this.djangoClient.sendDroppedMessage(sessionId, {
       msg_id: msg.key?.id || null,
@@ -1398,12 +1468,29 @@ class SessionManager {
     // Phase 2: forward to Django
     const { payload, logEntry } = built;
     try {
-      await this.djangoClient.sendMessageIngest(payload);
+      const result = await this.djangoClient.sendMessageIngest(payload);
       this._recordHealthySignal(sessionId);
+      this._recordBaileysEvent(sessionId, msg, {
+        event_type: 'message_forwarded',
+        event_stage: 'forwarded',
+        status: 'success',
+        django_message_id: result?.message_id || null,
+        metadata: {
+          chat_id: payload.chat_id,
+          sender_number: payload.sender_number,
+        },
+      });
     } catch (fwdErr) {
       logEntry.forward_status = 'error';
       logEntry.forward_error  = fwdErr.message;
       this.logger.error({ sessionId, msgId: msg.key?.id, err: fwdErr.message }, 'Failed to forward message to Django');
+      this._recordBaileysEvent(sessionId, msg, {
+        event_type: 'message_forward_failed',
+        event_stage: 'failed',
+        status: 'failure',
+        reason: 'forward_failed',
+        error_message: fwdErr.message,
+      });
       this._reportDropped(sessionId, msg, 'forward_failed');
     } finally {
       this.messageLogger.write(sessionId, logEntry);
@@ -1479,9 +1566,28 @@ class SessionManager {
         );
       }
 
-      for (const { logEntry } of chunk) {
+      for (const { payload, logEntry } of chunk) {
         logEntry.forward_status = forwardStatus;
         logEntry.forward_error  = forwardError;
+        this.djangoClient.sendBaileysEvent(sessionId, {
+          event_type: 'history_message_forwarded',
+          event_stage: forwardStatus === 'success' ? 'forwarded' : 'failed',
+          status: forwardStatus === 'success' ? 'success' : 'failure',
+          provider_message_id: payload.provider_message_id || '',
+          raw_jid: payload.chat_id || '',
+          remote_jid: payload.chat_id || '',
+          sender_number: payload.sender_number || '',
+          push_name: payload.push_name || '',
+          direction: payload.direction || '',
+          message_type: payload.message_type || '',
+          reason: forwardStatus === 'success' ? '' : forwardStatus,
+          error_message: forwardError || '',
+          metadata: {
+            is_latest: !!isLatest,
+            received,
+            chat_type: payload.chat_type,
+          },
+        });
         this.messageLogger.write(sessionId, logEntry);
       }
     }

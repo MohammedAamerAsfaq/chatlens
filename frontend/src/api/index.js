@@ -109,6 +109,10 @@ export const workerAlertsApi = {
   acknowledgeAll:     (params) => http.post('/worker-alerts/acknowledge-all/', {}, { params }),
 }
 
+export const baileysEventsApi = {
+  list: (params) => http.get('/baileys-events/', { params }),
+}
+
 export const stuckReceiptsApi = {
   list:            (params) => http.get('/stuck-receipts/', { params }),
   unresolvedCount:  ()      => http.get('/stuck-receipts/unresolved-count/'),
