@@ -128,6 +128,13 @@ export const unresolvedMessagesApi = {
   dismiss:            (id, reason) => http.post(`/unresolved-messages/${id}/dismiss/`, { reason }),
 }
 
+export const messageTraceApi = {
+  list:  (params) => http.get('/message-trace/list/', { params }),
+  trace: (accountId, providerMessageId) => http.get('/message-trace/', {
+    params: { account: accountId, provider_message_id: providerMessageId },
+  }),
+}
+
 export const groupsApi = {
   list:         (params)    => http.get('/groups/', { params }),
   get:          (id)        => http.get(`/groups/${id}/`),

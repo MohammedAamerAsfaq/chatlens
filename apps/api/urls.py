@@ -4,6 +4,7 @@ from .views import (
     WhatsAppAccountViewSet, ChatViewSet, SyncLogViewSet, DroppedMessageViewSet,
     ContactViewSet, GroupViewSet, WorkerAlertViewSet, StuckReceiptViewSet,
     UnresolvedMessageViewSet, BaileysEventViewSet,
+    message_trace_view, message_trace_list_view,
     auth_login_view, auth_logout_view, auth_me_view, auth_select_company_view,
     admin_companies_view, admin_company_enroll_view, admin_company_users_view,
 )
@@ -22,6 +23,8 @@ router.register('groups', GroupViewSet, basename='groups')
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('message-trace/list/', message_trace_list_view, name='message-trace-list'),
+    path('message-trace/', message_trace_view, name='message-trace'),
     path('auth/login/',  auth_login_view,  name='auth-login'),
     path('auth/logout/', auth_logout_view, name='auth-logout'),
     path('auth/me/',     auth_me_view,     name='auth-me'),

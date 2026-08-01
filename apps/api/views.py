@@ -990,6 +990,55 @@ class WorkerAlertViewSet(viewsets.ReadOnlyModelViewSet):
         return Response({'acknowledged': updated})
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def message_trace_list_view(request):
+    """Browsable list backing the Message Trace screen — see
+    message_trace.list_traced_messages docstring. account is optional (omit
+    for every account visible to the requester, same convention as the other
+    Logs list endpoints)."""
+    account_id = request.query_params.get('account') or None
+    if account_id:
+        account = _visible_account_or_none(request.user, account_id)
+        if not account:
+            return Response({'error': 'Account not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    search = (request.query_params.get('search') or '').strip()
+    try:
+        page = max(1, int(request.query_params.get('page', 1)))
+        page_size = min(100, max(1, int(request.query_params.get('page_size', 25))))
+    except ValueError:
+        return Response({'error': 'page and page_size must be integers'}, status=status.HTTP_400_BAD_REQUEST)
+
+    from apps.whatsapp_bridge.services.message_trace import list_traced_messages
+    return Response(list_traced_messages(
+        request.user, account_id=account_id, search=search, page=page, page_size=page_size,
+    ))
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def message_trace_view(request):
+    """Cross-table message lifecycle report — see message_trace.trace_message
+    docstring for exactly which log sources are joined and how. Read-only
+    reporting endpoint; tenant-scoped the same way every other Logs screen is
+    (the account must be visible to the requesting user)."""
+    account_id = request.query_params.get('account')
+    provider_message_id = (request.query_params.get('provider_message_id') or '').strip()
+    if not account_id or not provider_message_id:
+        return Response(
+            {'error': 'account and provider_message_id query params are both required'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    account = _visible_account_or_none(request.user, account_id)
+    if not account:
+        return Response({'error': 'Account not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    from apps.whatsapp_bridge.services.message_trace import trace_message
+    return Response(trace_message(account, provider_message_id))
+
+
 class BaileysEventViewSet(viewsets.ReadOnlyModelViewSet):
     """Per-message Baileys audit trail for both successful and failed worker
     decisions. This is intentionally read-only from the UI; writes come only

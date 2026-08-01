@@ -12,6 +12,7 @@ import WorkerAlertsView     from '../views/WorkerAlertsView.vue'
 import BaileysEventsView    from '../views/BaileysEventsView.vue'
 import StuckReceiptsView    from '../views/StuckReceiptsView.vue'
 import UnresolvedMessagesView from '../views/UnresolvedMessagesView.vue'
+import MessageTraceView     from '../views/MessageTraceView.vue'
 import AiParsingLogView     from '../views/AiParsingLogView.vue'
 import ContactsView         from '../views/ContactsView.vue'
 import GroupsView           from '../views/GroupsView.vue'
@@ -41,6 +42,7 @@ const router = createRouter({
     { path: '/baileys-events', name: 'baileys-events', component: BaileysEventsView },
     { path: '/stuck-receipts', name: 'stuck-receipts', component: StuckReceiptsView },
     { path: '/unresolved-messages', name: 'unresolved-messages', component: UnresolvedMessagesView },
+    { path: '/message-trace', name: 'message-trace', component: MessageTraceView },
     { path: '/ai-parsing-log', name: 'ai-parsing-log', component: AiParsingLogView },
     { path: '/contacts', name: 'contacts', component: ContactsView },
     { path: '/groups', name: 'groups', component: GroupsView },
