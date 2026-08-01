@@ -86,9 +86,11 @@ def _parse_response(raw: str) -> dict:
         tags = ['other']
 
     products = []
-    for p in (data.get('products') or []):
+    for index, p in enumerate(data.get('products') or []):
         if not isinstance(p, dict):
-            continue
+            raise ValueError(
+                f'AI product entry must be an object | index={index} | type={type(p).__name__}'
+            )
         match_type = p.get('match_type') if p.get('product_id') is not None else None
         if match_type not in VALID_MATCH_TYPES:
             match_type = None
@@ -234,3 +236,4 @@ def classify_message(message) -> None:
             process_inquiry(message, classification)
         except Exception:
             logger.exception('classify_message | inquiry processing failed | message_id=%s', msg_id)
+            raise

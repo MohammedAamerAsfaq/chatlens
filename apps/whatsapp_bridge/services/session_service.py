@@ -14,6 +14,26 @@ class SessionService:
         event_time = parse_datetime(payload.get('event_time', '')) if payload.get('event_time') else None
 
         account = WhatsAppAccount.objects.get(pk=worker_session_id)
+        latest_known_event_time = max(
+            (dt for dt in (account.last_connected_at, account.last_disconnected_at) if dt),
+            default=None,
+        )
+
+        if event_time and latest_known_event_time and event_time < latest_known_event_time:
+            SyncLog.objects.create(
+                account=account,
+                event_type='session_status_stale_ignored',
+                status=status,
+                metadata=payload,
+            )
+            logger.warning(
+                "Ignored stale session status | account=%s | status=%s | event_time=%s | latest_known_event_time=%s",
+                account.pk,
+                status,
+                event_time,
+                latest_known_event_time,
+            )
+            return account
 
         update_fields = {'session_status': status, 'worker_session_id': worker_session_id}
 

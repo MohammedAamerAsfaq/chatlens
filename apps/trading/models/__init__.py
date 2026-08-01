@@ -3,6 +3,13 @@ from .product_alias import ProductAlias
 from .product_attribute import ProductAttribute
 from .message_classification import MessageClassification, MessageTag
 from .inquiry import Inquiry, InquiryMessage, InquiryStatus
+from .inquiry_product import (
+    InquiryProduct,
+    InquiryProductDecisionStatus,
+    InquiryProductEmbeddingStatus,
+    InquiryProductMatchSource,
+    InquiryProductMatchStatus,
+)
 from .prompt_config import PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT
 from .agent_call_log import AgentCallLog
 from .ai_parsing_log import AiParsingLog
@@ -16,6 +23,11 @@ __all__ = [
     'ProductAttribute',
     'MessageClassification', 'MessageTag',
     'Inquiry', 'InquiryMessage', 'InquiryStatus',
+    'InquiryProduct',
+    'InquiryProductDecisionStatus',
+    'InquiryProductEmbeddingStatus',
+    'InquiryProductMatchSource',
+    'InquiryProductMatchStatus',
     'PromptConfig', 'PRODUCT_EXTRACTION_DEFAULT', 'INQUIRY_CLASSIFICATION_DEFAULT', 'INVENTORY_UPDATE_DEFAULT', 'PRICE_LIST_FORMAT_DEFAULT',
     'QTY_COST_UPDATE_DEFAULT', 'SALE_PRICE_UPDATE_DEFAULT', 'MATCH_VERIFICATION_DEFAULT',
     'AgentCallLog',

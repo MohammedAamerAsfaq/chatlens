@@ -19,6 +19,7 @@ import TradingView          from '../views/TradingView.vue'
 import TradingAnalyticsView from '../views/TradingAnalyticsView.vue'
 import ReportSummaryView    from '../views/ReportSummaryView.vue'
 import InquiriesView        from '../views/InquiriesView.vue'
+import InquiryProductsView  from '../views/InquiryProductsView.vue'
 import ProductsView         from '../views/ProductsView.vue'
 import ProductPriceUpdateView from '../views/ProductPriceUpdateView.vue'
 import AIInstructionsView   from '../views/AIInstructionsView.vue'
@@ -47,6 +48,7 @@ const router = createRouter({
     { path: '/trading-analytics', name: 'trading-analytics', component: TradingAnalyticsView },
     { path: '/report-summary', name: 'report-summary', component: ReportSummaryView },
     { path: '/inquiries', name: 'inquiries', component: InquiriesView },
+    { path: '/inquiry-products', name: 'inquiry-products', component: InquiryProductsView },
     { path: '/products', name: 'products', component: ProductsView },
     { path: '/product-price-update', name: 'product-price-update', component: ProductPriceUpdateView },
     { path: '/buying-inquiries', name: 'buying-inquiries', component: BuyingInquiriesView },

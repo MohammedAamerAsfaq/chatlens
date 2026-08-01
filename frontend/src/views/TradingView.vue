@@ -224,6 +224,7 @@
                   @click="act(inq, 'closed')"
                 >Close</button>
                 <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
+                <button v-if="inq.products?.length" class="act-btn products" @click="openInquiryProducts(inq)">Inquiry Products</button>
                 <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id, inq.account, inq.source_message_id, inq.source_message_time)" title="Open conversation">Chat →</button>
                 <a v-if="waLink(inq)" :href="waLink(inq)" class="act-btn wa" title="Open in WhatsApp">
                   <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2zm4.82 13.68c-.2.56-1.18 1.07-1.62 1.14-.44.07-.98.1-1.58-.1-.36-.12-.83-.28-1.42-.55-2.5-1.08-4.13-3.6-4.26-3.77-.13-.17-1.05-1.4-1.05-2.67 0-1.27.66-1.9.9-2.16.23-.26.5-.32.67-.32.17 0 .33 0 .48.01.15.01.36-.06.56.43.2.49.7 1.7.76 1.82.06.13.1.27.02.43-.08.17-.12.27-.23.41-.11.14-.24.31-.33.42-.11.13-.23.27-.1.53.13.26.59 1 1.27 1.63.87.8 1.61 1.04 1.87 1.16.26.12.41.1.57-.06.16-.16.66-.77.83-1.04.17-.26.34-.22.57-.13.23.09 1.44.68 1.69.8.25.12.41.18.47.28.07.1.07.56-.13 1.12z"/></svg>
@@ -401,6 +402,7 @@
                   @click="act(inq, 'closed')"
                 >Close</button>
                 <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
+                <button v-if="inq.products?.length" class="act-btn products" @click="openInquiryProducts(inq)">Inquiry Products</button>
                 <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id, inq.account, inq.source_message_id, inq.source_message_time)" title="Open conversation">Chat →</button>
                 <a v-if="waLink(inq)" :href="waLink(inq)" class="act-btn wa" title="Open in WhatsApp">
                   <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2zm4.82 13.68c-.2.56-1.18 1.07-1.62 1.14-.44.07-.98.1-1.58-.1-.36-.12-.83-.28-1.42-.55-2.5-1.08-4.13-3.6-4.26-3.77-.13-.17-1.05-1.4-1.05-2.67 0-1.27.66-1.9.9-2.16.23-.26.5-.32.67-.32.17 0 .33 0 .48.01.15.01.36-.06.56.43.2.49.7 1.7.76 1.82.06.13.1.27.02.43-.08.17-.12.27-.23.41-.11.14-.24.31-.33.42-.11.13-.23.27-.1.53.13.26.59 1 1.27 1.63.87.8 1.61 1.04 1.87 1.16.26.12.41.1.57-.06.16-.16.66-.77.83-1.04.17-.26.34-.22.57-.13.23.09 1.44.68 1.69.8.25.12.41.18.47.28.07.1.07.56-.13 1.12z"/></svg>
@@ -564,6 +566,54 @@
       </div>
     </div>
   </Teleport>
+
+  <Teleport to="body">
+    <div v-if="productModalOpen" class="inquiry-product-backdrop" @click.self="closeInquiryProducts">
+      <div class="inquiry-product-dialog">
+        <div class="inquiry-product-header">
+          <div>
+            <div class="inquiry-product-title">Inquiry Products</div>
+            <div class="inquiry-product-subtitle">{{ productModalInquiry?.summary || 'Parsed products from selected inquiry' }}</div>
+          </div>
+          <button class="match-fix-close" @click="closeInquiryProducts" title="Close">×</button>
+        </div>
+
+        <div v-if="productLinesLoading" class="inquiry-product-state">Loading products...</div>
+        <div v-else-if="productLinesError" class="inquiry-product-error">{{ productLinesError }}</div>
+        <div v-else-if="!productLines.length" class="inquiry-product-state">No product lines found.</div>
+        <div v-else class="inquiry-product-list">
+          <div
+            v-for="line in productLines"
+            :key="line.index"
+            class="inquiry-product-row"
+            :class="{ linked: line.has_inventory_mapping || line.inquiry_product_id }"
+          >
+            <div class="inquiry-product-main">
+              <div class="inquiry-product-name">{{ line.canonical_name || 'Invalid product line' }}</div>
+              <div class="inquiry-product-meta">
+                <span v-if="line.quantity">Qty {{ line.quantity }}</span>
+                <span v-if="line.price">{{ line.currency || '' }} {{ line.price }}</span>
+                <span v-if="line.match_type">AI match: {{ line.match_type }}</span>
+              </div>
+              <div v-if="line.product_name" class="inquiry-product-linked">Mapped to inventory: {{ line.product_name }}</div>
+              <div v-else-if="line.inquiry_product_id" class="inquiry-product-linked">Inquiry product row already exists.</div>
+            </div>
+            <div class="inquiry-product-actions">
+              <span v-if="line.has_inventory_mapping || line.inquiry_product_id" class="linked-pill">Linked</span>
+              <button
+                v-else
+                class="act-btn deal"
+                :disabled="creatingLineIndex === line.index || !line.valid"
+                @click="createProductFromLine(line)"
+              >
+                {{ creatingLineIndex === line.index ? 'Creating...' : 'Create Product' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -711,6 +761,12 @@ const autoSearchResults = ref(null) // [{ product, source: 'direct'|'embedding',
 const autoSearchLoading = ref(false)
 const autoSearchError   = ref('')
 const matchVerifications = ref({})
+const productModalOpen = ref(false)
+const productModalInquiry = ref(null)
+const productLines = ref([])
+const productLinesLoading = ref(false)
+const productLinesError = ref('')
+const creatingLineIndex = ref(null)
 
 function matchVerificationKey(inq, hint) {
   return `${inq?.id || 'unknown'}:${hint?.index ?? 'unknown'}`
@@ -731,6 +787,68 @@ function matchVerificationLabel(result) {
     unknown: 'AI could not verify',
   }
   return labels[result.verdict] || 'AI could not verify'
+}
+
+async function openInquiryProducts(inq) {
+  productModalInquiry.value = inq
+  productModalOpen.value = true
+  await loadInquiryProducts(inq.id)
+}
+
+function closeInquiryProducts() {
+  productModalOpen.value = false
+  productModalInquiry.value = null
+  productLines.value = []
+  productLinesError.value = ''
+}
+
+async function loadInquiryProducts(inquiryId) {
+  productLinesLoading.value = true
+  productLinesError.value = ''
+  try {
+    const { data } = await tradingApi.getInquiryProductLines(inquiryId)
+    productLines.value = data.products || []
+    productModalInquiry.value = data.inquiry || productModalInquiry.value
+  } catch (e) {
+    productLinesError.value = e.response?.data?.detail || e.message || 'Failed to load inquiry products'
+  } finally {
+    productLinesLoading.value = false
+  }
+}
+
+function patchInquiryInFeeds(updatedInquiry) {
+  if (!updatedInquiry?.id) return
+  const patch = (list) => {
+    const idx = list.findIndex(i => i.id === updatedInquiry.id)
+    if (idx >= 0) list[idx] = { ...list[idx], ...updatedInquiry }
+  }
+  patch(buyFeed.value)
+  patch(sellFeed.value)
+}
+
+async function createProductFromLine(line) {
+  if (!productModalInquiry.value) return
+  creatingLineIndex.value = line.index
+  productLinesError.value = ''
+  try {
+    const { data } = await tradingApi.createProductFromInquiryLine(
+      productModalInquiry.value.id,
+      line.index,
+      {},
+    )
+    if (data.product) {
+      allProducts.value = [data.product, ...allProducts.value.filter(p => p.id !== data.product.id)]
+    }
+    if (data.inquiry) {
+      productModalInquiry.value = data.inquiry
+      patchInquiryInFeeds(data.inquiry)
+    }
+    await loadInquiryProducts(productModalInquiry.value.id)
+  } catch (e) {
+    productLinesError.value = e.response?.data?.detail || e.message || 'Failed to create product'
+  } finally {
+    creatingLineIndex.value = null
+  }
 }
 
 async function verifyStockMatch(inq, hint) {
@@ -1392,6 +1510,7 @@ onUnmounted(() => {
 .act-btn.close { background: #f3f4f6; color: #374151; }
 .act-btn.close:disabled { opacity: 0.45; cursor: not-allowed; }
 .act-btn.deal  { background: #16a34a; color: #fff; }
+.act-btn.products { background: #eef2ff; color: #3730a3; }
 .act-btn.chat  { background: #eff6ff; color: #1d4ed8; margin-left: auto; }
 .act-btn.wa    { background: #dcfce7; color: #16a34a; display: flex; align-items: center; gap: 3px; text-decoration: none; }
 .act-btn.wa-ask { background: #fef9c3; color: #92400e; text-decoration: none; }
@@ -1461,6 +1580,47 @@ onUnmounted(() => {
 .match-verify-result.verdict-near { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
 .match-verify-result.verdict-incorrect { background: #fef2f2; border-color: #fca5a5; color: #b91c1c; }
 .match-verify-result.verdict-unknown { background: #f8fafc; border-color: #cbd5e1; color: #475569; }
+.inquiry-product-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 110;
+  padding: 24px;
+}
+.inquiry-product-dialog {
+  width: 860px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 64px);
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 14px 38px rgba(0,0,0,0.22);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.inquiry-product-header {
+  padding: 16px 18px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+.inquiry-product-title { font-size: 0.95rem; font-weight: 700; color: #111827; }
+.inquiry-product-subtitle { margin-top: 3px; font-size: 0.8rem; color: #6b7280; line-height: 1.4; }
+.inquiry-product-state { padding: 32px; text-align: center; color: #6b7280; font-size: 0.88rem; }
+.inquiry-product-error { margin: 14px 18px; padding: 9px 11px; border: 1px solid #fecaca; border-radius: 8px; background: #fef2f2; color: #b91c1c; font-size: 0.82rem; }
+.inquiry-product-list { padding: 12px 18px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; }
+.inquiry-product-row { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 11px; border: 1px solid #e5e7eb; border-radius: 9px; background: #fff; }
+.inquiry-product-row.linked { background: #f0fdf4; border-color: #bbf7d0; }
+.inquiry-product-main { min-width: 0; }
+.inquiry-product-name { font-size: 0.88rem; font-weight: 700; color: #111827; }
+.inquiry-product-meta { margin-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; color: #6b7280; font-size: 0.75rem; }
+.inquiry-product-linked { margin-top: 5px; color: #15803d; font-size: 0.78rem; font-weight: 600; }
+.inquiry-product-actions { flex-shrink: 0; }
+.linked-pill { background: #dcfce7; color: #166534; border-radius: 999px; padding: 3px 9px; font-size: 0.72rem; font-weight: 700; }
 .match-fix-backdrop {
   position: fixed;
   inset: 0;

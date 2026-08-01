@@ -120,8 +120,12 @@ export const stuckReceiptsApi = {
 }
 
 export const unresolvedMessagesApi = {
-  list:   (params) => http.get('/unresolved-messages/', { params }),
-  counts: (params)  => http.get('/unresolved-messages/counts/', { params }),
+  list:               (params) => http.get('/unresolved-messages/', { params }),
+  counts:             (params) => http.get('/unresolved-messages/counts/', { params }),
+  retryResolution:    (id)     => http.post(`/unresolved-messages/${id}/retry-resolution/`),
+  resolveWithContact: (id, contactId) => http.post(`/unresolved-messages/${id}/resolve-with-contact/`, { contact_id: contactId }),
+  createContactAndResolve: (id, data) => http.post(`/unresolved-messages/${id}/create-contact-and-resolve/`, data),
+  dismiss:            (id, reason) => http.post(`/unresolved-messages/${id}/dismiss/`, { reason }),
 }
 
 export const groupsApi = {
@@ -193,7 +197,10 @@ export const tradingApi = {
 
   // Inquiries
   listInquiries:          (params)      => http.get('/inquiries/', { params }),
+  listInquiryProducts:    (params)      => http.get('/inquiry-products/', { params }),
   getInquiry:             (id)          => http.get(`/inquiries/${id}/`),
+  getInquiryProductLines:  (id)          => http.get(`/inquiries/${id}/product-lines/`),
+  createProductFromInquiryLine: (id, index, data) => http.post(`/inquiries/${id}/product-lines/${index}/create-product/`, data),
   updateInquiry:          (id, data)    => http.patch(`/inquiries/${id}/`, data),
   getStats:               (params)      => http.get('/inquiries/stats/', { params }),
   getOpenFeed:            (params)      => http.get('/inquiries/open-feed/', { params }),

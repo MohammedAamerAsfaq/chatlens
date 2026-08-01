@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import (
     Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryMessage,
-    AiParsingLog, BuyingInquiry, SupplierQuote,
+    InquiryProduct, AiParsingLog, BuyingInquiry, SupplierQuote,
     AutomationRule, AutomationRuleSource, AutomatedPriceCapture,
 )
 
@@ -212,6 +212,61 @@ class InquiryDetailSerializer(InquirySerializer):
             .order_by('message__message_time')
         )
         return InquiryMessageSerializer(qs, many=True).data
+
+
+class InquiryProductSerializer(serializers.ModelSerializer):
+    account_name = serializers.SerializerMethodField()
+    contact_name = serializers.SerializerMethodField()
+    contact_phone = serializers.SerializerMethodField()
+    company_contact_name = serializers.SerializerMethodField()
+    product_name = serializers.SerializerMethodField()
+    source_message_text = serializers.CharField(source='source_message.message_text', read_only=True)
+    source_message_time = serializers.DateTimeField(source='source_message.message_time', read_only=True)
+    source_chat_id = serializers.IntegerField(source='source_message.chat_id', read_only=True)
+    inquiry_summary = serializers.CharField(source='inquiry.summary', read_only=True)
+
+    class Meta:
+        model = InquiryProduct
+        fields = [
+            'id', 'company', 'inquiry', 'source_message', 'source_message_text',
+            'source_message_time', 'source_chat_id', 'account', 'account_name',
+            'contact', 'contact_name', 'contact_phone', 'company_contact',
+            'company_contact_name', 'product', 'product_name', 'inquiry_type',
+            'source_product_index', 'canonical_name', 'normalized_name', 'original_text',
+            'quantity', 'price', 'currency', 'decision_status', 'match_status',
+            'match_type', 'match_source', 'match_reason', 'embedding_status',
+            'embedding_model', 'embedding_error', 'first_seen_at', 'created_at',
+            'updated_at', 'inquiry_summary',
+        ]
+        read_only_fields = fields
+
+    def get_account_name(self, obj):
+        if not obj.account:
+            return ''
+        return obj.account.display_name or obj.account.phone_number or f'Account {obj.account_id}'
+
+    def get_contact_name(self, obj):
+        if not obj.contact:
+            return ''
+        return (
+            obj.contact.display_name
+            or obj.contact.push_name
+            or obj.contact.phone_number
+            or obj.contact.wa_contact_id
+        )
+
+    def get_contact_phone(self, obj):
+        return obj.contact.phone_number if obj.contact else ''
+
+    def get_company_contact_name(self, obj):
+        if not obj.company_contact:
+            return ''
+        return obj.company_contact.display_name or obj.company_contact.legal_name or ''
+
+    def get_product_name(self, obj):
+        if not obj.product:
+            return ''
+        return f'{obj.product.brand} {obj.product.name}'.strip()
 
 
 class SupplierQuoteSerializer(serializers.ModelSerializer):

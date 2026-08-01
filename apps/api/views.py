@@ -2,6 +2,7 @@ import io
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import zipfile
@@ -41,6 +42,7 @@ from apps.tenancy.services.access import (
 )
 from apps.tenancy.services.enrollment_service import CompanyEnrollmentService
 from apps.tenancy.services.provider_service import ProviderService
+from apps.whatsapp_bridge.services.ingestion_service import IngestionService
 from .serializers import (
     WhatsAppAccountSerializer, ChatSerializer, MessageSerializer,
     SyncLogSerializer, DroppedMessageSerializer, ContactDetailSerializer,
@@ -51,6 +53,13 @@ from .serializers import (
 WORKER_BASE_URL = getattr(settings, 'WORKER_BASE_URL', 'http://localhost:3001')
 ACTIVE_COMPANY_SESSION_KEY = 'active_company_id'
 logger = logging.getLogger(__name__)
+
+
+def _normalize_phone_jid(value):
+    digits = re.sub(r'\D+', '', str(value or ''))
+    if not digits:
+        return '', ''
+    return digits, f'{digits}@s.whatsapp.net'
 
 
 def _company_for_contact(contact):
@@ -1114,6 +1123,187 @@ class UnresolvedMessageViewSet(viewsets.ReadOnlyModelViewSet):
             'resolved': qs.filter(resolution_status=ResolutionStatus.RESOLVED).count(),
             'failed':   qs.filter(resolution_status=ResolutionStatus.FAILED).count(),
         })
+
+    @action(detail=True, methods=['post'], url_path='retry-resolution')
+    def retry_resolution(self, request, pk=None):
+        unresolved = self.get_object()
+        if unresolved.resolution_status != ResolutionStatus.PENDING:
+            return Response(
+                {'detail': 'Only pending unresolved messages can be retried.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not unresolved.account_id:
+            return Response({'detail': 'Unresolved message has no account context.'}, status=status.HTTP_400_BAD_REQUEST)
+        lid_jid = unresolved.lid_jid or unresolved.raw_jid
+        if not lid_jid or not lid_jid.endswith('@lid'):
+            return Response({'detail': 'Unresolved message does not have a LID to retry.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        contact = WhatsAppContact.objects.filter(
+            account=unresolved.account,
+            lid_jid=lid_jid,
+            wa_contact_id__endswith='@s.whatsapp.net',
+        ).first()
+        if not contact:
+            return Response(
+                {'detail': 'No phone contact mapping exists for this LID yet.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        result = IngestionService().recover_unresolved_for_lid(
+            unresolved.account,
+            lid_jid,
+            contact.wa_contact_id,
+        )
+        unresolved.refresh_from_db()
+        return Response({'result': result, 'row': self.get_serializer(unresolved).data})
+
+    @action(detail=True, methods=['post'], url_path='resolve-with-contact')
+    def resolve_with_contact(self, request, pk=None):
+        unresolved = self.get_object()
+        if unresolved.resolution_status != ResolutionStatus.PENDING:
+            return Response(
+                {'detail': 'Only pending unresolved messages can be manually resolved.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not unresolved.account_id:
+            return Response({'detail': 'Unresolved message has no account context.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        contact_id = request.data.get('contact_id')
+        if not contact_id:
+            return Response({'detail': 'contact_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        contact = WhatsAppContact.objects.filter(pk=contact_id, account=unresolved.account).first()
+        if not contact:
+            return Response({'detail': 'Contact not found for this account.'}, status=status.HTTP_404_NOT_FOUND)
+        if not contact.wa_contact_id or not contact.wa_contact_id.endswith('@s.whatsapp.net'):
+            return Response(
+                {'detail': 'Select a phone contact, not a LID or group contact.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        lid_jid = unresolved.lid_jid or unresolved.raw_jid
+        if not lid_jid or not lid_jid.endswith('@lid'):
+            return Response({'detail': 'Unresolved message does not have a LID to resolve.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            conflicting = WhatsAppContact.objects.select_for_update().filter(
+                account=unresolved.account,
+                lid_jid=lid_jid,
+            ).exclude(pk=contact.pk).first()
+            if conflicting and conflicting.wa_contact_id and conflicting.wa_contact_id != contact.wa_contact_id:
+                return Response(
+                    {'detail': f'LID is already mapped to contact #{conflicting.pk}.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            if contact.lid_jid and contact.lid_jid != lid_jid:
+                return Response(
+                    {'detail': f'Selected contact already has a different LID: {contact.lid_jid}'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if contact.lid_jid != lid_jid:
+                contact.lid_jid = lid_jid
+                contact.save(update_fields=['lid_jid', 'updated_at'])
+
+        result = IngestionService().recover_unresolved_for_lid(
+            unresolved.account,
+            lid_jid,
+            contact.wa_contact_id,
+        )
+        unresolved.refresh_from_db()
+        return Response({'result': result, 'row': self.get_serializer(unresolved).data})
+
+    @action(detail=True, methods=['post'], url_path='create-contact-and-resolve')
+    def create_contact_and_resolve(self, request, pk=None):
+        unresolved = self.get_object()
+        if unresolved.resolution_status != ResolutionStatus.PENDING:
+            return Response(
+                {'detail': 'Only pending unresolved messages can be manually resolved.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not unresolved.account_id:
+            return Response({'detail': 'Unresolved message has no account context.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        phone_number, phone_jid = _normalize_phone_jid(request.data.get('phone_number'))
+        if not phone_jid:
+            return Response({'detail': 'phone_number is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        lid_jid = unresolved.lid_jid or unresolved.raw_jid
+        if not lid_jid or not lid_jid.endswith('@lid'):
+            return Response({'detail': 'Unresolved message does not have a LID to resolve.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        display_name = (request.data.get('display_name') or unresolved.push_name or phone_number).strip()
+        with transaction.atomic():
+            conflicting = WhatsAppContact.objects.select_for_update().filter(
+                account=unresolved.account,
+                lid_jid=lid_jid,
+            ).exclude(wa_contact_id=phone_jid).first()
+            if conflicting:
+                return Response(
+                    {'detail': f'LID is already mapped to contact #{conflicting.pk}.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            contact, created = WhatsAppContact.objects.select_for_update().get_or_create(
+                account=unresolved.account,
+                wa_contact_id=phone_jid,
+                defaults={
+                    'phone_number': phone_number,
+                    'display_name': display_name,
+                    'push_name': unresolved.push_name or '',
+                    'lid_jid': lid_jid,
+                    'raw_payload': {'source': 'unresolved_message_manual_create', 'unresolved_message_id': unresolved.pk},
+                },
+            )
+            if not created:
+                if contact.lid_jid and contact.lid_jid != lid_jid:
+                    return Response(
+                        {'detail': f'Existing contact already has a different LID: {contact.lid_jid}'},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                update_fields = []
+                if contact.lid_jid != lid_jid:
+                    contact.lid_jid = lid_jid
+                    update_fields.append('lid_jid')
+                if phone_number and contact.phone_number != phone_number:
+                    contact.phone_number = phone_number
+                    update_fields.append('phone_number')
+                if display_name and not contact.display_name:
+                    contact.display_name = display_name
+                    update_fields.append('display_name')
+                if unresolved.push_name and not contact.push_name:
+                    contact.push_name = unresolved.push_name
+                    update_fields.append('push_name')
+                if update_fields:
+                    update_fields.append('updated_at')
+                    contact.save(update_fields=update_fields)
+
+        result = IngestionService().recover_unresolved_for_lid(
+            unresolved.account,
+            lid_jid,
+            phone_jid,
+        )
+        unresolved.refresh_from_db()
+        return Response({
+            'created': created,
+            'contact_id': contact.pk,
+            'result': result,
+            'row': self.get_serializer(unresolved).data,
+        })
+
+    @action(detail=True, methods=['post'], url_path='dismiss')
+    def dismiss(self, request, pk=None):
+        unresolved = self.get_object()
+        if unresolved.resolution_status != ResolutionStatus.PENDING:
+            return Response(
+                {'detail': 'Only pending unresolved messages can be dismissed.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        reason = (request.data.get('reason') or '').strip()
+        unresolved.resolution_status = ResolutionStatus.FAILED
+        unresolved.resolution_error = reason or 'Dismissed manually by user.'
+        unresolved.save(update_fields=['resolution_status', 'resolution_error', 'updated_at'])
+        return Response(self.get_serializer(unresolved).data)
 
 
 class ContactViewSet(viewsets.ModelViewSet):

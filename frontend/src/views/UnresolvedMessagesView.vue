@@ -1,12 +1,19 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { unresolvedMessagesApi, accountsApi } from '@/api'
+import { unresolvedMessagesApi, accountsApi, contactsApi } from '@/api'
 
 const rows       = ref([])
 const accounts    = ref([])
 const loading     = ref(false)
 const expandedId  = ref(null)
 const counts      = ref({ pending: 0, resolved: 0, failed: 0 })
+const actionBusy  = ref({})
+const actionError = ref({})
+const contactQuery = ref({})
+const contactOptions = ref({})
+const newContactName = ref({})
+const newContactPhone = ref({})
+const rawPayloadOpen = ref({})
 
 const filterAccount = ref('all')
 const filterStatus  = ref('pending')
@@ -59,6 +66,111 @@ function refreshAll() {
   fetchCounts()
 }
 
+function setActionError(id, message) {
+  actionError.value = { ...actionError.value, [id]: message || '' }
+}
+
+function setActionBusy(id, busy) {
+  actionBusy.value = { ...actionBusy.value, [id]: busy }
+}
+
+function applyUpdatedRow(updated) {
+  const next = updated?.row || updated
+  if (!next?.id) return
+  const idx = rows.value.findIndex(r => r.id === next.id)
+  if (idx !== -1) rows.value[idx] = next
+}
+
+async function retryResolution(row) {
+  setActionBusy(row.id, true)
+  setActionError(row.id, '')
+  try {
+    const { data } = await unresolvedMessagesApi.retryResolution(row.id)
+    applyUpdatedRow(data)
+    await fetchCounts()
+  } catch (e) {
+    setActionError(row.id, e.response?.data?.detail || 'Retry failed')
+  } finally {
+    setActionBusy(row.id, false)
+  }
+}
+
+async function dismissRow(row) {
+  const reason = window.prompt('Reason for dismissing this unresolved message?', 'Dismissed manually by user.')
+  if (reason === null) return
+  setActionBusy(row.id, true)
+  setActionError(row.id, '')
+  try {
+    const { data } = await unresolvedMessagesApi.dismiss(row.id, reason)
+    applyUpdatedRow(data)
+    await fetchCounts()
+  } catch (e) {
+    setActionError(row.id, e.response?.data?.detail || 'Dismiss failed')
+  } finally {
+    setActionBusy(row.id, false)
+  }
+}
+
+async function searchContacts(row) {
+  const q = (contactQuery.value[row.id] || '').trim()
+  contactOptions.value = { ...contactOptions.value, [row.id]: [] }
+  if (q.length < 2) return
+  setActionError(row.id, '')
+  try {
+    const { data } = await contactsApi.list({
+      account: row.account,
+      type: 'phone',
+      search: q,
+      page_size: 8,
+    })
+    contactOptions.value = { ...contactOptions.value, [row.id]: data.results ?? data }
+  } catch (e) {
+    setActionError(row.id, e.response?.data?.detail || 'Contact search failed')
+  }
+}
+
+async function resolveWithContact(row, contact) {
+  setActionBusy(row.id, true)
+  setActionError(row.id, '')
+  try {
+    const { data } = await unresolvedMessagesApi.resolveWithContact(row.id, contact.id)
+    applyUpdatedRow(data)
+    contactOptions.value = { ...contactOptions.value, [row.id]: [] }
+    contactQuery.value = { ...contactQuery.value, [row.id]: contact.display_name || contact.push_name || contact.phone_number || contact.wa_contact_id }
+    await fetchCounts()
+  } catch (e) {
+    setActionError(row.id, e.response?.data?.detail || 'Manual resolution failed')
+  } finally {
+    setActionBusy(row.id, false)
+  }
+}
+
+async function createContactAndResolve(row) {
+  const phoneNumber = (newContactPhone.value[row.id] || '').trim()
+  const displayName = (newContactName.value[row.id] || '').trim()
+  if (!phoneNumber) {
+    setActionError(row.id, 'Phone number is required to create a contact.')
+    return
+  }
+
+  setActionBusy(row.id, true)
+  setActionError(row.id, '')
+  try {
+    const { data } = await unresolvedMessagesApi.createContactAndResolve(row.id, {
+      phone_number: phoneNumber,
+      display_name: displayName,
+    })
+    applyUpdatedRow(data)
+    newContactName.value = { ...newContactName.value, [row.id]: '' }
+    newContactPhone.value = { ...newContactPhone.value, [row.id]: '' }
+    await fetchCounts()
+  } catch (e) {
+    setActionError(row.id, e.response?.data?.detail || 'Create contact and resolve failed')
+  } finally {
+    setActionBusy(row.id, false)
+  }
+}
+
 watch([filterAccount, filterStatus, pageSize], () => { page.value = 1; refreshAll() })
 watch(page, () => fetchRows())
 
@@ -92,6 +204,15 @@ function statusBadgeClass(status) {
   if (status === 'resolved') return 'bg-green-100 text-green-700'
   if (status === 'failed')   return 'bg-red-100 text-red-800'
   return 'bg-amber-100 text-amber-700'
+}
+
+function toggleRawPayload(id) {
+  rawPayloadOpen.value = { ...rawPayloadOpen.value, [id]: !rawPayloadOpen.value[id] }
+}
+
+function formatJson(value) {
+  if (!value) return ''
+  return JSON.stringify(value, null, 2)
 }
 </script>
 
@@ -270,6 +391,120 @@ function statusBadgeClass(status) {
                 <div v-if="row.message_preview" class="mt-4">
                   <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Message Text</span>
                   <pre class="bg-gray-900 text-green-400 text-xs rounded-lg p-3 mt-2 overflow-x-auto max-h-48 leading-relaxed whitespace-pre-wrap">{{ row.message_preview }}</pre>
+                </div>
+
+                <div class="mt-4 rounded-xl border border-gray-200 bg-white p-4">
+                  <div class="flex items-center justify-between gap-3">
+                    <div>
+                      <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Raw Payload</div>
+                      <p class="text-xs text-gray-500 mt-1">
+                        Inspect preserved WhatsApp key/payload fields for identity clues before resolving manually.
+                      </p>
+                    </div>
+                    <button
+                      @click.stop="toggleRawPayload(row.id)"
+                      class="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                    >
+                      {{ rawPayloadOpen[row.id] ? 'Hide Raw' : 'Inspect Raw' }}
+                    </button>
+                  </div>
+                  <div v-if="rawPayloadOpen[row.id]" class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <div>
+                      <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Raw Key</span>
+                      <pre class="bg-gray-900 text-cyan-300 text-xs rounded-lg p-3 mt-2 overflow-x-auto max-h-80 leading-relaxed">{{ formatJson(row.raw_key) || 'null' }}</pre>
+                    </div>
+                    <div>
+                      <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Raw Payload</span>
+                      <pre class="bg-gray-900 text-cyan-300 text-xs rounded-lg p-3 mt-2 overflow-x-auto max-h-80 leading-relaxed">{{ formatJson(row.raw_payload) || 'null' }}</pre>
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="row.resolution_status === 'pending'" class="mt-4 rounded-xl border border-gray-200 bg-white p-4">
+                  <div class="flex items-start justify-between gap-4 flex-wrap">
+                    <div>
+                      <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</div>
+                      <p class="text-xs text-gray-500 mt-1">
+                        Retry uses any known LID mapping. Manual resolve links this LID to an existing phone contact, then reprocesses the preserved message.
+                      </p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <button
+                        @click.stop="retryResolution(row)"
+                        :disabled="actionBusy[row.id]"
+                        class="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        Retry Resolution
+                      </button>
+                      <button
+                        @click.stop="dismissRow(row)"
+                        :disabled="actionBusy[row.id]"
+                        class="px-3 py-1.5 rounded-lg border border-red-200 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="mt-3 relative max-w-xl">
+                    <label class="text-xs font-medium text-gray-500">Resolve manually with contact</label>
+                    <input
+                      v-model="contactQuery[row.id]"
+                      @input.stop="searchContacts(row)"
+                      @click.stop
+                      class="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                      placeholder="Search contact name or phone..."
+                    />
+                    <div
+                      v-if="(contactOptions[row.id] || []).length"
+                      class="absolute z-10 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto"
+                    >
+                      <button
+                        v-for="contact in contactOptions[row.id]"
+                        :key="contact.id"
+                        @click.stop="resolveWithContact(row, contact)"
+                        :disabled="actionBusy[row.id]"
+                        class="w-full text-left px-3 py-2 hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        <span class="block text-xs font-semibold text-gray-800">
+                          {{ contact.display_name || contact.push_name || contact.phone_number || contact.wa_contact_id }}
+                        </span>
+                        <span class="block text-[11px] text-gray-400">{{ contact.phone_number || contact.wa_contact_id }}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="mt-4 border-t border-gray-100 pt-4 max-w-2xl">
+                    <div class="text-xs font-medium text-gray-500">Create new contact and resolve</div>
+                    <div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2 mt-2">
+                      <input
+                        v-model="newContactName[row.id]"
+                        @click.stop
+                        class="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                        placeholder="Display name"
+                      />
+                      <input
+                        v-model="newContactPhone[row.id]"
+                        @click.stop
+                        class="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                        placeholder="Phone number, e.g. 9715..."
+                      />
+                      <button
+                        @click.stop="createContactAndResolve(row)"
+                        :disabled="actionBusy[row.id]"
+                        class="px-3 py-2 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 disabled:opacity-50"
+                      >
+                        Create + Resolve
+                      </button>
+                    </div>
+                    <p class="text-[11px] text-gray-400 mt-2">
+                      This creates a phone contact in {{ row.account_name || 'this account' }}, maps {{ row.lid_jid || row.raw_jid }} to it, then reprocesses the preserved message.
+                    </p>
+                  </div>
+
+                  <div v-if="actionError[row.id]" class="mt-3 text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                    {{ actionError[row.id] }}
+                  </div>
                 </div>
 
                 <div v-if="row.resolution_error" class="mt-4">

@@ -243,6 +243,7 @@ class UnresolvedMessageSerializer(serializers.ModelSerializer):
             'id', 'account', 'account_name', 'raw_jid', 'participant_jid', 'lid_jid',
             'from_me', 'direction', 'message_type', 'message_preview', 'has_media',
             'message_time', 'push_name', 'is_history', 'reason',
+            'raw_key', 'raw_payload',
             'resolution_status', 'resolved_contact', 'resolved_message', 'resolution_error',
             'created_at', 'updated_at', 'resolved_at',
         ]

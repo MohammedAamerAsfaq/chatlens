@@ -31,6 +31,14 @@ async function poll() {
   try {
     const { data, status } = await accountsApi.getQR(props.accountId)
 
+    if (data.status === 'connected') {
+      connected.value = true
+      error.value = ''
+      message.value = 'Connected successfully!'
+      stopPolling()
+      return
+    }
+
     if (status === 202 || !data.qr) {
       message.value = 'Generating QR code…'
       return

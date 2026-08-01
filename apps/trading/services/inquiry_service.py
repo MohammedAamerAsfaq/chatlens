@@ -1,5 +1,7 @@
 import logging
 from datetime import timedelta
+
+from django.db import transaction
 from django.utils.timezone import now
 
 logger = logging.getLogger(__name__)
@@ -8,10 +10,21 @@ DEDUP_WINDOW_HOURS = 4
 SIMILARITY_THRESHOLD = 0.92
 
 
+def _link_message(inquiry, message) -> None:
+    from apps.trading.models import InquiryMessage
+
+    InquiryMessage.objects.get_or_create(inquiry=inquiry, message=message)
+    logger.info(
+        'inquiry_service | linked message | inquiry_id=%s | message_id=%s',
+        inquiry.pk,
+        message.pk,
+    )
+
+
 def _derive_source_type(chat) -> str:
     from apps.whatsapp_bridge.models import ChatType
+
     if chat.chat_type == ChatType.GROUP:
-        # Check if chat belongs to a community (has a linked WhatsAppGroup with a community parent)
         try:
             group = chat.group
             if group and group.community_id:
@@ -29,6 +42,7 @@ def _resolve_contact(message):
     if message.sender_number:
         try:
             from apps.whatsapp_bridge.models import WhatsAppContact
+
             return WhatsAppContact.objects.get(
                 account=message.account,
                 wa_contact_id=f'{message.sender_number}@s.whatsapp.net',
@@ -43,6 +57,7 @@ def _layer1_match(account, contact, dedup_key: str):
     if not dedup_key:
         return None
     from apps.trading.models import Inquiry, InquiryStatus
+
     window = now() - timedelta(hours=DEDUP_WINDOW_HOURS)
     return Inquiry.objects.filter(
         account=account,
@@ -57,7 +72,7 @@ def _layer2_match(account, contact, message):
     """Semantic similarity fallback using stored embeddings."""
     try:
         from apps.message_intelligence.models import MessageEmbedding
-        from apps.trading.models import Inquiry, InquiryMessage, InquiryStatus
+        from apps.trading.models import Inquiry, InquiryStatus
         from pgvector.django import CosineDistance
 
         new_emb_row = MessageEmbedding.objects.filter(message=message).first()
@@ -78,7 +93,6 @@ def _layer2_match(account, contact, message):
             src_emb_row = MessageEmbedding.objects.filter(message=first_link.message).first()
             if not src_emb_row or src_emb_row.embedding is None:
                 continue
-            # CosineDistance returns 0 for identical, 1 for orthogonal
             dist = (
                 MessageEmbedding.objects
                 .filter(pk=src_emb_row.pk)
@@ -98,79 +112,78 @@ def process_inquiry(message, classification) -> None:
     Create or update an Inquiry based on a classified message.
     Called from classify_message() when is_inquiry=True.
     """
-    from apps.trading.models import Inquiry, InquiryMessage
+    from apps.trading.models import Inquiry
     from apps.tenancy.services.access import company_for_message
 
-    account = message.account
-    company = company_for_message(message)
-    contact = _resolve_contact(message)
-    dedup_key = classification.dedup_key or ''
+    with transaction.atomic():
+        account = message.account
+        company = company_for_message(message)
+        contact = _resolve_contact(message)
+        dedup_key = classification.dedup_key or ''
 
-    # Layer 1: exact dedup_key match
-    existing = _layer1_match(account, contact, dedup_key)
+        existing = _layer1_match(account, contact, dedup_key)
+        if not existing:
+            existing = _layer2_match(account, contact, message)
 
-    # Layer 2: semantic similarity fallback
-    if not existing:
-        existing = _layer2_match(account, contact, message)
+        from apps.trading.services.classification_service import validate_category_suggestion
 
-    # Re-checked here too (classification_service.py already guards this at save time)
-    # since this resolves its own `contact` independently via _resolve_contact rather
-    # than reusing message.contact — belt-and-suspenders for the one rule that matters:
-    # "both" is final, nothing should ever suggest changing away from it.
-    from apps.trading.services.classification_service import validate_category_suggestion
-    suggested_category = validate_category_suggestion(classification.suggested_contact_category, contact)
+        suggested_category = validate_category_suggestion(
+            classification.suggested_contact_category,
+            contact,
+        )
 
-    if existing:
-        InquiryMessage.objects.get_or_create(inquiry=existing, message=message)
-        existing.suggested_contact_category = suggested_category
-        existing.save(update_fields=['suggested_contact_category'])
+        if existing:
+            _link_message(existing, message)
+            existing.suggested_contact_category = suggested_category
+            existing.save(update_fields=['suggested_contact_category'])
+            logger.info(
+                'inquiry_service | linked to existing | inquiry_id=%s | message_id=%s',
+                existing.pk,
+                message.pk,
+            )
+            return
+
+        inquiry_type = classification.inquiry_type
+        if inquiry_type == 'both':
+            inquiry_type = 'buy'
+
+        inquiry = Inquiry.objects.create(
+            company=company,
+            account=account,
+            contact=contact,
+            inquiry_type=inquiry_type,
+            products=classification.products,
+            summary=classification.ai_summary,
+            dedup_key=dedup_key,
+            source_type=_derive_source_type(message.chat),
+            first_seen_at=message.message_time,
+            suggested_contact_category=suggested_category,
+        )
+        _link_message(inquiry, message)
+
         logger.info(
-            'inquiry_service | linked to existing | inquiry_id=%s | message_id=%s',
-            existing.pk, message.pk,
+            'inquiry_service | created | inquiry_id=%s | type=%s | message_id=%s',
+            inquiry.pk,
+            inquiry_type,
+            message.pk,
         )
-        return
 
-    # Map "both" inquiry_type to "buy" for the Inquiry record
-    # (two separate inquiries would be created for genuine buy+sell in one message)
-    inquiry_type = classification.inquiry_type
-    if inquiry_type == 'both':
-        inquiry_type = 'buy'
-
-    inquiry = Inquiry.objects.create(
-        company      = company,
-        account      = account,
-        contact      = contact,
-        inquiry_type = inquiry_type,
-        products     = classification.products,
-        summary      = classification.ai_summary,
-        dedup_key    = dedup_key,
-        source_type  = _derive_source_type(message.chat),
-        first_seen_at = message.message_time,
-        suggested_contact_category = suggested_category,
-    )
-    InquiryMessage.objects.create(inquiry=inquiry, message=message)
-
-    logger.info(
-        'inquiry_service | created | inquiry_id=%s | type=%s | message_id=%s',
-        inquiry.pk, inquiry_type, message.pk,
-    )
-
-    # If the original inquiry_type was "both", also create a sell inquiry
-    if classification.inquiry_type == 'both':
-        sell_inquiry = Inquiry.objects.create(
-            company      = company,
-            account      = account,
-            contact      = contact,
-            inquiry_type = 'sell',
-            products     = classification.products,
-            summary      = classification.ai_summary,
-            dedup_key    = dedup_key.replace('buy:', 'sell:', 1),
-            source_type  = inquiry.source_type,
-            first_seen_at = message.message_time,
-            suggested_contact_category = suggested_category,
-        )
-        InquiryMessage.objects.create(inquiry=sell_inquiry, message=message)
-        logger.info(
-            'inquiry_service | created sell-side | inquiry_id=%s | message_id=%s',
-            sell_inquiry.pk, message.pk,
-        )
+        if classification.inquiry_type == 'both':
+            sell_inquiry = Inquiry.objects.create(
+                company=company,
+                account=account,
+                contact=contact,
+                inquiry_type='sell',
+                products=classification.products,
+                summary=classification.ai_summary,
+                dedup_key=dedup_key.replace('buy:', 'sell:', 1),
+                source_type=inquiry.source_type,
+                first_seen_at=message.message_time,
+                suggested_contact_category=suggested_category,
+            )
+            _link_message(sell_inquiry, message)
+            logger.info(
+                'inquiry_service | created sell-side | inquiry_id=%s | message_id=%s',
+                sell_inquiry.pk,
+                message.pk,
+            )

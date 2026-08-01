@@ -18,7 +18,7 @@ from apps.tenancy.services.access import (
     scope_queryset_to_visible_companies,
     visible_accounts_queryset,
 )
-from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, BuyingInquiry, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture
+from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, BuyingInquiry, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture
 from .serializers import (
     ProductSerializer,
     ProductAliasSerializer,
@@ -26,6 +26,7 @@ from .serializers import (
     MessageClassificationSerializer,
     InquirySerializer,
     InquiryDetailSerializer,
+    InquiryProductSerializer,
     AiParsingLogSerializer,
     BuyingInquirySerializer,
     SupplierQuoteSerializer,
@@ -682,6 +683,95 @@ class InquiryViewSet(viewsets.GenericViewSet,
         inquiry.save(update_fields=update_fields)
         return Response(InquiryDetailSerializer(inquiry).data)
 
+    @action(detail=True, methods=['get'], url_path='product-lines')
+    def product_lines(self, request, pk=None):
+        inquiry = self.get_object()
+        products = inquiry.products or []
+        trace_rows = {
+            row.source_product_index: row
+            for row in inquiry.tracked_products.select_related('product').all()
+            if row.source_product_index is not None
+        }
+
+        rows = []
+        for index, line in enumerate(products):
+            if not isinstance(line, dict):
+                rows.append({
+                    'index': index,
+                    'valid': False,
+                    'error': 'Product line is not an object.',
+                    'raw': line,
+                })
+                continue
+
+            product = None
+            product_id = line.get('product_id')
+            if product_id:
+                product = Product.objects.filter(pk=product_id, company=inquiry.company).first()
+            if not product and line.get('canonical_name'):
+                product = Product.objects.filter(
+                    company=inquiry.company,
+                    is_active=True,
+                    name__iexact=str(line.get('canonical_name')).strip(),
+                ).first()
+
+            trace = trace_rows.get(index)
+            rows.append({
+                'index': index,
+                'valid': True,
+                'canonical_name': line.get('canonical_name') or '',
+                'quantity': line.get('quantity'),
+                'price': line.get('price'),
+                'currency': line.get('currency') or '',
+                'match_type': line.get('match_type') or '',
+                'product_id': product.pk if product else None,
+                'product_name': f'{product.brand} {product.name}'.strip() if product else '',
+                'has_inventory_mapping': bool(product),
+                'inquiry_product_id': trace.pk if trace else None,
+                'decision_status': trace.decision_status if trace else '',
+                'match_status': trace.match_status if trace else '',
+                'can_create_product': not product and trace is None,
+            })
+
+        return Response({
+            'inquiry': InquiryDetailSerializer(inquiry).data,
+            'products': rows,
+        })
+
+    @action(detail=True, methods=['post'], url_path=r'product-lines/(?P<line_index>[^/.]+)/create-product')
+    def create_product_from_line(self, request, pk=None, line_index=None):
+        inquiry = self.get_object()
+        try:
+            from apps.trading.services.inquiry_product_service import create_manual_product_from_inquiry_line
+            product, trace = create_manual_product_from_inquiry_line(
+                inquiry,
+                int(line_index),
+                created_by=request.user,
+                overrides={
+                    'name': request.data.get('name'),
+                    'brand': request.data.get('brand'),
+                    'category': request.data.get('category'),
+                    'sku': request.data.get('sku'),
+                    'currency': request.data.get('currency'),
+                },
+            )
+            invalidate_product_cache()
+            _embed_product_in_background(product.pk)
+        except Exception as exc:
+            logger.exception(
+                'InquiryViewSet.create_product_from_line | failed | inquiry_id=%s | index=%s',
+                inquiry.pk,
+                line_index,
+            )
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        inquiry.refresh_from_db()
+        return Response({
+            'product': ProductSerializer(product).data,
+            'inquiry_product': InquiryProductSerializer(trace).data,
+            'inquiry': InquiryDetailSerializer(inquiry).data,
+        }, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=['post'], url_path='correct-match')
     def correct_match(self, request, pk=None):
         """Manually override the AI's product match for one line item — for when a
@@ -1075,6 +1165,77 @@ class InquiryViewSet(viewsets.GenericViewSet,
             queued += 1
 
         return Response({'queued': queued})
+
+
+class InquiryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin):
+    serializer_class = InquiryProductSerializer
+    permission_classes = [IsAuthenticated]
+    ordering_map = {
+        'created_newest': ('-created_at', '-id'),
+        'created_oldest': ('created_at', 'id'),
+        'seen_newest': ('-first_seen_at', '-id'),
+        'seen_oldest': ('first_seen_at', 'id'),
+        'name_asc': ('canonical_name', 'id'),
+        'name_desc': ('-canonical_name', '-id'),
+        'decision': ('decision_status', '-created_at', '-id'),
+        'match': ('match_status', '-created_at', '-id'),
+    }
+
+    def get_queryset(self):
+        qs = (
+            InquiryProduct.objects
+            .select_related(
+                'company',
+                'inquiry',
+                'source_message',
+                'source_message__chat',
+                'account',
+                'contact',
+                'company_contact',
+                'product',
+            )
+        )
+        qs = scope_queryset_to_visible_companies(qs, self.request.user, company_field='company')
+        p = self.request.query_params
+
+        if account_id := p.get('account'):
+            visible_account = _visible_account_or_none(self.request.user, account_id)
+            qs = qs.filter(account=visible_account) if visible_account else qs.none()
+        if inquiry_type := p.get('type'):
+            qs = qs.filter(inquiry_type=inquiry_type)
+        if decision_status := p.get('decision_status'):
+            qs = qs.filter(decision_status=decision_status)
+        if match_status := p.get('match_status'):
+            qs = qs.filter(match_status=match_status)
+        if embedding_status := p.get('embedding_status'):
+            qs = qs.filter(embedding_status=embedding_status)
+        if product_state := p.get('product_state'):
+            if product_state == 'mapped':
+                qs = qs.filter(product__isnull=False)
+            elif product_state == 'unmapped':
+                qs = qs.filter(product__isnull=True)
+        if date := p.get('date'):
+            try:
+                from datetime import date as dt
+                d = dt.fromisoformat(date)
+                qs = qs.filter(first_seen_at__date=d)
+            except ValueError:
+                pass
+        search = (p.get('search') or '').strip()
+        if search:
+            qs = qs.filter(
+                Q(canonical_name__icontains=search)
+                | Q(normalized_name__icontains=search)
+                | Q(original_text__icontains=search)
+                | Q(product__name__icontains=search)
+                | Q(product__brand__icontains=search)
+                | Q(contact__display_name__icontains=search)
+                | Q(contact__phone_number__icontains=search)
+                | Q(source_message__message_text__icontains=search)
+            )
+        ordering = p.get('ordering') or 'created_newest'
+        qs = qs.order_by(*self.ordering_map.get(ordering, self.ordering_map['created_newest']))
+        return qs
 
 
 class MessageClassificationViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):

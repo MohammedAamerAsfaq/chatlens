@@ -88,6 +88,13 @@
               <span v-if="inq.products.length" class="product-count">
                 {{ inq.products.length }} product{{ inq.products.length > 1 ? 's' : '' }}
               </span>
+              <button
+                v-if="inq.products.length"
+                class="btn-ghost xs"
+                @click.stop="openInquiryProducts(inq)"
+              >
+                Inquiry Products
+              </button>
             </div>
           </div>
 
@@ -206,6 +213,58 @@
         <span>Select an inquiry to view details</span>
       </div>
     </div>
+
+    <div v-if="productModalOpen" class="modal-backdrop" @click.self="closeInquiryProducts">
+      <div class="product-modal">
+        <div class="modal-header">
+          <div>
+            <h3>Inquiry Products</h3>
+            <p>{{ productModalInquiry?.summary || 'Parsed products from selected inquiry' }}</p>
+          </div>
+          <button class="modal-close" @click="closeInquiryProducts">×</button>
+        </div>
+
+        <div v-if="productLinesLoading" class="modal-state">Loading products...</div>
+        <div v-else-if="productLinesError" class="modal-error">{{ productLinesError }}</div>
+        <div v-else-if="!productLines.length" class="modal-state">No product lines found on this inquiry.</div>
+        <div v-else class="modal-products">
+          <div
+            v-for="line in productLines"
+            :key="line.index"
+            class="modal-product-row"
+            :class="{ mapped: line.has_inventory_mapping || line.inquiry_product_id }"
+          >
+            <div class="modal-product-main">
+              <div class="modal-product-name">{{ line.canonical_name || 'Invalid product line' }}</div>
+              <div class="modal-product-meta">
+                <span v-if="line.quantity">Qty {{ line.quantity }}</span>
+                <span v-if="line.price">{{ line.currency || '' }} {{ line.price }}</span>
+                <span v-if="line.match_type">AI match: {{ line.match_type }}</span>
+              </div>
+              <div v-if="line.product_name" class="modal-product-mapped">
+                Mapped to inventory: {{ line.product_name }}
+              </div>
+              <div v-else-if="line.inquiry_product_id" class="modal-product-mapped">
+                Inquiry product row already exists.
+              </div>
+            </div>
+            <div class="modal-product-actions">
+              <span v-if="line.has_inventory_mapping || line.inquiry_product_id" class="status-badge currently_in_stock">
+                Linked
+              </span>
+              <button
+                v-else
+                class="btn-action deal"
+                :disabled="creatingLineIndex === line.index || !line.valid"
+                @click="createProductFromLine(line)"
+              >
+                {{ creatingLineIndex === line.index ? 'Creating...' : 'Create Product' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -225,6 +284,12 @@ const detail       = ref(null)
 const remarksText  = ref('')
 const pendingStatus  = ref('')
 const updatingStatus = ref(false)
+const productModalOpen = ref(false)
+const productModalInquiry = ref(null)
+const productLines = ref([])
+const productLinesLoading = ref(false)
+const productLinesError = ref('')
+const creatingLineIndex = ref(null)
 
 const filters = ref({
   account: '', type: '', status: '', source: '', date: '',
@@ -276,6 +341,58 @@ async function saveRemarks() {
   if (!selected.value) return
   if (remarksText.value === (selected.value.remarks || '')) return
   await tradingApi.updateInquiry(selected.value.id, { remarks: remarksText.value })
+}
+
+async function openInquiryProducts(inq) {
+  productModalInquiry.value = inq
+  productModalOpen.value = true
+  await loadInquiryProducts(inq.id)
+}
+
+function closeInquiryProducts() {
+  productModalOpen.value = false
+  productModalInquiry.value = null
+  productLines.value = []
+  productLinesError.value = ''
+}
+
+async function loadInquiryProducts(inquiryId) {
+  productLinesLoading.value = true
+  productLinesError.value = ''
+  try {
+    const { data } = await tradingApi.getInquiryProductLines(inquiryId)
+    productLines.value = data.products || []
+    productModalInquiry.value = data.inquiry || productModalInquiry.value
+  } catch (err) {
+    productLinesError.value = err.response?.data?.detail || err.message || 'Failed to load inquiry products'
+  } finally {
+    productLinesLoading.value = false
+  }
+}
+
+async function createProductFromLine(line) {
+  if (!productModalInquiry.value) return
+  creatingLineIndex.value = line.index
+  productLinesError.value = ''
+  try {
+    const { data } = await tradingApi.createProductFromInquiryLine(
+      productModalInquiry.value.id,
+      line.index,
+      {},
+    )
+    productModalInquiry.value = data.inquiry || productModalInquiry.value
+    await loadInquiryProducts(productModalInquiry.value.id)
+    await load()
+    if (selected.value?.id === productModalInquiry.value.id) {
+      const { data: detailData } = await tradingApi.getInquiry(productModalInquiry.value.id)
+      detail.value = detailData
+      selected.value = inquiries.value.find(i => i.id === productModalInquiry.value.id) || selected.value
+    }
+  } catch (err) {
+    productLinesError.value = err.response?.data?.detail || err.message || 'Failed to create product'
+  } finally {
+    creatingLineIndex.value = null
+  }
 }
 
 async function goToChat(chatId) {
@@ -405,4 +522,22 @@ onMounted(async () => {
 .btn-action.deal:disabled { opacity: 0.45; cursor: default; }
 .btn-ghost { padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 6px; background: transparent; cursor: pointer; font-size: 0.85rem; }
 .btn-ghost.sm { padding: 4px 10px; font-size: 0.8rem; }
+.btn-ghost.xs { padding: 2px 7px; font-size: 0.72rem; background: #fff; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(17, 24, 39, 0.55); display: flex; align-items: center; justify-content: center; z-index: 80; padding: 24px; }
+.product-modal { width: min(860px, 96vw); max-height: 88vh; overflow: hidden; display: flex; flex-direction: column; background: #fff; border-radius: 14px; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25); border: 1px solid #e5e7eb; }
+.modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid #e5e7eb; }
+.modal-header h3 { margin: 0; font-size: 1.05rem; color: #111827; }
+.modal-header p { margin: 4px 0 0; color: #6b7280; font-size: 0.86rem; line-height: 1.4; }
+.modal-close { border: 0; background: #f3f4f6; width: 30px; height: 30px; border-radius: 8px; cursor: pointer; color: #374151; font-size: 1.2rem; line-height: 1; }
+.modal-close:hover { background: #e5e7eb; }
+.modal-state { padding: 34px; text-align: center; color: #6b7280; font-size: 0.9rem; }
+.modal-error { margin: 16px 20px; padding: 10px 12px; background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 8px; font-size: 0.86rem; }
+.modal-products { overflow-y: auto; padding: 12px 20px 20px; display: flex; flex-direction: column; gap: 10px; }
+.modal-product-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; background: #fff; }
+.modal-product-row.mapped { background: #f0fdf4; border-color: #bbf7d0; }
+.modal-product-main { min-width: 0; }
+.modal-product-name { font-weight: 600; color: #111827; margin-bottom: 4px; }
+.modal-product-meta { display: flex; gap: 8px; flex-wrap: wrap; color: #6b7280; font-size: 0.78rem; }
+.modal-product-mapped { margin-top: 6px; color: #15803d; font-size: 0.8rem; font-weight: 500; }
+.modal-product-actions { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
 </style>

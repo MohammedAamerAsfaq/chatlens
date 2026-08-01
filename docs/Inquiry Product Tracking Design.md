@@ -51,13 +51,65 @@ This is useful for display, but it is not ideal for analytics because:
 - There is no first-class place to record matching status, match source, or manual confirmation.
 - Alias discovery is not tracked separately from the original inquiry.
 
-## Proposed Design
+## Implemented Phase: Manual-First Traceability
+
+The first implementation is intentionally manual-first. Automatic creation of `InquiryProduct`
+rows during live inquiry processing has been removed for now.
+
+Current flow:
+
+```text
+Incoming WhatsApp message
+  -> AI classification
+     -> Inquiry created/updated
+        -> parsed products remain in Inquiry.products JSON
+           -> user opens Inquiry Products manually
+              -> user creates inventory product from a selected unmapped line
+                 -> Product row is created
+                 -> InquiryProduct trace row is created
+                 -> Inquiry.products[index].product_id is updated
+```
+
+This keeps the existing trading board behavior stable:
+
+- Inquiry creation continues to use the current `Inquiry` and `InquiryMessage` path.
+- The trading board still reads `Inquiry.products` for display and stock suggestions.
+- Product analytics still counts existing inventory mentions from `Inquiry.products[*].product_id`.
+- Unmapped parsed product lines do not create trace rows automatically.
+- No backfill runs automatically.
+
+Manual UI entry points:
+
+- Trading board WTB/WTS cards show an `Inquiry Products` button when the inquiry has parsed products.
+- The Inquiries page also exposes the same `Inquiry Products` action.
+- The separate `Lists -> Inquiry Products` page lists already-created trace rows.
+
+Manual review behavior:
+
+- The popup lists every product line in the selected inquiry.
+- Each row checks whether it already has an inventory mapping through `product_id`.
+- Each row also checks exact active inventory product name match before offering creation.
+- Rows with an existing mapping or existing trace row are shown as linked.
+- Unmapped rows expose `Create Product`.
+
+Manual product creation behavior:
+
+- Creates a new inventory `Product` under the inquiry company.
+- Starts with `qty = 0` so the system does not falsely add stock.
+- Creates one linked `InquiryProduct` trace row.
+- Updates the original `Inquiry.products` line with the created `product_id` and `match_type = exact`.
+- Invalid indexes, duplicate trace rows, blank names, and missing company context fail explicitly.
+
+This phase deliberately prioritizes controlled user decisions over automatic product proliferation.
+
+## Target Design
 
 Introduce a structured product mention layer.
 
 The main model should be `InquiryProduct`.
 
-Each extracted product line from an inquiry should create one `InquiryProduct` row.
+Long term, each extracted product line from an inquiry may create one `InquiryProduct` row. In the
+current manual-first phase, the row is created only after the user takes action from the inquiry UI.
 
 The traceability chain should be:
 
@@ -70,7 +122,8 @@ Incoming WhatsApp message
 
 Traceability must start even when inventory mapping is missing or uncertain. An extracted product
 line without a `product_id` is still valuable because it records that a party mentioned that product,
-from a specific message, at a specific time.
+from a specific message, at a specific time. In the current phase, that value remains available in
+`Inquiry.products` until the user creates or maps a structured trace row.
 
 The existing `Inquiry.products` JSON should remain for now to avoid breaking current UI behavior. The new model should run alongside it until the structured design is mature.
 
@@ -241,13 +294,12 @@ Do not silently force an alternate match when the product is uncertain. Mark it 
 
 ## Product Mention Review Interface
 
-The system should provide a separate interface for extracted product lines.
+The system provides two related interfaces:
 
-Possible location:
+- Inquiry-level popup from the Trading board and Inquiries page.
+- Separate `Lists -> Inquiry Products` page for structured trace rows that already exist.
 
-```text
-Trading -> Product Mentions
-```
+The inquiry-level popup is the primary workflow in the current phase.
 
 The interface should show:
 
@@ -257,8 +309,8 @@ Canonical Name | Direction | Contact | Account | Source Message | Suggested Matc
 
 Initial actions:
 
-- Map to existing inventory product.
-- Create as new inventory product.
+- Create as new inventory product. Implemented in current phase.
+- Map to existing inventory product. Planned.
 - Add alias/tag to an existing product.
 - Dismiss/ignore.
 - Open source inquiry.
@@ -269,7 +321,11 @@ message or losing the extracted product record.
 
 ## Mapping, Product Creation, And Traceability
 
-Every extracted product line should be stored first, even when it cannot be mapped to inventory.
+Target state: every extracted product line should be stored first, even when it cannot be mapped to
+inventory.
+
+Current phase: extracted lines stay in `Inquiry.products` first. A structured `InquiryProduct` row
+is created only when the user manually creates or later maps a product from that line.
 
 If a product exists in inventory:
 
@@ -285,11 +341,16 @@ InquiryProduct.product = null
 decision_status = pending
 ```
 
-The user can then either:
+In the current manual-first phase, the user can:
+
+- Create a new inventory product from the extracted line.
+- Review linked rows on the Inquiry Products page.
+
+In later phases, the user should also be able to:
 
 - Map the extracted line to an existing product.
-- Create a new inventory product from the extracted line.
 - Dismiss the line if it is not useful.
+- Add the sender wording as an alias candidate.
 
 When a new product is created from an extracted line, the created `Product` should be linked back to
 the `InquiryProduct`. The `InquiryProduct` remains historical evidence and should not be deleted.
