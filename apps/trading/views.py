@@ -775,6 +775,30 @@ class InquiryViewSet(viewsets.GenericViewSet,
             'inquiry': InquiryDetailSerializer(inquiry).data,
         }, status=status.HTTP_201_CREATED)
 
+    @action(detail=True, methods=['post'], url_path=r'product-lines/(?P<line_index>[^/.]+)/create-inquiry')
+    def create_inquiry_product_from_line(self, request, pk=None, line_index=None):
+        inquiry = self.get_object()
+        try:
+            from apps.trading.services.inquiry_product_service import create_manual_inquiry_product_from_matched_line
+            trace = create_manual_inquiry_product_from_matched_line(
+                inquiry,
+                int(line_index),
+                created_by=request.user,
+            )
+        except Exception as exc:
+            logger.exception(
+                'InquiryViewSet.create_inquiry_product_from_line | failed | inquiry_id=%s | index=%s',
+                inquiry.pk,
+                line_index,
+            )
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        inquiry.refresh_from_db()
+        return Response({
+            'inquiry_product': InquiryProductSerializer(trace).data,
+            'inquiry': InquiryDetailSerializer(inquiry).data,
+        }, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=['post'], url_path='correct-match')
     def correct_match(self, request, pk=None):
         """Manually override the AI's product match for one line item — for when a

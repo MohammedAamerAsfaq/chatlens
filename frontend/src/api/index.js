@@ -209,6 +209,7 @@ export const tradingApi = {
   getInquiry:             (id)          => http.get(`/inquiries/${id}/`),
   getInquiryProductLines:  (id)          => http.get(`/inquiries/${id}/product-lines/`),
   createProductFromInquiryLine: (id, index, data) => http.post(`/inquiries/${id}/product-lines/${index}/create-product/`, data),
+  createInquiryProductFromLine: (id, index) => http.post(`/inquiries/${id}/product-lines/${index}/create-inquiry/`),
   updateInquiry:          (id, data)    => http.patch(`/inquiries/${id}/`, data),
   getStats:               (params)      => http.get('/inquiries/stats/', { params }),
   getOpenFeed:            (params)      => http.get('/inquiries/open-feed/', { params }),

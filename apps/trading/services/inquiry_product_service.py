@@ -313,3 +313,133 @@ def create_manual_product_from_inquiry_line(inquiry, line_index: int, *, created
         trace.pk,
     )
     return product, trace
+
+
+def create_manual_inquiry_product_from_matched_line(inquiry, line_index: int, *, created_by=None):
+    """Persist a trace row for an inquiry line that is already mapped to inventory.
+
+    This is the manual "Create Inquiry" path from stock suggestions. It does not create
+    inventory. It only records that this inquiry line mentions the selected product.
+    """
+    from django.db import transaction
+    from apps.trading.models import (
+        InquiryProduct,
+        InquiryProductDecisionStatus,
+        InquiryProductMatchSource,
+        InquiryProductMatchStatus,
+    )
+
+    products = inquiry.products or []
+    try:
+        line_index = int(line_index)
+        line = products[line_index]
+    except (TypeError, ValueError, IndexError):
+        raise InquiryProductMaterializationError(
+            f'invalid product line index | inquiry_id={inquiry.pk} | index={line_index!r}'
+        )
+    if not isinstance(line, dict):
+        raise InquiryProductMaterializationError(
+            f'product line is not dict | inquiry_id={inquiry.pk} | index={line_index}'
+        )
+    if not inquiry.company_id:
+        raise InquiryProductMaterializationError(
+            f'missing inquiry company | inquiry_id={inquiry.pk} | index={line_index}'
+        )
+
+    product = _resolve_product(inquiry.company, line.get('product_id'))
+    if not product:
+        raise InquiryProductMaterializationError(
+            f'product line has no valid company inventory mapping | inquiry_id={inquiry.pk} '
+            f'| index={line_index} | product_id={line.get("product_id")!r}'
+        )
+
+    source_link = (
+        inquiry.inquiry_messages
+        .select_related('message', 'message__account', 'message__contact')
+        .order_by('message__message_time')
+        .first()
+    )
+    source_message = source_link.message if source_link else None
+    contact = inquiry.contact or getattr(source_message, 'contact', None)
+    company_contact = contact.company_contact if contact else None
+    canonical_name = str(line.get('canonical_name') or product.name or '').strip()
+    if not canonical_name:
+        raise InquiryProductMaterializationError(
+            f'blank product name | inquiry_id={inquiry.pk} | index={line_index}'
+        )
+
+    with transaction.atomic():
+        existing_trace = InquiryProduct.objects.filter(
+            inquiry=inquiry,
+            source_product_index=line_index,
+        ).first()
+        if existing_trace and existing_trace.product_id and existing_trace.product_id != product.pk:
+            raise InquiryProductMaterializationError(
+                f'inquiry product line already mapped to a different product | inquiry_id={inquiry.pk} '
+                f'| index={line_index} | existing_product_id={existing_trace.product_id} '
+                f'| requested_product_id={product.pk}'
+            )
+
+        line['product_id'] = product.pk
+        line['match_type'] = 'exact'
+        line['manually_created_inquiry_product'] = True
+        inquiry.products = products
+        inquiry.save(update_fields=['products', 'updated_at'])
+
+        defaults = {
+            'company': inquiry.company,
+            'source_message': source_message,
+            'account': inquiry.account or getattr(source_message, 'account', None),
+            'contact': contact,
+            'company_contact': company_contact,
+            'product': product,
+            'inquiry_type': inquiry.inquiry_type,
+            'canonical_name': canonical_name,
+            'normalized_name': normalize_product_name(canonical_name),
+            'original_text': str(line.get('raw_text') or line.get('canonical_name') or ''),
+            'quantity': _as_int(
+                line.get('quantity'),
+                field_name='quantity',
+                inquiry_id=inquiry.pk,
+                message_id=getattr(source_message, 'pk', None),
+                index=line_index,
+            ),
+            'price': _as_decimal(
+                line.get('price'),
+                field_name='price',
+                inquiry_id=inquiry.pk,
+                message_id=getattr(source_message, 'pk', None),
+                index=line_index,
+            ),
+            'currency': str(line.get('currency') or ''),
+            'decision_status': InquiryProductDecisionStatus.MAPPED,
+            'match_status': InquiryProductMatchStatus.MANUAL_CONFIRMED,
+            'match_type': 'exact',
+            'match_source': InquiryProductMatchSource.MANUAL,
+            'match_reason': (
+                f'Manually saved inquiry product from stock suggestion by '
+                f'{getattr(created_by, "username", "") or "user"}.'
+            ),
+            'embedding_status': 'skipped',
+            'first_seen_at': inquiry.first_seen_at,
+        }
+        if existing_trace:
+            for field, value in defaults.items():
+                setattr(existing_trace, field, value)
+            existing_trace.save()
+            trace = existing_trace
+        else:
+            trace = InquiryProduct.objects.create(
+                inquiry=inquiry,
+                source_product_index=line_index,
+                **defaults,
+            )
+
+    logger.info(
+        'create_manual_inquiry_product_from_matched_line | saved | inquiry_id=%s | index=%s | product_id=%s | trace_id=%s',
+        inquiry.pk,
+        line_index,
+        product.pk,
+        trace.pk,
+    )
+    return trace

@@ -174,6 +174,12 @@
                           title="Ask AI to compare original message, summary, and this stock suggestion"
                         >{{ matchVerificationFor(inq, h)?.loading ? 'Checking' : 'Verify' }}</button>
                         <button
+                          class="match-fix-btn create-inquiry"
+                          :disabled="stockInquiryCreateFor(inq, h)?.loading || stockInquiryCreateFor(inq, h)?.saved"
+                          @click.stop="createInquiryFromStockHint(inq, h)"
+                          title="Save this stock suggestion as an inquiry product trace"
+                        >{{ stockInquiryCreateLabel(inq, h) }}</button>
+                        <button
                           v-if="h.mismatch"
                           class="match-fix-btn auto"
                           @click.stop="runAutoMatch(inq, h)"
@@ -194,6 +200,9 @@
                         <strong>{{ matchVerificationLabel(matchVerificationFor(inq, h)) }}</strong>
                         <span v-if="matchVerificationFor(inq, h).reason"> - {{ matchVerificationFor(inq, h).reason }}</span>
                         <span v-if="matchVerificationFor(inq, h).error"> - {{ matchVerificationFor(inq, h).error }}</span>
+                      </div>
+                      <div v-if="stockInquiryCreateFor(inq, h)?.error" class="stock-create-error">
+                        {{ stockInquiryCreateFor(inq, h).error }}
                       </div>
                     </div>
                   </template>
@@ -355,6 +364,12 @@
                           title="Ask AI to compare original message, summary, and this stock suggestion"
                         >{{ matchVerificationFor(inq, h)?.loading ? 'Checking' : 'Verify' }}</button>
                         <button
+                          class="match-fix-btn create-inquiry"
+                          :disabled="stockInquiryCreateFor(inq, h)?.loading || stockInquiryCreateFor(inq, h)?.saved"
+                          @click.stop="createInquiryFromStockHint(inq, h)"
+                          title="Save this stock suggestion as an inquiry product trace"
+                        >{{ stockInquiryCreateLabel(inq, h) }}</button>
+                        <button
                           v-if="h.mismatch"
                           class="match-fix-btn auto"
                           @click.stop="runAutoMatch(inq, h)"
@@ -375,6 +390,9 @@
                         <strong>{{ matchVerificationLabel(matchVerificationFor(inq, h)) }}</strong>
                         <span v-if="matchVerificationFor(inq, h).reason"> - {{ matchVerificationFor(inq, h).reason }}</span>
                         <span v-if="matchVerificationFor(inq, h).error"> - {{ matchVerificationFor(inq, h).error }}</span>
+                      </div>
+                      <div v-if="stockInquiryCreateFor(inq, h)?.error" class="stock-create-error">
+                        {{ stockInquiryCreateFor(inq, h).error }}
                       </div>
                     </div>
                   </template>
@@ -543,6 +561,12 @@
                     title="Ask AI to compare original message, summary, and this stock suggestion"
                   >{{ matchVerificationFor(expandedInquiry, h)?.loading ? 'Checking' : 'Verify' }}</button>
                   <button
+                    class="match-fix-btn create-inquiry"
+                    :disabled="stockInquiryCreateFor(expandedInquiry, h)?.loading || stockInquiryCreateFor(expandedInquiry, h)?.saved"
+                    @click.stop="createInquiryFromStockHint(expandedInquiry, h)"
+                    title="Save this stock suggestion as an inquiry product trace"
+                  >{{ stockInquiryCreateLabel(expandedInquiry, h) }}</button>
+                  <button
                     v-if="h.mismatch"
                     class="match-fix-btn auto"
                     @click.stop="runAutoMatch(expandedInquiry, h)"
@@ -563,6 +587,9 @@
                   <strong>{{ matchVerificationLabel(matchVerificationFor(expandedInquiry, h)) }}</strong>
                   <span v-if="matchVerificationFor(expandedInquiry, h).reason"> - {{ matchVerificationFor(expandedInquiry, h).reason }}</span>
                   <span v-if="matchVerificationFor(expandedInquiry, h).error"> - {{ matchVerificationFor(expandedInquiry, h).error }}</span>
+                </div>
+                <div v-if="stockInquiryCreateFor(expandedInquiry, h)?.error" class="stock-create-error">
+                  {{ stockInquiryCreateFor(expandedInquiry, h).error }}
                 </div>
               </div>
             </template>
@@ -769,6 +796,7 @@ const autoSearchResults = ref(null) // [{ product, source: 'direct'|'embedding',
 const autoSearchLoading = ref(false)
 const autoSearchError   = ref('')
 const matchVerifications = ref({})
+const stockInquiryCreates = ref({})
 const productModalOpen = ref(false)
 const productModalInquiry = ref(null)
 const productLines = ref([])
@@ -782,6 +810,21 @@ function matchVerificationKey(inq, hint) {
 
 function matchVerificationFor(inq, hint) {
   return matchVerifications.value[matchVerificationKey(inq, hint)] || null
+}
+
+function stockInquiryCreateKey(inq, hint) {
+  return `${inq?.id || 'unknown'}:${hint?.index ?? 'unknown'}:${hint?.product?.id || 'unknown'}`
+}
+
+function stockInquiryCreateFor(inq, hint) {
+  return stockInquiryCreates.value[stockInquiryCreateKey(inq, hint)] || null
+}
+
+function stockInquiryCreateLabel(inq, hint) {
+  const state = stockInquiryCreateFor(inq, hint)
+  if (state?.loading) return 'Saving'
+  if (state?.saved) return 'Saved'
+  return 'Create Inquiry'
 }
 
 function matchVerificationLabel(result) {
@@ -864,6 +907,34 @@ async function createProductFromLine(line) {
     productLinesError.value = e.response?.data?.detail || e.message || 'Failed to create product'
   } finally {
     creatingLineIndex.value = null
+  }
+}
+
+async function createInquiryFromStockHint(inq, hint) {
+  if (!inq || hint?.index == null) return
+  const key = stockInquiryCreateKey(inq, hint)
+  stockInquiryCreates.value = {
+    ...stockInquiryCreates.value,
+    [key]: { loading: true, saved: false, error: '' },
+  }
+  try {
+    const { data } = await tradingApi.createInquiryProductFromLine(inq.id, hint.index)
+    if (data.inquiry) {
+      patchInquiryInFeeds(data.inquiry)
+    }
+    stockInquiryCreates.value = {
+      ...stockInquiryCreates.value,
+      [key]: { loading: false, saved: true, error: '' },
+    }
+  } catch (e) {
+    stockInquiryCreates.value = {
+      ...stockInquiryCreates.value,
+      [key]: {
+        loading: false,
+        saved: false,
+        error: e.response?.data?.detail || e.message || 'Failed to save inquiry product',
+      },
+    }
   }
 }
 
@@ -1596,7 +1667,10 @@ onUnmounted(() => {
 .match-fix-btn.auto:hover { background: #eff6ff; }
 .match-fix-btn.verify { border-color: #64748b; color: #334155; }
 .match-fix-btn.verify:hover { background: #f8fafc; }
+.match-fix-btn.create-inquiry { border-color: #16a34a; color: #15803d; }
+.match-fix-btn.create-inquiry:hover { background: #f0fdf4; }
 .match-fix-btn:disabled { opacity: 0.65; cursor: wait; }
+.stock-create-error { clear: both; margin-top: 5px; color: #b91c1c; font-size: 0.72rem; font-weight: 700; }
 .match-verify-result {
   clear: both;
   margin-top: 5px;
