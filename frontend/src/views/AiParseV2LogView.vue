@@ -198,6 +198,12 @@ function candidateCount(product) {
       : 0
 }
 
+function formatAttributes(attributes) {
+  if (!attributes || typeof attributes !== 'object' || Array.isArray(attributes)) return '-'
+  const entries = Object.entries(attributes).filter(([, value]) => value != null && String(value).trim() !== '')
+  return entries.length ? entries.map(([key, value]) => `${key}: ${value}`).join(', ') : '-'
+}
+
 function candidatesForProduct(product, panelValue) {
   if (Array.isArray(product?.candidates)) return product.candidates
   if (Array.isArray(product?.candidate_products)) return product.candidate_products
@@ -331,6 +337,7 @@ function candidatesForProduct(product, panelValue) {
                             <div class="kv-grid">
                               <div><span>Raw</span><strong>{{ product.raw_text || '-' }}</strong></div>
                               <div><span>Brand</span><strong>{{ product.brand || '-' }}</strong></div>
+                              <div><span>Attributes</span><strong>{{ formatAttributes(product.attributes) }}</strong></div>
                               <div><span>Qty</span><strong>{{ product.quantity ?? '-' }}</strong></div>
                               <div><span>Price</span><strong>{{ product.price ?? '-' }}</strong></div>
                               <div><span>Candidates</span><strong>{{ candidateCount(product) }}</strong></div>
@@ -389,6 +396,7 @@ function candidatesForProduct(product, panelValue) {
                           <div class="kv-grid">
                             <div><span>Raw</span><strong>{{ product.raw_text || '-' }}</strong></div>
                             <div><span>Brand</span><strong>{{ product.brand || '-' }}</strong></div>
+                            <div><span>Attributes</span><strong>{{ formatAttributes(product.attributes) }}</strong></div>
                             <div><span>Qty</span><strong>{{ product.quantity ?? '-' }}</strong></div>
                             <div><span>Price</span><strong>{{ product.price ?? '-' }}</strong></div>
                             <div><span>Currency</span><strong>{{ product.currency || '-' }}</strong></div>

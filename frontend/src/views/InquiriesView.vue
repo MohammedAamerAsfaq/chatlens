@@ -238,6 +238,7 @@
               <div class="modal-product-name">{{ line.canonical_name || 'Invalid product line' }}</div>
               <div class="modal-product-meta">
                 <span v-if="line.brand">Brand {{ line.brand }}</span>
+                <span v-if="formatLineAttributes(line.attributes)">Attrs {{ formatLineAttributes(line.attributes) }}</span>
                 <span v-if="line.quantity">Qty {{ line.quantity }}</span>
                 <span v-if="line.price">{{ line.currency || '' }} {{ line.price }}</span>
                 <span v-if="line.match_type">AI match: {{ line.match_type }}</span>
@@ -369,6 +370,14 @@ async function loadInquiryProducts(inquiryId) {
   } finally {
     productLinesLoading.value = false
   }
+}
+
+function formatLineAttributes(attributes) {
+  if (!attributes || typeof attributes !== 'object' || Array.isArray(attributes)) return ''
+  return Object.entries(attributes)
+    .filter(([, value]) => value != null && String(value).trim() !== '')
+    .map(([key, value]) => `${key}: ${value}`)
+    .join(', ')
 }
 
 async function createProductFromLine(line) {

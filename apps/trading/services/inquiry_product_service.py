@@ -189,6 +189,7 @@ def create_manual_product_from_inquiry_line(inquiry, line_index: int, *, created
         InquiryProductMatchSource,
         InquiryProductMatchStatus,
         Product,
+        ProductAttribute,
     )
 
     overrides = overrides or {}
@@ -250,6 +251,17 @@ def create_manual_product_from_inquiry_line(inquiry, line_index: int, *, created
         line['match_type'] = 'exact'
         line['brand'] = product.brand
         line['manually_created_product'] = True
+        attributes = line.get('attributes') or {}
+        if isinstance(attributes, dict):
+            for key, value in attributes.items():
+                key = str(key or '').strip()
+                value = str(value or '').strip()
+                if key and value:
+                    ProductAttribute.objects.update_or_create(
+                        product=product,
+                        key=key,
+                        defaults={'value': value},
+                    )
         inquiry.products = products
         inquiry.save(update_fields=['products', 'updated_at'])
 

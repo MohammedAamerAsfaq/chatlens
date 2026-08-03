@@ -226,10 +226,12 @@ def _parse_v2_extraction_response(raw: str) -> dict:
         raw_text = str(p.get('raw_text') or '').strip()
         if not canonical_name and not raw_text:
             continue
+        attributes = _parse_v2_product_attributes(p.get('attributes'))
         products.append({
             'product_id': None,
             'match_type': None,
             'brand': str(p.get('brand') or '').strip(),
+            'attributes': attributes,
             'canonical_name': canonical_name or raw_text,
             'raw_text': raw_text or canonical_name,
             'quantity': p.get('quantity'),
@@ -266,6 +268,29 @@ def _parse_v2_extraction_response(raw: str) -> dict:
     }
 
 
+def _parse_v2_product_attributes(raw_attributes) -> dict:
+    if not raw_attributes:
+        return {}
+
+    items = []
+    if isinstance(raw_attributes, dict):
+        items = raw_attributes.items()
+    elif isinstance(raw_attributes, list):
+        for row in raw_attributes:
+            if isinstance(row, dict):
+                items.append((row.get('key'), row.get('value')))
+    else:
+        return {}
+
+    parsed = {}
+    for key, value in items:
+        key = str(key or '').strip()
+        value = str(value or '').strip()
+        if key and value:
+            parsed[key] = value
+    return parsed
+
+
 def _candidate_payload(product, distance=None) -> dict:
     return {
         'product_id': product.pk,
@@ -298,7 +323,31 @@ def _brand_filter_values(brand: str) -> list[str]:
     return values
 
 
-def _find_v2_candidates(query: str, company, top_k: int = 5, brand: str = '') -> list[dict]:
+def _candidate_attribute_filters(attributes: dict, company) -> list[tuple[str, str]]:
+    if not attributes or not company:
+        return []
+
+    from apps.trading.models import ProductAttribute
+
+    available_keys = {
+        str(key or '').strip().lower()
+        for key in ProductAttribute.objects.filter(
+            product__company=company,
+            product__is_active=True,
+            product__qty__gt=0,
+        ).values_list('key', flat=True)
+        if str(key or '').strip()
+    }
+    filters = []
+    for key, value in attributes.items():
+        key = str(key or '').strip()
+        value = str(value or '').strip()
+        if key and value and key.lower() in available_keys:
+            filters.append((key, value))
+    return filters
+
+
+def _find_v2_candidates(query: str, company, top_k: int = 5, brand: str = '', attributes: dict | None = None) -> list[dict]:
     if not query or not company:
         return []
 
@@ -309,13 +358,34 @@ def _find_v2_candidates(query: str, company, top_k: int = 5, brand: str = '') ->
         from apps.trading.models import Product
 
         brand_values = _brand_filter_values(brand)
+        attribute_filters = _candidate_attribute_filters(attributes or {}, company)
         query_vec = ai_manager.embed(query)
         query_vec_text = Vector(query_vec).to_text()
         brand_filter = ''
+        attribute_filter = ''
         params = {'qv': query_vec_text, 'company_id': company.pk, 'top_k': top_k}
         if brand_values:
             brand_filter = "AND LOWER(p.brand) = ANY(%(brand_values)s)"
             params['brand_values'] = brand_values
+        if attribute_filters:
+            clauses = []
+            for index, (key, value) in enumerate(attribute_filters):
+                key_param = f'attr_key_{index}'
+                value_param = f'attr_value_{index}'
+                params[key_param] = key
+                params[value_param] = value
+                clauses.append(
+                    f"""
+                  AND EXISTS (
+                      SELECT 1
+                      FROM trading_product_attribute attr_filter_{index}
+                      WHERE attr_filter_{index}.product_id = p.id
+                        AND LOWER(TRIM(attr_filter_{index}.key)) = LOWER(TRIM(%({key_param})s))
+                        AND LOWER(TRIM(attr_filter_{index}.value)) = LOWER(TRIM(%({value_param})s))
+                  )
+                    """.rstrip()
+                )
+            attribute_filter = '\n'.join(clauses)
 
         sql = """
             WITH scored AS (
@@ -327,6 +397,7 @@ def _find_v2_candidates(query: str, company, top_k: int = 5, brand: str = '') ->
                   AND p.qty > 0
                   AND p.company_id = %(company_id)s
                   {brand_filter}
+                  {attribute_filter}
 
                 UNION ALL
 
@@ -339,13 +410,14 @@ def _find_v2_candidates(query: str, company, top_k: int = 5, brand: str = '') ->
                   AND p.qty > 0
                   AND p.company_id = %(company_id)s
                   {brand_filter}
+                  {attribute_filter}
             )
             SELECT product_id, MIN(distance) AS best_distance
             FROM scored
             GROUP BY product_id
             ORDER BY best_distance ASC
             LIMIT %(top_k)s
-        """.format(brand_filter=brand_filter)
+        """.format(brand_filter=brand_filter, attribute_filter=attribute_filter)
         with connection.cursor() as cursor:
             cursor.execute(sql, params)
             rows = cursor.fetchall()
@@ -393,6 +465,7 @@ def _build_v2_match_prompts(message, products: list[dict], candidates_by_index: 
                 'line_index': index,
                 'raw_text': product.get('raw_text') or '',
                 'brand': product.get('brand') or '',
+                'attributes': product.get('attributes') or {},
                 'canonical_name': product.get('canonical_name') or '',
                 'quantity': product.get('quantity'),
                 'price': product.get('price'),
@@ -407,6 +480,16 @@ def _build_v2_match_prompts(message, products: list[dict], candidates_by_index: 
         ],
     }
     return system, json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _no_candidate_v2_result(index: int) -> dict:
+    return {
+        'product_id': None,
+        'match_type': None,
+        'confidence': 0.0,
+        'reason': 'No active in-stock inventory candidates matched the extracted brand/attributes.',
+        'rejected_candidate_ids': [],
+    }
 
 
 def _parse_v2_match_response(raw: str, expected_indexes: set[int]) -> dict[int, dict]:
@@ -706,11 +789,92 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
             product.get('canonical_name') or product.get('raw_text') or '',
             company,
             brand=product.get('brand') or '',
+            attributes=product.get('attributes') or {},
         )
         for index, product in enumerate(products)
     }
 
-    system_prompt, user_prompt = _build_v2_match_prompts(message, products, candidates_by_index)
+    candidate_indexes = {
+        index
+        for index, candidates in candidates_by_index.items()
+        if candidates
+    }
+    no_candidate_results = {
+        index: _no_candidate_v2_result(index)
+        for index in range(len(products))
+        if index not in candidate_indexes
+    }
+
+    if not candidate_indexes:
+        updated_products = [
+            {
+                **product,
+                'product_id': None,
+                'match_type': None,
+                'match_reason': no_candidate_results[index]['reason'],
+                'match_confidence': 0.0,
+                'candidate_products': [],
+                'v2_line_index': index,
+            }
+            for index, product in enumerate(products)
+        ]
+        raw_existing = classification.raw_response or {}
+        if not isinstance(raw_existing, dict):
+            raw_existing = {'v1_legacy_raw': raw_existing}
+        raw_existing['v2_pass2'] = {
+            'skipped': True,
+            'reason': 'no active in-stock candidates matched extracted brand/attributes',
+            'candidates_by_index': candidates_by_index,
+        }
+        classification.products = updated_products
+        classification.raw_response = raw_existing
+        classification.save(update_fields=['products', 'raw_response'])
+
+        Inquiry.objects.filter(pk__in=inquiry_ids).update(
+            products=updated_products,
+            product_match_status=Inquiry.CLASSIFICATION_MATCH_COMPLETE,
+            product_match_error='',
+        )
+        AiParseV2Log.objects.filter(message_id=message_id).update(
+            status=AiParseV2Log.STATUS_COMPLETE,
+            pass2_request={
+                'skipped': True,
+                'reason': 'no active in-stock candidates matched extracted brand/attributes',
+                'products': products,
+                'candidates_by_index': candidates_by_index,
+            },
+            pass2_response='',
+            pass2_parsed={
+                'skipped': True,
+                'reason': 'no active in-stock candidates matched extracted brand/attributes',
+                'match_results': no_candidate_results,
+                'updated_products': updated_products,
+            },
+            error='',
+        )
+        logger.info(
+            'classify_message_v2 | pass2 skipped (no candidates) | message_id=%s | products=%s | inquiries=%s',
+            message_id,
+            len(updated_products),
+            inquiry_ids,
+        )
+        return
+
+    match_products = [
+        product
+        for index, product in enumerate(products)
+        if index in candidate_indexes
+    ]
+    match_candidates_by_index = {
+        new_index: candidates_by_index[original_index]
+        for new_index, original_index in enumerate(sorted(candidate_indexes))
+    }
+    line_index_map = {
+        new_index: original_index
+        for new_index, original_index in enumerate(sorted(candidate_indexes))
+    }
+
+    system_prompt, user_prompt = _build_v2_match_prompts(message, match_products, match_candidates_by_index)
     AiParseV2Log.objects.filter(message_id=message_id).update(
         status=AiParseV2Log.STATUS_PASS2_STARTED,
         pass2_request={
@@ -719,6 +883,8 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
                 {'role': 'user', 'content': user_prompt},
             ],
             'temperature': 0,
+            'line_index_map': line_index_map,
+            'no_candidate_line_indexes': sorted(no_candidate_results.keys()),
         },
         error='',
     )
@@ -732,7 +898,10 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
         classification_version=CLASSIFICATION_V2,
         temperature=0,
     )
-    match_results = _parse_v2_match_response(raw_response, set(range(len(products))))
+    raw_match_results = _parse_v2_match_response(raw_response, set(range(len(match_products))))
+    match_results = dict(no_candidate_results)
+    for new_index, result in raw_match_results.items():
+        match_results[line_index_map[new_index]] = result
 
     updated_products = []
     for index, product in enumerate(products):
@@ -760,6 +929,8 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
     raw_existing['v2_pass2'] = {
         'raw': _clean_json_response(raw_response),
         'candidates_by_index': candidates_by_index,
+        'line_index_map': line_index_map,
+        'no_candidate_line_indexes': sorted(no_candidate_results.keys()),
     }
     classification.products = updated_products
     classification.raw_response = raw_existing
@@ -777,6 +948,8 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
             'raw': _clean_json_response(raw_response),
             'match_results': match_results,
             'updated_products': updated_products,
+            'line_index_map': line_index_map,
+            'no_candidate_line_indexes': sorted(no_candidate_results.keys()),
         },
         error='',
     )

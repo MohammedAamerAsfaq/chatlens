@@ -598,6 +598,7 @@
               <div class="inquiry-product-name">{{ line.canonical_name || 'Invalid product line' }}</div>
               <div class="inquiry-product-meta">
                 <span v-if="line.brand">Brand {{ line.brand }}</span>
+                <span v-if="formatLineAttributes(line.attributes)">Attrs {{ formatLineAttributes(line.attributes) }}</span>
                 <span v-if="line.quantity">Qty {{ line.quantity }}</span>
                 <span v-if="line.price">{{ line.currency || '' }} {{ line.price }}</span>
                 <span v-if="line.match_type">AI match: {{ line.match_type }}</span>
@@ -807,6 +808,14 @@ function closeInquiryProducts() {
   productModalInquiry.value = null
   productLines.value = []
   productLinesError.value = ''
+}
+
+function formatLineAttributes(attributes) {
+  if (!attributes || typeof attributes !== 'object' || Array.isArray(attributes)) return ''
+  return Object.entries(attributes)
+    .filter(([, value]) => value != null && String(value).trim() !== '')
+    .map(([key, value]) => `${key}: ${value}`)
+    .join(', ')
 }
 
 async function loadInquiryProducts(inquiryId) {

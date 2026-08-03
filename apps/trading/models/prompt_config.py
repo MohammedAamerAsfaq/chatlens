@@ -319,6 +319,10 @@ Rules:
   If the sender explicitly mentions a brand, use that brand. If brand is not explicitly mentioned,
   infer the manufacturer only when it is obvious from the product family. Use null when the brand
   cannot be inferred with reasonable confidence.
+- attributes should include commonly available product-defining specs when stated or safely inferred
+  from the product text. Use simple key/value pairs such as Series, Model, Storage, Color, Region,
+  SIM Type, Network, Condition, and Variant. Prefer compact inventory-style values when obvious
+  (for example Storage "256" rather than "256GB"). Use {} when no attributes are known.
 - raw_text should be the closest original product line or phrase from the message.
 - If the message has no product/spec content, set is_inquiry=false and products=[].
 - dedup_key format: "{buy|sell}:{product-slug}:{qty-bucket}:{contact_id}".
@@ -332,6 +336,7 @@ Respond ONLY with valid JSON matching this schema:
     {
       "raw_text": "<sender product text>",
       "brand": "<brand string or null>",
+      "attributes": {"<attribute key>": "<attribute value>", "...": "..."},
       "canonical_name": "<normalized product text>",
       "quantity": <int or null>,
       "price": <float or null>,

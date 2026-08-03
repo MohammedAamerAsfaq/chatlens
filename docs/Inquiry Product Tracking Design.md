@@ -266,6 +266,8 @@ V2 pass 1 instruction should focus only on:
 - normalized/canonical product text
 - manufacturer/product brand when explicitly stated, or the best safe inference from well-known
   product families
+- commonly available product-defining attributes such as Series, Model, Storage, Color, Region,
+  SIM Type, Network, Condition, and Variant
 - quantity, price, currency
 - summary
 - dedup key
@@ -278,6 +280,16 @@ tenant and brand. If no same-brand candidates exist, ChatLens should send no can
 instead of falling back to unrelated high-scoring embeddings from another brand.
 Brand correction must be handled through AI instructions or future data-backed brand alias models,
 not through hardcoded product-family mappings in code.
+Extracted attributes are also retrieval constraints, but only when the same attribute key already
+exists in that tenant's active in-stock inventory. This prevents free-form fields that are not yet
+modeled in inventory from eliminating every candidate, while still stopping obvious wrong candidates
+such as a different color, storage size, series, or model from entering pass 2 when those attributes
+are present in both the inquiry and inventory.
+If candidate retrieval returns no candidates for every extracted product line, ChatLens must not call
+AI pass 2. It should mark those lines unmatched with a clear no-candidate reason, complete the inquiry
+matching status, and write the skipped decision into the V2 parse log. If only some lines have no
+candidates, pass 2 should be called only for the candidate-backed lines and the no-candidate lines
+should be merged back as deterministic unmatched results.
 
 V2 pass 2 instruction should receive:
 
