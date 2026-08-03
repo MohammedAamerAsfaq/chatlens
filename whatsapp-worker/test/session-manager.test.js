@@ -25,6 +25,7 @@ function makeDjangoClient(overrides = {}) {
     sendUnresolvedMessage: test.mock.fn(async () => ({ success: true, id: 1, resolution_status: 'pending' })),
     sendWorkerAlert:     test.mock.fn(async () => ({ success: true })),
     sendDroppedMessage:  test.mock.fn(async () => ({ success: true })),
+    sendBaileysEvent:    test.mock.fn(async () => ({ success: true })),
     sendMessageIngest:   test.mock.fn(async () => ({ success: true })),
     ...overrides,
   };

@@ -39,40 +39,55 @@ class DjangoClient {
     return path.join(this.logsDir, 'failed-reports.ndjson');
   }
 
+  _httpErrorLogFields(err) {
+    return {
+      err: err.message,
+      statusCode: err.response?.status || null,
+      responseBody: err.response?.data || null,
+    };
+  }
+
   async _postReplayRecord(record) {
     const payload = record.payload || {};
     if (record.kind === 'contacts_update') {
       await this.http.post('/api/internal/whatsapp/contacts-update/', payload);
-      return true;
+      return { status: 'replayed' };
     }
     if (record.kind === 'group_update') {
       await this.http.post('/api/internal/whatsapp/group-update/', payload);
-      return true;
+      return { status: 'replayed' };
     }
     if (record.kind === 'group_participants_update') {
+      if (payload.action === 'modify') {
+        return {
+          status: 'discarded',
+          reason: 'group_participants_modify_is_replay_unsafe',
+        };
+      }
       await this.http.post('/api/internal/whatsapp/group-participants-update/', payload);
-      return true;
+      return { status: 'replayed' };
     }
-    return false;
+    return { status: 'retained', reason: 'unknown_fallback_kind' };
   }
 
   async replayFallbackReports() {
-    if (!this.logsDir) return { attempted: 0, replayed: 0, retained: 0 };
+    if (!this.logsDir) return { attempted: 0, replayed: 0, retained: 0, discarded: 0 };
 
     const filePath = this._fallbackPath();
-    if (!fs.existsSync(filePath)) return { attempted: 0, replayed: 0, retained: 0 };
+    if (!fs.existsSync(filePath)) return { attempted: 0, replayed: 0, retained: 0, discarded: 0 };
 
     let lines;
     try {
       lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/).filter(Boolean);
     } catch (err) {
       this.logger.error({ err: err.message }, 'Failed to read fallback report file');
-      return { attempted: 0, replayed: 0, retained: 0 };
+      return { attempted: 0, replayed: 0, retained: 0, discarded: 0 };
     }
 
     const retained = [];
     let attempted = 0;
     let replayed = 0;
+    let discarded = 0;
 
     for (const line of lines) {
       let record;
@@ -85,18 +100,47 @@ class DjangoClient {
       }
 
       try {
-        const replaySafe = await this._postReplayRecord(record);
-        if (!replaySafe) {
+        const replayResult = await this._postReplayRecord(record);
+        if (replayResult.status === 'retained') {
+          this.logger.warn(
+            {
+              kind: record.kind,
+              reason: replayResult.reason,
+            },
+            'Fallback report replay skipped - retaining record',
+          );
           retained.push(line);
           continue;
         }
-        attempted += 1;
-        replayed += 1;
+        if (replayResult.status === 'discarded') {
+          discarded += 1;
+          this.logger.warn(
+            {
+              kind: record.kind,
+              reason: replayResult.reason,
+              sessionId: record.payload?.worker_session_id,
+              groupId: record.payload?.group_id,
+              action: record.payload?.action,
+            },
+            'Fallback report replay skipped - discarding replay-unsafe record',
+          );
+          continue;
+        }
+        if (replayResult.status === 'replayed') {
+          attempted += 1;
+          replayed += 1;
+        }
       } catch (err) {
         attempted += 1;
         retained.push(line);
         this.logger.warn(
-          { kind: record.kind, err: err.message },
+          {
+            kind: record.kind,
+            sessionId: record.payload?.worker_session_id,
+            groupId: record.payload?.group_id,
+            action: record.payload?.action,
+            ...this._httpErrorLogFields(err),
+          },
           'Fallback report replay failed - retaining record',
         );
       }
@@ -112,10 +156,10 @@ class DjangoClient {
       this.logger.error({ err: err.message }, 'Failed to update fallback report file after replay');
     }
 
-    if (attempted || replayed) {
-      this.logger.info({ attempted, replayed, retained: retained.length }, 'Fallback report replay completed');
+    if (attempted || replayed || discarded) {
+      this.logger.info({ attempted, replayed, retained: retained.length, discarded }, 'Fallback report replay completed');
     }
-    return { attempted, replayed, retained: retained.length };
+    return { attempted, replayed, retained: retained.length, discarded };
   }
 
   async sendSessionStatus(sessionId, fields) {
