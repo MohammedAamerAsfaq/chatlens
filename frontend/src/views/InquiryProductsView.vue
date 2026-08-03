@@ -1,7 +1,11 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { accountsApi, tradingApi } from '@/api'
+import { useConversationsStore } from '@/stores/conversations'
 
+const router = useRouter()
+const conversations = useConversationsStore()
 const rows = ref([])
 const accounts = ref([])
 const loading = ref(false)
@@ -118,6 +122,18 @@ function openDetail(row) {
 
 function closeDetail() {
   detailRow.value = null
+}
+
+async function viewChat(row) {
+  if (!row?.source_chat_id) return
+  if (row.account && conversations.selectedAccountId !== row.account) {
+    await conversations.switchAccount(row.account)
+  }
+  conversations.selectChat(row.source_chat_id, {
+    messageId: row.source_message,
+    messageTime: row.source_message_time,
+  })
+  router.push({ name: 'conversations' })
 }
 
 onMounted(async () => {
@@ -346,7 +362,16 @@ watch(() => filters.value.search, () => {
                 <td class="px-4 py-3 align-top">
                   <div class="text-xs text-gray-400">{{ formatTime(row.source_message_time || row.first_seen_at) }}</div>
                   <div class="text-xs text-gray-700 mt-1 max-w-[340px] max-h-12 overflow-hidden leading-snug">{{ row.source_message_text || '-' }}</div>
-                  <button class="text-xs text-green-700 font-semibold mt-1 hover:text-green-800" @click="openDetail(row)">View details</button>
+                  <div class="flex items-center gap-3 mt-1">
+                    <button class="text-xs text-green-700 font-semibold hover:text-green-800" @click="openDetail(row)">View details</button>
+                    <button
+                      v-if="row.source_chat_id"
+                      class="text-xs text-blue-700 font-semibold hover:text-blue-800"
+                      @click="viewChat(row)"
+                    >
+                      Chat →
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -435,7 +460,16 @@ watch(() => filters.value.search, () => {
           <div class="rounded-lg border border-gray-100 p-4">
             <div class="flex items-center justify-between gap-3 mb-2">
               <p class="text-xs text-gray-400 uppercase tracking-wide">Original Message</p>
-              <p class="text-xs text-gray-400">{{ formatTime(detailRow.source_message_time || detailRow.first_seen_at) }}</p>
+              <div class="flex items-center gap-3">
+                <p class="text-xs text-gray-400">{{ formatTime(detailRow.source_message_time || detailRow.first_seen_at) }}</p>
+                <button
+                  v-if="detailRow.source_chat_id"
+                  class="text-xs text-blue-700 font-semibold hover:text-blue-800"
+                  @click="viewChat(detailRow)"
+                >
+                  Chat →
+                </button>
+              </div>
             </div>
             <p class="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{{ detailRow.source_message_text || '-' }}</p>
           </div>

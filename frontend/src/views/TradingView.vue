@@ -1178,7 +1178,6 @@ function colorEmoji(colorName) {
 }
 
 function getInventoryHints(inq) {
-  if (inq.inquiry_type !== 'buy') return []
   const hints = []
   ;(inq.products || []).forEach((p, index) => {
     const match = matchInventory(p)
