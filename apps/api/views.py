@@ -181,7 +181,10 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'], url_path='update-settings')
     def update_settings(self, request, pk=None):
         account = self.get_object()
-        allowed = ['sync_history', 'history_days', 'idle_disconnect_minutes', 'display_name', 'ai_parsing_enabled', 'auto_download_media']
+        allowed = [
+            'sync_history', 'history_days', 'idle_disconnect_minutes', 'display_name',
+            'ai_parsing_enabled', 'auto_download_media', 'classification_version_override',
+        ]
         update_fields = []
         for field in allowed:
             if field in request.data:
@@ -189,6 +192,11 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
                 # history_days: accept null/None to mean all-time
                 if field == 'history_days' and val == '':
                     val = None
+                if field == 'classification_version_override' and val not in ('inherit', 'v1', 'v2'):
+                    return Response(
+                        {'detail': 'classification_version_override must be inherit, v1, or v2'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
                 setattr(account, field, val)
                 update_fields.append(field)
         if update_fields:
@@ -1671,6 +1679,7 @@ def _serialize_company(company):
         'slug': company.slug,
         'company_type': company.company_type,
         'industry_type': company.industry_type,
+        'default_classification_version': company.default_classification_version,
         'is_active': company.is_active,
         'valid_from': company.valid_from.isoformat() if company.valid_from else None,
         'valid_until': company.valid_until.isoformat() if company.valid_until else None,
@@ -1754,6 +1763,34 @@ def admin_companies_view(request):
 
     companies = Company.objects.all().order_by('name')
     return Response([_serialize_company(company) for company in companies])
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def admin_company_detail_view(request, company_id):
+    denied = _require_control_admin(request)
+    if denied:
+        return denied
+
+    try:
+        company = Company.objects.get(pk=company_id)
+    except Company.DoesNotExist:
+        return Response({'detail': 'Company not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    update_fields = []
+    if 'default_classification_version' in request.data:
+        version = request.data.get('default_classification_version')
+        if version not in (Company.CLASSIFICATION_V1, Company.CLASSIFICATION_V2):
+            return Response(
+                {'detail': 'default_classification_version must be v1 or v2'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        company.default_classification_version = version
+        update_fields.append('default_classification_version')
+
+    if update_fields:
+        company.save(update_fields=update_fields + ['updated_at'])
+    return Response(_serialize_company(company))
 
 
 @api_view(['POST'])

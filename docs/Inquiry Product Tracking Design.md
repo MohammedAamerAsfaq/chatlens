@@ -102,6 +102,220 @@ Manual product creation behavior:
 
 This phase deliberately prioritizes controlled user decisions over automatic product proliferation.
 
+## Classification Versions
+
+The current live inquiry classification pipeline is now treated as **Classification V1**.
+
+V1 behavior:
+
+- One AI pass receives the WhatsApp message, account/contact context, the inquiry-classification
+  instruction, and the full in-stock product master block.
+- AI classifies the message as inquiry/non-inquiry.
+- AI decides `buy`, `sell`, or `both`.
+- AI extracts product lines.
+- AI attempts to match each product line against the supplied product master and returns
+  `product_id`, `match_type`, and `canonical_name`.
+- ChatLens validates the JSON shape and stores the result in `MessageClassification` and
+  `Inquiry.products`.
+
+V1 remains the default behavior until V2 is implemented, tested, and explicitly enabled.
+
+The proposed retrieval-assisted pipeline is **Classification V2**.
+
+V2 target behavior:
+
+```text
+Incoming WhatsApp message
+  -> eligibility checks
+  -> AI pass 1: classify intent and extract product lines only
+  -> Inquiry created/updated immediately from pass 1
+  -> Trading board displays the inquiry with pass 2 pending indicator
+  -> ChatLens retrieves candidate inventory products for each extracted line
+     using embeddings and safe structured filters
+  -> AI pass 2: compare extracted line against shortlisted candidates only
+  -> validated match decision updates the inquiry product lines
+  -> manual InquiryProduct traceability workflow
+```
+
+V2 separates responsibilities:
+
+- AI pass 1 extracts what the sender wrote. It should not decide inventory `product_id`.
+- ChatLens searches inventory and produces a small candidate list.
+- AI pass 2 judges only the shortlisted candidates and returns exact/near/no-match decisions.
+- ChatLens stores the candidates considered and the final match decision for auditability.
+
+V2 user-visible behavior:
+
+- As soon as pass 1 confirms that the message is an inquiry and extracts product lines, the inquiry
+  should appear on the Trading board.
+- The Trading board card should clearly show that product matching is still in progress, for
+  example: `Product matching in progress...`.
+- This message should appear near the bottom of the inquiry card content so users know the inquiry is
+  visible but final inventory matching is not completed yet.
+- The inquiry should not wait for pass 2 before becoming visible.
+- The `Inquiry Products` popup should show the extracted product list from pass 1 immediately.
+- The pass-1 extracted product list should remain stable and visible even while pass 2 is running.
+- Pass 2 may later update match fields such as `product_id`, `match_type`, candidates considered,
+  match reason, and confidence, but it should not remove the pass-1 extracted line from the popup.
+
+Expected advantages of V2:
+
+- Avoids sending the full inventory catalog with every message.
+- Reduces prompt size and AI cost as product count grows.
+- Reduces product-match mistakes caused by forcing AI to search a large catalog.
+- Makes match decisions easier to debug because the considered candidate list can be stored.
+- Allows gradual account-by-account rollout without breaking current V1 behavior.
+
+V2 must not silently replace V1. It should be selectable, observable, and reversible.
+
+## Version Selection And Account Settings
+
+Classification version selection should be account-level.
+
+Required behavior:
+
+- There should be one tenant/company default classification version.
+- Every WhatsApp account should inherit the company default unless explicitly overridden.
+- A control company super user can change the company default.
+- A control company super user can override the classification version for an individual account.
+- Existing accounts should continue on V1 by default after migration.
+- The selected version must be visible in account settings.
+- The AI Parsing Log and Agent Call Log should record which classification version handled a
+  message.
+
+Suggested setting values:
+
+```text
+inherit
+v1
+v2
+```
+
+Effective version resolution:
+
+```text
+if account.classification_version_override is v1 or v2:
+    use account override
+else:
+    use company default
+```
+
+Initial defaults:
+
+```text
+company.default_classification_version = v1
+account.classification_version_override = inherit
+```
+
+This keeps the current application behavior unchanged until the user intentionally enables V2 for a
+company or a specific account.
+
+Implementation status:
+
+- Company default classification version field exists.
+- WhatsApp account classification version override field exists.
+- Effective version resolves as account override first, otherwise company default.
+- Tenant Admin exposes the company default selector.
+- Account settings expose the account override selector.
+- AI Parsing Log, Agent Call Log, MessageClassification, and Inquiry can store the version.
+- V1 remains the active default and preserves current behavior.
+- V2 two-pass classification is implemented as one extraction call plus one batched match-decision
+  call per message.
+- V2 pass 1 creates/updates the inquiry immediately with `product_match_status = pending`.
+- V2 pass 2 retrieves tenant-scoped in-stock product candidates for every extracted product line,
+  sends all product lines and their candidate lists to AI in one batched request, then updates
+  `MessageClassification.products` and `Inquiry.products`.
+- If V2 pass 2 fails, the inquiry is marked `product_match_status = error` with the error text.
+- A dedicated `AI Parse V2 Logs` screen records the pass 1 request, pass 1 response, parsed pass 1
+  output, pass 2 request, pass 2 response, parsed pass 2 output, status, and error text.
+- V2 is still a new path and should be tested on one account before enabling as a company default.
+
+## AI Instruction Versioning
+
+AI instructions must be version-specific.
+
+Current prompt:
+
+```text
+inquiry_classification
+```
+
+This should be treated as the V1 prompt.
+
+Suggested V2 prompt keys:
+
+```text
+inquiry_classification_v1
+inquiry_extraction_v2
+inquiry_match_decision_v2
+```
+
+Compatibility approach:
+
+- Keep the existing `inquiry_classification` key as an alias/fallback for V1 so existing saved
+  tenant prompt overrides do not break.
+- Introduce `inquiry_classification_v1` for clear naming going forward.
+- Introduce `inquiry_extraction_v2` for pass 1.
+- Introduce `inquiry_match_decision_v2` for pass 2.
+
+V2 pass 1 instruction should focus only on:
+
+- whether the message is a genuine inquiry
+- inquiry direction: `buy`, `sell`, or `both`
+- product lines exactly as stated
+- normalized/canonical product text
+- quantity, price, currency
+- summary
+- dedup key
+- contact role suggestion
+
+V2 pass 1 must not receive the full product master and must not return inventory `product_id`.
+
+V2 pass 2 instruction should receive:
+
+- original WhatsApp message
+- all extracted product lines from the message
+- each line's shortlisted inventory candidates generated by ChatLens
+- strict exact/near/no-match rules
+
+V2 pass 2 should return:
+
+```json
+{
+  "results": [
+    {
+      "line_index": 0,
+      "product_id": 123,
+      "match_type": "exact",
+      "confidence": 0.92,
+      "reason": "Model, tier, storage, color, and region all match.",
+      "rejected_candidate_ids": [124, 130]
+    }
+  ]
+}
+```
+
+If no candidate is acceptable:
+
+```json
+{
+  "results": [
+    {
+      "line_index": 0,
+      "product_id": null,
+      "match_type": null,
+      "confidence": 0,
+      "reason": "No candidate matches the requested color and region.",
+      "rejected_candidate_ids": [124, 130]
+    }
+  ]
+}
+```
+
+All prompt bodies must remain editable through `PromptConfig` and visible in the AI Instructions
+screen. No classification instructions should be hardcoded outside the prompt defaults except the
+minimal parser/validator schema rules required to reject invalid AI output.
+
 ## Target Design
 
 Introduce a structured product mention layer.

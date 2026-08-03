@@ -179,7 +179,10 @@
           <select v-model="logFilter.purpose" @change="loadLogs">
             <option value="">All purposes</option>
             <option value="classification">Inquiry Classification</option>
+            <option value="inquiry_extraction_v2">Inquiry Extraction V2</option>
+            <option value="inquiry_match_v2">Inquiry Match V2</option>
             <option value="product_extraction">Product Extraction</option>
+            <option value="match_verification">Match Verification</option>
             <option value="inventory_update">Inventory Update</option>
           </select>
           <select v-model="logFilter.success" @change="loadLogs">
@@ -372,8 +375,11 @@ function toggle(id) {
 }
 
 function purposeLabel(p) {
-  if (p === 'classification')   return 'Classification'
+  if (p === 'classification') return 'Classification'
+  if (p === 'inquiry_extraction_v2') return 'V2 Extraction'
+  if (p === 'inquiry_match_v2') return 'V2 Match'
   if (p === 'inventory_update') return 'Inventory Update'
+  if (p === 'match_verification') return 'Match Verification'
   return 'Product Extract'
 }
 

@@ -6,7 +6,7 @@ from .views import (
     UnresolvedMessageViewSet, BaileysEventViewSet,
     message_trace_view, message_trace_list_view,
     auth_login_view, auth_logout_view, auth_me_view, auth_select_company_view,
-    admin_companies_view, admin_company_enroll_view, admin_company_users_view,
+    admin_companies_view, admin_company_detail_view, admin_company_enroll_view, admin_company_users_view,
 )
 
 router = DefaultRouter()
@@ -30,6 +30,7 @@ urlpatterns = [
     path('auth/me/',     auth_me_view,     name='auth-me'),
     path('auth/select-company/', auth_select_company_view, name='auth-select-company'),
     path('admin/companies/', admin_companies_view, name='admin-companies'),
+    path('admin/companies/<int:company_id>/', admin_company_detail_view, name='admin-company-detail'),
     path('admin/companies/enroll/', admin_company_enroll_view, name='admin-company-enroll'),
     path('admin/users/', admin_company_users_view, name='admin-company-users'),
 ]

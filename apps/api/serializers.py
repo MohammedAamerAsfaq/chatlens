@@ -8,6 +8,7 @@ from apps.whatsapp_bridge.models import (
 
 class WhatsAppAccountSerializer(serializers.ModelSerializer):
     total_unread = serializers.SerializerMethodField()
+    effective_classification_version = serializers.SerializerMethodField()
 
     def get_total_unread(self, obj):
         return obj.chats.filter(unread_count__gt=0).count()
@@ -20,13 +21,19 @@ class WhatsAppAccountSerializer(serializers.ModelSerializer):
             'is_active', 'created_at', 'total_unread',
             'sync_history', 'history_days', 'idle_disconnect_minutes',
             'auto_download_media', 'ai_parsing_enabled',
+            'classification_version_override', 'effective_classification_version',
             'connection_unhealthy', 'connection_unhealthy_reason', 'connection_unhealthy_since',
         ]
         read_only_fields = [
             'id', 'session_status', 'worker_session_id',
             'last_connected_at', 'last_disconnected_at', 'created_at',
+            'effective_classification_version',
             'connection_unhealthy', 'connection_unhealthy_reason', 'connection_unhealthy_since',
         ]
+
+    def get_effective_classification_version(self, obj):
+        from apps.trading.services.classification_service import effective_classification_version
+        return effective_classification_version(obj)
 
 
 class ContactSerializer(serializers.ModelSerializer):

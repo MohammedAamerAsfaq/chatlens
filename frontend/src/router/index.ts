@@ -14,6 +14,7 @@ import StuckReceiptsView    from '../views/StuckReceiptsView.vue'
 import UnresolvedMessagesView from '../views/UnresolvedMessagesView.vue'
 import MessageTraceView     from '../views/MessageTraceView.vue'
 import AiParsingLogView     from '../views/AiParsingLogView.vue'
+import AiParseV2LogView     from '../views/AiParseV2LogView.vue'
 import ContactsView         from '../views/ContactsView.vue'
 import GroupsView           from '../views/GroupsView.vue'
 import TradingView          from '../views/TradingView.vue'
@@ -44,6 +45,7 @@ const router = createRouter({
     { path: '/unresolved-messages', name: 'unresolved-messages', component: UnresolvedMessagesView },
     { path: '/message-trace', name: 'message-trace', component: MessageTraceView },
     { path: '/ai-parsing-log', name: 'ai-parsing-log', component: AiParsingLogView },
+    { path: '/ai-parse-v2-log', name: 'ai-parse-v2-log', component: AiParseV2LogView },
     { path: '/contacts', name: 'contacts', component: ContactsView },
     { path: '/groups', name: 'groups', component: GroupsView },
     { path: '/trading', name: 'trading', component: TradingView },

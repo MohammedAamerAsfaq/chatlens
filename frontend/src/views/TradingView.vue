@@ -200,6 +200,9 @@
                   <span v-else class="body-row-empty">No matching stock found</span>
                 </div>
               </div>
+              <div v-if="isProductMatchingPending(inq)" class="product-match-pending">
+                Product matching in progress. Extracted inquiry products are available now; inventory match results will update after V2 pass 2 completes.
+              </div>
             </div>
             <div class="card-footer">
               <div class="card-actions">
@@ -377,6 +380,9 @@
                   </template>
                   <span v-else class="body-row-empty">No matching stock found</span>
                 </div>
+              </div>
+              <div v-if="isProductMatchingPending(inq)" class="product-match-pending">
+                Product matching in progress. Extracted inquiry products are available now; inventory match results will update after V2 pass 2 completes.
               </div>
             </div>
             <div class="card-footer">
@@ -1104,6 +1110,10 @@ function getInventoryHints(inq) {
   return hints
 }
 
+function isProductMatchingPending(inq) {
+  return inq?.classification_version === 'v2' && inq?.product_match_status === 'pending'
+}
+
 const lastUpdateLabel = computed(() => {
   if (!lastUpdate.value) return '—'
   const secs = Math.floor((Date.now() - lastUpdate.value) / 1000)
@@ -1503,6 +1513,16 @@ onUnmounted(() => {
 .body-row-content { font-size: 0.8rem; color: #374151; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .body-row-empty { color: #9ca3af; font-style: italic; }
 .body-row.expanded { background: #eff6ff; }
+.product-match-pending {
+  margin: 4px 6px 0;
+  padding: 6px 8px;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
 .source-label { font-size: 0.73rem; color: #9ca3af; text-transform: capitalize; white-space: nowrap; flex-shrink: 0; }
 .account-badge { font-size: 0.7rem; background: #ede9fe; color: #6d28d9; padding: 1px 7px; border-radius: 999px; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
 .card-actions { display: flex; gap: 6px; align-items: center; }

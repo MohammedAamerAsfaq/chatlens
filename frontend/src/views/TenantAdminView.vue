@@ -26,6 +26,7 @@ const userForm = ref({
 })
 const savingCompany = ref(false)
 const savingUser = ref(false)
+const savingCompanySetting = ref(null)
 const companySuccess = ref('')
 const userSuccess = ref('')
 const companyFieldErrors = ref({})
@@ -175,6 +176,22 @@ async function submitUser() {
     savingUser.value = false
   }
 }
+
+async function updateCompanyClassificationVersion(company, version) {
+  savingCompanySetting.value = company.id
+  error.value = ''
+  try {
+    const { data } = await tenantAdminApi.updateCompany(company.id, {
+      default_classification_version: version,
+    })
+    const idx = companies.value.findIndex(item => item.id === company.id)
+    if (idx !== -1) companies.value[idx] = data
+  } catch (e) {
+    error.value = e.response?.data?.detail || e.message || 'Failed to update company setting'
+  } finally {
+    savingCompanySetting.value = null
+  }
+}
 </script>
 
 <template>
@@ -298,6 +315,7 @@ async function submitUser() {
                   <th>Name</th>
                   <th>Type</th>
                   <th>Industry</th>
+                  <th>Classification</th>
                   <th>Users</th>
                   <th>Status</th>
                 </tr>
@@ -307,6 +325,17 @@ async function submitUser() {
                   <td>{{ company.name }}</td>
                   <td>{{ company.company_type }}</td>
                   <td>{{ company.industry_type }}</td>
+                  <td>
+                    <select
+                      class="inline-select"
+                      :value="company.default_classification_version || 'v1'"
+                      :disabled="savingCompanySetting === company.id"
+                      @change="updateCompanyClassificationVersion(company, $event.target.value)"
+                    >
+                      <option value="v1">V1</option>
+                      <option value="v2">V2</option>
+                    </select>
+                  </td>
                   <td>{{ company.membership_count }}</td>
                   <td>{{ company.is_active ? 'Active' : 'Inactive' }}</td>
                 </tr>
@@ -422,6 +451,13 @@ async function submitUser() {
   z-index: 1;
 }
 .table th { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; }
+.inline-select {
+  border: 1px solid #d1d5db;
+  border-radius: 7px;
+  padding: 6px 8px;
+  font-size: 0.82rem;
+  background: #fff;
+}
 .empty { color: #9ca3af; font-size: 0.9rem; padding: 12px 0; }
 @media (max-width: 960px) {
   .grid { grid-template-columns: 1fr; }

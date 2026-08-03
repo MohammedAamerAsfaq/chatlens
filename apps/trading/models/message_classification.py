@@ -42,6 +42,7 @@ class MessageClassification(models.Model):
     # found no reason to change the contact's existing category. See classification_service.
     suggested_contact_category = models.CharField(max_length=20, blank=True)
     raw_response = models.JSONField(null=True, blank=True)
+    classification_version = models.CharField(max_length=10, default='v1')
     classified_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

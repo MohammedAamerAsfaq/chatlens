@@ -176,6 +176,7 @@ function toggleRow(id) {
             <th class="text-left px-4 py-3 w-28">Time</th>
             <th class="text-left px-4 py-3 w-36">Account</th>
             <th class="text-left px-4 py-3 w-32">Status</th>
+            <th class="text-left px-4 py-3 w-24">Version</th>
             <th class="text-left px-4 py-3 w-40">Reason</th>
             <th class="text-left px-4 py-3 w-36">Chat</th>
             <th class="text-left px-4 py-3">Message</th>
@@ -205,6 +206,12 @@ function toggleRow(id) {
                 >{{ log.status === 'sent' ? 'Sent' : 'Skipped' }}</span>
               </td>
               <td class="px-4 py-2.5">
+                <span v-if="log.classification_version" class="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                  {{ log.classification_version.toUpperCase() }}
+                </span>
+                <span v-else class="text-xs text-gray-300">—</span>
+              </td>
+              <td class="px-4 py-2.5">
                 <span v-if="log.skip_reason" :class="['text-xs font-medium px-2 py-0.5 rounded-full', reasonStyle(log.skip_reason)]">
                   {{ reasonLabel(log.skip_reason) }}
                 </span>
@@ -222,7 +229,7 @@ function toggleRow(id) {
 
             <!-- Expanded detail -->
             <tr v-if="expandedId === log.id" :key="`${log.id}-detail`">
-              <td colspan="6" class="px-6 py-4 bg-gray-50 border-t border-gray-100">
+              <td colspan="7" class="px-6 py-4 bg-gray-50 border-t border-gray-100">
                 <div class="grid grid-cols-2 gap-x-8 gap-y-1.5 text-xs max-w-3xl">
                   <div class="col-span-2 flex items-center gap-4 pb-2 mb-1 border-b border-gray-200 flex-wrap">
                     <span class="text-gray-500">{{ formatTime(log.created_at) }}</span>
@@ -244,6 +251,9 @@ function toggleRow(id) {
 
                   <span class="text-gray-400 font-medium">Direction</span>
                   <span class="text-gray-800">{{ log.direction || '—' }}</span>
+
+                  <span class="text-gray-400 font-medium">Classification version</span>
+                  <span class="text-gray-800">{{ log.classification_version || '—' }}</span>
 
                   <span class="text-gray-400 font-medium">Message time</span>
                   <span class="text-gray-800">{{ formatTime(log.message_time) }}</span>

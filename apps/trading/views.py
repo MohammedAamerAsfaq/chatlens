@@ -18,7 +18,7 @@ from apps.tenancy.services.access import (
     scope_queryset_to_visible_companies,
     visible_accounts_queryset,
 )
-from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, BuyingInquiry, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture
+from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture
 from .serializers import (
     ProductSerializer,
     ProductAliasSerializer,
@@ -28,6 +28,7 @@ from .serializers import (
     InquiryDetailSerializer,
     InquiryProductSerializer,
     AiParsingLogSerializer,
+    AiParseV2LogSerializer,
     BuyingInquirySerializer,
     SupplierQuoteSerializer,
     AutomationRuleSerializer,
@@ -1258,6 +1259,9 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
         defaults = {
             PromptConfig.KEY_PRODUCT_EXTRACTION:     (PRODUCT_EXTRACTION_DEFAULT,     'Product Extraction (bulk import)'),
             PromptConfig.KEY_INQUIRY_CLASSIFICATION: (INQUIRY_CLASSIFICATION_DEFAULT, 'Inquiry Classification (live messages)'),
+            PromptConfig.KEY_INQUIRY_CLASSIFICATION_V1: (INQUIRY_CLASSIFICATION_DEFAULT, 'Inquiry Classification V1 (live messages)'),
+            PromptConfig.KEY_INQUIRY_EXTRACTION_V2:  (INQUIRY_EXTRACTION_V2_DEFAULT,  'Inquiry Extraction V2 (pass 1)'),
+            PromptConfig.KEY_INQUIRY_MATCH_DECISION_V2: (INQUIRY_MATCH_DECISION_V2_DEFAULT, 'Inquiry Match Decision V2 (pass 2)'),
             PromptConfig.KEY_INVENTORY_UPDATE:       (INVENTORY_UPDATE_DEFAULT,       'Inventory Update (bulk qty + price)'),
             PromptConfig.KEY_PRICE_LIST_FORMAT:      (PRICE_LIST_FORMAT_DEFAULT,      'Price List Formatting (WhatsApp send)'),
             PromptConfig.KEY_QTY_COST_UPDATE:        (QTY_COST_UPDATE_DEFAULT,        'Qty & Cost Update (Product Price Update page)'),
@@ -1319,6 +1323,9 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
         defaults_map = {
             PromptConfig.KEY_PRODUCT_EXTRACTION:     'Product Extraction (bulk import)',
             PromptConfig.KEY_INQUIRY_CLASSIFICATION: 'Inquiry Classification (live messages)',
+            PromptConfig.KEY_INQUIRY_CLASSIFICATION_V1: 'Inquiry Classification V1 (live messages)',
+            PromptConfig.KEY_INQUIRY_EXTRACTION_V2:  'Inquiry Extraction V2 (pass 1)',
+            PromptConfig.KEY_INQUIRY_MATCH_DECISION_V2: 'Inquiry Match Decision V2 (pass 2)',
             PromptConfig.KEY_INVENTORY_UPDATE:       'Inventory Update (bulk qty + price)',
             PromptConfig.KEY_PRICE_LIST_FORMAT:      'Price List Formatting (WhatsApp send)',
             PromptConfig.KEY_QTY_COST_UPDATE:        'Qty & Cost Update (Product Price Update page)',
@@ -1393,6 +1400,7 @@ class AgentCallLogViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
                 'duration_ms':  log.duration_ms,
                 'success':      log.success,
                 'error':        log.error,
+                'classification_version': log.classification_version,
                 'wa_message_id': log.wa_message_id,
                 'created_at':   log.created_at.isoformat(),
                 'messages':     log.messages,
@@ -1424,6 +1432,27 @@ class AiParsingLogViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(status=status_)
         if reason := p.get('skip_reason'):
             qs = qs.filter(skip_reason=reason)
+        return qs
+
+
+class AiParseV2LogViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = AiParseV2LogSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = AiParsingLogPagination
+
+    def get_queryset(self):
+        qs = (
+            AiParseV2Log.objects
+            .select_related('account', 'chat', 'message', 'classification')
+            .order_by('-created_at')
+        )
+        qs = scope_queryset_to_visible_accounts(qs, self.request.user, account_field='account')
+        p = self.request.query_params
+        if account_id := p.get('account'):
+            visible_account = _visible_account_or_none(self.request.user, account_id)
+            qs = qs.filter(account=visible_account) if visible_account else qs.none()
+        if status_ := p.get('status'):
+            qs = qs.filter(status=status_)
         return qs
 
 

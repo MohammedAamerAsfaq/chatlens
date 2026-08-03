@@ -21,6 +21,7 @@ def call_agent(purpose: str, messages: list, wa_message_id=None, **kwargs) -> st
     except Exception:
         pass
 
+    classification_version = kwargs.pop('classification_version', '') or ''
     input_tokens = sum(len(m.get('content', '')) for m in messages) // 4
 
     start   = time.monotonic()
@@ -50,6 +51,7 @@ def call_agent(purpose: str, messages: list, wa_message_id=None, **kwargs) -> st
                 duration_ms   = duration_ms,
                 success       = success,
                 error         = error,
+                classification_version = classification_version,
                 wa_message_id = wa_message_id,
             )
         except Exception:

@@ -27,6 +27,16 @@ class Inquiry(models.Model):
         ('group',     'Group'),
         ('community', 'Community'),
     ]
+    CLASSIFICATION_MATCH_NOT_REQUIRED = 'not_required'
+    CLASSIFICATION_MATCH_PENDING = 'pending'
+    CLASSIFICATION_MATCH_COMPLETE = 'complete'
+    CLASSIFICATION_MATCH_ERROR = 'error'
+    CLASSIFICATION_MATCH_STATUS_CHOICES = [
+        (CLASSIFICATION_MATCH_NOT_REQUIRED, 'Not Required'),
+        (CLASSIFICATION_MATCH_PENDING, 'Product Matching Pending'),
+        (CLASSIFICATION_MATCH_COMPLETE, 'Product Matching Complete'),
+        (CLASSIFICATION_MATCH_ERROR, 'Product Matching Error'),
+    ]
 
     company = models.ForeignKey(
         'tenancy.Company',
@@ -73,6 +83,13 @@ class Inquiry(models.Model):
         default=5,
         choices=[(i, str(i)) for i in range(1, 6)],
     )
+    classification_version = models.CharField(max_length=10, default='v1')
+    product_match_status = models.CharField(
+        max_length=20,
+        choices=CLASSIFICATION_MATCH_STATUS_CHOICES,
+        default=CLASSIFICATION_MATCH_NOT_REQUIRED,
+    )
+    product_match_error = models.TextField(blank=True)
 
     first_seen_at = models.DateTimeField(db_index=True)
     closed_at     = models.DateTimeField(null=True, blank=True)

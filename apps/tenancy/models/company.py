@@ -21,6 +21,12 @@ class Company(models.Model):
         (INDUSTRY_TRADING, 'Trading'),
         (INDUSTRY_REAL_ESTATE, 'Real Estate'),
     ]
+    CLASSIFICATION_V1 = 'v1'
+    CLASSIFICATION_V2 = 'v2'
+    CLASSIFICATION_VERSION_CHOICES = [
+        (CLASSIFICATION_V1, 'Classification V1'),
+        (CLASSIFICATION_V2, 'Classification V2'),
+    ]
 
     name = models.CharField(max_length=255, unique=True)
     slug = models.SlugField(max_length=100, unique=True)
@@ -33,6 +39,11 @@ class Company(models.Model):
         max_length=30,
         choices=INDUSTRY_TYPE_CHOICES,
         default=INDUSTRY_GENERAL,
+    )
+    default_classification_version = models.CharField(
+        max_length=10,
+        choices=CLASSIFICATION_VERSION_CHOICES,
+        default=CLASSIFICATION_V1,
     )
     is_active = models.BooleanField(default=True)
     valid_from = models.DateField(null=True, blank=True)
@@ -54,4 +65,3 @@ class Company(models.Model):
 
     def __str__(self):
         return self.name
-

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import (
     Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryMessage,
-    InquiryProduct, AiParsingLog, BuyingInquiry, SupplierQuote,
+    InquiryProduct, AiParsingLog, AiParseV2Log, BuyingInquiry, SupplierQuote,
     AutomationRule, AutomationRuleSource, AutomatedPriceCapture,
 )
 
@@ -67,7 +67,7 @@ class MessageClassificationSerializer(serializers.ModelSerializer):
     class Meta:
         model  = MessageClassification
         fields = ['id', 'message', 'tags', 'products', 'is_inquiry', 'inquiry_type',
-                  'ai_summary', 'classified_at']
+                  'ai_summary', 'classification_version', 'classified_at']
         read_only_fields = fields
 
 
@@ -81,12 +81,40 @@ class AiParsingLogSerializer(serializers.ModelSerializer):
         model  = AiParsingLog
         fields = ['id', 'message', 'account', 'account_name', 'chat', 'chat_name',
                   'status', 'skip_reason', 'message_preview', 'message_time',
-                  'direction', 'created_at']
+                  'direction', 'classification_version', 'created_at']
         read_only_fields = fields
 
     def get_account_name(self, obj):
         a = obj.account
         return a.display_name or a.phone_number or f'Account {a.pk}'
+
+    def get_chat_name(self, obj):
+        if not obj.chat:
+            return ''
+        return obj.chat.name or obj.chat.wa_chat_id
+
+
+class AiParseV2LogSerializer(serializers.ModelSerializer):
+    account_name = serializers.SerializerMethodField()
+    chat_name = serializers.SerializerMethodField()
+    message_text = serializers.CharField(source='message.message_text', read_only=True)
+    message_time = serializers.DateTimeField(source='message.message_time', read_only=True)
+    direction = serializers.CharField(source='message.direction', read_only=True)
+
+    class Meta:
+        model = AiParseV2Log
+        fields = [
+            'id', 'message', 'message_text', 'message_time', 'direction',
+            'account', 'account_name', 'chat', 'chat_name', 'classification',
+            'inquiry_ids', 'status', 'pass1_request', 'pass1_response',
+            'pass1_parsed', 'pass2_request', 'pass2_response', 'pass2_parsed',
+            'error', 'created_at', 'updated_at',
+        ]
+        read_only_fields = fields
+
+    def get_account_name(self, obj):
+        account = obj.account
+        return account.display_name or account.phone_number or f'Account {account.pk}'
 
     def get_chat_name(self, obj):
         if not obj.chat:
@@ -133,14 +161,16 @@ class InquirySerializer(serializers.ModelSerializer):
             'inquiry_type', 'status', 'products', 'summary', 'remarks',
             'dedup_key', 'source_type', 'source_chat_id', 'source_message_id',
             'source_message_time', 'source_message_text', 'first_seen_at', 'closed_at',
-            'classification_rating', 'age_seconds', 'created_at', 'updated_at',
+            'classification_rating', 'classification_version', 'product_match_status',
+            'product_match_error', 'age_seconds', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'account', 'account_name', 'contact', 'contact_name', 'contact_phone',
             'contact_category', 'suggested_contact_category',
             'inquiry_type', 'products', 'summary', 'dedup_key', 'source_type',
             'source_chat_id', 'source_message_id', 'source_message_time', 'source_message_text',
-            'first_seen_at', 'age_seconds', 'created_at', 'updated_at',
+            'first_seen_at', 'classification_version', 'product_match_status',
+            'product_match_error', 'age_seconds', 'created_at', 'updated_at',
         ]
 
     def get_account_name(self, obj):

@@ -5,11 +5,15 @@ class AgentCallLog(models.Model):
     PURPOSE_CLASSIFICATION    = 'classification'
     PURPOSE_PRODUCT_EXTRACTION = 'product_extraction'
     PURPOSE_MATCH_VERIFICATION = 'match_verification'
+    PURPOSE_INQUIRY_EXTRACTION_V2 = 'inquiry_extraction_v2'
+    PURPOSE_INQUIRY_MATCH_V2 = 'inquiry_match_v2'
 
     PURPOSE_CHOICES = [
         (PURPOSE_CLASSIFICATION,     'Inquiry Classification'),
         (PURPOSE_PRODUCT_EXTRACTION, 'Product Extraction'),
         (PURPOSE_MATCH_VERIFICATION, 'Inquiry Match Verification'),
+        (PURPOSE_INQUIRY_EXTRACTION_V2, 'Inquiry Extraction V2'),
+        (PURPOSE_INQUIRY_MATCH_V2, 'Inquiry Match Decision V2'),
     ]
 
     purpose      = models.CharField(max_length=50, choices=PURPOSE_CHOICES, db_index=True)
@@ -22,6 +26,7 @@ class AgentCallLog(models.Model):
     duration_ms  = models.IntegerField(default=0)
     success      = models.BooleanField(default=True)
     error        = models.TextField(blank=True)
+    classification_version = models.CharField(max_length=10, blank=True)
     # optional link to the WhatsApp message that triggered classification
     wa_message_id = models.BigIntegerField(null=True, blank=True, db_index=True)
     created_at   = models.DateTimeField(auto_now_add=True, db_index=True)

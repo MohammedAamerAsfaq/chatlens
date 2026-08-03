@@ -135,13 +135,22 @@ def process_inquiry(message, classification) -> None:
         if existing:
             _link_message(existing, message)
             existing.suggested_contact_category = suggested_category
-            existing.save(update_fields=['suggested_contact_category'])
+            existing.classification_version = classification.classification_version or existing.classification_version
+            if classification.classification_version == 'v2':
+                existing.product_match_status = Inquiry.CLASSIFICATION_MATCH_PENDING
+                existing.product_match_error = ''
+            existing.save(update_fields=[
+                'suggested_contact_category',
+                'classification_version',
+                'product_match_status',
+                'product_match_error',
+            ])
             logger.info(
                 'inquiry_service | linked to existing | inquiry_id=%s | message_id=%s',
                 existing.pk,
                 message.pk,
             )
-            return
+            return [existing]
 
         inquiry_type = classification.inquiry_type
         if inquiry_type == 'both':
@@ -158,6 +167,12 @@ def process_inquiry(message, classification) -> None:
             source_type=_derive_source_type(message.chat),
             first_seen_at=message.message_time,
             suggested_contact_category=suggested_category,
+            classification_version=classification.classification_version or 'v1',
+            product_match_status=(
+                Inquiry.CLASSIFICATION_MATCH_PENDING
+                if classification.classification_version == 'v2'
+                else Inquiry.CLASSIFICATION_MATCH_NOT_REQUIRED
+            ),
         )
         _link_message(inquiry, message)
 
@@ -180,6 +195,12 @@ def process_inquiry(message, classification) -> None:
                 source_type=inquiry.source_type,
                 first_seen_at=message.message_time,
                 suggested_contact_category=suggested_category,
+                classification_version=classification.classification_version or 'v1',
+                product_match_status=(
+                    Inquiry.CLASSIFICATION_MATCH_PENDING
+                    if classification.classification_version == 'v2'
+                    else Inquiry.CLASSIFICATION_MATCH_NOT_REQUIRED
+                ),
             )
             _link_message(sell_inquiry, message)
             logger.info(
@@ -187,3 +208,6 @@ def process_inquiry(message, classification) -> None:
                 sell_inquiry.pk,
                 message.pk,
             )
+            return [inquiry, sell_inquiry]
+
+        return [inquiry]

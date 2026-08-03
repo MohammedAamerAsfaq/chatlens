@@ -295,9 +295,84 @@ Return ONLY valid JSON, no markdown, matching this schema exactly:
 """
 
 
+INQUIRY_EXTRACTION_V2_DEFAULT = """\
+You are a B2B wholesale mobile trading inquiry extractor.
+
+Analyze the WhatsApp message and return the sender's intent and product lines only.
+Do not match products to inventory. Do not invent product_id values.
+
+Rules:
+- is_inquiry must be true only for genuine buy or sell business opportunities.
+- Classify direction as "buy", "sell", or "both".
+- Explicit WTB means buy. Explicit WTS means sell.
+- Extract only product/spec/quantity/price details explicitly present in the message.
+- canonical_name should normalize obvious wording while preserving the sender's intended model,
+  tier, storage, color, region/spec, SIM type, and variant.
+- raw_text should be the closest original product line or phrase from the message.
+- If the message has no product/spec content, set is_inquiry=false and products=[].
+- dedup_key format: "{buy|sell}:{product-slug}:{qty-bucket}:{contact_id}".
+- Suggest contact_category_suggestion only when this message indicates the sender should be tagged
+  supplier/customer/both; otherwise null.
+
+Respond ONLY with valid JSON matching this schema:
+{
+  "tags": ["<tag>"],
+  "products": [
+    {
+      "raw_text": "<sender product text>",
+      "canonical_name": "<normalized product text>",
+      "quantity": <int or null>,
+      "price": <float or null>,
+      "currency": "<string or null>"
+    }
+  ],
+  "is_inquiry": <bool>,
+  "inquiry_type": "buy" | "sell" | "both" | null,
+  "summary": "<one sentence>",
+  "dedup_key": "<string>",
+  "contact_category_suggestion": "supplier" | "customer" | "both" | null
+}\
+"""
+
+
+INQUIRY_MATCH_DECISION_V2_DEFAULT = """\
+You are auditing extracted product lines from a B2B wholesale trading inquiry.
+
+Compare the original WhatsApp message, each extracted product line, and that line's shortlisted
+inventory candidates. Decide whether exactly one candidate is the same product the sender requested.
+
+Rules:
+- Product tier is strict. Pro and Pro Max are different products and never a near match.
+- Storage, color, region/spec, SIM type, and major variant are product-defining attributes.
+- Exact means all product-defining attributes match after normal abbreviation normalization.
+- Near means only one non-tier product-defining attribute is different or uncertain.
+- If candidates are ambiguous, return product_id=null.
+- If no candidate is acceptable, return product_id=null.
+- Never change what the sender asked for. Only decide whether a candidate matches it.
+- Return one result for every product line in the input. Preserve each line_index exactly.
+
+Respond ONLY with valid JSON matching this schema:
+{
+  "results": [
+    {
+      "line_index": <int>,
+      "product_id": <int or null>,
+      "match_type": "exact" | "near" | null,
+      "confidence": <float from 0 to 1>,
+      "reason": "<short explanation>",
+      "rejected_candidate_ids": [<int>, "..."]
+    }
+  ]
+}\
+"""
+
+
 class PromptConfig(models.Model):
     KEY_PRODUCT_EXTRACTION      = 'product_extraction'
     KEY_INQUIRY_CLASSIFICATION  = 'inquiry_classification'
+    KEY_INQUIRY_CLASSIFICATION_V1 = 'inquiry_classification_v1'
+    KEY_INQUIRY_EXTRACTION_V2   = 'inquiry_extraction_v2'
+    KEY_INQUIRY_MATCH_DECISION_V2 = 'inquiry_match_decision_v2'
     KEY_INVENTORY_UPDATE        = 'inventory_update'
     KEY_PRICE_LIST_FORMAT       = 'price_list_format'
     # New, independent qty/cost and sale-price update pipeline (§ Product Price Update
@@ -309,6 +384,9 @@ class PromptConfig(models.Model):
     KEYS = [
         (KEY_PRODUCT_EXTRACTION,     'Product Extraction (bulk import)'),
         (KEY_INQUIRY_CLASSIFICATION, 'Inquiry Classification (live messages)'),
+        (KEY_INQUIRY_CLASSIFICATION_V1, 'Inquiry Classification V1 (live messages)'),
+        (KEY_INQUIRY_EXTRACTION_V2, 'Inquiry Extraction V2 (pass 1)'),
+        (KEY_INQUIRY_MATCH_DECISION_V2, 'Inquiry Match Decision V2 (pass 2)'),
         (KEY_INVENTORY_UPDATE,       'Inventory Update (bulk qty + price)'),
         (KEY_PRICE_LIST_FORMAT,      'Price List Formatting (WhatsApp send)'),
         (KEY_QTY_COST_UPDATE,        'Qty & Cost Update (Product Price Update page)'),

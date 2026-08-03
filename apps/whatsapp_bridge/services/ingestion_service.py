@@ -167,7 +167,9 @@ def _log_ai_parsing_and_classify(message) -> None:
     it if it wasn't skipped. Single source of truth for the AI Parsing Log page.
     """
     from apps.trading.models import AiParsingLog
+    from apps.trading.services.classification_service import classify_message, effective_classification_version
     reason = _classify_skip_reason(message)
+    classification_version = '' if reason else effective_classification_version(message.account)
     AiParsingLog.objects.update_or_create(
         message=message,
         defaults={
@@ -176,10 +178,10 @@ def _log_ai_parsing_and_classify(message) -> None:
             'status': 'skipped' if reason else 'sent',
             'skip_reason': reason or '',
             'message_preview': (message.message_text or '')[:200],
+            'classification_version': classification_version,
         },
     )
     if not reason:
-        from apps.trading.services.classification_service import classify_message
         classify_message(message)
 
     # Automated Price Update rules (Product Price Update > Sale Price) — gated
@@ -242,6 +244,8 @@ def _process_message_in_background(message_id: int, sync_log_id: int = None):
     """
     def _run():
         embedded = errors = 0
+        failure = None
+        stage = 'load_message'
         try:
             from apps.whatsapp_bridge.models import WhatsAppMessage
 
@@ -252,6 +256,7 @@ def _process_message_in_background(message_id: int, sync_log_id: int = None):
             )
 
             if message.message_text:
+                stage = 'embedding'
                 from apps.message_intelligence.services.embedding_service import embed_message
                 try:
                     ok = embed_message(message_id)
@@ -268,13 +273,19 @@ def _process_message_in_background(message_id: int, sync_log_id: int = None):
                     )
                     errors = 1
 
+            stage = 'classification'
             _log_ai_parsing_and_classify(message)
 
-        except Exception:
+        except Exception as exc:
             logger.warning(
                 'Background processing failed for message_id=%s', message_id, exc_info=True,
             )
             errors = 1
+            failure = {
+                'stage': stage,
+                'type': exc.__class__.__name__,
+                'message': str(exc),
+            }
         finally:
             if sync_log_id:
                 try:
@@ -282,6 +293,8 @@ def _process_message_in_background(message_id: int, sync_log_id: int = None):
                     meta = log.metadata or {}
                     meta['embedded'] = embedded
                     meta['embed_errors'] = errors
+                    if failure:
+                        meta['background_processing_error'] = failure
                     log.metadata = meta
                     log.save(update_fields=['metadata'])
                 except Exception:

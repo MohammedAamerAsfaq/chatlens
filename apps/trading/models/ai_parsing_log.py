@@ -34,6 +34,7 @@ class AiParsingLog(models.Model):
     status = models.CharField(max_length=10, choices=STATUS_CHOICES)
     skip_reason = models.CharField(max_length=30, choices=SKIP_REASON_CHOICES, blank=True)
     message_preview = models.CharField(max_length=200, blank=True)
+    classification_version = models.CharField(max_length=10, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

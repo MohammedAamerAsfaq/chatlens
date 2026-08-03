@@ -12,6 +12,15 @@ class SessionStatus(models.TextChoices):
 
 
 class WhatsAppAccount(models.Model):
+    CLASSIFICATION_INHERIT = 'inherit'
+    CLASSIFICATION_V1 = 'v1'
+    CLASSIFICATION_V2 = 'v2'
+    CLASSIFICATION_VERSION_CHOICES = [
+        (CLASSIFICATION_INHERIT, 'Inherit company default'),
+        (CLASSIFICATION_V1, 'Classification V1'),
+        (CLASSIFICATION_V2, 'Classification V2'),
+    ]
+
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='whatsapp_accounts')
     communication_account = models.OneToOneField(
         'tenancy.CommunicationAccount',
@@ -43,6 +52,11 @@ class WhatsAppAccount(models.Model):
     idle_disconnect_minutes = models.IntegerField(default=0)   # 0 = disabled
     auto_download_media = models.BooleanField(default=True)
     ai_parsing_enabled = models.BooleanField(default=False)
+    classification_version_override = models.CharField(
+        max_length=10,
+        choices=CLASSIFICATION_VERSION_CHOICES,
+        default=CLASSIFICATION_INHERIT,
+    )
     # Set by the worker when it detects a degraded session it can't self-heal by
     # reconnecting — repeated Signal-protocol decrypt failures or post-connect
     # handshake timeouts. The connection can look "connected" the whole time (WhatsApp

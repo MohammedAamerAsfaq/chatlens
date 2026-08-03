@@ -20,6 +20,7 @@ const localSettings = ref({
   idle_disconnect_minutes: props.account.idle_disconnect_minutes ?? 0,
   auto_download_media:     props.account.auto_download_media ?? true,
   ai_parsing_enabled:      props.account.ai_parsing_enabled ?? false,
+  classification_version_override: props.account.classification_version_override ?? 'inherit',
 })
 
 const historyOptions = [
@@ -76,6 +77,7 @@ async function saveSettings() {
       idle_disconnect_minutes: Number(localSettings.value.idle_disconnect_minutes) || 0,
       auto_download_media:     localSettings.value.auto_download_media,
       ai_parsing_enabled:      localSettings.value.ai_parsing_enabled,
+      classification_version_override: localSettings.value.classification_version_override,
     })
     showSettings.value = false
   } finally {
@@ -386,6 +388,21 @@ onUnmounted(() => {
           >
             <span :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform', localSettings.ai_parsing_enabled ? 'translate-x-5' : 'translate-x-0.5']" />
           </button>
+        </div>
+
+        <div>
+          <label class="text-xs text-gray-500 block mb-1">Classification version</label>
+          <select
+            v-model="localSettings.classification_version_override"
+            class="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-green-500"
+          >
+            <option value="inherit">Company default ({{ account.effective_classification_version || 'v1' }})</option>
+            <option value="v1">V1 - current single-pass classifier</option>
+            <option value="v2">V2 - two-pass retrieval classifier</option>
+          </select>
+          <p class="text-xs text-gray-400 mt-1">
+            V2 is selectable per account for staged rollout. Keep inherited/V1 unless testing V2.
+          </p>
         </div>
       </div>
 

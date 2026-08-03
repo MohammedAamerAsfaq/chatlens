@@ -201,6 +201,7 @@ export const tradingApi = {
   saveAgentPricing: (data)        => http.patch('/prompts/active-agent/', data),
   listAgentLogs:    (params)      => http.get('/agent-logs/', { params }),
   listAiParsingLogs: (params)     => http.get('/ai-parsing-logs/', { params }),
+  listAiParseV2Logs: (params)     => http.get('/ai-parse-v2-logs/', { params }),
 
   // Inquiries
   listInquiries:          (params)      => http.get('/inquiries/', { params }),
@@ -255,6 +256,7 @@ export const aiProvidersApi = {
 
 export const tenantAdminApi = {
   listCompanies: () => http.get('/admin/companies/'),
+  updateCompany: (id, data) => http.patch(`/admin/companies/${id}/`, data),
   enrollCompany: (data) => http.post('/admin/companies/enroll/', data),
   listUsers: (params) => http.get('/admin/users/', { params }),
   createUser: (data) => http.post('/admin/users/', data),
