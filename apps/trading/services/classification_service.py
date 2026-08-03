@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import threading
 
 logger = logging.getLogger(__name__)
@@ -228,6 +229,7 @@ def _parse_v2_extraction_response(raw: str) -> dict:
         products.append({
             'product_id': None,
             'match_type': None,
+            'brand': str(p.get('brand') or '').strip(),
             'canonical_name': canonical_name or raw_text,
             'raw_text': raw_text or canonical_name,
             'quantity': p.get('quantity'),
@@ -283,7 +285,20 @@ def _candidate_payload(product, distance=None) -> dict:
     }
 
 
-def _find_v2_candidates(query: str, company, top_k: int = 5) -> list[dict]:
+def _brand_filter_values(brand: str) -> list[str]:
+    brand = (brand or '').strip()
+    if not brand:
+        return []
+
+    values = []
+    for part in re.split(r'[/,|]', brand):
+        value = part.strip().lower()
+        if value and value not in values:
+            values.append(value)
+    return values
+
+
+def _find_v2_candidates(query: str, company, top_k: int = 5, brand: str = '') -> list[dict]:
     if not query or not company:
         return []
 
@@ -293,8 +308,15 @@ def _find_v2_candidates(query: str, company, top_k: int = 5) -> list[dict]:
         from apps.ai_providers.manager import ai_manager
         from apps.trading.models import Product
 
+        brand_values = _brand_filter_values(brand)
         query_vec = ai_manager.embed(query)
         query_vec_text = Vector(query_vec).to_text()
+        brand_filter = ''
+        params = {'qv': query_vec_text, 'company_id': company.pk, 'top_k': top_k}
+        if brand_values:
+            brand_filter = "AND LOWER(p.brand) = ANY(%(brand_values)s)"
+            params['brand_values'] = brand_values
+
         sql = """
             WITH scored AS (
                 SELECT p.id AS product_id, (pe.embedding <=> %(qv)s::vector) AS distance
@@ -304,6 +326,7 @@ def _find_v2_candidates(query: str, company, top_k: int = 5) -> list[dict]:
                   AND p.is_active = TRUE
                   AND p.qty > 0
                   AND p.company_id = %(company_id)s
+                  {brand_filter}
 
                 UNION ALL
 
@@ -315,15 +338,16 @@ def _find_v2_candidates(query: str, company, top_k: int = 5) -> list[dict]:
                   AND p.is_active = TRUE
                   AND p.qty > 0
                   AND p.company_id = %(company_id)s
+                  {brand_filter}
             )
             SELECT product_id, MIN(distance) AS best_distance
             FROM scored
             GROUP BY product_id
             ORDER BY best_distance ASC
             LIMIT %(top_k)s
-        """
+        """.format(brand_filter=brand_filter)
         with connection.cursor() as cursor:
-            cursor.execute(sql, {'qv': query_vec_text, 'company_id': company.pk, 'top_k': top_k})
+            cursor.execute(sql, params)
             rows = cursor.fetchall()
 
         if not rows:
@@ -368,6 +392,7 @@ def _build_v2_match_prompts(message, products: list[dict], candidates_by_index: 
             {
                 'line_index': index,
                 'raw_text': product.get('raw_text') or '',
+                'brand': product.get('brand') or '',
                 'canonical_name': product.get('canonical_name') or '',
                 'quantity': product.get('quantity'),
                 'price': product.get('price'),
@@ -680,6 +705,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
         index: _find_v2_candidates(
             product.get('canonical_name') or product.get('raw_text') or '',
             company,
+            brand=product.get('brand') or '',
         )
         for index, product in enumerate(products)
     }

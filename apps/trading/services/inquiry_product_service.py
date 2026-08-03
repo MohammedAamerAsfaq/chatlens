@@ -239,7 +239,7 @@ def create_manual_product_from_inquiry_line(inquiry, line_index: int, *, created
         product = Product.objects.create(
             company=inquiry.company,
             name=canonical_name,
-            brand=str(overrides.get('brand') or '').strip(),
+            brand=str(overrides.get('brand') or line.get('brand') or '').strip(),
             category=str(overrides.get('category') or '').strip(),
             sku=str(overrides.get('sku') or '').strip(),
             qty=0,
@@ -248,6 +248,7 @@ def create_manual_product_from_inquiry_line(inquiry, line_index: int, *, created
 
         line['product_id'] = product.pk
         line['match_type'] = 'exact'
+        line['brand'] = product.brand
         line['manually_created_product'] = True
         inquiry.products = products
         inquiry.save(update_fields=['products', 'updated_at'])

@@ -330,6 +330,7 @@ function candidatesForProduct(product, panelValue) {
                             </div>
                             <div class="kv-grid">
                               <div><span>Raw</span><strong>{{ product.raw_text || '-' }}</strong></div>
+                              <div><span>Brand</span><strong>{{ product.brand || '-' }}</strong></div>
                               <div><span>Qty</span><strong>{{ product.quantity ?? '-' }}</strong></div>
                               <div><span>Price</span><strong>{{ product.price ?? '-' }}</strong></div>
                               <div><span>Candidates</span><strong>{{ candidateCount(product) }}</strong></div>
@@ -387,6 +388,7 @@ function candidatesForProduct(product, panelValue) {
                           </div>
                           <div class="kv-grid">
                             <div><span>Raw</span><strong>{{ product.raw_text || '-' }}</strong></div>
+                            <div><span>Brand</span><strong>{{ product.brand || '-' }}</strong></div>
                             <div><span>Qty</span><strong>{{ product.quantity ?? '-' }}</strong></div>
                             <div><span>Price</span><strong>{{ product.price ?? '-' }}</strong></div>
                             <div><span>Currency</span><strong>{{ product.currency || '-' }}</strong></div>

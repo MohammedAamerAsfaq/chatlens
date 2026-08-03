@@ -264,12 +264,20 @@ V2 pass 1 instruction should focus only on:
 - inquiry direction: `buy`, `sell`, or `both`
 - product lines exactly as stated
 - normalized/canonical product text
+- manufacturer/product brand when explicitly stated, or the best safe inference from well-known
+  product families
 - quantity, price, currency
 - summary
 - dedup key
 - contact role suggestion
 
 V2 pass 1 must not receive the full product master and must not return inventory `product_id`.
+The extracted brand is not an inventory match; it is a hard retrieval constraint. When pass 1
+returns a brand, pass 2 candidate selection should search only active in-stock products for the same
+tenant and brand. If no same-brand candidates exist, ChatLens should send no candidates for that line
+instead of falling back to unrelated high-scoring embeddings from another brand.
+Brand correction must be handled through AI instructions or future data-backed brand alias models,
+not through hardcoded product-family mappings in code.
 
 V2 pass 2 instruction should receive:
 

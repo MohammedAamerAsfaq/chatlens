@@ -314,6 +314,11 @@ Rules:
   raw_text and canonical_name exactly as sender-stated; do not expand them into unrelated condition details.
 - canonical_name should normalize obvious wording while preserving the sender's intended model,
   tier, storage, color, region/spec, SIM type, and variant.
+- brand should be the manufacturer/product brand, not the product family or model line.
+  Example: for iPhone, iPad, or MacBook return "Apple"; for Galaxy return "Samsung".
+  If the sender explicitly mentions a brand, use that brand. If brand is not explicitly mentioned,
+  infer the manufacturer only when it is obvious from the product family. Use null when the brand
+  cannot be inferred with reasonable confidence.
 - raw_text should be the closest original product line or phrase from the message.
 - If the message has no product/spec content, set is_inquiry=false and products=[].
 - dedup_key format: "{buy|sell}:{product-slug}:{qty-bucket}:{contact_id}".
@@ -326,6 +331,7 @@ Respond ONLY with valid JSON matching this schema:
   "products": [
     {
       "raw_text": "<sender product text>",
+      "brand": "<brand string or null>",
       "canonical_name": "<normalized product text>",
       "quantity": <int or null>,
       "price": <float or null>,

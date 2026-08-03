@@ -237,6 +237,7 @@
             <div class="modal-product-main">
               <div class="modal-product-name">{{ line.canonical_name || 'Invalid product line' }}</div>
               <div class="modal-product-meta">
+                <span v-if="line.brand">Brand {{ line.brand }}</span>
                 <span v-if="line.quantity">Qty {{ line.quantity }}</span>
                 <span v-if="line.price">{{ line.currency || '' }} {{ line.price }}</span>
                 <span v-if="line.match_type">AI match: {{ line.match_type }}</span>
@@ -378,7 +379,7 @@ async function createProductFromLine(line) {
     const { data } = await tradingApi.createProductFromInquiryLine(
       productModalInquiry.value.id,
       line.index,
-      {},
+      { brand: line.brand || '' },
     )
     productModalInquiry.value = data.inquiry || productModalInquiry.value
     await loadInquiryProducts(productModalInquiry.value.id)
