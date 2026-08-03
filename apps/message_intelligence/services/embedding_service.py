@@ -294,10 +294,11 @@ class SimilarProduct:
     """Lightweight result wrapper for find_similar_products — exposes the same
     .product/.distance shape callers already use, regardless of whether the winning
     vector came from the product's own name or one of its aliases."""
-    __slots__ = ('product', 'distance')
+    __slots__ = ('product', 'product_id', 'distance')
 
     def __init__(self, product, distance):
         self.product = product
+        self.product_id = product.pk
         self.distance = distance
 
 
