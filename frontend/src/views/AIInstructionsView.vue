@@ -130,6 +130,34 @@
         </div>
       </div>
 
+      <!-- Inquiry product save settings card -->
+      <div class="agent-card">
+        <div class="agent-header">
+          <div class="agent-title">
+            <span class="agent-name">Inquiry Product Trace Saving</span>
+          </div>
+          <span class="agent-label">Trading dashboard</span>
+        </div>
+        <div class="pricing-row">
+          <label class="radio-card">
+            <input type="radio" value="manual" v-model="inquiryProductSave.mode" />
+            <span>
+              <strong>Manual</strong>
+              <small>User clicks Create Inquiry on stock suggestions.</small>
+            </span>
+          </label>
+          <label class="radio-card">
+            <input type="radio" value="auto" v-model="inquiryProductSave.mode" />
+            <span>
+              <strong>Auto-save exact matches</strong>
+              <small>When classification has an exact inventory match, save the trace row automatically.</small>
+            </span>
+          </label>
+          <button class="btn-primary btn-sm" @click="saveInquiryProductSave">Save</button>
+          <div v-if="inquiryProductSaveSaved" class="pricing-ok">Saved.</div>
+        </div>
+      </div>
+
       <div v-if="promptsLoading" class="loading">Loading…</div>
       <div v-else class="prompt-list">
         <div v-for="p in prompts" :key="p.key" class="prompt-card">
@@ -276,6 +304,8 @@ const wtsReply      = ref({
   heading_blank_lines: 0,
 })
 const wtsReplySaved = ref(false)
+const inquiryProductSave = ref({ mode: 'manual' })
+const inquiryProductSaveSaved = ref(false)
 
 function tokenCount(text) { return Math.round((text || '').length / 4) }
 
@@ -288,14 +318,16 @@ function inputCost(text) {
 async function loadPrompts() {
   promptsLoading.value = true
   try {
-    const [pr, ar, wr] = await Promise.all([
+    const [pr, ar, wr, ips] = await Promise.all([
       tradingApi.listPrompts(),
       tradingApi.getActiveAgent().catch(() => ({ data: {} })),
       tradingApi.getWtsReplySettings().catch(() => ({ data: {} })),
+      tradingApi.getInquiryProductSaveSettings().catch(() => ({ data: {} })),
     ])
     prompts.value = pr.data
     Object.assign(agent.value, ar.data)
     if (wr.data.heading !== undefined) Object.assign(wtsReply.value, wr.data)
+    if (ips.data.mode !== undefined) Object.assign(inquiryProductSave.value, ips.data)
   } finally {
     promptsLoading.value = false
   }
@@ -344,6 +376,14 @@ async function saveWtsReply() {
 }
 
 // ── Logs ───────────────────────────────────────────────────────────────────
+async function saveInquiryProductSave() {
+  inquiryProductSaveSaved.value = false
+  const { data } = await tradingApi.setInquiryProductSaveSettings(inquiryProductSave.value)
+  inquiryProductSave.value = data
+  inquiryProductSaveSaved.value = true
+  setTimeout(() => { inquiryProductSaveSaved.value = false }, 2000)
+}
+
 const logs       = ref([])
 const logsLoading = ref(false)
 const expanded   = ref(new Set())
@@ -414,6 +454,10 @@ onMounted(loadPrompts)
 .pricing-row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
 .pricing-row + .pricing-row { margin-top: 12px; }
 .checkbox-field { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: #374151; cursor: pointer; }
+.radio-card { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border: 1px solid #bbf7d0; border-radius: 8px; background: #fff; cursor: pointer; min-width: 240px; }
+.radio-card span { display: flex; flex-direction: column; gap: 2px; }
+.radio-card strong { font-size: 0.86rem; color: #111827; }
+.radio-card small { font-size: 0.76rem; color: #6b7280; line-height: 1.35; }
 .pos-select { padding: 5px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.82rem; }
 .price-field { display: flex; flex-direction: column; gap: 4px; }
 .price-field label { font-size: 0.78rem; color: #374151; font-weight: 500; }

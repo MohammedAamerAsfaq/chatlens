@@ -662,7 +662,12 @@ def classify_message(message) -> None:
 
     if parsed['is_inquiry'] and parsed['inquiry_type']:
         try:
-            process_inquiry(message, classification)
+            inquiries = process_inquiry(message, classification) or []
+            _auto_save_matched_inquiry_products(
+                message,
+                [inquiry.pk for inquiry in inquiries],
+                classification.products or [],
+            )
         except Exception:
             logger.exception('classify_message | inquiry processing failed | message_id=%s', msg_id)
             raise
@@ -782,6 +787,34 @@ def _start_v2_match_thread(message_id: int, classification_id: int, inquiry_ids:
             db_connection.close()
 
     threading.Thread(target=_run, daemon=True).start()
+
+
+def _auto_save_matched_inquiry_products(message, inquiry_ids: list[int], products: list[dict]) -> int:
+    from apps.trading.models import Inquiry
+    from apps.trading.services.inquiry_product_service import create_inquiry_products_for_message
+    from apps.trading.services.trading_settings_service import should_auto_save_inquiry_products
+    from apps.tenancy.services.access import company_for_message
+
+    company = company_for_message(message)
+    if not should_auto_save_inquiry_products(company):
+        return 0
+
+    saved = 0
+    inquiries = Inquiry.objects.filter(pk__in=inquiry_ids).select_related('company', 'account', 'contact')
+    for inquiry in inquiries:
+        saved += create_inquiry_products_for_message(
+            inquiry,
+            message,
+            products,
+            exact_matches_only=True,
+        )
+    logger.info(
+        'classification | auto-saved matched inquiry products | message_id=%s | inquiries=%s | rows=%s',
+        message.pk,
+        inquiry_ids,
+        saved,
+    )
+    return saved
 
 
 def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: list[int]) -> None:
@@ -966,6 +999,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
         product_match_status=Inquiry.CLASSIFICATION_MATCH_COMPLETE,
         product_match_error='',
     )
+    auto_saved_rows = _auto_save_matched_inquiry_products(message, inquiry_ids, updated_products)
     AiParseV2Log.objects.filter(message_id=message_id).update(
         status=AiParseV2Log.STATUS_COMPLETE,
         pass2_response=raw_response,
@@ -975,6 +1009,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
             'updated_products': updated_products,
             'line_index_map': line_index_map,
             'no_candidate_line_indexes': sorted(no_candidate_results.keys()),
+            'auto_saved_inquiry_products': auto_saved_rows,
         },
         error='',
     )

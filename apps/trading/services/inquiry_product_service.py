@@ -76,12 +76,13 @@ def _status_for_line(product, match_type):
     }
 
 
-def create_inquiry_products_for_message(inquiry, message, products) -> int:
+def create_inquiry_products_for_message(inquiry, message, products, *, exact_matches_only: bool = False) -> int:
     """Persist structured product mention rows for one inquiry/message pair.
 
     The legacy Inquiry.products JSON remains untouched. This service is additive and
     idempotent by lookup: if the same inquiry/message/index already exists, it updates
-    the row instead of creating a duplicate.
+    the row instead of creating a duplicate. When exact_matches_only=True, only lines
+    with a valid exact product_id match are persisted.
     """
     from apps.trading.models import InquiryProduct
 
@@ -114,6 +115,12 @@ def create_inquiry_products_for_message(inquiry, message, products) -> int:
                 f'| message_id={message_id} | index={index} | type={type(line).__name__}'
             )
 
+        product_id = line.get('product_id')
+        match_type = line.get('match_type') or ''
+        product = _resolve_product(inquiry.company, product_id)
+        if exact_matches_only and (not product or match_type != 'exact'):
+            continue
+
         canonical_name = str(line.get('canonical_name') or '').strip()
         if not canonical_name:
             raise InquiryProductMaterializationError(
@@ -121,9 +128,6 @@ def create_inquiry_products_for_message(inquiry, message, products) -> int:
                 f'| message_id={message_id} | index={index} | line={line!r}'
             )
 
-        product_id = line.get('product_id')
-        match_type = line.get('match_type') or ''
-        product = _resolve_product(inquiry.company, product_id)
         status_values = _status_for_line(product, match_type)
         if product_id and not product:
             status_values['match_reason'] = (

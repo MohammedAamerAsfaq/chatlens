@@ -229,6 +229,8 @@ export const tradingApi = {
   // Trading settings (hot-settable plain UI values, not AI prompts)
   getWtsReplySettings: () => http.get('/trading-settings/wts-reply/'),
   setWtsReplySettings: (data) => http.put('/trading-settings/wts-reply/', data),
+  getInquiryProductSaveSettings: () => http.get('/trading-settings/inquiry-products/'),
+  setInquiryProductSaveSettings: (data) => http.put('/trading-settings/inquiry-products/', data),
 
   // Buying Inquiries (manual RFQ-to-suppliers workflow)
   listBuyingInquiries:  (params)     => http.get('/buying-inquiries/', { params }),

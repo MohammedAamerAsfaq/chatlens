@@ -1771,6 +1771,26 @@ class TradingSettingsViewSet(viewsets.ViewSet):
         )
         return Response(payload)
 
+    @action(detail=False, methods=['get', 'put'], url_path='inquiry-products')
+    def inquiry_products(self, request):
+        from apps.trading.services.trading_settings_service import (
+            get_inquiry_product_save_settings,
+            save_inquiry_product_save_settings,
+        )
+
+        company = default_company_for_user(request.user)
+        if request.method == 'GET':
+            return Response(get_inquiry_product_save_settings(company))
+
+        try:
+            payload = save_inquiry_product_save_settings(
+                company,
+                (request.data.get('mode') or '').strip(),
+            )
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(payload)
+
 
 class ProductPriceUpdateViewSet(viewsets.ViewSet):
     """New, independent qty/cost and sale-price update pipeline for the "Product Price
