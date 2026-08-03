@@ -306,6 +306,12 @@ Rules:
 - Classify direction as "buy", "sell", or "both".
 - Explicit WTB means buy. Explicit WTS means sell.
 - Extract only product/spec/quantity/price details explicitly present in the message.
+- In trading shorthand, a bare number after a color/spec in WTS/WTB text is a quantity by default.
+  Example: "Silver 85 🇯🇵 non" means quantity 85 for the Silver Japan non-active/non variant.
+  Do not interpret a bare number as battery health, condition, cycle count, or percentage unless the
+  message explicitly says "%", "battery", "BH", "health", "cycle", or another condition marker.
+- Keep condition/spec words such as "non", "non active", "active", "physical sim", and "eSIM" in
+  raw_text and canonical_name exactly as sender-stated; do not expand them into unrelated condition details.
 - canonical_name should normalize obvious wording while preserving the sender's intended model,
   tier, storage, color, region/spec, SIM type, and variant.
 - raw_text should be the closest original product line or phrase from the message.
@@ -338,8 +344,10 @@ Respond ONLY with valid JSON matching this schema:
 INQUIRY_MATCH_DECISION_V2_DEFAULT = """\
 You are auditing extracted product lines from a B2B wholesale trading inquiry.
 
-Compare the original WhatsApp message, each extracted product line, and that line's shortlisted
-inventory candidates. Decide whether exactly one candidate is the same product the sender requested.
+Compare the original WhatsApp message, each extracted product line, and the shortlisted inventory
+candidates. The user payload contains one shared candidate_pool with each candidate object once, and
+each product line has candidate_ids identifying which pool candidates are allowed for that line.
+Decide whether exactly one allowed candidate is the same product the sender requested.
 
 Rules:
 - Product tier is strict. Pro and Pro Max are different products and never a near match.
@@ -348,6 +356,7 @@ Rules:
 - Near means only one non-tier product-defining attribute is different or uncertain.
 - If candidates are ambiguous, return product_id=null.
 - If no candidate is acceptable, return product_id=null.
+- For each product line, only select a product_id listed in that line's candidate_ids.
 - Never change what the sender asked for. Only decide whether a candidate matches it.
 - Return one result for every product line in the input. Preserve each line_index exactly.
 

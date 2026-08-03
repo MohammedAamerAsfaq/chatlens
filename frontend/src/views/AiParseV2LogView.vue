@@ -16,6 +16,7 @@ const pageSizeOptions = [10, 25, 50, 100]
 const totalPages = computed(() => Math.max(1, Math.ceil(totalCount.value / pageSize.value)))
 const pageStart = computed(() => totalCount.value === 0 ? 0 : (page.value - 1) * pageSize.value + 1)
 const pageEnd = computed(() => Math.min(page.value * pageSize.value, totalCount.value))
+const panelTabs = ref({})
 
 const STATUS_LABELS = {
   pass1_started: 'Pass 1 Started',
@@ -92,6 +93,118 @@ function jsonText(value) {
   if (typeof value === 'string') return value
   return JSON.stringify(value, null, 2)
 }
+
+function parseJson(value) {
+  if (value == null || value === '') return null
+  if (typeof value === 'object') return value
+  try {
+    return JSON.parse(value)
+  } catch {
+    return value
+  }
+}
+
+function panelKey(log, panel) {
+  return `${log.id}:${panel}`
+}
+
+function activeTab(log, panel) {
+  return panelTabs.value[panelKey(log, panel)] || 'formatted'
+}
+
+function setActiveTab(log, panel, tab) {
+  panelTabs.value = { ...panelTabs.value, [panelKey(log, panel)]: tab }
+}
+
+function panels(log) {
+  return [
+    { key: 'pass1_request', title: 'Pass 1 Request', type: 'request', value: log.pass1_request },
+    { key: 'pass1_response', title: 'Pass 1 Response', type: 'response', value: log.pass1_response },
+    { key: 'pass1_parsed', title: 'Pass 1 Parsed', type: 'response', value: log.pass1_parsed },
+    { key: 'pass2_request', title: 'Pass 2 Request', type: 'pass2_request', value: log.pass2_request },
+    { key: 'pass2_response', title: 'Pass 2 Response', type: 'match_response', value: log.pass2_response },
+    { key: 'pass2_parsed', title: 'Pass 2 Parsed', type: 'match_parsed', value: log.pass2_parsed },
+  ]
+}
+
+function requestMessages(value) {
+  const parsed = parseJson(value)
+  return Array.isArray(parsed?.messages) ? parsed.messages : []
+}
+
+function requestTemperature(value) {
+  const parsed = parseJson(value)
+  return parsed && typeof parsed === 'object' ? parsed.temperature : null
+}
+
+function pass2Payload(value) {
+  const userMessage = requestMessages(value).find((message) => message.role === 'user')
+  return parseJson(userMessage?.content)
+}
+
+function pass2CandidatePool(value) {
+  const payload = pass2Payload(value)
+  return Array.isArray(payload?.candidate_pool) ? payload.candidate_pool : []
+}
+
+function asObject(value) {
+  const parsed = parseJson(value)
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
+}
+
+function summaryFields(value) {
+  const obj = asObject(value)
+  if (!obj) return []
+  return [
+    ['Tags', Array.isArray(obj.tags) ? obj.tags.join(', ') : ''],
+    ['Inquiry', obj.is_inquiry == null ? '' : String(obj.is_inquiry)],
+    ['Type', obj.inquiry_type || ''],
+    ['Summary', obj.summary || ''],
+    ['Dedup Key', obj.dedup_key || ''],
+    ['Contact Suggestion', obj.contact_category_suggestion || ''],
+  ].filter(([, fieldValue]) => fieldValue !== '')
+}
+
+function productsFrom(value) {
+  const obj = asObject(value)
+  return Array.isArray(obj?.products) ? obj.products : []
+}
+
+function matchResultsFrom(value) {
+  const obj = asObject(value)
+  if (Array.isArray(obj?.results)) return obj.results
+  if (Array.isArray(obj?.raw?.results)) return obj.raw.results
+  if (obj?.match_results && typeof obj.match_results === 'object') {
+    return Object.entries(obj.match_results).map(([lineIndex, result]) => ({
+      line_index: lineIndex,
+      ...result,
+    }))
+  }
+  return []
+}
+
+function updatedProductsFrom(value) {
+  const obj = asObject(value)
+  return Array.isArray(obj?.updated_products) ? obj.updated_products : []
+}
+
+function candidateCount(product) {
+  return Array.isArray(product?.candidates)
+    ? product.candidates.length
+    : Array.isArray(product?.candidate_products)
+      ? product.candidate_products.length
+      : Array.isArray(product?.candidate_ids)
+        ? product.candidate_ids.length
+      : 0
+}
+
+function candidatesForProduct(product, panelValue) {
+  if (Array.isArray(product?.candidates)) return product.candidates
+  if (Array.isArray(product?.candidate_products)) return product.candidate_products
+  const ids = new Set(product?.candidate_ids || [])
+  if (!ids.size) return []
+  return pass2CandidatePool(panelValue).filter((candidate) => ids.has(candidate.product_id))
+}
 </script>
 
 <template>
@@ -156,29 +269,131 @@ function jsonText(value) {
             <tr v-if="expandedId === log.id">
               <td colspan="5" class="detail-cell">
                 <div class="detail-grid">
-                  <section>
-                    <h2>Pass 1 Request</h2>
-                    <pre>{{ jsonText(log.pass1_request) || 'Not recorded' }}</pre>
-                  </section>
-                  <section>
-                    <h2>Pass 1 Response</h2>
-                    <pre>{{ jsonText(log.pass1_response) || 'Not recorded' }}</pre>
-                  </section>
-                  <section>
-                    <h2>Pass 1 Parsed</h2>
-                    <pre>{{ jsonText(log.pass1_parsed) || 'Not recorded' }}</pre>
-                  </section>
-                  <section>
-                    <h2>Pass 2 Request</h2>
-                    <pre>{{ jsonText(log.pass2_request) || 'Not recorded' }}</pre>
-                  </section>
-                  <section>
-                    <h2>Pass 2 Response</h2>
-                    <pre>{{ jsonText(log.pass2_response) || 'Not recorded' }}</pre>
-                  </section>
-                  <section>
-                    <h2>Pass 2 Parsed</h2>
-                    <pre>{{ jsonText(log.pass2_parsed) || 'Not recorded' }}</pre>
+                  <section v-for="panel in panels(log)" :key="panel.key" class="panel-card">
+                    <div class="panel-head">
+                      <h2>{{ panel.title }}</h2>
+                      <div class="tabs" @click.stop>
+                        <button
+                          :class="{ active: activeTab(log, panel.key) === 'formatted' }"
+                          @click="setActiveTab(log, panel.key, 'formatted')"
+                        >Formatted</button>
+                        <button
+                          :class="{ active: activeTab(log, panel.key) === 'raw' }"
+                          @click="setActiveTab(log, panel.key, 'raw')"
+                        >Raw JSON</button>
+                      </div>
+                    </div>
+
+                    <pre v-if="activeTab(log, panel.key) === 'raw'">{{ jsonText(panel.value) || 'Not recorded' }}</pre>
+
+                    <div v-else class="formatted-panel">
+                      <div v-if="!jsonText(panel.value)" class="not-recorded">Not recorded</div>
+
+                      <template v-else-if="panel.type === 'request'">
+                        <div v-for="message in requestMessages(panel.value)" :key="message.role" class="prompt-block">
+                          <div class="field-label">{{ message.role }}</div>
+                          <div class="prompt-text">{{ message.content }}</div>
+                        </div>
+                        <div v-if="requestTemperature(panel.value) !== null" class="kv-row">
+                          <span>Temperature</span>
+                          <strong>{{ requestTemperature(panel.value) }}</strong>
+                        </div>
+                      </template>
+
+                      <template v-else-if="panel.type === 'pass2_request'">
+                        <div v-for="message in requestMessages(panel.value)" :key="message.role" class="prompt-block">
+                          <div class="field-label">{{ message.role }}</div>
+                          <div class="prompt-text">{{ message.content }}</div>
+                        </div>
+                        <div v-if="pass2Payload(panel.value)" class="product-list">
+                          <div class="field-label">Original Message</div>
+                          <div class="message-box">{{ pass2Payload(panel.value).original_message }}</div>
+                          <div v-if="pass2CandidatePool(panel.value).length" class="candidate-pool">
+                            <div class="field-label">Shared Candidate Pool</div>
+                            <div
+                              v-for="candidate in pass2CandidatePool(panel.value)"
+                              :key="candidate.product_id"
+                              class="candidate-row"
+                            >
+                              <span>#{{ candidate.product_id }} {{ candidate.name }}</span>
+                              <small>qty {{ candidate.qty }} · {{ candidate.currency }} {{ candidate.sale_price }} · distance {{ Number(candidate.distance).toFixed(4) }}</small>
+                            </div>
+                          </div>
+                          <article
+                            v-for="product in pass2Payload(panel.value).products || []"
+                            :key="product.line_index"
+                            class="product-card"
+                          >
+                            <div class="product-title">
+                              <span>Line {{ product.line_index }}</span>
+                              <strong>{{ product.canonical_name || product.raw_text }}</strong>
+                            </div>
+                            <div class="kv-grid">
+                              <div><span>Raw</span><strong>{{ product.raw_text || '-' }}</strong></div>
+                              <div><span>Qty</span><strong>{{ product.quantity ?? '-' }}</strong></div>
+                              <div><span>Price</span><strong>{{ product.price ?? '-' }}</strong></div>
+                              <div><span>Candidates</span><strong>{{ candidateCount(product) }}</strong></div>
+                            </div>
+                            <div v-if="candidatesForProduct(product, panel.value).length" class="candidate-list">
+                              <div v-for="candidate in candidatesForProduct(product, panel.value)" :key="candidate.product_id" class="candidate-row">
+                                <span>#{{ candidate.product_id }} {{ candidate.name }}</span>
+                                <small>qty {{ candidate.qty }} · {{ candidate.currency }} {{ candidate.sale_price }} · distance {{ Number(candidate.distance).toFixed(4) }}</small>
+                              </div>
+                            </div>
+                          </article>
+                        </div>
+                      </template>
+
+                      <template v-else-if="panel.type === 'match_response' || panel.type === 'match_parsed'">
+                        <div v-for="result in matchResultsFrom(panel.value)" :key="result.line_index" class="product-card">
+                          <div class="product-title">
+                            <span>Line {{ result.line_index }}</span>
+                            <strong>Product #{{ result.product_id ?? 'none' }} · {{ result.match_type || 'no match' }}</strong>
+                          </div>
+                          <div class="kv-grid">
+                            <div><span>Confidence</span><strong>{{ result.confidence ?? '-' }}</strong></div>
+                            <div><span>Rejected</span><strong>{{ (result.rejected_candidate_ids || []).join(', ') || '-' }}</strong></div>
+                          </div>
+                          <p class="reason">{{ result.reason || '-' }}</p>
+                        </div>
+                        <article
+                          v-for="product in updatedProductsFrom(panel.value)"
+                          :key="product.v2_line_index"
+                          class="product-card"
+                        >
+                          <div class="product-title">
+                            <span>Updated Product</span>
+                            <strong>{{ product.canonical_name || product.raw_text }}</strong>
+                          </div>
+                          <div class="kv-grid">
+                            <div><span>Product ID</span><strong>{{ product.product_id ?? '-' }}</strong></div>
+                            <div><span>Match</span><strong>{{ product.match_type || '-' }}</strong></div>
+                            <div><span>Confidence</span><strong>{{ product.match_confidence ?? '-' }}</strong></div>
+                            <div><span>Candidates</span><strong>{{ candidateCount(product) }}</strong></div>
+                          </div>
+                          <p class="reason">{{ product.match_reason || '-' }}</p>
+                        </article>
+                      </template>
+
+                      <template v-else>
+                        <div v-for="[label, value] in summaryFields(panel.value)" :key="label" class="kv-row">
+                          <span>{{ label }}</span>
+                          <strong>{{ value }}</strong>
+                        </div>
+                        <article v-for="(product, index) in productsFrom(panel.value)" :key="index" class="product-card">
+                          <div class="product-title">
+                            <span>Product {{ index + 1 }}</span>
+                            <strong>{{ product.canonical_name || product.raw_text }}</strong>
+                          </div>
+                          <div class="kv-grid">
+                            <div><span>Raw</span><strong>{{ product.raw_text || '-' }}</strong></div>
+                            <div><span>Qty</span><strong>{{ product.quantity ?? '-' }}</strong></div>
+                            <div><span>Price</span><strong>{{ product.price ?? '-' }}</strong></div>
+                            <div><span>Currency</span><strong>{{ product.currency || '-' }}</strong></div>
+                          </div>
+                        </article>
+                      </template>
+                    </div>
                   </section>
                   <section v-if="log.error" class="error-section">
                     <h2>Error</h2>
@@ -237,8 +452,34 @@ td { padding: 11px 14px; border-bottom: 1px solid #f1f5f9; vertical-align: top; 
 .detail-cell { background: #f8fafc; }
 .detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .detail-grid section { border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; overflow: hidden; }
-.detail-grid h2 { margin: 0; padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 0.78rem; color: #334155; background: #f8fafc; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px 8px 12px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; }
+.detail-grid h2 { margin: 0; font-size: 0.78rem; color: #334155; }
+.tabs { display: inline-flex; border: 1px solid #dbe3ef; border-radius: 8px; overflow: hidden; background: #fff; }
+.tabs button { border: 0; background: transparent; color: #64748b; font-size: 0.72rem; padding: 5px 8px; cursor: pointer; }
+.tabs button.active { background: #0f172a; color: #fff; }
 pre { margin: 0; padding: 12px; max-height: 340px; overflow: auto; font-size: 0.76rem; line-height: 1.45; color: #d1fae5; background: #0f172a; white-space: pre-wrap; word-break: break-word; }
+.formatted-panel { max-height: 420px; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; background: #fff; }
+.not-recorded { color: #94a3b8; font-size: 0.86rem; }
+.prompt-block { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+.field-label { color: #64748b; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+.prompt-block .field-label { padding: 8px 10px; margin: 0; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
+.prompt-text { padding: 10px; color: #334155; font-size: 0.78rem; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+.kv-row { display: grid; grid-template-columns: 140px 1fr; gap: 10px; align-items: start; font-size: 0.82rem; }
+.kv-row span, .kv-grid span { color: #64748b; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.kv-row strong, .kv-grid strong { color: #0f172a; font-weight: 650; word-break: break-word; }
+.message-box { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; color: #334155; background: #f8fafc; white-space: pre-wrap; }
+.product-list { display: flex; flex-direction: column; gap: 10px; }
+.product-card { border: 1px solid #dbe3ef; border-radius: 12px; padding: 10px; background: #f8fafc; }
+.product-title { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }
+.product-title span { color: #64748b; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
+.product-title strong { color: #0f172a; font-size: 0.92rem; }
+.kv-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.kv-grid div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.candidate-list { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; }
+.candidate-pool { border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px; background: #fff; display: flex; flex-direction: column; gap: 6px; }
+.candidate-row { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid #e2e8f0; padding-top: 7px; color: #0f172a; }
+.candidate-row small { color: #64748b; }
+.reason { margin: 8px 0 0; color: #475569; line-height: 1.45; }
 .error-section { grid-column: 1 / -1; }
 .pagination { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 4px; color: #64748b; font-size: 0.86rem; }
 .pagination div { display: flex; align-items: center; gap: 10px; }

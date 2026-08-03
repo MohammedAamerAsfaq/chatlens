@@ -283,7 +283,7 @@ def _candidate_payload(product, distance=None) -> dict:
     }
 
 
-def _find_v2_candidates(query: str, company, top_k: int = 8) -> list[dict]:
+def _find_v2_candidates(query: str, company, top_k: int = 5) -> list[dict]:
     if not query or not company:
         return []
 
@@ -354,8 +354,16 @@ def _build_v2_match_prompts(message, products: list[dict], candidates_by_index: 
         INQUIRY_MATCH_DECISION_V2_DEFAULT,
         company=company_for_message(message),
     )
+    candidate_pool = {}
+    for candidates in candidates_by_index.values():
+        for candidate in candidates:
+            product_id = candidate.get('product_id')
+            if product_id is not None and product_id not in candidate_pool:
+                candidate_pool[product_id] = candidate
+
     payload = {
         'original_message': message.message_text,
+        'candidate_pool': list(candidate_pool.values()),
         'products': [
             {
                 'line_index': index,
@@ -364,7 +372,11 @@ def _build_v2_match_prompts(message, products: list[dict], candidates_by_index: 
                 'quantity': product.get('quantity'),
                 'price': product.get('price'),
                 'currency': product.get('currency'),
-                'candidates': candidates_by_index.get(index, []),
+                'candidate_ids': [
+                    candidate['product_id']
+                    for candidate in candidates_by_index.get(index, [])
+                    if candidate.get('product_id') is not None
+                ],
             }
             for index, product in enumerate(products)
         ],
