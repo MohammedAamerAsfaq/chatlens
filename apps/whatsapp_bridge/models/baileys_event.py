@@ -64,11 +64,11 @@ class BaileysEvent(models.Model):
         db_table = 'whatsapp_baileys_event'
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['account', 'created_at']),
-            models.Index(fields=['account', 'provider_message_id']),
-            models.Index(fields=['event_stage', 'created_at']),
-            models.Index(fields=['status', 'created_at']),
-            models.Index(fields=['reason', 'created_at']),
+            models.Index(fields=['account', 'created_at'], name='whatsapp_ba_account_8d6d6f_idx'),
+            models.Index(fields=['account', 'provider_message_id'], name='whatsapp_ba_account_d3b22b_idx'),
+            models.Index(fields=['event_stage', 'created_at'], name='whatsapp_ba_event_s_1629bb_idx'),
+            models.Index(fields=['status', 'created_at'], name='whatsapp_ba_status_f02661_idx'),
+            models.Index(fields=['reason', 'created_at'], name='whatsapp_ba_reason_51228b_idx'),
         ]
 
     def __str__(self):

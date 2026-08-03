@@ -357,7 +357,6 @@ function jidDisplay(raw_jid) {
       </div>
     </div>
   </div>
-  </div>
 
   <!-- Clear confirm dialog -->
   <Teleport to="body">
@@ -392,4 +391,5 @@ function jidDisplay(raw_jid) {
       </div>
     </div>
   </Teleport>
+  </div>
 </template>
