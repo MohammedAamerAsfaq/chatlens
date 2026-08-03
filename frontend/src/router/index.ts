@@ -20,6 +20,7 @@ import GroupsView           from '../views/GroupsView.vue'
 import TradingView          from '../views/TradingView.vue'
 import TradingAnalyticsView from '../views/TradingAnalyticsView.vue'
 import ReportSummaryView    from '../views/ReportSummaryView.vue'
+import InventoryProductMentionsReportView from '../views/InventoryProductMentionsReportView.vue'
 import InquiriesView        from '../views/InquiriesView.vue'
 import InquiryProductsView  from '../views/InquiryProductsView.vue'
 import ProductsView         from '../views/ProductsView.vue'
@@ -51,6 +52,7 @@ const router = createRouter({
     { path: '/trading', name: 'trading', component: TradingView },
     { path: '/trading-analytics', name: 'trading-analytics', component: TradingAnalyticsView },
     { path: '/report-summary', name: 'report-summary', component: ReportSummaryView },
+    { path: '/inventory-product-mentions', name: 'inventory-product-mentions', component: InventoryProductMentionsReportView },
     { path: '/inquiries', name: 'inquiries', component: InquiriesView },
     { path: '/inquiry-products', name: 'inquiry-products', component: InquiryProductsView },
     { path: '/products', name: 'products', component: ProductsView },

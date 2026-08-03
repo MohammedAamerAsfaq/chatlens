@@ -2,7 +2,7 @@ import json
 import logging
 import threading
 from django.db import connection as _db_conn
-from django.db.models import Count, Q
+from django.db.models import Count, Max, Min, Q
 from django.utils.timezone import now, make_aware
 from datetime import timedelta, date as _date, datetime as _datetime, time as _time
 from rest_framework import viewsets, mixins, status
@@ -1656,6 +1656,86 @@ class ReportViewSet(viewsets.ViewSet):
             'range': {
                 'date_from': start.date().isoformat(),
                 'date_to':   (end - timedelta(days=1)).date().isoformat(),
+            },
+        })
+
+    @action(detail=False, methods=['get'], url_path='inventory-product-mentions')
+    def inventory_product_mentions(self, request):
+        """Item-wise WTB/WTS mention counts for inventory products.
+
+        Counts are based on InquiryProduct trace rows, not raw Inquiry.products JSON,
+        so the report only reflects product mentions that have been saved/traced.
+        """
+        start, end = _resolve_date_range(request)
+        search = (request.query_params.get('search') or '').strip()
+        limit = min(max(int(request.query_params.get('limit') or 100), 1), 500)
+
+        qs = (
+            InquiryProduct.objects
+            .filter(
+                product__isnull=False,
+                first_seen_at__gte=start,
+                first_seen_at__lt=end,
+            )
+            .select_related('product')
+        )
+        qs = scope_queryset_to_visible_companies(qs, request.user, company_field='company')
+        if search:
+            qs = qs.filter(
+                Q(product__name__icontains=search)
+                | Q(product__brand__icontains=search)
+                | Q(canonical_name__icontains=search)
+            )
+
+        grouped = (
+            qs.values(
+                'product_id',
+                'product__brand',
+                'product__name',
+                'product__sku',
+                'product__qty',
+                'product__sale_price',
+                'product__currency',
+            )
+            .annotate(
+                wtb_count=Count('id', filter=Q(inquiry_type='buy')),
+                wts_count=Count('id', filter=Q(inquiry_type='sell')),
+                total_count=Count('id'),
+                first_seen=Min('first_seen_at'),
+                last_seen=Max('first_seen_at'),
+            )
+            .order_by('-total_count', '-last_seen', 'product__name')[:limit]
+        )
+
+        rows = [
+            {
+                'product_id': row['product_id'],
+                'brand': row['product__brand'] or '',
+                'name': row['product__name'] or '',
+                'sku': row['product__sku'] or '',
+                'qty': row['product__qty'],
+                'sale_price': row['product__sale_price'],
+                'currency': row['product__currency'] or '',
+                'wtb_count': row['wtb_count'],
+                'wts_count': row['wts_count'],
+                'total_count': row['total_count'],
+                'first_seen': row['first_seen'],
+                'last_seen': row['last_seen'],
+            }
+            for row in grouped
+        ]
+        totals = qs.aggregate(
+            total_mentions=Count('id'),
+            total_wtb=Count('id', filter=Q(inquiry_type='buy')),
+            total_wts=Count('id', filter=Q(inquiry_type='sell')),
+            products=Count('product_id', distinct=True),
+        )
+        return Response({
+            'results': rows,
+            'summary': totals,
+            'range': {
+                'date_from': start.date().isoformat(),
+                'date_to': (end - timedelta(days=1)).date().isoformat(),
             },
         })
 
