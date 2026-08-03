@@ -323,28 +323,74 @@ def _brand_filter_values(brand: str) -> list[str]:
     return values
 
 
-def _candidate_attribute_filters(attributes: dict, company) -> list[tuple[str, str]]:
-    if not attributes or not company:
-        return []
+def _normalize_attribute_value(value) -> str:
+    value = str(value or '').lower()
+    value = re.sub(r'gb\b', '', value)
+    value = re.sub(r'[^a-z0-9]+', ' ', value)
+    return re.sub(r'\s+', ' ', value).strip()
 
-    from apps.trading.models import ProductAttribute
 
-    available_keys = {
-        str(key or '').strip().lower()
-        for key in ProductAttribute.objects.filter(
-            product__company=company,
-            product__is_active=True,
-            product__qty__gt=0,
-        ).values_list('key', flat=True)
-        if str(key or '').strip()
+def _attribute_match_score(extracted_attributes: dict | None, candidate: dict) -> tuple[float, list[str]]:
+    """Score extracted attributes against a candidate without eliminating it.
+
+    AI-extracted attribute wording is useful, but not authoritative enough for exact SQL
+    filters. Example: extracted Series "17" should still match inventory Series
+    "iPhone 17". This function only ranks candidates before pass 2 AI makes the final
+    decision.
+    """
+    if not extracted_attributes:
+        return 0.0, []
+
+    candidate_attrs = {
+        str(attr.get('key') or '').strip().lower(): str(attr.get('value') or '').strip()
+        for attr in candidate.get('attributes') or []
+        if str(attr.get('key') or '').strip()
     }
-    filters = []
-    for key, value in attributes.items():
-        key = str(key or '').strip()
-        value = str(value or '').strip()
-        if key and value and key.lower() in available_keys:
-            filters.append((key, value))
-    return filters
+    notes = []
+    score = 0.0
+    for raw_key, raw_value in extracted_attributes.items():
+        key = str(raw_key or '').strip().lower()
+        expected = _normalize_attribute_value(raw_value)
+        if not key or not expected:
+            continue
+
+        actual_raw = candidate_attrs.get(key)
+        if actual_raw is None:
+            notes.append(f'{raw_key}: missing')
+            score -= 0.05
+            continue
+
+        actual = _normalize_attribute_value(actual_raw)
+        if not actual:
+            notes.append(f'{raw_key}: blank')
+            score -= 0.05
+        elif expected == actual or expected in actual.split() or actual in expected.split():
+            notes.append(f'{raw_key}: match')
+            score += 0.25
+        elif expected in actual or actual in expected:
+            notes.append(f'{raw_key}: near')
+            score += 0.12
+        else:
+            notes.append(f'{raw_key}: mismatch ({raw_value} != {actual_raw})')
+            score -= 0.20
+
+    return score, notes
+
+
+def _rank_v2_candidates(candidates: list[dict], attributes: dict | None, top_k: int) -> list[dict]:
+    ranked = []
+    for candidate in candidates:
+        attribute_score, notes = _attribute_match_score(attributes, candidate)
+        distance = float(candidate.get('distance') or 0.0)
+        ranking_score = (1.0 - distance) + attribute_score
+        ranked.append({
+            **candidate,
+            'attribute_score': round(attribute_score, 4),
+            'ranking_score': round(ranking_score, 4),
+            'attribute_match_notes': notes,
+        })
+    ranked.sort(key=lambda item: (-item['ranking_score'], item.get('distance') or 0.0, item['product_id']))
+    return ranked[:top_k]
 
 
 def _find_v2_candidates(query: str, company, top_k: int = 5, brand: str = '', attributes: dict | None = None) -> list[dict]:
@@ -358,34 +404,14 @@ def _find_v2_candidates(query: str, company, top_k: int = 5, brand: str = '', at
         from apps.trading.models import Product
 
         brand_values = _brand_filter_values(brand)
-        attribute_filters = _candidate_attribute_filters(attributes or {}, company)
         query_vec = ai_manager.embed(query)
         query_vec_text = Vector(query_vec).to_text()
         brand_filter = ''
-        attribute_filter = ''
-        params = {'qv': query_vec_text, 'company_id': company.pk, 'top_k': top_k}
+        search_limit = max(top_k * 4, 20)
+        params = {'qv': query_vec_text, 'company_id': company.pk, 'top_k': search_limit}
         if brand_values:
             brand_filter = "AND LOWER(p.brand) = ANY(%(brand_values)s)"
             params['brand_values'] = brand_values
-        if attribute_filters:
-            clauses = []
-            for index, (key, value) in enumerate(attribute_filters):
-                key_param = f'attr_key_{index}'
-                value_param = f'attr_value_{index}'
-                params[key_param] = key
-                params[value_param] = value
-                clauses.append(
-                    f"""
-                  AND EXISTS (
-                      SELECT 1
-                      FROM trading_product_attribute attr_filter_{index}
-                      WHERE attr_filter_{index}.product_id = p.id
-                        AND LOWER(TRIM(attr_filter_{index}.key)) = LOWER(TRIM(%({key_param})s))
-                        AND LOWER(TRIM(attr_filter_{index}.value)) = LOWER(TRIM(%({value_param})s))
-                  )
-                    """.rstrip()
-                )
-            attribute_filter = '\n'.join(clauses)
 
         sql = """
             WITH scored AS (
@@ -397,7 +423,6 @@ def _find_v2_candidates(query: str, company, top_k: int = 5, brand: str = '', at
                   AND p.qty > 0
                   AND p.company_id = %(company_id)s
                   {brand_filter}
-                  {attribute_filter}
 
                 UNION ALL
 
@@ -410,14 +435,13 @@ def _find_v2_candidates(query: str, company, top_k: int = 5, brand: str = '', at
                   AND p.qty > 0
                   AND p.company_id = %(company_id)s
                   {brand_filter}
-                  {attribute_filter}
             )
             SELECT product_id, MIN(distance) AS best_distance
             FROM scored
             GROUP BY product_id
             ORDER BY best_distance ASC
             LIMIT %(top_k)s
-        """.format(brand_filter=brand_filter, attribute_filter=attribute_filter)
+        """.format(brand_filter=brand_filter)
         with connection.cursor() as cursor:
             cursor.execute(sql, params)
             rows = cursor.fetchall()
@@ -431,11 +455,12 @@ def _find_v2_candidates(query: str, company, top_k: int = 5, brand: str = '', at
             .prefetch_related('alias_set', 'attribute_set')
         )
         products_by_id = {product.pk: product for product in products}
-        return [
+        candidates = [
             _candidate_payload(products_by_id[product_id], float(distance))
             for product_id, distance in rows
             if product_id in products_by_id
         ]
+        return _rank_v2_candidates(candidates, attributes or {}, top_k)
     except Exception:
         logger.exception('V2 candidate retrieval failed | company_id=%s | query=%r', company.pk if company else None, query)
         raise
