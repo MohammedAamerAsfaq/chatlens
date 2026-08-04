@@ -206,6 +206,7 @@ export const tradingApi = {
   // Inquiries
   listInquiries:          (params)      => http.get('/inquiries/', { params }),
   listInquiryProducts:    (params)      => http.get('/inquiry-products/', { params }),
+  searchInquiryProductEmbeddings: (params) => http.get('/inquiry-products/search-embeddings/', { params }),
   getInquiry:             (id)          => http.get(`/inquiries/${id}/`),
   getInquiryProductLines:  (id)          => http.get(`/inquiries/${id}/product-lines/`),
   createProductFromInquiryLine: (id, index, data) => http.post(`/inquiries/${id}/product-lines/${index}/create-product/`, data),

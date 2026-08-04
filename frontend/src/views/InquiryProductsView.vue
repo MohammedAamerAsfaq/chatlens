@@ -16,6 +16,11 @@ const pageSize = ref(25)
 const pageSizeOptions = [25, 50, 100]
 const ordering = ref('created_newest')
 const detailRow = ref(null)
+const smartQuery = ref('')
+const smartSearching = ref(false)
+const smartSearched = ref(false)
+const smartResults = ref([])
+const smartError = ref('')
 let requestSeq = 0
 let searchTimer = null
 
@@ -67,6 +72,40 @@ async function loadAccounts() {
   accounts.value = data.results ?? data
 }
 
+function smartSearchParams(query) {
+  const p = { q: query, top_k: 20 }
+  for (const key of ['account', 'type', 'decision_status', 'match_status', 'embedding_status', 'product_state', 'date']) {
+    const value = filters.value[key]
+    if (value !== '') p[key] = value
+  }
+  return p
+}
+
+async function runSmartSearch() {
+  const q = smartQuery.value.trim()
+  if (!q) return
+  smartSearching.value = true
+  smartError.value = ''
+  try {
+    const { data } = await tradingApi.searchInquiryProductEmbeddings(smartSearchParams(q))
+    smartResults.value = data.results || []
+    smartSearched.value = true
+  } catch (err) {
+    smartError.value = err.response?.data?.detail || err.message || 'Smart search failed'
+    smartResults.value = []
+    smartSearched.value = true
+  } finally {
+    smartSearching.value = false
+  }
+}
+
+function clearSmartSearch() {
+  smartQuery.value = ''
+  smartResults.value = []
+  smartSearched.value = false
+  smartError.value = ''
+}
+
 function resetFilters() {
   filters.value = {
     account: '',
@@ -78,6 +117,7 @@ function resetFilters() {
     search: '',
     date: '',
   }
+  clearSmartSearch()
   page.value = 1
   load()
 }
@@ -271,6 +311,90 @@ watch(() => filters.value.search, () => {
           <option value="match">Match status</option>
         </select>
         <button class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm bg-white text-gray-500 hover:bg-gray-50 transition-colors" @click="resetFilters">Reset</button>
+      </div>
+
+      <div class="mb-4 rounded-xl border border-green-100 bg-white px-4 py-4 shadow-sm">
+        <div class="flex items-center gap-3 flex-wrap">
+          <div class="flex items-center justify-center w-8 h-8 rounded-full bg-green-50 text-green-700 font-bold">*</div>
+          <div class="relative flex-1 min-w-[280px]">
+            <input
+              v-model="smartQuery"
+              class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+              placeholder="Smart Search extracted products by meaning, any phrasing or word order..."
+              @keydown.enter="runSmartSearch"
+            />
+          </div>
+          <button
+            class="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition-colors"
+            :disabled="smartSearching || !smartQuery.trim()"
+            @click="runSmartSearch"
+          >
+            {{ smartSearching ? 'Searching...' : 'Smart Search' }}
+          </button>
+          <button
+            v-if="smartSearched"
+            class="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white text-gray-500 hover:bg-gray-50 transition-colors"
+            @click="clearSmartSearch"
+          >
+            Clear
+          </button>
+        </div>
+
+        <p class="text-xs text-gray-500 mt-2">
+          Uses Inquiry Product embeddings and respects the current account/status/date filters. Plain text search above remains unchanged.
+        </p>
+        <div v-if="smartError" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ smartError }}</div>
+
+        <div v-if="smartSearched" class="mt-4">
+          <div v-if="!smartResults.length" class="text-sm text-gray-400 py-4">No smart matches found.</div>
+          <div v-else class="overflow-x-auto rounded-lg border border-gray-100">
+            <table class="w-full text-sm min-w-[980px]">
+              <thead>
+                <tr class="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
+                  <th class="text-left px-4 py-3">Product Line</th>
+                  <th class="text-left px-4 py-3 w-24">Match</th>
+                  <th class="text-left px-4 py-3 w-24">Direction</th>
+                  <th class="text-left px-4 py-3 w-48">Contact</th>
+                  <th class="text-left px-4 py-3 w-56">Inventory Match</th>
+                  <th class="text-left px-4 py-3 w-64">Source</th>
+                  <th class="text-left px-4 py-3 w-28"></th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-50">
+                <tr v-for="result in smartResults" :key="result.inquiry_product.id" class="hover:bg-gray-50 transition-colors">
+                  <td class="px-4 py-3 align-top">
+                    <div class="font-semibold text-gray-900">{{ result.inquiry_product.canonical_name }}</div>
+                    <div class="text-xs text-gray-400 mt-0.5">#{{ result.inquiry_product.id }} - index {{ result.inquiry_product.source_product_index ?? '-' }}</div>
+                  </td>
+                  <td class="px-4 py-3 align-top">
+                    <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                      ~{{ Math.round((1 - result.distance) * 100) }}%
+                    </span>
+                    <div class="text-xs text-gray-400 mt-1">distance {{ result.distance }}</div>
+                  </td>
+                  <td class="px-4 py-3 align-top">
+                    <span :class="directionClass(result.inquiry_product.inquiry_type)">{{ result.inquiry_product.inquiry_type || '-' }}</span>
+                  </td>
+                  <td class="px-4 py-3 align-top">
+                    <div class="font-medium text-gray-900 truncate max-w-[180px]">{{ result.inquiry_product.contact_name || 'Unknown' }}</div>
+                    <div class="text-xs text-gray-500 mt-0.5">{{ result.inquiry_product.contact_phone || result.inquiry_product.account_name || '-' }}</div>
+                  </td>
+                  <td class="px-4 py-3 align-top">
+                    <div v-if="result.inquiry_product.product" class="font-medium text-gray-900">{{ result.inquiry_product.product_name }}</div>
+                    <div v-else class="text-xs text-red-600">No inventory product mapped</div>
+                  </td>
+                  <td class="px-4 py-3 align-top">
+                    <div class="text-xs text-gray-400">{{ formatTime(result.inquiry_product.source_message_time || result.inquiry_product.first_seen_at) }}</div>
+                    <div class="text-xs text-gray-700 mt-1 max-w-[280px] max-h-10 overflow-hidden leading-snug">{{ result.inquiry_product.source_message_text || '-' }}</div>
+                  </td>
+                  <td class="px-4 py-3 align-top">
+                    <button class="text-xs text-green-700 font-semibold hover:text-green-800" @click="openDetail(result.inquiry_product)">View details</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">

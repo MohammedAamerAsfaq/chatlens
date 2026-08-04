@@ -1264,6 +1264,73 @@ class InquiryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixi
         qs = qs.order_by(*self.ordering_map.get(ordering, self.ordering_map['created_newest']))
         return qs
 
+    @action(detail=False, methods=['get'], url_path='search-embeddings')
+    def search_embeddings(self, request):
+        """Embedding-based search over extracted inquiry product lines.
+
+        This mirrors ProductViewSet.search_embeddings but searches the persisted
+        InquiryProduct.embedding vector, so reviewers can find extracted demand/supply
+        lines even when the wording differs from normal substring search.
+        """
+        from pgvector import Vector
+        from apps.ai_providers.manager import ai_manager
+
+        query = request.query_params.get('q', '').strip()
+        if not query:
+            return Response({'results': []})
+
+        try:
+            top_k = int(request.query_params.get('top_k', 10))
+        except (TypeError, ValueError):
+            top_k = 10
+        top_k = max(1, min(top_k, 50))
+
+        visible_ids = list(self.get_queryset().values_list('id', flat=True))
+        if not visible_ids:
+            return Response({'results': []})
+
+        try:
+            query_vec = ai_manager.embed(query)
+            query_vec_text = Vector(query_vec).to_text()
+            with _db_conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, (embedding <=> %(qv)s::vector) AS distance
+                    FROM trading_inquiry_product
+                    WHERE embedding IS NOT NULL
+                      AND id = ANY(%(ids)s)
+                    ORDER BY distance ASC
+                    LIMIT %(top_k)s
+                    """,
+                    {'qv': query_vec_text, 'ids': visible_ids, 'top_k': top_k},
+                )
+                rows = cursor.fetchall()
+        except Exception as exc:
+            logger.warning('inquiry_product_search_embeddings | query=%r failed: %s', query, exc)
+            return Response({'detail': 'Embedding search unavailable'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        products_by_id = InquiryProduct.objects.filter(
+            pk__in=[row_id for row_id, _ in rows],
+        ).select_related(
+            'company',
+            'inquiry',
+            'source_message',
+            'source_message__chat',
+            'account',
+            'contact',
+            'company_contact',
+            'product',
+        ).in_bulk()
+        results = [
+            {
+                'inquiry_product': InquiryProductSerializer(products_by_id[row_id]).data,
+                'distance': round(float(distance), 4),
+            }
+            for row_id, distance in rows
+            if row_id in products_by_id
+        ]
+        return Response({'results': results})
+
 
 class MessageClassificationViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
     serializer_class   = MessageClassificationSerializer
