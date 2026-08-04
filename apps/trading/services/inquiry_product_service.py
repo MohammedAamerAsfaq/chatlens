@@ -1,5 +1,6 @@
 import logging
 import re
+import threading
 from decimal import Decimal, InvalidOperation
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,26 @@ def _resolve_product(company, product_id):
     from apps.trading.models import Product
 
     return Product.objects.filter(pk=product_id, company=company).first()
+
+
+def _embed_unmapped_inquiry_products_in_background(inquiry_product_ids: list[int]) -> None:
+    if not inquiry_product_ids:
+        return
+
+    def _run():
+        from django.db import connection
+        try:
+            from apps.message_intelligence.services.embedding_service import embed_inquiry_products_batch
+            embed_inquiry_products_batch(inquiry_product_ids)
+        except Exception:
+            logger.exception(
+                'inquiry_product_service | unmapped embedding failed | inquiry_product_ids=%s',
+                inquiry_product_ids,
+            )
+        finally:
+            connection.close()
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def _status_for_line(product, match_type):
@@ -105,6 +126,7 @@ def create_inquiry_products_for_message(inquiry, message, products, *, exact_mat
         )
 
     created_or_updated = 0
+    unmapped_embedding_ids = []
     contact = inquiry.contact or getattr(message, 'contact', None)
     company_contact = contact.company_contact if contact else None
 
@@ -160,16 +182,23 @@ def create_inquiry_products_for_message(inquiry, message, products, *, exact_mat
             ),
             'currency': str(line.get('currency') or ''),
             'match_type': match_type if match_type in ('exact', 'near') else '',
+            'embedding': None if product else None,
+            'embedding_model': '',
+            'embedding_metadata': {'source': 'inventory_product_embedding'} if product else None,
+            'embedding_status': 'skipped' if product else 'pending',
+            'embedding_error': '',
             'first_seen_at': inquiry.first_seen_at,
             **status_values,
         }
 
-        InquiryProduct.objects.update_or_create(
+        row, _ = InquiryProduct.objects.update_or_create(
             inquiry=inquiry,
             source_message=message,
             source_product_index=index,
             defaults=defaults,
         )
+        if not product:
+            unmapped_embedding_ids.append(row.pk)
         created_or_updated += 1
 
     if created_or_updated:
@@ -179,6 +208,7 @@ def create_inquiry_products_for_message(inquiry, message, products, *, exact_mat
             message_id,
             created_or_updated,
         )
+    _embed_unmapped_inquiry_products_in_background(unmapped_embedding_ids)
     return created_or_updated
 
 

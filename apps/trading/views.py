@@ -1268,9 +1268,8 @@ class InquiryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixi
     def search_embeddings(self, request):
         """Embedding-based search over extracted inquiry product lines.
 
-        This mirrors ProductViewSet.search_embeddings but searches the persisted
-        InquiryProduct.embedding vector, so reviewers can find extracted demand/supply
-        lines even when the wording differs from normal substring search.
+        Mapped rows reuse inventory Product/ProductAlias embeddings. Unmapped rows use
+        InquiryProduct.embedding because there is no inventory product yet.
         """
         from pgvector import Vector
         from apps.ai_providers.manager import ai_manager
@@ -1295,11 +1294,40 @@ class InquiryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixi
             with _db_conn.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT id, (embedding <=> %(qv)s::vector) AS distance
-                    FROM trading_inquiry_product
-                    WHERE embedding IS NOT NULL
-                      AND id = ANY(%(ids)s)
-                    ORDER BY distance ASC
+                    WITH scored AS (
+                        SELECT ip.id AS inquiry_product_id, (pe.embedding <=> %(qv)s::vector) AS distance
+                        FROM trading_inquiry_product ip
+                        JOIN product_embedding pe ON pe.product_id = ip.product_id
+                        JOIN trading_product p ON p.id = ip.product_id
+                        WHERE ip.id = ANY(%(ids)s)
+                          AND ip.product_id IS NOT NULL
+                          AND pe.embedding IS NOT NULL
+                          AND p.is_active = TRUE
+
+                        UNION ALL
+
+                        SELECT ip.id AS inquiry_product_id, (pae.embedding <=> %(qv)s::vector) AS distance
+                        FROM trading_inquiry_product ip
+                        JOIN trading_product_alias pa ON pa.product_id = ip.product_id
+                        JOIN product_alias_embedding pae ON pae.alias_id = pa.id
+                        JOIN trading_product p ON p.id = ip.product_id
+                        WHERE ip.id = ANY(%(ids)s)
+                          AND ip.product_id IS NOT NULL
+                          AND pae.embedding IS NOT NULL
+                          AND p.is_active = TRUE
+
+                        UNION ALL
+
+                        SELECT ip.id AS inquiry_product_id, (ip.embedding <=> %(qv)s::vector) AS distance
+                        FROM trading_inquiry_product ip
+                        WHERE ip.id = ANY(%(ids)s)
+                          AND ip.product_id IS NULL
+                          AND ip.embedding IS NOT NULL
+                    )
+                    SELECT inquiry_product_id, MIN(distance) AS best_distance
+                    FROM scored
+                    GROUP BY inquiry_product_id
+                    ORDER BY best_distance ASC
                     LIMIT %(top_k)s
                     """,
                     {'qv': query_vec_text, 'ids': visible_ids, 'top_k': top_k},
@@ -1330,6 +1358,51 @@ class InquiryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixi
             if row_id in products_by_id
         ]
         return Response({'results': results})
+
+    @action(detail=False, methods=['post'], url_path='backfill-embeddings')
+    def backfill_embeddings(self, request):
+        """Repair InquiryProduct embedding state for visible rows.
+
+        Mapped rows are marked skipped because search uses inventory embeddings.
+        Unmapped rows receive their own InquiryProduct embedding.
+        """
+        from apps.message_intelligence.services.embedding_service import embed_inquiry_products_batch
+        from apps.trading.models import InquiryProductEmbeddingStatus
+
+        try:
+            limit = int(request.data.get('limit', 250))
+        except (TypeError, ValueError):
+            return Response({'detail': 'limit must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+        if limit <= 0 or limit > 1000:
+            return Response({'detail': 'limit must be between 1 and 1000'}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = self.get_queryset()
+        mapped_updated = qs.filter(product__isnull=False).exclude(
+            embedding_status=InquiryProductEmbeddingStatus.SKIPPED,
+        ).update(
+            embedding=None,
+            embedding_model='',
+            embedding_metadata={'source': 'inventory_product_embedding'},
+            embedding_status=InquiryProductEmbeddingStatus.SKIPPED,
+            embedding_error='',
+        )
+
+        unmapped_ids = list(
+            qs.filter(product__isnull=True)
+            .exclude(embedding_status=InquiryProductEmbeddingStatus.EMBEDDED)
+            .order_by('-created_at')
+            .values_list('id', flat=True)[:limit]
+        )
+        result = embed_inquiry_products_batch(unmapped_ids) if unmapped_ids else {
+            'total': 0,
+            'embedded': 0,
+            'skipped': 0,
+            'errors': 0,
+        }
+        return Response({
+            'mapped_marked_inventory_backed': mapped_updated,
+            'unmapped': result,
+        })
 
 
 class MessageClassificationViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):

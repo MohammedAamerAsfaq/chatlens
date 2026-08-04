@@ -124,6 +124,168 @@ def _build_alias_text(product_alias) -> str:
     return ' '.join(p for p in parts if p).strip()
 
 
+def _build_inquiry_product_text(inquiry_product) -> str:
+    """Text used only for unmapped inquiry product rows.
+
+    Mapped rows intentionally reuse inventory Product/ProductAlias embeddings instead
+    of storing a duplicate vector on the trace row.
+    """
+    parts = [
+        inquiry_product.canonical_name,
+        inquiry_product.original_text,
+    ]
+    if inquiry_product.inquiry_id:
+        parts.append(getattr(inquiry_product.inquiry, 'summary', ''))
+    return ' '.join(str(part).strip() for part in parts if str(part or '').strip())
+
+
+def embed_inquiry_product(inquiry_product_id: int) -> bool:
+    """Generate and store an embedding for one unmapped InquiryProduct row."""
+    from apps.ai_providers.manager import ai_manager
+    from apps.trading.models import InquiryProduct, InquiryProductEmbeddingStatus
+
+    row = InquiryProduct.objects.select_related('inquiry').get(pk=inquiry_product_id)
+    if row.product_id:
+        row.embedding = None
+        row.embedding_model = ''
+        row.embedding_metadata = {'source': 'inventory_product_embedding'}
+        row.embedding_status = InquiryProductEmbeddingStatus.SKIPPED
+        row.embedding_error = ''
+        row.save(update_fields=[
+            'embedding', 'embedding_model', 'embedding_metadata',
+            'embedding_status', 'embedding_error', 'updated_at',
+        ])
+        logger.info('embed_inquiry_product | skipped mapped row | inquiry_product_id=%s', inquiry_product_id)
+        return False
+
+    text = _build_inquiry_product_text(row)
+    if not text:
+        row.embedding_status = InquiryProductEmbeddingStatus.SKIPPED
+        row.embedding_error = 'No inquiry product text available for embedding.'
+        row.save(update_fields=['embedding_status', 'embedding_error', 'updated_at'])
+        logger.info('embed_inquiry_product | skipped empty text | inquiry_product_id=%s', inquiry_product_id)
+        return False
+
+    config = ai_manager.active_config('embedding')
+    if config is None:
+        row.embedding_status = InquiryProductEmbeddingStatus.ERROR
+        row.embedding_error = 'No active embedding provider configured.'
+        row.save(update_fields=['embedding_status', 'embedding_error', 'updated_at'])
+        logger.error('embed_inquiry_product | no active embedding provider | inquiry_product_id=%s', inquiry_product_id)
+        return False
+
+    try:
+        vector = ai_manager.embed(text)
+    except Exception as exc:
+        row.embedding_status = InquiryProductEmbeddingStatus.ERROR
+        row.embedding_error = str(exc)
+        row.save(update_fields=['embedding_status', 'embedding_error', 'updated_at'])
+        logger.exception('embed_inquiry_product | provider error | inquiry_product_id=%s', inquiry_product_id)
+        raise
+
+    row.embedding = vector
+    row.embedding_model = config.model
+    row.embedding_metadata = {
+        'provider': config.provider,
+        'dimensions': len(vector),
+        'source': 'inquiry_product_text',
+    }
+    row.embedding_status = InquiryProductEmbeddingStatus.EMBEDDED
+    row.embedding_error = ''
+    row.save(update_fields=[
+        'embedding', 'embedding_model', 'embedding_metadata',
+        'embedding_status', 'embedding_error', 'updated_at',
+    ])
+    logger.info('embed_inquiry_product | stored | inquiry_product_id=%s | dims=%s', inquiry_product_id, len(vector))
+    return True
+
+
+def embed_inquiry_products_batch(inquiry_product_ids: list[int]) -> dict:
+    """Embed unmapped InquiryProduct rows in provider-side batches."""
+    from apps.ai_providers.manager import ai_manager
+    from apps.trading.models import InquiryProduct, InquiryProductEmbeddingStatus
+    from django.utils.timezone import now
+
+    rows = list(
+        InquiryProduct.objects
+        .select_related('inquiry')
+        .filter(pk__in=inquiry_product_ids)
+    )
+    mapped_ids = [row.pk for row in rows if row.product_id]
+    if mapped_ids:
+        InquiryProduct.objects.filter(pk__in=mapped_ids).update(
+            embedding=None,
+            embedding_model='',
+            embedding_metadata={'source': 'inventory_product_embedding'},
+            embedding_status=InquiryProductEmbeddingStatus.SKIPPED,
+            embedding_error='',
+        )
+
+    pending = [(row, _build_inquiry_product_text(row)) for row in rows if not row.product_id]
+    empty_ids = [row.pk for row, text in pending if not text]
+    if empty_ids:
+        InquiryProduct.objects.filter(pk__in=empty_ids).update(
+            embedding_status=InquiryProductEmbeddingStatus.SKIPPED,
+            embedding_error='No inquiry product text available for embedding.',
+        )
+    to_embed = [(row, text) for row, text in pending if text]
+
+    config = ai_manager.active_config('embedding')
+    if config is None:
+        if to_embed:
+            InquiryProduct.objects.filter(pk__in=[row.pk for row, _ in to_embed]).update(
+                embedding_status=InquiryProductEmbeddingStatus.ERROR,
+                embedding_error='No active embedding provider configured.',
+            )
+        logger.error('embed_inquiry_products_batch | no active embedding provider')
+        return {
+            'total': len(inquiry_product_ids),
+            'embedded': 0,
+            'skipped': len(mapped_ids) + len(empty_ids),
+            'errors': len(to_embed),
+        }
+
+    embedded = errors = 0
+    for i in range(0, len(to_embed), BATCH_SIZE):
+        chunk = to_embed[i:i + BATCH_SIZE]
+        texts = [text for _, text in chunk]
+        try:
+            vectors = ai_manager.embed_batch(texts)
+        except Exception as exc:
+            failed_ids = [row.pk for row, _ in chunk]
+            InquiryProduct.objects.filter(pk__in=failed_ids).update(
+                embedding_status=InquiryProductEmbeddingStatus.ERROR,
+                embedding_error=str(exc),
+            )
+            logger.exception('embed_inquiry_products_batch | provider error | chunk_start=%s', i)
+            errors += len(chunk)
+            continue
+
+        for (row, _), vector in zip(chunk, vectors):
+            row.embedding = vector
+            row.embedding_model = config.model
+            row.embedding_metadata = {
+                'provider': config.provider,
+                'dimensions': len(vector),
+                'source': 'inquiry_product_text',
+            }
+            row.embedding_status = InquiryProductEmbeddingStatus.EMBEDDED
+            row.embedding_error = ''
+            row.updated_at = now()
+        InquiryProduct.objects.bulk_update(
+            [row for row, _ in chunk],
+            ['embedding', 'embedding_model', 'embedding_metadata', 'embedding_status', 'embedding_error', 'updated_at'],
+        )
+        embedded += len(chunk)
+
+    skipped = len(mapped_ids) + len(empty_ids)
+    logger.info(
+        'embed_inquiry_products_batch | done | total=%s embedded=%s skipped=%s errors=%s',
+        len(inquiry_product_ids), embedded, skipped, errors,
+    )
+    return {'total': len(inquiry_product_ids), 'embedded': embedded, 'skipped': skipped, 'errors': errors}
+
+
 def embed_product(product_id: int) -> bool:
     """Generate and store an embedding for a single product. Returns True if stored."""
     from apps.trading.models import Product

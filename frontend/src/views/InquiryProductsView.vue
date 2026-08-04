@@ -21,6 +21,8 @@ const smartSearching = ref(false)
 const smartSearched = ref(false)
 const smartResults = ref([])
 const smartError = ref('')
+const embeddingBackfillRunning = ref(false)
+const embeddingBackfillMessage = ref('')
 let requestSeq = 0
 let searchTimer = null
 
@@ -106,6 +108,24 @@ function clearSmartSearch() {
   smartError.value = ''
 }
 
+async function backfillInquiryProductEmbeddings() {
+  embeddingBackfillRunning.value = true
+  embeddingBackfillMessage.value = ''
+  try {
+    const { data } = await tradingApi.backfillInquiryProductEmbeddings({ limit: 250 })
+    const unmapped = data.unmapped || {}
+    embeddingBackfillMessage.value = (
+      `Mapped marked inventory-backed: ${data.mapped_marked_inventory_backed || 0}. `
+      + `Unmapped embedded: ${unmapped.embedded || 0}, skipped: ${unmapped.skipped || 0}, errors: ${unmapped.errors || 0}.`
+    )
+    await load()
+  } catch (err) {
+    embeddingBackfillMessage.value = err.response?.data?.detail || err.message || 'Embedding repair failed'
+  } finally {
+    embeddingBackfillRunning.value = false
+  }
+}
+
 function resetFilters() {
   filters.value = {
     account: '',
@@ -140,10 +160,15 @@ function statusClass(value) {
     manual_confirmed: 'bg-green-100 text-green-700',
     rejected: 'bg-gray-100 text-gray-500',
     embedded: 'bg-green-100 text-green-700',
+    'inventory-backed': 'bg-blue-100 text-blue-700',
     error: 'bg-red-100 text-red-700',
     skipped: 'bg-gray-100 text-gray-500',
   }
   return base + (classes[value] || 'bg-gray-100 text-gray-500')
+}
+
+function embeddingLabel(row) {
+  return row?.product ? 'inventory-backed' : row?.embedding_status
 }
 
 function directionClass(value) {
@@ -224,6 +249,20 @@ watch(() => filters.value.search, () => {
         >
           {{ loading ? 'Loading...' : 'Refresh' }}
         </button>
+        <button
+          class="px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-700 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50 transition-colors"
+          :disabled="embeddingBackfillRunning"
+          @click="backfillInquiryProductEmbeddings"
+        >
+          {{ embeddingBackfillRunning ? 'Repairing...' : 'Repair Embeddings' }}
+        </button>
+      </div>
+
+      <div
+        v-if="embeddingBackfillMessage"
+        class="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700"
+      >
+        {{ embeddingBackfillMessage }}
       </div>
 
       <div class="flex items-center gap-6 mb-6 bg-white rounded-xl border border-gray-200 px-6 py-4 shadow-sm flex-wrap">
@@ -479,8 +518,9 @@ watch(() => filters.value.search, () => {
                   <div v-if="row.match_reason" class="text-xs text-gray-500 mt-1 max-w-[240px] leading-snug">{{ row.match_reason }}</div>
                 </td>
                 <td class="px-4 py-3 align-top">
-                  <span :class="statusClass(row.embedding_status)">{{ row.embedding_status }}</span>
+                  <span :class="statusClass(embeddingLabel(row))">{{ embeddingLabel(row) }}</span>
                   <div v-if="row.embedding_model" class="text-xs text-gray-400 mt-0.5">{{ row.embedding_model }}</div>
+                  <div v-else-if="row.product" class="text-xs text-gray-400 mt-0.5">Uses inventory product/alias embeddings</div>
                   <div v-if="row.embedding_error" class="text-xs text-red-600 mt-1 max-w-[220px] leading-snug">{{ row.embedding_error }}</div>
                 </td>
                 <td class="px-4 py-3 align-top">
@@ -611,8 +651,9 @@ watch(() => filters.value.search, () => {
             </div>
             <div>
               <p class="text-xs text-gray-400 uppercase tracking-wide">Embedding</p>
-              <span class="inline-block mt-1" :class="statusClass(detailRow.embedding_status)">{{ detailRow.embedding_status }}</span>
+              <span class="inline-block mt-1" :class="statusClass(embeddingLabel(detailRow))">{{ embeddingLabel(detailRow) }}</span>
               <p v-if="detailRow.embedding_model" class="text-gray-500 mt-1">{{ detailRow.embedding_model }}</p>
+              <p v-else-if="detailRow.product" class="text-gray-500 mt-1">Uses inventory product/alias embeddings</p>
             </div>
           </div>
         </div>
