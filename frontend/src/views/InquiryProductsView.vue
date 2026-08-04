@@ -163,6 +163,9 @@ function statusClass(value) {
     'inventory-backed': 'bg-blue-100 text-blue-700',
     error: 'bg-red-100 text-red-700',
     skipped: 'bg-gray-100 text-gray-500',
+    in_stock: 'bg-green-100 text-green-700',
+    out_of_stock: 'bg-orange-100 text-orange-700',
+    unknown: 'bg-gray-100 text-gray-500',
   }
   return base + (classes[value] || 'bg-gray-100 text-gray-500')
 }
@@ -510,6 +513,12 @@ watch(() => filters.value.search, () => {
                 <td class="px-4 py-3 align-top">
                   <div v-if="row.product" class="font-medium text-gray-900">{{ row.product_name }}</div>
                   <div v-else class="text-xs text-red-600">No inventory product mapped</div>
+                  <div v-if="row.product" class="mt-1">
+                    <span :class="statusClass(row.product_stock_status_at_match)">
+                      {{ row.product_stock_status_at_match === 'out_of_stock' ? 'out of stock' : row.product_stock_status_at_match || 'unknown' }}
+                    </span>
+                    <span class="text-xs text-gray-400 ml-1">Qty at match: {{ row.product_qty_at_match ?? '-' }}</span>
+                  </div>
                 </td>
                 <td class="px-4 py-3 align-top"><span :class="statusClass(row.decision_status)">{{ row.decision_status }}</span></td>
                 <td class="px-4 py-3 align-top">
@@ -611,6 +620,12 @@ watch(() => filters.value.search, () => {
               <p class="text-xs text-gray-400 uppercase tracking-wide mb-2">Inventory Match</p>
               <p v-if="detailRow.product" class="font-semibold text-gray-900">{{ detailRow.product_name }}</p>
               <p v-else class="text-sm text-red-600">No inventory product mapped</p>
+              <div v-if="detailRow.product" class="mt-2">
+                <span :class="statusClass(detailRow.product_stock_status_at_match)">
+                  {{ detailRow.product_stock_status_at_match === 'out_of_stock' ? 'out of stock' : detailRow.product_stock_status_at_match || 'unknown' }}
+                </span>
+                <span class="text-xs text-gray-400 ml-1">Qty at match: {{ detailRow.product_qty_at_match ?? '-' }}</span>
+              </div>
               <p v-if="detailRow.match_source" class="text-xs text-gray-400 mt-2">Source: {{ detailRow.match_source }}</p>
               <p v-if="detailRow.match_reason" class="text-sm text-gray-600 mt-2 leading-relaxed">{{ detailRow.match_reason }}</p>
             </div>

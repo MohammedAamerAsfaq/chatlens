@@ -368,6 +368,10 @@ Rules:
 - If candidates are ambiguous, return product_id=null.
 - If no candidate is acceptable, return product_id=null.
 - For each product line, only select a product_id listed in that line's candidate_ids.
+- Candidate qty, in_stock, and stock_status describe availability only. Do not reject an otherwise
+  exact product identity match because the candidate is out_of_stock or qty is 0 or less.
+- Exact/near/null must be decided by product identity attributes, not by stock availability.
+- If the selected candidate is out_of_stock, mention that availability clearly in reason.
 - Never change what the sender asked for. Only decide whether a candidate matches it.
 - Return one result for every product line in the input. Preserve each line_index exactly.
 

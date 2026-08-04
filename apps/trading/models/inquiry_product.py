@@ -33,6 +33,12 @@ class InquiryProductEmbeddingStatus(models.TextChoices):
     SKIPPED = 'skipped', 'Skipped'
 
 
+class InquiryProductStockStatus(models.TextChoices):
+    IN_STOCK = 'in_stock', 'In Stock'
+    OUT_OF_STOCK = 'out_of_stock', 'Out of Stock'
+    UNKNOWN = 'unknown', 'Unknown'
+
+
 class InquiryProduct(models.Model):
     company = models.ForeignKey(
         'tenancy.Company',
@@ -109,6 +115,13 @@ class InquiryProduct(models.Model):
         db_index=True,
     )
     match_reason = models.TextField(blank=True)
+    product_qty_at_match = models.IntegerField(null=True, blank=True)
+    product_stock_status_at_match = models.CharField(
+        max_length=20,
+        choices=InquiryProductStockStatus.choices,
+        default=InquiryProductStockStatus.UNKNOWN,
+        db_index=True,
+    )
 
     embedding = VectorField(dimensions=512, null=True, blank=True)
     embedding_model = models.CharField(max_length=255, blank=True)

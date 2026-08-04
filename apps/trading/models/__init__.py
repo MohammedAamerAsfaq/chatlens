@@ -9,6 +9,7 @@ from .inquiry_product import (
     InquiryProductEmbeddingStatus,
     InquiryProductMatchSource,
     InquiryProductMatchStatus,
+    InquiryProductStockStatus,
 )
 from .prompt_config import (
     PromptConfig,
@@ -40,6 +41,7 @@ __all__ = [
     'InquiryProductEmbeddingStatus',
     'InquiryProductMatchSource',
     'InquiryProductMatchStatus',
+    'InquiryProductStockStatus',
     'PromptConfig', 'PRODUCT_EXTRACTION_DEFAULT', 'INQUIRY_CLASSIFICATION_DEFAULT',
     'INQUIRY_EXTRACTION_V2_DEFAULT', 'INQUIRY_MATCH_DECISION_V2_DEFAULT',
     'INVENTORY_UPDATE_DEFAULT', 'PRICE_LIST_FORMAT_DEFAULT',

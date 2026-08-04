@@ -266,9 +266,10 @@ class InquiryProductSerializer(serializers.ModelSerializer):
             'company_contact_name', 'product', 'product_name', 'inquiry_type',
             'source_product_index', 'canonical_name', 'normalized_name', 'original_text',
             'quantity', 'price', 'currency', 'decision_status', 'match_status',
-            'match_type', 'match_source', 'match_reason', 'embedding_status',
-            'embedding_model', 'embedding_error', 'first_seen_at', 'created_at',
-            'updated_at', 'inquiry_summary',
+            'match_type', 'match_source', 'match_reason', 'product_qty_at_match',
+            'product_stock_status_at_match', 'embedding_status', 'embedding_model',
+            'embedding_error', 'first_seen_at', 'created_at', 'updated_at',
+            'inquiry_summary',
         ]
         read_only_fields = fields
 

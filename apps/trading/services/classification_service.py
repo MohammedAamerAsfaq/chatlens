@@ -297,6 +297,7 @@ def _parse_v2_product_attributes(raw_attributes) -> dict:
 
 
 def _candidate_payload(product, distance=None) -> dict:
+    in_stock = (product.qty or 0) > 0
     return {
         'product_id': product.pk,
         'name': product.name,
@@ -304,6 +305,8 @@ def _candidate_payload(product, distance=None) -> dict:
         'category': product.category,
         'sku': product.sku,
         'qty': product.qty,
+        'in_stock': in_stock,
+        'stock_status': 'in_stock' if in_stock else 'out_of_stock',
         'sale_price': float(product.sale_price) if product.sale_price is not None else None,
         'currency': product.currency,
         'aliases': [alias.alias for alias in product.alias_set.all()],
@@ -433,7 +436,6 @@ def _find_v2_candidates(
                 JOIN trading_product p ON p.id = pe.product_id
                 WHERE pe.embedding IS NOT NULL
                   AND p.is_active = TRUE
-                  AND p.qty > 0
                   AND p.company_id = %(company_id)s
                   {brand_filter}
 
@@ -445,7 +447,6 @@ def _find_v2_candidates(
                 JOIN trading_product p ON p.id = pa.product_id
                 WHERE pae.embedding IS NOT NULL
                   AND p.is_active = TRUE
-                  AND p.qty > 0
                   AND p.company_id = %(company_id)s
                   {brand_filter}
             )
@@ -468,7 +469,7 @@ def _find_v2_candidates(
 
         products = (
             Product.objects
-            .filter(pk__in=[product_id for product_id, _ in rows], company=company, is_active=True, qty__gt=0)
+            .filter(pk__in=[product_id for product_id, _ in rows], company=company, is_active=True)
             .prefetch_related('alias_set', 'attribute_set')
         )
         products_by_id = {product.pk: product for product in products}
@@ -534,7 +535,7 @@ def _no_candidate_v2_result(index: int) -> dict:
         'product_id': None,
         'match_type': None,
         'confidence': 0.0,
-        'reason': 'No active in-stock inventory candidates matched the extracted brand/attributes.',
+        'reason': 'No active inventory candidates matched the extracted brand/attributes.',
         'rejected_candidate_ids': [],
     }
 

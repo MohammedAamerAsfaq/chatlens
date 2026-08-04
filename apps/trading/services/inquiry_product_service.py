@@ -76,11 +76,13 @@ def _status_for_line(product, match_type):
     )
 
     if product and match_type == 'exact':
+        in_stock = (product.qty or 0) > 0
+        availability = 'in stock' if in_stock else 'out of stock'
         return {
             'decision_status': InquiryProductDecisionStatus.MAPPED,
             'match_status': InquiryProductMatchStatus.EXACT,
             'match_source': InquiryProductMatchSource.AI,
-            'match_reason': 'AI returned an exact product_id match.',
+            'match_reason': f'AI returned an exact product_id match; inventory item is {availability}.',
         }
     if product and match_type == 'near':
         return {
@@ -94,6 +96,26 @@ def _status_for_line(product, match_type):
         'match_status': InquiryProductMatchStatus.UNMATCHED,
         'match_source': InquiryProductMatchSource.AI,
         'match_reason': 'AI did not return a usable inventory product match.',
+    }
+
+
+def _stock_snapshot(product):
+    from apps.trading.models import InquiryProductStockStatus
+
+    if not product:
+        return {
+            'product_qty_at_match': None,
+            'product_stock_status_at_match': InquiryProductStockStatus.UNKNOWN,
+        }
+
+    qty = product.qty or 0
+    return {
+        'product_qty_at_match': qty,
+        'product_stock_status_at_match': (
+            InquiryProductStockStatus.IN_STOCK
+            if qty > 0
+            else InquiryProductStockStatus.OUT_OF_STOCK
+        ),
     }
 
 
@@ -155,6 +177,7 @@ def create_inquiry_products_for_message(inquiry, message, products, *, exact_mat
             status_values['match_reason'] = (
                 f'AI returned product_id={product_id}, but no product in this company matched it.'
             )
+        stock_snapshot = _stock_snapshot(product)
 
         defaults = {
             'company': inquiry.company,
@@ -182,6 +205,7 @@ def create_inquiry_products_for_message(inquiry, message, products, *, exact_mat
             ),
             'currency': str(line.get('currency') or ''),
             'match_type': match_type if match_type in ('exact', 'near') else '',
+            **stock_snapshot,
             'embedding': None if product else None,
             'embedding_model': '',
             'embedding_metadata': {'source': 'inventory_product_embedding'} if product else None,
@@ -335,6 +359,7 @@ def create_manual_product_from_inquiry_line(inquiry, line_index: int, *, created
                 f'Manually created inventory product from inquiry line by '
                 f'{getattr(created_by, "username", "") or "user"}.'
             ),
+            **_stock_snapshot(product),
             embedding_status='skipped',
             first_seen_at=inquiry.first_seen_at,
         )
@@ -454,6 +479,7 @@ def create_manual_inquiry_product_from_matched_line(inquiry, line_index: int, *,
                 f'Manually saved inquiry product from stock suggestion by '
                 f'{getattr(created_by, "username", "") or "user"}.'
             ),
+            **_stock_snapshot(product),
             'embedding_status': 'skipped',
             'first_seen_at': inquiry.first_seen_at,
         }

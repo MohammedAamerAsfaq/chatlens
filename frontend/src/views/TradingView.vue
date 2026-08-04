@@ -154,9 +154,9 @@
                 <div class="body-row-label">Stock Suggestion</div>
                 <div class="body-row-content">
                   <template v-if="getInventoryHints(inq).length">
-                    <div v-for="h in getInventoryHints(inq)" :key="h.name" class="stock-hint" :class="{ 'stock-hint-mismatch': h.mismatch }">
-                      <span class="stock-icon">{{ h.mismatch ? '⚠' : '✓' }}</span>
-                      {{ h.product.name }} in stock
+                    <div v-for="h in getInventoryHints(inq)" :key="h.name" class="stock-hint" :class="stockHintClass(h)">
+                      <span class="stock-icon">{{ stockHintIcon(h) }}</span>
+                      {{ h.product.name }} {{ stockHintAvailabilityLabel(h) }}
                       <span v-if="h.mismatch" class="mismatch-tag">— not "{{ h.name }}", closest match only</span>
                       <span v-if="h.product.sale_price"> · Sale: {{ h.product.currency || 'USD' }} {{ h.product.sale_price }}</span>
                       <span> · Qty: {{ h.product.qty }}</span>
@@ -344,9 +344,9 @@
                 <div class="body-row-label">Stock Suggestion</div>
                 <div class="body-row-content">
                   <template v-if="getInventoryHints(inq).length">
-                    <div v-for="h in getInventoryHints(inq)" :key="h.name" class="stock-hint" :class="{ 'stock-hint-mismatch': h.mismatch }">
-                      <span class="stock-icon">{{ h.mismatch ? '⚠' : '✓' }}</span>
-                      {{ h.product.name }} in stock
+                    <div v-for="h in getInventoryHints(inq)" :key="h.name" class="stock-hint" :class="stockHintClass(h)">
+                      <span class="stock-icon">{{ stockHintIcon(h) }}</span>
+                      {{ h.product.name }} {{ stockHintAvailabilityLabel(h) }}
                       <span v-if="h.mismatch" class="mismatch-tag">— not "{{ h.name }}", closest match only</span>
                       <span v-if="h.product.sale_price"> · Sale: {{ h.product.currency || 'USD' }} {{ h.product.sale_price }}</span>
                       <span> · Qty: {{ h.product.qty }}</span>
@@ -541,9 +541,9 @@
           </template>
           <template v-else-if="expandedBodyRow.row === 'stock'">
             <template v-if="getInventoryHints(expandedInquiry).length">
-              <div v-for="h in getInventoryHints(expandedInquiry)" :key="h.name" class="stock-hint" :class="{ 'stock-hint-mismatch': h.mismatch }">
-                <span class="stock-icon">{{ h.mismatch ? '⚠' : '✓' }}</span>
-                {{ h.product.name }} in stock
+              <div v-for="h in getInventoryHints(expandedInquiry)" :key="h.name" class="stock-hint" :class="stockHintClass(h)">
+                <span class="stock-icon">{{ stockHintIcon(h) }}</span>
+                {{ h.product.name }} {{ stockHintAvailabilityLabel(h) }}
                 <span v-if="h.mismatch" class="mismatch-tag">— not "{{ h.name }}", closest match only</span>
                 <span v-if="h.product.sale_price"> · Sale: {{ h.product.currency || 'USD' }} {{ h.product.sale_price }}</span>
                 <span> · Qty: {{ h.product.qty }}</span>
@@ -1181,13 +1181,31 @@ function getInventoryHints(inq) {
   const hints = []
   ;(inq.products || []).forEach((p, index) => {
     const match = matchInventory(p)
-    // A hint claims "in stock" — never show that for qty 0, even if a sale_price is
-    // saved on the record (price can be set ahead of restock without meaning it's available now).
-    if (match && match.qty > 0) {
+    if (match) {
       hints.push({ name: p.canonical_name, product: match, mismatch: !isReliableMatch(p, match), index })
     }
   })
   return hints
+}
+
+function isProductInStock(product) {
+  return Number(product?.qty || 0) > 0
+}
+
+function stockHintClass(hint) {
+  return {
+    'stock-hint-mismatch': hint?.mismatch,
+    'stock-hint-out': !isProductInStock(hint?.product),
+  }
+}
+
+function stockHintIcon(hint) {
+  if (hint?.mismatch) return '⚠'
+  return isProductInStock(hint?.product) ? '✓' : '!'
+}
+
+function stockHintAvailabilityLabel(hint) {
+  return isProductInStock(hint?.product) ? 'in stock' : 'matched, not in stock'
 }
 
 function isProductMatchingPending(inq) {
@@ -1646,10 +1664,12 @@ onUnmounted(() => {
 .card-stock-hints { display: flex; flex-direction: column; gap: 3px; margin-bottom: 6px; }
 .stock-hint { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 5px; padding: 4px 8px; font-size: 0.75rem; color: #166534; line-height: 1.4; }
 .stock-hint-mismatch { background: #fef9c3; border-color: #fde68a; color: #92400e; }
+.stock-hint-out { background: #fff7ed; border-color: #fdba74; color: #9a3412; }
 .mismatch-tag { font-weight: 700; }
 .cost-loss { color: #dc2626; font-weight: 700; }
 .stock-icon { color: #16a34a; font-weight: 700; margin-right: 3px; }
 .stock-hint-mismatch .stock-icon { color: #d97706; }
+.stock-hint-out .stock-icon { color: #ea580c; }
 .stock-hint-actions { float: right; display: inline-flex; gap: 4px; }
 .match-fix-btn {
   padding: 1px 9px;
