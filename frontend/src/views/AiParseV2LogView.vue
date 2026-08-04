@@ -118,6 +118,12 @@ function slowNotice(log) {
   return `Taking ${formatDuration(ms)} - ${stuckStage(log)}.`
 }
 
+function remainingDuration(total, ...parts) {
+  if (total == null) return null
+  const known = parts.filter((part) => part != null).reduce((sum, part) => sum + part, 0)
+  return Math.max(0, total - known)
+}
+
 function jsonText(value) {
   if (value == null || value === '') return ''
   if (typeof value === 'string') return value
@@ -148,12 +154,12 @@ function setActiveTab(log, panel, tab) {
 
 function panels(log) {
   return [
-    { key: 'pass1_request', title: 'Pass 1 Request', type: 'request', value: log.pass1_request, timings: [['Pass 1 total', log.pass1_total_ms]] },
+    { key: 'pass1_request', title: 'Pass 1 Request', type: 'request', value: log.pass1_request, timings: [] },
     { key: 'pass1_response', title: 'Pass 1 Response', type: 'response', value: log.pass1_response, timings: [['AI response', log.pass1_ai_ms]] },
-    { key: 'pass1_parsed', title: 'Pass 1 Parsed', type: 'response', value: log.pass1_parsed, timings: [['Pass 1 total', log.pass1_total_ms]] },
+    { key: 'pass1_parsed', title: 'Pass 1 Parsed', type: 'response', value: log.pass1_parsed, timings: [['Parse/save', remainingDuration(log.pass1_total_ms, log.pass1_ai_ms)], ['Pass 1 total', log.pass1_total_ms]] },
     { key: 'pass2_request', title: 'Pass 2 Request', type: 'pass2_request', value: log.pass2_request, timings: [['Candidate DB/search', log.candidate_search_ms]] },
     { key: 'pass2_response', title: 'Pass 2 Response', type: 'match_response', value: log.pass2_response, timings: [['AI response', log.pass2_ai_ms]] },
-    { key: 'pass2_parsed', title: 'Pass 2 Parsed', type: 'match_parsed', value: log.pass2_parsed, timings: [['Pass 2 total', log.pass2_total_ms]] },
+    { key: 'pass2_parsed', title: 'Pass 2 Parsed', type: 'match_parsed', value: log.pass2_parsed, timings: [['Parse/save', remainingDuration(log.pass2_total_ms, log.candidate_search_ms, log.pass2_ai_ms)], ['Pass 2 total', log.pass2_total_ms]] },
   ]
 }
 
@@ -180,6 +186,14 @@ function pass2CandidatePool(value) {
 function asObject(value) {
   const parsed = parseJson(value)
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
+}
+
+function skippedPass2(log) {
+  const request = asObject(log.pass2_request)
+  if (request?.skipped) return request
+  const parsed = asObject(log.pass2_parsed)
+  if (parsed?.skipped) return parsed
+  return null
 }
 
 function summaryFields(value) {
@@ -338,7 +352,41 @@ function candidatesForProduct(product, panelValue) {
                     <pre v-if="activeTab(log, panel.key) === 'raw'">{{ jsonText(panel.value) || 'Not recorded' }}</pre>
 
                     <div v-else class="formatted-panel">
-                      <div v-if="!jsonText(panel.value)" class="not-recorded">Not recorded</div>
+                      <div v-if="!jsonText(panel.value) && !skippedPass2(log)" class="not-recorded">Not recorded</div>
+
+                      <template v-else-if="skippedPass2(log) && ['pass2_request', 'match_response', 'match_parsed'].includes(panel.type)">
+                        <div class="skip-card">
+                          <div class="field-label">Pass 2 skipped</div>
+                          <strong>{{ skippedPass2(log).reason || 'No pass 2 AI request was sent.' }}</strong>
+                          <p>
+                            This is not an empty log. Candidate search completed, but no eligible candidate set
+                            required an AI match decision for this inquiry.
+                          </p>
+                        </div>
+                        <article
+                          v-for="(product, index) in skippedPass2(log).products || []"
+                          :key="index"
+                          class="product-card"
+                        >
+                          <div class="product-title">
+                            <span>Extracted Product {{ index + 1 }}</span>
+                            <strong>{{ product.canonical_name || product.raw_text }}</strong>
+                          </div>
+                          <div class="kv-grid">
+                            <div><span>Raw</span><strong>{{ product.raw_text || '-' }}</strong></div>
+                            <div><span>Brand</span><strong>{{ product.brand || '-' }}</strong></div>
+                            <div><span>Attributes</span><strong>{{ formatAttributes(product.attributes) }}</strong></div>
+                            <div><span>Qty</span><strong>{{ product.quantity ?? '-' }}</strong></div>
+                          </div>
+                        </article>
+                        <div v-for="result in matchResultsFrom(log.pass2_parsed)" :key="result.line_index" class="product-card">
+                          <div class="product-title">
+                            <span>Line {{ result.line_index }}</span>
+                            <strong>{{ result.match_type || 'no match' }}</strong>
+                          </div>
+                          <p class="reason">{{ result.reason || '-' }}</p>
+                        </div>
+                      </template>
 
                       <template v-else-if="panel.type === 'request'">
                         <div v-for="message in requestMessages(panel.value)" :key="message.role" class="prompt-block">
@@ -519,6 +567,9 @@ td { padding: 11px 14px; border-bottom: 1px solid #f1f5f9; vertical-align: top; 
 pre { margin: 0; padding: 12px; max-height: 340px; overflow: auto; font-size: 0.76rem; line-height: 1.45; color: #d1fae5; background: #0f172a; white-space: pre-wrap; word-break: break-word; }
 .formatted-panel { max-height: 420px; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; background: #fff; }
 .not-recorded { color: #94a3b8; font-size: 0.86rem; }
+.skip-card { border: 1px solid #fed7aa; border-radius: 12px; padding: 11px; background: #fff7ed; color: #9a3412; }
+.skip-card strong { display: block; color: #7c2d12; margin-bottom: 6px; }
+.skip-card p { margin: 0; line-height: 1.45; font-size: 0.82rem; }
 .prompt-block { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
 .field-label { color: #64748b; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
 .prompt-block .field-label { padding: 8px 10px; margin: 0; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
