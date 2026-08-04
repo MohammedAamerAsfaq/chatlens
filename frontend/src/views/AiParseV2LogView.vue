@@ -12,6 +12,7 @@ const page = ref(1)
 const pageSize = ref(25)
 const totalCount = ref(0)
 const pageSizeOptions = [10, 25, 50, 100]
+const SLOW_THRESHOLD_MS = 120000
 
 const totalPages = computed(() => Math.max(1, Math.ceil(totalCount.value / pageSize.value)))
 const pageStart = computed(() => totalCount.value === 0 ? 0 : (page.value - 1) * pageSize.value + 1)
@@ -88,6 +89,35 @@ function relativeTime(value) {
   return `${Math.floor(diff / 86400)}d ago`
 }
 
+function formatDuration(ms) {
+  if (ms == null) return '-'
+  if (ms < 1000) return `${ms} ms`
+  return `${(ms / 1000).toFixed(ms < 10000 ? 2 : 1)} s`
+}
+
+function elapsedMs(log) {
+  if (log.total_ms != null) return log.total_ms
+  return Math.max(0, Date.now() - new Date(log.created_at).getTime())
+}
+
+function stuckStage(log) {
+  if (log.status === 'pass1_started') return 'waiting for pass 1 AI response'
+  if (log.status === 'pass1_done') return 'waiting for pass 2 candidate search to start'
+  if (log.status === 'pass2_started') {
+    if (!log.pass2_response) return 'waiting for pass 2 AI response'
+    return 'processing pass 2 response'
+  }
+  if (log.status === 'error') return 'failed with error'
+  if (log.status === 'complete') return 'completed, but exceeded expected duration'
+  return `status: ${statusLabel(log.status)}`
+}
+
+function slowNotice(log) {
+  const ms = elapsedMs(log)
+  if (ms <= SLOW_THRESHOLD_MS) return ''
+  return `Taking ${formatDuration(ms)} - ${stuckStage(log)}.`
+}
+
 function jsonText(value) {
   if (value == null || value === '') return ''
   if (typeof value === 'string') return value
@@ -118,12 +148,12 @@ function setActiveTab(log, panel, tab) {
 
 function panels(log) {
   return [
-    { key: 'pass1_request', title: 'Pass 1 Request', type: 'request', value: log.pass1_request },
-    { key: 'pass1_response', title: 'Pass 1 Response', type: 'response', value: log.pass1_response },
-    { key: 'pass1_parsed', title: 'Pass 1 Parsed', type: 'response', value: log.pass1_parsed },
-    { key: 'pass2_request', title: 'Pass 2 Request', type: 'pass2_request', value: log.pass2_request },
-    { key: 'pass2_response', title: 'Pass 2 Response', type: 'match_response', value: log.pass2_response },
-    { key: 'pass2_parsed', title: 'Pass 2 Parsed', type: 'match_parsed', value: log.pass2_parsed },
+    { key: 'pass1_request', title: 'Pass 1 Request', type: 'request', value: log.pass1_request, timings: [['Pass 1 total', log.pass1_total_ms]] },
+    { key: 'pass1_response', title: 'Pass 1 Response', type: 'response', value: log.pass1_response, timings: [['AI response', log.pass1_ai_ms]] },
+    { key: 'pass1_parsed', title: 'Pass 1 Parsed', type: 'response', value: log.pass1_parsed, timings: [['Pass 1 total', log.pass1_total_ms]] },
+    { key: 'pass2_request', title: 'Pass 2 Request', type: 'pass2_request', value: log.pass2_request, timings: [['Candidate DB/search', log.candidate_search_ms]] },
+    { key: 'pass2_response', title: 'Pass 2 Response', type: 'match_response', value: log.pass2_response, timings: [['AI response', log.pass2_ai_ms]] },
+    { key: 'pass2_parsed', title: 'Pass 2 Parsed', type: 'match_parsed', value: log.pass2_parsed, timings: [['Pass 2 total', log.pass2_total_ms]] },
   ]
 }
 
@@ -260,6 +290,7 @@ function candidatesForProduct(product, panelValue) {
             <th>Account</th>
             <th>Status</th>
             <th>Message</th>
+            <th>Total Time</th>
             <th>Inquiry IDs</th>
           </tr>
         </thead>
@@ -268,16 +299,30 @@ function candidatesForProduct(product, panelValue) {
             <tr class="row" :class="{ expanded: expandedId === log.id }" @click="toggleRow(log.id)">
               <td :title="formatTime(log.created_at)">{{ relativeTime(log.created_at) }}</td>
               <td>{{ log.account_name }}</td>
-              <td><span class="status" :class="statusClass(log.status)">{{ statusLabel(log.status) }}</span></td>
+              <td>
+                <span class="status" :class="statusClass(log.status)">{{ statusLabel(log.status) }}</span>
+                <div v-if="slowNotice(log)" class="slow-inline">{{ slowNotice(log) }}</div>
+              </td>
               <td class="message-cell">{{ log.message_text || '(no text)' }}</td>
+              <td>{{ formatDuration(log.total_ms) }}</td>
               <td>{{ (log.inquiry_ids || []).join(', ') || '-' }}</td>
             </tr>
             <tr v-if="expandedId === log.id">
-              <td colspan="5" class="detail-cell">
+              <td colspan="6" class="detail-cell">
+                <div v-if="slowNotice(log)" class="slow-banner">
+                  {{ slowNotice(log) }}
+                </div>
                 <div class="detail-grid">
                   <section v-for="panel in panels(log)" :key="panel.key" class="panel-card">
                     <div class="panel-head">
-                      <h2>{{ panel.title }}</h2>
+                      <div>
+                        <h2>{{ panel.title }}</h2>
+                        <div v-if="panel.timings?.length" class="timing-row">
+                          <span v-for="[label, ms] in panel.timings" :key="label" class="timing-chip">
+                            {{ label }}: {{ formatDuration(ms) }}
+                          </span>
+                        </div>
+                      </div>
                       <div class="tabs" @click.stop>
                         <button
                           :class="{ active: activeTab(log, panel.key) === 'formatted' }"
@@ -459,11 +504,15 @@ td { padding: 11px 14px; border-bottom: 1px solid #f1f5f9; vertical-align: top; 
 .status-error { background: #fee2e2; color: #b91c1c; }
 .status-pass2 { background: #dbeafe; color: #1d4ed8; }
 .status-pending { background: #fef3c7; color: #92400e; }
+.slow-inline { margin-top: 5px; max-width: 260px; color: #b45309; font-size: 0.72rem; font-weight: 700; line-height: 1.25; }
 .detail-cell { background: #f8fafc; }
+.slow-banner { margin-bottom: 10px; border: 1px solid #fbbf24; border-radius: 10px; background: #fffbeb; color: #92400e; padding: 9px 11px; font-size: 0.82rem; font-weight: 800; }
 .detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .detail-grid section { border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; overflow: hidden; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px 8px 12px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; }
 .detail-grid h2 { margin: 0; font-size: 0.78rem; color: #334155; }
+.timing-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.timing-chip { display: inline-flex; border: 1px solid #bfdbfe; border-radius: 999px; background: #eff6ff; color: #1d4ed8; padding: 2px 7px; font-size: 0.68rem; font-weight: 700; }
 .tabs { display: inline-flex; border: 1px solid #dbe3ef; border-radius: 8px; overflow: hidden; background: #fff; }
 .tabs button { border: 0; background: transparent; color: #64748b; font-size: 0.72rem; padding: 5px 8px; cursor: pointer; }
 .tabs button.active { background: #0f172a; color: #fff; }
@@ -473,7 +522,7 @@ pre { margin: 0; padding: 12px; max-height: 340px; overflow: auto; font-size: 0.
 .prompt-block { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
 .field-label { color: #64748b; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
 .prompt-block .field-label { padding: 8px 10px; margin: 0; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
-.prompt-text { padding: 10px; color: #334155; font-size: 0.78rem; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+.prompt-text { padding: 10px; color: #334155; font-size: 0.78rem; line-height: 1.45; white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow-y: auto; }
 .kv-row { display: grid; grid-template-columns: 140px 1fr; gap: 10px; align-items: start; font-size: 0.82rem; }
 .kv-row span, .kv-grid span { color: #64748b; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; }
 .kv-row strong, .kv-grid strong { color: #0f172a; font-weight: 650; word-break: break-word; }

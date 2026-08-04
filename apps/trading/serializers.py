@@ -108,7 +108,9 @@ class AiParseV2LogSerializer(serializers.ModelSerializer):
             'account', 'account_name', 'chat', 'chat_name', 'classification',
             'inquiry_ids', 'status', 'pass1_request', 'pass1_response',
             'pass1_parsed', 'pass2_request', 'pass2_response', 'pass2_parsed',
-            'error', 'created_at', 'updated_at',
+            'pass1_ai_ms', 'pass1_total_ms', 'candidate_search_ms',
+            'pass2_ai_ms', 'pass2_total_ms', 'total_ms', 'error',
+            'created_at', 'updated_at',
         ]
         read_only_fields = fields
 

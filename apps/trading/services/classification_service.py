@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,10 @@ Message text: "{message_text}\""""
 VALID_CATEGORY_SUGGESTIONS = {'supplier', 'customer', 'both'}
 CLASSIFICATION_V1 = 'v1'
 CLASSIFICATION_V2 = 'v2'
+
+
+def _elapsed_ms(start) -> int:
+    return max(0, int((time.perf_counter() - start) * 1000))
 
 
 def contact_role_category(contact) -> str:
@@ -393,7 +398,14 @@ def _rank_v2_candidates(candidates: list[dict], attributes: dict | None, top_k: 
     return ranked[:top_k]
 
 
-def _find_v2_candidates(query: str, company, top_k: int = 5, brand: str = '', attributes: dict | None = None) -> list[dict]:
+def _find_v2_candidates(
+    query: str,
+    company,
+    top_k: int = 5,
+    brand: str = '',
+    attributes: dict | None = None,
+    timing_accumulator: dict | None = None,
+) -> list[dict]:
     if not query or not company:
         return []
 
@@ -413,6 +425,7 @@ def _find_v2_candidates(query: str, company, top_k: int = 5, brand: str = '', at
             brand_filter = "AND LOWER(p.brand) = ANY(%(brand_values)s)"
             params['brand_values'] = brand_values
 
+        search_start = time.perf_counter()
         sql = """
             WITH scored AS (
                 SELECT p.id AS product_id, (pe.embedding <=> %(qv)s::vector) AS distance
@@ -447,6 +460,10 @@ def _find_v2_candidates(query: str, company, top_k: int = 5, brand: str = '', at
             rows = cursor.fetchall()
 
         if not rows:
+            if timing_accumulator is not None:
+                timing_accumulator['candidate_search_ms'] = (
+                    timing_accumulator.get('candidate_search_ms', 0) + _elapsed_ms(search_start)
+                )
             return []
 
         products = (
@@ -460,7 +477,12 @@ def _find_v2_candidates(query: str, company, top_k: int = 5, brand: str = '', at
             for product_id, distance in rows
             if product_id in products_by_id
         ]
-        return _rank_v2_candidates(candidates, attributes or {}, top_k)
+        ranked = _rank_v2_candidates(candidates, attributes or {}, top_k)
+        if timing_accumulator is not None:
+            timing_accumulator['candidate_search_ms'] = (
+                timing_accumulator.get('candidate_search_ms', 0) + _elapsed_ms(search_start)
+            )
+        return ranked
     except Exception:
         logger.exception('V2 candidate retrieval failed | company_id=%s | query=%r', company.pk if company else None, query)
         raise
@@ -685,6 +707,8 @@ def classify_message_v2(message) -> None:
     from apps.trading.services.agent_logger import call_agent
     from apps.trading.services.inquiry_service import process_inquiry
 
+    total_start = time.perf_counter()
+    pass1_start = time.perf_counter()
     system_prompt, user_prompt = _build_v2_extraction_prompts(message)
     log, _ = AiParseV2Log.objects.update_or_create(
         message=message,
@@ -703,6 +727,7 @@ def classify_message_v2(message) -> None:
         },
     )
     try:
+        pass1_ai_start = time.perf_counter()
         raw_response = call_agent(
             AgentCallLog.PURPOSE_INQUIRY_EXTRACTION_V2,
             [
@@ -713,16 +738,22 @@ def classify_message_v2(message) -> None:
             classification_version=CLASSIFICATION_V2,
             temperature=0,
         )
+        log.pass1_ai_ms = _elapsed_ms(pass1_ai_start)
         log.pass1_response = raw_response
         parsed = _parse_v2_extraction_response(raw_response)
     except Exception as exc:
+        if log.pass1_ai_ms is None:
+            log.pass1_ai_ms = _elapsed_ms(pass1_ai_start) if 'pass1_ai_start' in locals() else None
+        log.pass1_total_ms = _elapsed_ms(pass1_start)
+        log.total_ms = _elapsed_ms(total_start)
         log.status = AiParseV2Log.STATUS_ERROR
         log.error = str(exc)
-        log.save(update_fields=['pass1_response', 'status', 'error', 'updated_at'])
+        log.save(update_fields=['pass1_response', 'pass1_ai_ms', 'pass1_total_ms', 'total_ms', 'status', 'error', 'updated_at'])
         raise
     log.pass1_parsed = parsed['raw']
     log.status = AiParseV2Log.STATUS_PASS1_DONE
-    log.save(update_fields=['pass1_response', 'pass1_parsed', 'status', 'updated_at'])
+    log.pass1_total_ms = _elapsed_ms(pass1_start)
+    log.save(update_fields=['pass1_response', 'pass1_parsed', 'pass1_ai_ms', 'pass1_total_ms', 'status', 'updated_at'])
     parsed['contact_category_suggestion'] = validate_category_suggestion(
         parsed['contact_category_suggestion'], message.contact,
     )
@@ -756,15 +787,18 @@ def classify_message_v2(message) -> None:
     if inquiry_ids:
         log.inquiry_ids = inquiry_ids
         log.save(update_fields=['inquiry_ids', 'updated_at'])
-        _start_v2_match_thread(message.pk, classification.pk, inquiry_ids)
+        _start_v2_match_thread(message.pk, classification.pk, inquiry_ids, total_start)
+    else:
+        log.total_ms = _elapsed_ms(total_start)
+        log.save(update_fields=['total_ms', 'updated_at'])
 
 
-def _start_v2_match_thread(message_id: int, classification_id: int, inquiry_ids: list[int]) -> None:
+def _start_v2_match_thread(message_id: int, classification_id: int, inquiry_ids: list[int], total_start) -> None:
     from django.db import connection as db_connection
 
     def _run():
         try:
-            _run_v2_batched_match(message_id, classification_id, inquiry_ids)
+            _run_v2_batched_match(message_id, classification_id, inquiry_ids, total_start)
         except Exception as exc:
             logger.exception(
                 'classify_message_v2 | pass2 failed | message_id=%s | classification_id=%s',
@@ -779,6 +813,7 @@ def _start_v2_match_thread(message_id: int, classification_id: int, inquiry_ids:
                 )
                 AiParseV2Log.objects.filter(message_id=message_id).update(
                     status=AiParseV2Log.STATUS_ERROR,
+                    total_ms=_elapsed_ms(total_start),
                     error=str(exc),
                 )
             except Exception:
@@ -817,7 +852,7 @@ def _auto_save_matched_inquiry_products(message, inquiry_ids: list[int], product
     return saved
 
 
-def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: list[int]) -> None:
+def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: list[int], total_start) -> None:
     from apps.trading.models import AgentCallLog, AiParseV2Log, Inquiry, MessageClassification
     from apps.trading.services.agent_logger import call_agent
     from apps.tenancy.services.access import company_for_message
@@ -826,6 +861,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
     message = WhatsAppMessage.objects.select_related('account', 'chat', 'contact').get(pk=message_id)
     classification = MessageClassification.objects.get(pk=classification_id)
     products = list(classification.products or [])
+    pass2_start = time.perf_counter()
 
     if not products:
         Inquiry.objects.filter(pk__in=inquiry_ids).update(
@@ -834,6 +870,8 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
         )
         AiParseV2Log.objects.filter(message_id=message_id).update(
             status=AiParseV2Log.STATUS_COMPLETE,
+            pass2_total_ms=_elapsed_ms(pass2_start),
+            total_ms=_elapsed_ms(total_start),
             pass2_request={'skipped': True, 'reason': 'no extracted products'},
             pass2_response='',
             pass2_parsed={'results': []},
@@ -842,15 +880,18 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
         return
 
     company = company_for_message(message)
+    candidate_timing = {'candidate_search_ms': 0}
     candidates_by_index = {
         index: _find_v2_candidates(
             product.get('canonical_name') or product.get('raw_text') or '',
             company,
             brand=product.get('brand') or '',
             attributes=product.get('attributes') or {},
+            timing_accumulator=candidate_timing,
         )
         for index, product in enumerate(products)
     }
+    candidate_search_ms = candidate_timing['candidate_search_ms']
 
     candidate_indexes = {
         index
@@ -895,6 +936,9 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
         )
         AiParseV2Log.objects.filter(message_id=message_id).update(
             status=AiParseV2Log.STATUS_COMPLETE,
+            candidate_search_ms=candidate_search_ms,
+            pass2_total_ms=_elapsed_ms(pass2_start),
+            total_ms=_elapsed_ms(total_start),
             pass2_request={
                 'skipped': True,
                 'reason': 'no active in-stock candidates matched extracted brand/attributes',
@@ -935,6 +979,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
     system_prompt, user_prompt = _build_v2_match_prompts(message, match_products, match_candidates_by_index)
     AiParseV2Log.objects.filter(message_id=message_id).update(
         status=AiParseV2Log.STATUS_PASS2_STARTED,
+        candidate_search_ms=candidate_search_ms,
         pass2_request={
             'messages': [
                 {'role': 'system', 'content': system_prompt},
@@ -946,6 +991,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
         },
         error='',
     )
+    pass2_ai_start = time.perf_counter()
     raw_response = call_agent(
         AgentCallLog.PURPOSE_INQUIRY_MATCH_V2,
         [
@@ -956,6 +1002,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
         classification_version=CLASSIFICATION_V2,
         temperature=0,
     )
+    pass2_ai_ms = _elapsed_ms(pass2_ai_start)
     raw_match_results = _parse_v2_match_response(raw_response, set(range(len(match_products))))
     match_results = dict(no_candidate_results)
     for new_index, result in raw_match_results.items():
@@ -1002,6 +1049,9 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
     auto_saved_rows = _auto_save_matched_inquiry_products(message, inquiry_ids, updated_products)
     AiParseV2Log.objects.filter(message_id=message_id).update(
         status=AiParseV2Log.STATUS_COMPLETE,
+        pass2_ai_ms=pass2_ai_ms,
+        pass2_total_ms=_elapsed_ms(pass2_start),
+        total_ms=_elapsed_ms(total_start),
         pass2_response=raw_response,
         pass2_parsed={
             'raw': _clean_json_response(raw_response),
