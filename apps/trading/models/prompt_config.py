@@ -323,6 +323,13 @@ Rules:
   from the product text. Use simple key/value pairs such as Series, Model, Storage, Color, Region,
   SIM Type, Network, Condition, and Variant. Prefer compact inventory-style values when obvious
   (for example Storage "256" rather than "256GB"). Use {} when no attributes are known.
+- If a product line looks like a manufacturer SKU/model code rather than a normal product name
+  (for example a short alphanumeric Apple code), set is_sku_like=true and put the exact sender code
+  in sku_code. When you can identify the product name with high confidence, put that readable product
+  name in canonical_name and keep the sender code in raw_text and sku_code. If you are not confident
+  what the code means, keep canonical_name equal to the code and set inferred_product_name=null.
+- inferred_product_name should contain the readable product name inferred from sku_code, or null when
+  the product name cannot be inferred confidently.
 - raw_text should be the closest original product line or phrase from the message.
 - If the message has no product/spec content, set is_inquiry=false and products=[].
 - dedup_key format: "{buy|sell}:{product-slug}:{qty-bucket}:{contact_id}".
@@ -336,6 +343,9 @@ Respond ONLY with valid JSON matching this schema:
     {
       "raw_text": "<sender product text>",
       "brand": "<brand string or null>",
+      "is_sku_like": <bool>,
+      "sku_code": "<exact SKU/code string or null>",
+      "inferred_product_name": "<readable product name inferred from SKU/code or null>",
       "attributes": {"<attribute key>": "<attribute value>", "...": "..."},
       "canonical_name": "<normalized product text>",
       "quantity": <int or null>,

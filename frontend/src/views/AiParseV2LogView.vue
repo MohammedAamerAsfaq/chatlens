@@ -375,6 +375,9 @@ function candidatesForProduct(product, panelValue) {
                           <div class="kv-grid">
                             <div><span>Raw</span><strong>{{ product.raw_text || '-' }}</strong></div>
                             <div><span>Brand</span><strong>{{ product.brand || '-' }}</strong></div>
+                            <div><span>SKU-like</span><strong>{{ product.is_sku_like ? 'Yes' : 'No' }}</strong></div>
+                            <div><span>SKU Code</span><strong>{{ product.sku_code || '-' }}</strong></div>
+                            <div><span>Inferred Name</span><strong>{{ product.inferred_product_name || '-' }}</strong></div>
                             <div><span>Attributes</span><strong>{{ formatAttributes(product.attributes) }}</strong></div>
                             <div><span>Qty</span><strong>{{ product.quantity ?? '-' }}</strong></div>
                           </div>
@@ -430,6 +433,9 @@ function candidatesForProduct(product, panelValue) {
                             <div class="kv-grid">
                               <div><span>Raw</span><strong>{{ product.raw_text || '-' }}</strong></div>
                               <div><span>Brand</span><strong>{{ product.brand || '-' }}</strong></div>
+                              <div><span>SKU-like</span><strong>{{ product.is_sku_like ? 'Yes' : 'No' }}</strong></div>
+                              <div><span>SKU Code</span><strong>{{ product.sku_code || '-' }}</strong></div>
+                              <div><span>Inferred Name</span><strong>{{ product.inferred_product_name || '-' }}</strong></div>
                               <div><span>Attributes</span><strong>{{ formatAttributes(product.attributes) }}</strong></div>
                               <div><span>Qty</span><strong>{{ product.quantity ?? '-' }}</strong></div>
                               <div><span>Price</span><strong>{{ product.price ?? '-' }}</strong></div>
@@ -489,6 +495,9 @@ function candidatesForProduct(product, panelValue) {
                           <div class="kv-grid">
                             <div><span>Raw</span><strong>{{ product.raw_text || '-' }}</strong></div>
                             <div><span>Brand</span><strong>{{ product.brand || '-' }}</strong></div>
+                            <div><span>SKU-like</span><strong>{{ product.is_sku_like ? 'Yes' : 'No' }}</strong></div>
+                            <div><span>SKU Code</span><strong>{{ product.sku_code || '-' }}</strong></div>
+                            <div><span>Inferred Name</span><strong>{{ product.inferred_product_name || '-' }}</strong></div>
                             <div><span>Attributes</span><strong>{{ formatAttributes(product.attributes) }}</strong></div>
                             <div><span>Qty</span><strong>{{ product.quantity ?? '-' }}</strong></div>
                             <div><span>Price</span><strong>{{ product.price ?? '-' }}</strong></div>
