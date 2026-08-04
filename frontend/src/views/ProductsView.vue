@@ -98,6 +98,7 @@
             <th class="th-inv">Sale</th>
             <th class="th-inv">Margin</th>
             <th>Active</th>
+            <th>Tracking</th>
             <th class="th-embed" title="Whether this product's own name+brand embedding exists">Product Embedding</th>
             <th class="th-embed" title="Whether this product's aliases each have their own embedding">Alias Embeddings</th>
             <th class="th-embed" title="Number of hot-added key/value attributes on this product">Attributes</th>
@@ -106,7 +107,7 @@
         </thead>
         <tbody>
           <tr v-if="filtered.length === 0">
-            <td colspan="12" class="empty">No products found.</td>
+            <td colspan="13" class="empty">No products found.</td>
           </tr>
           <tr v-for="p in filtered" :key="p.id" :class="{ inactive: !p.is_active }">
             <td class="col-name">{{ p.name }}</td>
@@ -158,6 +159,11 @@
             <td>
               <span :class="['status-dot', p.is_active ? 'active' : 'inactive']">
                 {{ p.is_active ? 'Active' : 'Inactive' }}
+              </span>
+            </td>
+            <td>
+              <span :class="['status-dot', p.tracking ? 'active' : 'inactive']">
+                {{ p.tracking ? 'On' : 'Off' }}
               </span>
             </td>
             <td class="th-embed">
@@ -474,6 +480,13 @@
                   <input v-model="modal.sku" placeholder="Internal SKU or model number" />
                 </div>
               </div>
+              <label class="tracking-toggle">
+                <input v-model="modal.tracking" type="checkbox" />
+                <span>
+                  <strong>Tracking</strong>
+                  <small>Include this product in inquiry/product tracking reports.</small>
+                </span>
+              </label>
             </div>
 
             <div class="form-section card-section">
@@ -629,6 +642,7 @@ function clearSmartSearch() {
 const modal = ref({
   open: false, id: null,
   name: '', brand: '', category: '', sku: '',
+  tracking: true,
 })
 
 // Aliases are managed live via their own endpoints, independent of the main product
@@ -855,6 +869,7 @@ function resetAttributeState() {
 function openCreate() {
   modal.value = {
     open: true, id: null, name: '', brand: '', category: '', sku: '',
+    tracking: true,
     qty: 0, cost_price: '', sale_price: '', currency: 'USD',
   }
   productModalDrag.value = { x: 0, y: 0 }
@@ -870,6 +885,7 @@ async function openEdit(p) {
     cost_price: p.cost_price ?? '',
     sale_price: p.sale_price ?? '',
     currency: p.currency || 'USD',
+    tracking: p.tracking !== false,
   }
   productModalDrag.value = { x: 0, y: 0 }
   resetAliasState()
@@ -1010,6 +1026,7 @@ async function save() {
       category:  modal.value.category.trim(),
       sku:       modal.value.sku.trim(),
       is_active: true,
+      tracking:  modal.value.tracking !== false,
       qty:        modal.value.qty === '' || modal.value.qty == null ? 0 : Number(modal.value.qty),
       cost_price: modal.value.cost_price === '' || modal.value.cost_price == null ? null : Number(modal.value.cost_price),
       sale_price: modal.value.sale_price === '' || modal.value.sale_price == null ? null : Number(modal.value.sale_price),
@@ -1284,6 +1301,21 @@ onUnmounted(stopProductModalDrag)
 .alias-section { flex: 1; }
 .form-section { display: flex; flex-direction: column; gap: 12px; }
 .section-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: #9ca3af; font-weight: 700; }
+.tracking-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid #d1fae5;
+  border-radius: 8px;
+  background: #f0fdf4;
+  padding: 10px 12px;
+  color: #14532d;
+  cursor: pointer;
+}
+.tracking-toggle input { margin-top: 3px; }
+.tracking-toggle span { display: flex; flex-direction: column; gap: 2px; }
+.tracking-toggle strong { font-size: 0.86rem; }
+.tracking-toggle small { color: #4b5563; font-size: 0.78rem; line-height: 1.35; }
 .alias-input-box {
   display: flex; flex-wrap: wrap; align-content: flex-start; align-items: center; gap: 6px;
   padding: 10px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff;

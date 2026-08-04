@@ -14,6 +14,7 @@ class Product(models.Model):
     category  = models.CharField(max_length=100, blank=True)
     sku       = models.CharField(max_length=100, blank=True)
     is_active  = models.BooleanField(default=True)
+    tracking   = models.BooleanField(default=True)
     # Inventory
     qty        = models.IntegerField(default=0)
     cost_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
