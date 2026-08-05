@@ -52,7 +52,7 @@ onUnmounted(() => clearInterval(alertPollTimer))
 const REPORT_ROUTES = ['trading-analytics', 'report-summary', 'inventory-product-mentions']
 const isReportsActive = computed(() => REPORT_ROUTES.includes(route.name))
 
-const LIST_ROUTES = ['contacts', 'groups', 'products', 'inquiry-products', 'product-price-update']
+const LIST_ROUTES = ['contacts', 'groups', 'products', 'inquiry-products', 'v2-candidate-search', 'product-price-update']
 const isListsActive = computed(() => LIST_ROUTES.includes(route.name))
 
 const SETTINGS_ROUTES = ['sessions', 'storage', 'ai-providers', 'ai-instructions', 'v2-settings', 'tenant-admin']
@@ -119,6 +119,7 @@ async function handleCompanySwitch(event) {
           <RouterLink to="/groups"   class="dropdown-item" active-class="dropdown-item-active">Groups</RouterLink>
           <RouterLink to="/products" class="dropdown-item" active-class="dropdown-item-active">Products</RouterLink>
           <RouterLink to="/inquiry-products" class="dropdown-item" active-class="dropdown-item-active">Inquiry Products</RouterLink>
+          <RouterLink to="/v2-candidate-search" class="dropdown-item" active-class="dropdown-item-active">V2 Candidate Search</RouterLink>
           <RouterLink to="/product-price-update" class="dropdown-item" active-class="dropdown-item-active">Product Price Update</RouterLink>
         </div>
       </div>

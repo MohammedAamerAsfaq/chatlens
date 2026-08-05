@@ -503,6 +503,56 @@ class ProductViewSet(viewsets.ModelViewSet):
         ]
         return Response({'results': results})
 
+    @action(detail=False, methods=['get'], url_path='search-v2-candidates')
+    def search_v2_candidates(self, request):
+        """Diagnostic search that uses the same candidate retrieval and attribute
+        reranking path as V2 pass 2 candidate selection.
+        """
+        import json
+        from apps.trading.services.classification_service import _find_v2_candidates
+        from apps.tenancy.services.access import default_company_for_user
+
+        query = request.query_params.get('q', '').strip()
+        if not query:
+            return Response({'results': []})
+
+        brand = request.query_params.get('brand', '').strip()
+        try:
+            top_k = int(request.query_params.get('top_k', 10))
+        except (TypeError, ValueError):
+            top_k = 10
+        top_k = max(1, min(top_k, 20))
+
+        raw_attributes = request.query_params.get('attributes', '').strip()
+        attributes = {}
+        if raw_attributes:
+            try:
+                parsed = json.loads(raw_attributes)
+            except json.JSONDecodeError as exc:
+                return Response({'detail': f'attributes must be valid JSON: {exc}'}, status=status.HTTP_400_BAD_REQUEST)
+            if not isinstance(parsed, dict):
+                return Response({'detail': 'attributes must be a JSON object'}, status=status.HTTP_400_BAD_REQUEST)
+            attributes = parsed
+
+        try:
+            candidates = _find_v2_candidates(
+                query,
+                default_company_for_user(request.user),
+                top_k=top_k,
+                brand=brand,
+                attributes=attributes,
+            )
+        except Exception as exc:
+            logger.warning('search_v2_candidates | query=%r failed: %s', query, exc)
+            return Response({'detail': 'V2 candidate search unavailable'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        return Response({
+            'query': query,
+            'brand': brand,
+            'attributes': attributes,
+            'results': candidates,
+        })
+
     @action(detail=False, methods=['get'], url_path='embedding-status')
     def embedding_status(self, request):
         """Counts of embedded vs. missing for products and their aliases — the only

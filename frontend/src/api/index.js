@@ -221,6 +221,7 @@ export const tradingApi = {
   correctMatch:           (id, data)    => http.post(`/inquiries/${id}/correct-match/`, data),
   verifyMatch:            (id, data)    => http.post(`/inquiries/${id}/verify-match/`, data),
   searchProductEmbeddings: (params)    => http.get('/products/search-embeddings/', { params }),
+  searchV2Candidates:      (params)    => http.get('/products/search-v2-candidates/', { params }),
   getEmbeddingStatus:      ()          => http.get('/products/embedding-status/'),
   backfillEmbeddings:      ()          => http.post('/products/backfill-embeddings/'),
   closeStaleInquiries:    (data)        => http.post('/inquiries/close-stale/', data),
