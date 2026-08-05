@@ -305,6 +305,15 @@ Rules:
 - is_inquiry must be true only for genuine buy or sell business opportunities.
 - Classify direction as "buy", "sell", or "both".
 - Explicit WTB means buy. Explicit WTS means sell.
+- Do not classify a message as sell just because it lists products.
+- If the message contains price-seeking language such as "PRICE", "price?", "rate", "best price",
+  or similar wording, and no actual item prices are shown beside the products, classify it as a
+  buy/price inquiry. Use inquiry_type="buy".
+- Product lists without prices are not WTS unless the message clearly says sell/stock/available/
+  ready/local/offer or includes actual sale prices.
+- "Reply personal", a phone number, or a contact call-to-action alone is not sell intent.
+- When intent is ambiguous between price request and sell offer, prefer buy if the sender is asking
+  for price and no prices are provided.
 - Extract only product/spec/quantity/price details explicitly present in the message.
 - In trading shorthand, a bare number after a color/spec in WTS/WTB text is a quantity by default.
   Example: "Silver 85 🇯🇵 non" means quantity 85 for the Silver Japan non-active/non variant.
