@@ -1064,14 +1064,34 @@ class InquiryViewSet(viewsets.GenericViewSet,
     def open_feed(self, request):
         """
         Return today's inquiries for the live dashboard feed, optionally filtered by
-        status/type/account. Paginated via `limit` (default 50, max 1000) — the response
-        includes `count`, the true total matching the filters, so the frontend can tell
-        when it's showing a truncated slice and load more instead of silently capping.
+        status/type/account. Supports explicit page/page_size paging and sort ordering.
+        Legacy `limit` is still accepted as page 1/page_size for older clients.
         """
         account_id = request.query_params.get('account')
-        limit      = min(int(request.query_params.get('limit', 50)), 1000)
         status_val = request.query_params.get('status', InquiryStatus.OPEN)
         type_val   = request.query_params.get('type')
+        sort_val   = request.query_params.get('sort', 'latest')
+
+        try:
+            page = int(request.query_params.get('page', 1))
+            page_size = int(request.query_params.get('page_size', request.query_params.get('limit', 50)))
+        except (TypeError, ValueError):
+            raise ValidationError({'detail': 'page and page_size must be numeric.'})
+
+        if page < 1:
+            raise ValidationError({'detail': 'page must be 1 or greater.'})
+        if page_size < 1:
+            raise ValidationError({'detail': 'page_size must be 1 or greater.'})
+        page_size = min(page_size, 200)
+
+        sort_map = {
+            'latest': '-first_seen_at',
+            'oldest': 'first_seen_at',
+            'recently_updated': '-updated_at',
+            'least_recently_updated': 'updated_at',
+        }
+        if sort_val not in sort_map:
+            raise ValidationError({'detail': f'Unsupported sort value: {sort_val}'})
 
         today = now().replace(hour=0, minute=0, second=0, microsecond=0)
         qs = Inquiry.objects.filter(first_seen_at__gte=today).select_related('account', 'contact')
@@ -1085,10 +1105,16 @@ class InquiryViewSet(viewsets.GenericViewSet,
         if type_val in ('buy', 'sell'):
             qs = qs.filter(inquiry_type=type_val)
 
-        qs = qs.order_by('-first_seen_at')
+        qs = qs.order_by(sort_map[sort_val], '-id')
+        count = qs.count()
+        offset = (page - 1) * page_size
         return Response({
-            'count':   qs.count(),
-            'results': InquirySerializer(qs[:limit], many=True).data,
+            'count': count,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': (count + page_size - 1) // page_size if count else 1,
+            'sort': sort_val,
+            'results': InquirySerializer(qs[offset:offset + page_size], many=True).data,
         })
 
     @action(detail=False, methods=['get'], url_path='classification-activity')

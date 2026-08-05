@@ -9,7 +9,7 @@
         <span class="last-update">Updated {{ lastUpdateLabel }}</span>
       </div>
       <div class="header-right">
-        <select v-model="selectedAccount" @change="refresh" class="account-select">
+        <select v-model="selectedAccount" @change="resetFeedPagesAndRefresh" class="account-select">
           <option value="">All accounts</option>
           <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.display_name }}</option>
         </select>
@@ -89,10 +89,20 @@
       <!-- WTB feed -->
       <div class="feed-col">
         <div class="feed-header wtb-header">
-          <span class="feed-title">BUYING (WTB)</span>
-          <span class="feed-count">{{ buyFeed.length }}{{ buyFeed.length < buyTotal ? ` / ${buyTotal}` : '' }}</span>
+          <div class="feed-heading">
+            <span class="feed-title">BUYING (WTB)</span>
+            <span class="feed-count">{{ buyTotal }}</span>
+          </div>
+          <div class="feed-controls">
+            <select v-model="buySort" class="feed-control-select" @change="setFeedSort('buy')">
+              <option v-for="opt in feedSortOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+            <select v-model.number="buyPageSize" class="feed-control-select compact" @change="setFeedPageSize('buy')">
+              <option v-for="size in feedPageSizeOptions" :key="size" :value="size">{{ size }}</option>
+            </select>
+          </div>
         </div>
-        <div class="feed-list" @scroll="onBuyScroll">
+        <div class="feed-list">
           <div
             v-for="inq in buyFeed" :key="inq.id"
             class="feed-card"
@@ -272,17 +282,31 @@
             </div>
           </div>
           <div v-if="buyFeed.length === 0" class="feed-empty">No open buying inquiries</div>
-          <div v-if="buyLoadingMore" class="feed-loading-more">Loading more…</div>
+        </div>
+        <div class="feed-pager">
+          <button class="btn-ghost sm" :disabled="buyLoading || buyPage <= 1" @click="changeFeedPage('buy', buyPage - 1)">Previous</button>
+          <span class="feed-page-label">Page {{ buyPage }} of {{ buyTotalPages }}</span>
+          <button class="btn-ghost sm" :disabled="buyLoading || buyPage >= buyTotalPages" @click="changeFeedPage('buy', buyPage + 1)">Next</button>
         </div>
       </div>
 
       <!-- WTS feed -->
       <div class="feed-col">
         <div class="feed-header wts-header">
-          <span class="feed-title">SELLING (WTS)</span>
-          <span class="feed-count">{{ sellFeed.length }}{{ sellFeed.length < sellTotal ? ` / ${sellTotal}` : '' }}</span>
+          <div class="feed-heading">
+            <span class="feed-title">SELLING (WTS)</span>
+            <span class="feed-count">{{ sellTotal }}</span>
+          </div>
+          <div class="feed-controls">
+            <select v-model="sellSort" class="feed-control-select" @change="setFeedSort('sell')">
+              <option v-for="opt in feedSortOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+            <select v-model.number="sellPageSize" class="feed-control-select compact" @change="setFeedPageSize('sell')">
+              <option v-for="size in feedPageSizeOptions" :key="size" :value="size">{{ size }}</option>
+            </select>
+          </div>
         </div>
-        <div class="feed-list" @scroll="onSellScroll">
+        <div class="feed-list">
           <div
             v-for="inq in sellFeed" :key="inq.id"
             class="feed-card"
@@ -459,7 +483,11 @@
             </div>
           </div>
           <div v-if="sellFeed.length === 0" class="feed-empty">No open selling offers</div>
-          <div v-if="sellLoadingMore" class="feed-loading-more">Loading more…</div>
+        </div>
+        <div class="feed-pager">
+          <button class="btn-ghost sm" :disabled="sellLoading || sellPage <= 1" @click="changeFeedPage('sell', sellPage - 1)">Previous</button>
+          <span class="feed-page-label">Page {{ sellPage }} of {{ sellTotalPages }}</span>
+          <button class="btn-ghost sm" :disabled="sellLoading || sellPage >= sellTotalPages" @click="changeFeedPage('sell', sellPage + 1)">Next</button>
         </div>
       </div>
 
@@ -700,11 +728,23 @@ const buyFeed          = ref([])
 const sellFeed         = ref([])
 const buyTotal         = ref(0)
 const sellTotal        = ref(0)
-const buyLimit         = ref(50)
-const sellLimit        = ref(50)
-const buyLoadingMore   = ref(false)
-const sellLoadingMore  = ref(false)
+const buyPage          = ref(1)
+const sellPage         = ref(1)
+const buyPageSize      = ref(50)
+const sellPageSize     = ref(50)
+const buySort          = ref('latest')
+const sellSort         = ref('latest')
+const buyLoading       = ref(false)
+const sellLoading      = ref(false)
 let   pollTimer        = null
+
+const feedPageSizeOptions = [25, 50, 100, 200]
+const feedSortOptions = [
+  { value: 'latest', label: 'Latest first' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'recently_updated', label: 'Recently updated' },
+  { value: 'least_recently_updated', label: 'Least updated' },
+]
 
 // Ticks once a second so `isFreshInquiry` re-evaluates and the Close button
 // re-enables itself without needing a manual refresh.
@@ -1097,8 +1137,8 @@ const statusFilters = [
 
 function setStatusFilter(val) {
   selectedStatus.value = val
-  buyLimit.value = 50
-  sellLimit.value = 50
+  buyPage.value = 1
+  sellPage.value = 1
   refresh()
 }
 
@@ -1220,19 +1260,25 @@ const lastUpdateLabel = computed(() => {
 })
 
 
+const buyTotalPages = computed(() => Math.max(1, Math.ceil(buyTotal.value / buyPageSize.value)))
+const sellTotalPages = computed(() => Math.max(1, Math.ceil(sellTotal.value / sellPageSize.value)))
+
 function formatAge(secs) {
   if (secs < 60)   return `${secs}s`
   if (secs < 3600) return `${Math.floor(secs / 60)}m`
   return `${Math.floor(secs / 3600)}h`
 }
 
-function feedParams(type, limit) {
+function feedParams(type) {
   const accountParam = selectedAccount.value || undefined
+  const isBuy = type === 'buy'
   return {
     ...(accountParam ? { account: accountParam } : {}),
     status: selectedStatus.value,
     type,
-    limit,
+    page: isBuy ? buyPage.value : sellPage.value,
+    page_size: isBuy ? buyPageSize.value : sellPageSize.value,
+    sort: isBuy ? buySort.value : sellSort.value,
   }
 }
 
@@ -1241,8 +1287,8 @@ async function refresh() {
   const params = accountParam ? { account: accountParam } : {}
   const [statsRes, buyRes, sellRes, prodsRes] = await Promise.all([
     tradingApi.getStats(params),
-    tradingApi.getOpenFeed(feedParams('buy', buyLimit.value)),
-    tradingApi.getOpenFeed(feedParams('sell', sellLimit.value)),
+    tradingApi.getOpenFeed(feedParams('buy')),
+    tradingApi.getOpenFeed(feedParams('sell')),
     tradingApi.listProducts({ page_size: 1000, is_active: true }),
   ])
   stats.value       = statsRes.data
@@ -1284,42 +1330,62 @@ async function runCloseStale() {
   }
 }
 
-// Each column loads its own next page independently on scroll — doesn't touch the other
-// column, stats, or products, so scrolling one list stays cheap and doesn't disturb the other.
-async function loadMoreBuy() {
-  if (buyLoadingMore.value || buyFeed.value.length >= buyTotal.value) return
-  buyLoadingMore.value = true
+async function loadBuyFeed() {
+  buyLoading.value = true
   try {
-    buyLimit.value += 50
-    const { data } = await tradingApi.getOpenFeed(feedParams('buy', buyLimit.value))
-    buyFeed.value  = data.results
+    const { data } = await tradingApi.getOpenFeed(feedParams('buy'))
+    buyFeed.value = data.results
     buyTotal.value = data.count
   } finally {
-    buyLoadingMore.value = false
+    buyLoading.value = false
   }
 }
 
-async function loadMoreSell() {
-  if (sellLoadingMore.value || sellFeed.value.length >= sellTotal.value) return
-  sellLoadingMore.value = true
+async function loadSellFeed() {
+  sellLoading.value = true
   try {
-    sellLimit.value += 50
-    const { data } = await tradingApi.getOpenFeed(feedParams('sell', sellLimit.value))
-    sellFeed.value  = data.results
+    const { data } = await tradingApi.getOpenFeed(feedParams('sell'))
+    sellFeed.value = data.results
     sellTotal.value = data.count
   } finally {
-    sellLoadingMore.value = false
+    sellLoading.value = false
   }
 }
 
-function onBuyScroll(e) {
-  const el = e.target
-  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) loadMoreBuy()
+function resetFeedPagesAndRefresh() {
+  buyPage.value = 1
+  sellPage.value = 1
+  refresh()
 }
 
-function onSellScroll(e) {
-  const el = e.target
-  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) loadMoreSell()
+function setFeedSort(type) {
+  if (type === 'buy') {
+    buyPage.value = 1
+    loadBuyFeed()
+  } else {
+    sellPage.value = 1
+    loadSellFeed()
+  }
+}
+
+function setFeedPageSize(type) {
+  if (type === 'buy') {
+    buyPage.value = 1
+    loadBuyFeed()
+  } else {
+    sellPage.value = 1
+    loadSellFeed()
+  }
+}
+
+function changeFeedPage(type, page) {
+  if (type === 'buy') {
+    buyPage.value = Math.min(Math.max(1, page), buyTotalPages.value)
+    loadBuyFeed()
+  } else {
+    sellPage.value = Math.min(Math.max(1, page), sellTotalPages.value)
+    loadSellFeed()
+  }
 }
 
 async function act(inq, status) {
@@ -1585,11 +1651,15 @@ onUnmounted(() => {
 /* Main grid */
 .main-grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 0; overflow: hidden; }
 .feed-col { display: flex; flex-direction: column; border-right: 1px solid #e5e7eb; overflow: hidden; }
-.feed-header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #e5e7eb; }
+.feed-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #e5e7eb; flex-wrap: wrap; }
 .wtb-header { background: #f0fdf4; }
 .wts-header { background: #fff7ed; }
+.feed-heading { display: flex; align-items: center; gap: 10px; min-width: 140px; }
 .feed-title { font-weight: 700; font-size: 0.85rem; letter-spacing: 0.05em; }
 .feed-count { background: #e5e7eb; border-radius: 999px; padding: 1px 8px; font-size: 0.78rem; }
+.feed-controls { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.feed-control-select { height: 28px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #374151; font-size: 0.78rem; padding: 2px 8px; }
+.feed-control-select.compact { width: 72px; }
 .feed-list { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 .feed-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; height: 300px; }
 .feed-card.urgent { border-left: 3px solid #f59e0b; }
@@ -1657,7 +1727,9 @@ onUnmounted(() => {
 .incorrect-match-form { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
 .incorrect-match-input { flex: 1; padding: 4px 8px; border: 1px solid #fca5a5; border-radius: 5px; font-size: 0.78rem; min-width: 0; }
 .feed-empty { text-align: center; color: #9ca3af; font-size: 0.85rem; padding: 30px; }
-.feed-loading-more { text-align: center; color: #9ca3af; font-size: 0.78rem; padding: 8px; }
+.feed-pager { display: flex; align-items: center; justify-content: center; gap: 10px; color: #6b7280; font-size: 0.78rem; padding: 8px; border-top: 1px solid #e5e7eb; background: #fff; }
+.feed-pager.inline { margin-top: 2px; border: 1px solid #e5e7eb; border-radius: 8px; }
+.feed-page-label { min-width: 82px; text-align: center; }
 .btn-ghost { padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 6px; background: transparent; cursor: pointer; font-size: 0.85rem; }
 .btn-ghost.sm { padding: 4px 10px; font-size: 0.8rem; }
 /* Inventory stock hints on WTB cards */
