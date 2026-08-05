@@ -234,6 +234,8 @@ export const tradingApi = {
   setWtsReplySettings: (data) => http.put('/trading-settings/wts-reply/', data),
   getInquiryProductSaveSettings: () => http.get('/trading-settings/inquiry-products/'),
   setInquiryProductSaveSettings: (data) => http.put('/trading-settings/inquiry-products/', data),
+  getV2MatchingThresholds: () => http.get('/trading-settings/v2-matching-thresholds/'),
+  setV2MatchingThresholds: (data) => http.put('/trading-settings/v2-matching-thresholds/', data),
 
   // Buying Inquiries (manual RFQ-to-suppliers workflow)
   listBuyingInquiries:  (params)     => http.get('/buying-inquiries/', { params }),

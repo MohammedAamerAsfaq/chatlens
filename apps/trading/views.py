@@ -2011,6 +2011,27 @@ class TradingSettingsViewSet(viewsets.ViewSet):
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(payload)
 
+    @action(detail=False, methods=['get', 'put'], url_path='v2-matching-thresholds')
+    def v2_matching_thresholds(self, request):
+        from apps.trading.services.trading_settings_service import (
+            get_v2_matching_thresholds,
+            save_v2_matching_thresholds,
+        )
+
+        company = default_company_for_user(request.user)
+        if request.method == 'GET':
+            return Response(get_v2_matching_thresholds(company))
+
+        try:
+            payload = save_v2_matching_thresholds(
+                company,
+                request.data.get('pass2_candidate_max_distance'),
+                request.data.get('exact_auto_match_max_distance'),
+            )
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(payload)
+
 
 class ProductPriceUpdateViewSet(viewsets.ViewSet):
     """New, independent qty/cost and sale-price update pipeline for the "Product Price

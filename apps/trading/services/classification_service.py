@@ -536,13 +536,22 @@ def _build_v2_match_prompts(message, products: list[dict], candidates_by_index: 
     return system, json.dumps(payload, ensure_ascii=False, default=str)
 
 
-def _no_candidate_v2_result(index: int) -> dict:
+def _best_candidate_distance(candidates: list[dict]) -> float | None:
+    distances = [
+        float(candidate['distance'])
+        for candidate in candidates
+        if candidate.get('distance') is not None
+    ]
+    return min(distances) if distances else None
+
+
+def _no_candidate_v2_result(index: int, reason: str | None = None, rejected_candidate_ids: list[int] | None = None) -> dict:
     return {
         'product_id': None,
         'match_type': None,
         'confidence': 0.0,
-        'reason': 'No active inventory candidates matched the extracted brand/attributes.',
-        'rejected_candidate_ids': [],
+        'reason': reason or 'No active inventory candidates matched the extracted brand/attributes.',
+        'rejected_candidate_ids': rejected_candidate_ids or [],
     }
 
 
@@ -862,6 +871,7 @@ def _auto_save_matched_inquiry_products(message, inquiry_ids: list[int], product
 def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: list[int], total_start) -> None:
     from apps.trading.models import AgentCallLog, AiParseV2Log, Inquiry, MessageClassification
     from apps.trading.services.agent_logger import call_agent
+    from apps.trading.services.trading_settings_service import get_v2_matching_thresholds
     from apps.tenancy.services.access import company_for_message
     from apps.whatsapp_bridge.models import WhatsAppMessage
 
@@ -887,6 +897,9 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
         return
 
     company = company_for_message(message)
+    thresholds = get_v2_matching_thresholds(company)
+    pass2_candidate_max_distance = thresholds['pass2_candidate_max_distance']
+    exact_auto_match_max_distance = thresholds['exact_auto_match_max_distance']
     candidate_timing = {'candidate_search_ms': 0}
     candidates_by_index = {
         index: _find_v2_candidates(
@@ -900,13 +913,36 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
     }
     candidate_search_ms = candidate_timing['candidate_search_ms']
 
+    rejected_by_threshold = {}
+    for index, candidates in candidates_by_index.items():
+        if not candidates:
+            continue
+        best_distance = _best_candidate_distance(candidates)
+        if best_distance is not None and best_distance > pass2_candidate_max_distance:
+            rejected_by_threshold[index] = {
+                'best_distance': best_distance,
+                'threshold': pass2_candidate_max_distance,
+                'reason': (
+                    f'Best embedding distance {best_distance:.4f} exceeded '
+                    f'pass 2 candidate threshold {pass2_candidate_max_distance:.4f}.'
+                ),
+            }
+
     candidate_indexes = {
         index
         for index, candidates in candidates_by_index.items()
-        if candidates
+        if candidates and index not in rejected_by_threshold
     }
     no_candidate_results = {
-        index: _no_candidate_v2_result(index)
+        index: _no_candidate_v2_result(
+            index,
+            reason=rejected_by_threshold[index]['reason'] if index in rejected_by_threshold else None,
+            rejected_candidate_ids=[
+                candidate['product_id']
+                for candidate in candidates_by_index.get(index, [])
+                if candidate.get('product_id') is not None
+            ] if index in rejected_by_threshold else None,
+        )
         for index in range(len(products))
         if index not in candidate_indexes
     }
@@ -919,7 +955,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
                 'match_type': None,
                 'match_reason': no_candidate_results[index]['reason'],
                 'match_confidence': 0.0,
-                'candidate_products': [],
+                'candidate_products': candidates_by_index.get(index, []),
                 'v2_line_index': index,
             }
             for index, product in enumerate(products)
@@ -929,8 +965,10 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
             raw_existing = {'v1_legacy_raw': raw_existing}
         raw_existing['v2_pass2'] = {
             'skipped': True,
-            'reason': 'no active in-stock candidates matched extracted brand/attributes',
+            'reason': 'no active inventory candidates matched extracted brand/attributes',
             'candidates_by_index': candidates_by_index,
+            'thresholds': thresholds,
+            'rejected_by_threshold': rejected_by_threshold,
         }
         classification.products = updated_products
         classification.raw_response = raw_existing
@@ -948,16 +986,20 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
             total_ms=_elapsed_ms(total_start),
             pass2_request={
                 'skipped': True,
-                'reason': 'no active in-stock candidates matched extracted brand/attributes',
+                'reason': 'no active inventory candidates matched extracted brand/attributes',
                 'products': products,
                 'candidates_by_index': candidates_by_index,
+                'thresholds': thresholds,
+                'rejected_by_threshold': rejected_by_threshold,
             },
             pass2_response='',
             pass2_parsed={
                 'skipped': True,
-                'reason': 'no active in-stock candidates matched extracted brand/attributes',
+                'reason': 'no active inventory candidates matched extracted brand/attributes',
                 'match_results': no_candidate_results,
                 'updated_products': updated_products,
+                'thresholds': thresholds,
+                'rejected_by_threshold': rejected_by_threshold,
             },
             error='',
         )
@@ -995,6 +1037,8 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
             'temperature': 0,
             'line_index_map': line_index_map,
             'no_candidate_line_indexes': sorted(no_candidate_results.keys()),
+            'thresholds': thresholds,
+            'rejected_by_threshold': rejected_by_threshold,
         },
         error='',
     )
@@ -1024,6 +1068,30 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
             raise ValueError(
                 f'V2 match selected product_id={product_id} outside candidates for line_index={index}'
             )
+        best_distance = _best_candidate_distance(candidates_by_index.get(index, []))
+        if (
+            product_id is not None
+            and result.get('match_type') == 'exact'
+            and best_distance is not None
+            and best_distance > exact_auto_match_max_distance
+        ):
+            result = {
+                **result,
+                'product_id': None,
+                'match_type': None,
+                'confidence': 0.0,
+                'reason': (
+                    f'AI exact match rejected because best embedding distance {best_distance:.4f} '
+                    f'exceeded exact auto-match threshold {exact_auto_match_max_distance:.4f}. '
+                    f"Original AI reason: {result.get('reason') or ''}"
+                ).strip(),
+                'rejected_candidate_ids': sorted(candidate_ids),
+                'rejected_exact_product_id': product_id,
+                'best_distance': best_distance,
+                'exact_auto_match_threshold': exact_auto_match_max_distance,
+            }
+            match_results[index] = result
+            product_id = None
         updated = {
             **product,
             'product_id': product_id,
@@ -1043,6 +1111,8 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
         'candidates_by_index': candidates_by_index,
         'line_index_map': line_index_map,
         'no_candidate_line_indexes': sorted(no_candidate_results.keys()),
+        'thresholds': thresholds,
+        'rejected_by_threshold': rejected_by_threshold,
     }
     classification.products = updated_products
     classification.raw_response = raw_existing
@@ -1067,6 +1137,8 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
             'line_index_map': line_index_map,
             'no_candidate_line_indexes': sorted(no_candidate_results.keys()),
             'auto_saved_inquiry_products': auto_saved_rows,
+            'thresholds': thresholds,
+            'rejected_by_threshold': rejected_by_threshold,
         },
         error='',
     )
