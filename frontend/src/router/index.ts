@@ -26,6 +26,7 @@ import InquiryProductsView  from '../views/InquiryProductsView.vue'
 import ProductsView         from '../views/ProductsView.vue'
 import ProductPriceUpdateView from '../views/ProductPriceUpdateView.vue'
 import AIInstructionsView   from '../views/AIInstructionsView.vue'
+import V2SettingsView        from '../views/V2SettingsView.vue'
 import BuyingInquiriesView  from '../views/BuyingInquiriesView.vue'
 import TenantAdminView from '../views/TenantAdminView.vue'
 
@@ -59,6 +60,7 @@ const router = createRouter({
     { path: '/product-price-update', name: 'product-price-update', component: ProductPriceUpdateView },
     { path: '/buying-inquiries', name: 'buying-inquiries', component: BuyingInquiriesView },
     { path: '/ai-instructions', name: 'ai-instructions', component: AIInstructionsView },
+    { path: '/v2-settings', name: 'v2-settings', component: V2SettingsView },
     { path: '/tenant-admin', name: 'tenant-admin', component: TenantAdminView },
   ],
 })

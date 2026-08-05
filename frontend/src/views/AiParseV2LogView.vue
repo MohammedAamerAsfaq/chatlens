@@ -178,6 +178,16 @@ function pass2Payload(value) {
   return parseJson(userMessage?.content)
 }
 
+function pass2Batches(value) {
+  const parsed = parseJson(value)
+  return Array.isArray(parsed?.batches) ? parsed.batches : []
+}
+
+function pass2ResponseBatches(value) {
+  const parsed = parseJson(value)
+  return Array.isArray(parsed) ? parsed : []
+}
+
 function pass2CandidatePool(value) {
   const payload = pass2Payload(value)
   return Array.isArray(payload?.candidate_pool) ? payload.candidate_pool : []
@@ -403,7 +413,19 @@ function candidatesForProduct(product, panelValue) {
                       </template>
 
                       <template v-else-if="panel.type === 'pass2_request'">
-                        <div v-for="message in requestMessages(panel.value)" :key="message.role" class="prompt-block">
+                        <div v-if="pass2Batches(panel.value).length" class="batch-list">
+                          <article v-for="batch in pass2Batches(panel.value)" :key="batch.batch_number" class="batch-card">
+                            <div class="product-title">
+                              <span>Batch {{ batch.batch_number }}</span>
+                              <strong>Lines {{ (batch.original_line_indexes || []).join(', ') }}</strong>
+                            </div>
+                            <div v-for="message in requestMessages(batch)" :key="`${batch.batch_number}:${message.role}`" class="prompt-block">
+                              <div class="field-label">{{ message.role }}</div>
+                              <div class="prompt-text">{{ message.content }}</div>
+                            </div>
+                          </article>
+                        </div>
+                        <div v-else v-for="message in requestMessages(panel.value)" :key="message.role" class="prompt-block">
                           <div class="field-label">{{ message.role }}</div>
                           <div class="prompt-text">{{ message.content }}</div>
                         </div>
@@ -452,6 +474,15 @@ function candidatesForProduct(product, panelValue) {
                       </template>
 
                       <template v-else-if="panel.type === 'match_response' || panel.type === 'match_parsed'">
+                        <div v-if="panel.type === 'match_response' && pass2ResponseBatches(panel.value).length" class="batch-list">
+                          <article v-for="batch in pass2ResponseBatches(panel.value)" :key="batch.batch_number" class="batch-card">
+                            <div class="product-title">
+                              <span>Batch {{ batch.batch_number }}</span>
+                              <strong>AI time: {{ formatDuration(batch.ai_ms) }}</strong>
+                            </div>
+                            <pre>{{ batch.raw_response }}</pre>
+                          </article>
+                        </div>
                         <div v-for="result in matchResultsFrom(panel.value)" :key="result.line_index" class="product-card">
                           <div class="product-title">
                             <span>Line {{ result.line_index }}</span>
@@ -580,6 +611,8 @@ pre { margin: 0; padding: 12px; max-height: 340px; overflow: auto; font-size: 0.
 .skip-card strong { display: block; color: #7c2d12; margin-bottom: 6px; }
 .skip-card p { margin: 0; line-height: 1.45; font-size: 0.82rem; }
 .prompt-block { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+.batch-list { display: flex; flex-direction: column; gap: 10px; }
+.batch-card { border: 1px solid #cbd5e1; border-radius: 12px; padding: 10px; background: #f8fafc; display: flex; flex-direction: column; gap: 10px; }
 .field-label { color: #64748b; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
 .prompt-block .field-label { padding: 8px 10px; margin: 0; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
 .prompt-text { padding: 10px; color: #334155; font-size: 0.78rem; line-height: 1.45; white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow-y: auto; }

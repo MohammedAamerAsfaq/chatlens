@@ -2014,23 +2014,23 @@ class TradingSettingsViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['get', 'put'], url_path='v2-matching-thresholds')
     def v2_matching_thresholds(self, request):
         from apps.trading.services.trading_settings_service import (
-            get_v2_matching_thresholds,
-            save_v2_matching_thresholds,
+            get_v2_matching_settings,
+            save_v2_matching_settings,
         )
 
         company = default_company_for_user(request.user)
         if request.method == 'GET':
-            return Response(get_v2_matching_thresholds(company))
+            return Response(get_v2_matching_settings(company))
 
         try:
-            payload = save_v2_matching_thresholds(
-                company,
-                request.data.get('pass2_candidate_max_distance'),
-                request.data.get('exact_auto_match_max_distance'),
-            )
+            payload = save_v2_matching_settings(company, request.data)
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(payload)
+
+    @action(detail=False, methods=['get', 'put'], url_path='v2-matching')
+    def v2_matching(self, request):
+        return self.v2_matching_thresholds(request)
 
 
 class ProductPriceUpdateViewSet(viewsets.ViewSet):

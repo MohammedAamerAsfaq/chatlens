@@ -55,7 +55,7 @@ const isReportsActive = computed(() => REPORT_ROUTES.includes(route.name))
 const LIST_ROUTES = ['contacts', 'groups', 'products', 'inquiry-products', 'product-price-update']
 const isListsActive = computed(() => LIST_ROUTES.includes(route.name))
 
-const SETTINGS_ROUTES = ['sessions', 'storage', 'ai-providers', 'ai-instructions', 'tenant-admin']
+const SETTINGS_ROUTES = ['sessions', 'storage', 'ai-providers', 'ai-instructions', 'v2-settings', 'tenant-admin']
 const isSettingsActive = computed(() => SETTINGS_ROUTES.includes(route.name))
 
 async function handleLogout() {
@@ -136,6 +136,7 @@ async function handleCompanySwitch(event) {
           <RouterLink to="/storage"         class="dropdown-item" active-class="dropdown-item-active">Storage</RouterLink>
           <RouterLink to="/ai-providers"    class="dropdown-item" active-class="dropdown-item-active">AI Providers</RouterLink>
           <RouterLink to="/ai-instructions" class="dropdown-item" active-class="dropdown-item-active">AI Instructions</RouterLink>
+          <RouterLink to="/v2-settings"     class="dropdown-item" active-class="dropdown-item-active">V2 Settings</RouterLink>
           <RouterLink v-if="auth.canManageTenants" to="/tenant-admin" class="dropdown-item" active-class="dropdown-item-active">Tenant Admin</RouterLink>
         </div>
       </div>

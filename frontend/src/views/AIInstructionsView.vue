@@ -159,40 +159,6 @@
       </div>
 
       <div v-if="promptsLoading" class="loading">Loading…</div>
-      <!-- V2 matching threshold settings card -->
-      <div class="agent-card">
-        <div class="agent-header">
-          <div class="agent-title">
-            <span class="agent-name">V2 Matching Thresholds</span>
-          </div>
-          <span class="agent-label">Inquiry classification</span>
-        </div>
-        <div class="pricing-row">
-          <div class="price-field">
-            <label>Pass 2 candidate max distance</label>
-            <input
-              v-model.number="v2MatchingThresholds.pass2_candidate_max_distance"
-              type="number"
-              min="0"
-              step="0.01"
-            />
-            <small>Reject candidate set before pass 2 when best distance is greater.</small>
-          </div>
-          <div class="price-field">
-            <label>Exact auto-match max distance</label>
-            <input
-              v-model.number="v2MatchingThresholds.exact_auto_match_max_distance"
-              type="number"
-              min="0"
-              step="0.01"
-            />
-            <small>Reject exact match acceptance after pass 2 when best distance is greater.</small>
-          </div>
-          <button class="btn-primary btn-sm" @click="saveV2MatchingThresholds">Save</button>
-          <div v-if="v2MatchingThresholdsSaved" class="pricing-ok">Saved.</div>
-        </div>
-      </div>
-
       <div v-if="!promptsLoading" class="prompt-list">
         <div v-for="p in prompts" :key="p.key" class="prompt-card">
           <div class="card-header">
@@ -340,11 +306,6 @@ const wtsReply      = ref({
 const wtsReplySaved = ref(false)
 const inquiryProductSave = ref({ mode: 'manual' })
 const inquiryProductSaveSaved = ref(false)
-const v2MatchingThresholds = ref({
-  pass2_candidate_max_distance: 0.55,
-  exact_auto_match_max_distance: 0.45,
-})
-const v2MatchingThresholdsSaved = ref(false)
 
 function tokenCount(text) { return Math.round((text || '').length / 4) }
 
@@ -357,18 +318,16 @@ function inputCost(text) {
 async function loadPrompts() {
   promptsLoading.value = true
   try {
-    const [pr, ar, wr, ips, v2t] = await Promise.all([
+    const [pr, ar, wr, ips] = await Promise.all([
       tradingApi.listPrompts(),
       tradingApi.getActiveAgent().catch(() => ({ data: {} })),
       tradingApi.getWtsReplySettings().catch(() => ({ data: {} })),
       tradingApi.getInquiryProductSaveSettings().catch(() => ({ data: {} })),
-      tradingApi.getV2MatchingThresholds().catch(() => ({ data: {} })),
     ])
     prompts.value = pr.data
     Object.assign(agent.value, ar.data)
     if (wr.data.heading !== undefined) Object.assign(wtsReply.value, wr.data)
     if (ips.data.mode !== undefined) Object.assign(inquiryProductSave.value, ips.data)
-    if (v2t.data.pass2_candidate_max_distance !== undefined) Object.assign(v2MatchingThresholds.value, v2t.data)
   } finally {
     promptsLoading.value = false
   }
@@ -423,14 +382,6 @@ async function saveInquiryProductSave() {
   inquiryProductSave.value = data
   inquiryProductSaveSaved.value = true
   setTimeout(() => { inquiryProductSaveSaved.value = false }, 2000)
-}
-
-async function saveV2MatchingThresholds() {
-  v2MatchingThresholdsSaved.value = false
-  const { data } = await tradingApi.setV2MatchingThresholds(v2MatchingThresholds.value)
-  v2MatchingThresholds.value = data
-  v2MatchingThresholdsSaved.value = true
-  setTimeout(() => { v2MatchingThresholdsSaved.value = false }, 2000)
 }
 
 const logs       = ref([])

@@ -492,6 +492,63 @@ def _find_v2_candidates(
         raise
 
 
+def _pass2_candidate_payload(candidate: dict) -> dict:
+    return {
+        'product_id': candidate.get('product_id'),
+        'name': candidate.get('name'),
+        'brand': candidate.get('brand'),
+        'qty': candidate.get('qty'),
+        'stock_status': candidate.get('stock_status'),
+        'distance': candidate.get('distance'),
+        'attributes': candidate.get('attributes') or [],
+    }
+
+
+def _build_v2_match_batches(
+    candidate_indexes: set[int],
+    candidates_by_index: dict[int, list[dict]],
+    max_items: int,
+) -> list[list[int]]:
+    batches = []
+    current = []
+    current_candidate_ids = set()
+
+    for index in sorted(candidate_indexes):
+        candidate_ids = {
+            candidate['product_id']
+            for candidate in candidates_by_index.get(index, [])
+            if candidate.get('product_id') is not None
+        }
+        next_candidate_ids = current_candidate_ids | candidate_ids
+        next_size = len(current) + 1 + len(next_candidate_ids)
+
+        if current and next_size > max_items:
+            batches.append(current)
+            current = []
+            current_candidate_ids = set()
+            next_candidate_ids = candidate_ids
+
+        current.append(index)
+        current_candidate_ids = next_candidate_ids
+
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _call_agent_with_timeout(callable_func, timeout_seconds: int):
+    import concurrent.futures
+
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(callable_func)
+    try:
+        return future.result(timeout=timeout_seconds)
+    except concurrent.futures.TimeoutError as exc:
+        raise TimeoutError(f'V2 pass 2 AI call exceeded {timeout_seconds} seconds') from exc
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
 def _build_v2_match_prompts(message, products: list[dict], candidates_by_index: dict[int, list[dict]]) -> tuple[str, str]:
     from apps.tenancy.services.access import company_for_message
     from apps.trading.models import PromptConfig, INQUIRY_MATCH_DECISION_V2_DEFAULT
@@ -506,7 +563,7 @@ def _build_v2_match_prompts(message, products: list[dict], candidates_by_index: 
         for candidate in candidates:
             product_id = candidate.get('product_id')
             if product_id is not None and product_id not in candidate_pool:
-                candidate_pool[product_id] = candidate
+                candidate_pool[product_id] = _pass2_candidate_payload(candidate)
 
     payload = {
         'original_message': message.message_text,
@@ -871,7 +928,7 @@ def _auto_save_matched_inquiry_products(message, inquiry_ids: list[int], product
 def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: list[int], total_start) -> None:
     from apps.trading.models import AgentCallLog, AiParseV2Log, Inquiry, MessageClassification
     from apps.trading.services.agent_logger import call_agent
-    from apps.trading.services.trading_settings_service import get_v2_matching_thresholds
+    from apps.trading.services.trading_settings_service import get_v2_matching_settings
     from apps.tenancy.services.access import company_for_message
     from apps.whatsapp_bridge.models import WhatsAppMessage
 
@@ -897,14 +954,18 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
         return
 
     company = company_for_message(message)
-    thresholds = get_v2_matching_thresholds(company)
-    pass2_candidate_max_distance = thresholds['pass2_candidate_max_distance']
-    exact_auto_match_max_distance = thresholds['exact_auto_match_max_distance']
+    settings = get_v2_matching_settings(company)
+    pass2_candidate_max_distance = settings['pass2_candidate_max_distance']
+    exact_auto_match_max_distance = settings['exact_auto_match_max_distance']
+    pass2_candidates_per_line = settings['pass2_candidates_per_line']
+    pass2_batch_max_items = settings['pass2_batch_max_items']
+    pass2_ai_timeout_seconds = settings['pass2_ai_timeout_seconds']
     candidate_timing = {'candidate_search_ms': 0}
     candidates_by_index = {
         index: _find_v2_candidates(
             product.get('canonical_name') or product.get('raw_text') or '',
             company,
+            top_k=pass2_candidates_per_line,
             brand=product.get('brand') or '',
             attributes=product.get('attributes') or {},
             timing_accumulator=candidate_timing,
@@ -967,7 +1028,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
             'skipped': True,
             'reason': 'no active inventory candidates matched extracted brand/attributes',
             'candidates_by_index': candidates_by_index,
-            'thresholds': thresholds,
+            'settings': settings,
             'rejected_by_threshold': rejected_by_threshold,
         }
         classification.products = updated_products
@@ -989,7 +1050,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
                 'reason': 'no active inventory candidates matched extracted brand/attributes',
                 'products': products,
                 'candidates_by_index': candidates_by_index,
-                'thresholds': thresholds,
+                'settings': settings,
                 'rejected_by_threshold': rejected_by_threshold,
             },
             pass2_response='',
@@ -998,7 +1059,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
                 'reason': 'no active inventory candidates matched extracted brand/attributes',
                 'match_results': no_candidate_results,
                 'updated_products': updated_products,
-                'thresholds': thresholds,
+                'settings': settings,
                 'rejected_by_threshold': rejected_by_threshold,
             },
             error='',
@@ -1011,53 +1072,94 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
         )
         return
 
-    match_products = [
-        product
-        for index, product in enumerate(products)
-        if index in candidate_indexes
-    ]
-    match_candidates_by_index = {
-        new_index: candidates_by_index[original_index]
-        for new_index, original_index in enumerate(sorted(candidate_indexes))
-    }
-    line_index_map = {
-        new_index: original_index
-        for new_index, original_index in enumerate(sorted(candidate_indexes))
-    }
-
-    system_prompt, user_prompt = _build_v2_match_prompts(message, match_products, match_candidates_by_index)
+    pass2_batches = _build_v2_match_batches(
+        candidate_indexes,
+        candidates_by_index,
+        pass2_batch_max_items,
+    )
+    pass2_requests = []
+    pass2_responses = []
     AiParseV2Log.objects.filter(message_id=message_id).update(
         status=AiParseV2Log.STATUS_PASS2_STARTED,
         candidate_search_ms=candidate_search_ms,
         pass2_request={
+            'batches': [],
+            'temperature': 0,
+            'no_candidate_line_indexes': sorted(no_candidate_results.keys()),
+            'settings': settings,
+            'rejected_by_threshold': rejected_by_threshold,
+        },
+        error='',
+    )
+    match_results = dict(no_candidate_results)
+    pass2_ai_ms = 0
+    combined_line_index_map = {}
+
+    for batch_number, original_indexes in enumerate(pass2_batches, start=1):
+        match_products = [products[original_index] for original_index in original_indexes]
+        match_candidates_by_index = {
+            new_index: candidates_by_index[original_index]
+            for new_index, original_index in enumerate(original_indexes)
+        }
+        line_index_map = {
+            new_index: original_index
+            for new_index, original_index in enumerate(original_indexes)
+        }
+        combined_line_index_map.update({
+            f'batch_{batch_number}:{new_index}': original_index
+            for new_index, original_index in line_index_map.items()
+        })
+        system_prompt, user_prompt = _build_v2_match_prompts(
+            message,
+            match_products,
+            match_candidates_by_index,
+        )
+        request_payload = {
+            'batch_number': batch_number,
+            'original_line_indexes': original_indexes,
+            'line_index_map': line_index_map,
             'messages': [
                 {'role': 'system', 'content': system_prompt},
                 {'role': 'user', 'content': user_prompt},
             ],
             'temperature': 0,
+        }
+        pass2_requests.append(request_payload)
+        AiParseV2Log.objects.filter(message_id=message_id).update(
+            pass2_request={
+                'batches': pass2_requests,
+                'temperature': 0,
+                'no_candidate_line_indexes': sorted(no_candidate_results.keys()),
+                'settings': settings,
+                'rejected_by_threshold': rejected_by_threshold,
+            },
+        )
+
+        pass2_ai_start = time.perf_counter()
+        raw_response = _call_agent_with_timeout(
+            lambda: call_agent(
+                AgentCallLog.PURPOSE_INQUIRY_MATCH_V2,
+                [
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user', 'content': user_prompt},
+                ],
+                wa_message_id=message_id,
+                classification_version=CLASSIFICATION_V2,
+                temperature=0,
+            ),
+            pass2_ai_timeout_seconds,
+        )
+        batch_ai_ms = _elapsed_ms(pass2_ai_start)
+        pass2_ai_ms += batch_ai_ms
+        pass2_responses.append({
+            'batch_number': batch_number,
+            'raw_response': raw_response,
+            'ai_ms': batch_ai_ms,
             'line_index_map': line_index_map,
-            'no_candidate_line_indexes': sorted(no_candidate_results.keys()),
-            'thresholds': thresholds,
-            'rejected_by_threshold': rejected_by_threshold,
-        },
-        error='',
-    )
-    pass2_ai_start = time.perf_counter()
-    raw_response = call_agent(
-        AgentCallLog.PURPOSE_INQUIRY_MATCH_V2,
-        [
-            {'role': 'system', 'content': system_prompt},
-            {'role': 'user', 'content': user_prompt},
-        ],
-        wa_message_id=message_id,
-        classification_version=CLASSIFICATION_V2,
-        temperature=0,
-    )
-    pass2_ai_ms = _elapsed_ms(pass2_ai_start)
-    raw_match_results = _parse_v2_match_response(raw_response, set(range(len(match_products))))
-    match_results = dict(no_candidate_results)
-    for new_index, result in raw_match_results.items():
-        match_results[line_index_map[new_index]] = result
+        })
+        raw_match_results = _parse_v2_match_response(raw_response, set(range(len(match_products))))
+        for new_index, result in raw_match_results.items():
+            match_results[line_index_map[new_index]] = result
 
     updated_products = []
     for index, product in enumerate(products):
@@ -1107,11 +1209,17 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
     if not isinstance(raw_existing, dict):
         raw_existing = {'v1_legacy_raw': raw_existing}
     raw_existing['v2_pass2'] = {
-        'raw': _clean_json_response(raw_response),
+        'raw_batches': [
+            {
+                **response,
+                'parsed_response': _clean_json_response(response['raw_response']),
+            }
+            for response in pass2_responses
+        ],
         'candidates_by_index': candidates_by_index,
-        'line_index_map': line_index_map,
+        'line_index_map': combined_line_index_map,
         'no_candidate_line_indexes': sorted(no_candidate_results.keys()),
-        'thresholds': thresholds,
+        'settings': settings,
         'rejected_by_threshold': rejected_by_threshold,
     }
     classification.products = updated_products
@@ -1129,15 +1237,21 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
         pass2_ai_ms=pass2_ai_ms,
         pass2_total_ms=_elapsed_ms(pass2_start),
         total_ms=_elapsed_ms(total_start),
-        pass2_response=raw_response,
+        pass2_response=json.dumps(pass2_responses, ensure_ascii=False, default=str),
         pass2_parsed={
-            'raw': _clean_json_response(raw_response),
+            'raw_batches': [
+                {
+                    **response,
+                    'parsed_response': _clean_json_response(response['raw_response']),
+                }
+                for response in pass2_responses
+            ],
             'match_results': match_results,
             'updated_products': updated_products,
-            'line_index_map': line_index_map,
+            'line_index_map': combined_line_index_map,
             'no_candidate_line_indexes': sorted(no_candidate_results.keys()),
             'auto_saved_inquiry_products': auto_saved_rows,
-            'thresholds': thresholds,
+            'settings': settings,
             'rejected_by_threshold': rejected_by_threshold,
         },
         error='',
