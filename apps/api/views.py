@@ -53,6 +53,20 @@ from .serializers import (
 WORKER_BASE_URL = getattr(settings, 'WORKER_BASE_URL', 'http://localhost:3001')
 ACTIVE_COMPANY_SESSION_KEY = 'active_company_id'
 logger = logging.getLogger(__name__)
+WORKER_HEARTBEAT_STALE_SECONDS = 90
+
+
+def _worker_liveness_status(account):
+    if not account.last_worker_heartbeat_at:
+        return 'unknown'
+    age_seconds = (now() - account.last_worker_heartbeat_at).total_seconds()
+    return 'online' if age_seconds <= WORKER_HEARTBEAT_STALE_SECONDS else 'stale'
+
+
+def _effective_session_status(account):
+    if account.session_status == SessionStatus.CONNECTED and _worker_liveness_status(account) != 'online':
+        return 'stale'
+    return account.session_status
 
 
 def _normalize_phone_jid(value):
@@ -213,6 +227,9 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
             return Response({
                 'syncing': False, 'total_synced': 0, 'total_processed': 0,
                 'batch_count': 0, 'is_complete': False,
+                'worker_liveness_status': _worker_liveness_status(account),
+                'effective_session_status': _effective_session_status(account),
+                'last_worker_heartbeat_at': account.last_worker_heartbeat_at,
                 'connection_unhealthy': account.connection_unhealthy,
                 'connection_unhealthy_reason': account.connection_unhealthy_reason,
             })
@@ -245,6 +262,9 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
             'batch_count': len(logs),
             'has_live_messages': has_live_messages,
             'is_complete': is_complete,
+            'worker_liveness_status': _worker_liveness_status(account),
+            'effective_session_status': _effective_session_status(account),
+            'last_worker_heartbeat_at': account.last_worker_heartbeat_at,
             'connection_unhealthy': account.connection_unhealthy,
             'connection_unhealthy_reason': account.connection_unhealthy_reason,
         })

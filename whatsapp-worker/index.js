@@ -18,6 +18,7 @@ const SESSION_STORE_PATH = process.env.SESSION_STORE_PATH || './sessions';
 const MEDIA_STORE_PATH = process.env.MEDIA_STORE_PATH || './media';
 const MESSAGE_LOGS_PATH = process.env.MESSAGE_LOGS_PATH || './message-logs';
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
+const HEARTBEAT_INTERVAL_MS = parseInt(process.env.WORKER_HEARTBEAT_INTERVAL_MS || '30000', 10);
 
 const logger = pino({ level: LOG_LEVEL });
 
@@ -36,6 +37,21 @@ const sessionManager = new SessionManager({
   messageLogger,
   logger,
 });
+
+function startHeartbeatLoop() {
+  const sendHeartbeats = () => {
+    for (const session of sessionManager.listSessions()) {
+      djangoClient.sendWorkerHeartbeat(session.sessionId, {
+        status: session.status,
+        phone_number: session.phoneNumber,
+        display_name: session.displayName,
+      });
+    }
+  };
+
+  sendHeartbeats();
+  return setInterval(sendHeartbeats, HEARTBEAT_INTERVAL_MS);
+}
 
 // Root-cause fix for "an exception inside an async Baileys event handler dies with
 // no persistent trace" — there was no top-level or process-level catch anywhere, so
@@ -105,4 +121,5 @@ app.listen(PORT, async () => {
   logger.info(`ChatLens WhatsApp Worker running on port ${PORT}`);
   logger.info(`Django base URL: ${DJANGO_BASE_URL}`);
   await sessionManager.initialize();
+  startHeartbeatLoop();
 });

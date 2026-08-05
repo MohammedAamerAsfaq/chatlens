@@ -36,6 +36,7 @@ const statusConfig = {
   pending_qr:   { label: 'Pending QR',   cls: 'bg-yellow-100 text-yellow-800' },
   qr_generated: { label: 'QR Generated', cls: 'bg-blue-100 text-blue-800' },
   connected:    { label: 'Connected',    cls: 'bg-green-100 text-green-800' },
+  stale:        { label: 'Worker Offline', cls: 'bg-orange-100 text-orange-800' },
   disconnected: { label: 'Disconnected', cls: 'bg-gray-100 text-gray-600' },
   logged_out:   { label: 'Logged Out',   cls: 'bg-red-100 text-red-700' },
   error:        { label: 'Error',        cls: 'bg-red-100 text-red-700' },
@@ -49,6 +50,12 @@ function formatDate(dt) {
   if (!dt) return '—'
   return new Date(dt).toLocaleString()
 }
+
+const displayedSessionStatus = computed(() => (
+  syncProgress.value?.effective_session_status
+  || props.account.effective_session_status
+  || props.account.session_status
+))
 
 async function connect() {
   await store.startSession(props.account.id)
@@ -121,10 +128,11 @@ const syncState = computed(() => {
   if (props.account.session_status === 'connected' && syncProgress.value?.connection_unhealthy) {
     return 'unhealthy'
   }
+  if (displayedSessionStatus.value === 'stale') return 'stale'
   if (syncFinished.value) return null
   if (syncDone.value) return 'done'
   if (!props.account.sync_history) return null
-  if (props.account.session_status !== 'connected') return null
+  if (displayedSessionStatus.value !== 'connected') return null
   if (syncProgress.value?.syncing) return 'syncing'
   // batch_count > 0 but not currently syncing = history batch already done before this page load
   if (syncProgress.value && syncProgress.value.batch_count > 0) return null
@@ -203,8 +211,8 @@ onUnmounted(() => {
         </p>
         <p class="text-sm text-gray-500">{{ account.phone_number || 'No phone yet' }}</p>
       </div>
-      <span :class="['shrink-0 text-xs font-medium px-2 py-1 rounded-full', statusFor(account.session_status).cls]">
-        {{ statusFor(account.session_status).label }}
+      <span :class="['shrink-0 text-xs font-medium px-2 py-1 rounded-full', statusFor(displayedSessionStatus).cls]">
+        {{ statusFor(displayedSessionStatus).label }}
       </span>
     </div>
 
@@ -214,7 +222,7 @@ onUnmounted(() => {
     <div
       v-if="syncState"
       class="flex flex-col gap-1.5 rounded-lg p-3 border"
-      :class="syncState === 'unhealthy' ? 'border-red-200 bg-red-50' : 'border-gray-100 bg-gray-50'"
+      :class="syncState === 'unhealthy' ? 'border-red-200 bg-red-50' : syncState === 'stale' ? 'border-orange-200 bg-orange-50' : 'border-gray-100 bg-gray-50'"
     >
 
       <!-- State: unhealthy — worker detected a degraded session; re-linking is the real fix -->
@@ -234,6 +242,20 @@ onUnmounted(() => {
       </template>
 
       <!-- State: awaiting — WhatsApp is negotiating sync keys (no batches yet) -->
+      <template v-else-if="syncState === 'stale'">
+        <div class="flex items-center gap-2 text-xs text-orange-700 font-semibold">
+          <span class="text-orange-500">!</span>
+          Worker heartbeat missing
+        </div>
+        <p class="text-xs text-orange-700 leading-relaxed">
+          Django last recorded this account as connected, but no recent worker heartbeat was received.
+          The worker is likely stopped, crashed, or running against a different environment.
+        </p>
+        <p class="text-xs text-orange-600 leading-relaxed">
+          Last heartbeat: {{ formatDate(syncProgress?.last_worker_heartbeat_at || account.last_worker_heartbeat_at) }}
+        </p>
+      </template>
+
       <template v-else-if="syncState === 'awaiting'">
         <div class="flex items-center gap-2 text-xs text-gray-600 font-medium">
           <div class="w-3 h-3 rounded-full border-2 border-gray-200 border-t-green-500 animate-spin shrink-0" />
@@ -285,7 +307,7 @@ onUnmounted(() => {
     <!-- Action buttons -->
     <div class="flex gap-2">
       <button
-        v-if="['disconnected', 'pending_qr', 'logged_out', 'error'].includes(account.session_status)"
+        v-if="['disconnected', 'pending_qr', 'logged_out', 'error', 'stale'].includes(displayedSessionStatus)"
         @click="connect"
         class="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm py-1.5 rounded-lg transition-colors"
       >
@@ -293,7 +315,7 @@ onUnmounted(() => {
       </button>
 
       <button
-        v-if="account.session_status === 'qr_generated'"
+        v-if="displayedSessionStatus === 'qr_generated'"
         @click="emit('show-qr', account.id)"
         class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm py-1.5 rounded-lg transition-colors"
       >
@@ -301,7 +323,7 @@ onUnmounted(() => {
       </button>
 
       <button
-        v-if="account.session_status === 'connected'"
+        v-if="displayedSessionStatus === 'connected'"
         @click="disconnect"
         title="Logs the device out of WhatsApp — reconnecting will need a fresh QR scan"
         class="flex-1 bg-red-500 hover:bg-red-600 text-white text-sm py-1.5 rounded-lg transition-colors"
@@ -310,7 +332,7 @@ onUnmounted(() => {
       </button>
 
       <button
-        v-if="account.session_status === 'connected'"
+        v-if="displayedSessionStatus === 'connected'"
         @click="softDisconnect"
         title="Ends the connection without logging out — reconnecting won't need a QR scan"
         class="flex-1 bg-gray-400 hover:bg-gray-500 text-white text-sm py-1.5 rounded-lg transition-colors"

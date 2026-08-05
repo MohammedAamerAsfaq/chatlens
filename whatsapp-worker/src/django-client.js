@@ -180,6 +180,24 @@ class DjangoClient {
     }
   }
 
+  async sendWorkerHeartbeat(sessionId, fields = {}) {
+    const payload = {
+      worker_session_id: sessionId,
+      event_time: new Date().toISOString(),
+      ...fields,
+    };
+
+    try {
+      await this.http.post('/api/internal/whatsapp/worker-heartbeat/', payload);
+      this.logger.debug({ sessionId, status: fields.status }, 'Worker heartbeat sent to Django');
+    } catch (err) {
+      this.logger.warn(
+        { sessionId, status: fields.status, error: err.message },
+        'Failed to send worker heartbeat to Django',
+      );
+    }
+  }
+
   async sendMessageIngest(payload) {
     try {
       const resp = await this.http.post('/api/internal/whatsapp/message-ingest/', payload);

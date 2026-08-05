@@ -20,6 +20,11 @@ urlpatterns = [
         name='internal-session-status',
     ),
     path(
+        'api/internal/whatsapp/worker-heartbeat/',
+        views.internal_worker_heartbeat,
+        name='internal-worker-heartbeat',
+    ),
+    path(
         'api/internal/whatsapp/contacts-update/',
         views.internal_contacts_update,
         name='internal-contacts-update',

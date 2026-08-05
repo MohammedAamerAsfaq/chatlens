@@ -4,6 +4,7 @@ import threading
 from django.conf import settings
 from django.db import IntegrityError, models
 from django.http import JsonResponse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
 from .services.ingestion_service import IngestionService
@@ -143,6 +144,32 @@ def internal_session_status(request):
     except Exception as e:
         logger.exception('Error in internal_session_status')
         return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def internal_worker_heartbeat(request):
+    if not _verify_internal_token(request):
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+
+    try:
+        payload = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    worker_session_id = payload.get('worker_session_id')
+    if not worker_session_id:
+        return JsonResponse({'error': 'Missing field: worker_session_id'}, status=400)
+
+    try:
+        account = WhatsAppAccount.objects.get(pk=worker_session_id)
+    except WhatsAppAccount.DoesNotExist:
+        return JsonResponse({'error': 'WhatsApp account not found'}, status=404)
+
+    account.worker_session_id = worker_session_id
+    account.last_worker_heartbeat_at = timezone.now()
+    account.save(update_fields=['worker_session_id', 'last_worker_heartbeat_at', 'updated_at'])
+    return JsonResponse({'success': True, 'account_id': account.pk})
 
 
 @require_GET

@@ -2,13 +2,15 @@ from rest_framework import serializers
 from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact, SyncLog, DroppedMessage,
     WhatsAppGroup, WhatsAppGroupParticipant, WorkerAlert, StuckReceipt, WhatsAppUnresolvedMessage,
-    BaileysEvent,
+    BaileysEvent, SessionStatus,
 )
 
 
 class WhatsAppAccountSerializer(serializers.ModelSerializer):
     total_unread = serializers.SerializerMethodField()
     effective_classification_version = serializers.SerializerMethodField()
+    worker_liveness_status = serializers.SerializerMethodField()
+    effective_session_status = serializers.SerializerMethodField()
 
     def get_total_unread(self, obj):
         return obj.chats.filter(unread_count__gt=0).count()
@@ -18,6 +20,7 @@ class WhatsAppAccountSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'display_name', 'phone_number', 'session_status',
             'worker_session_id', 'last_connected_at', 'last_disconnected_at',
+            'last_worker_heartbeat_at', 'worker_liveness_status', 'effective_session_status',
             'is_active', 'created_at', 'total_unread',
             'sync_history', 'history_days', 'idle_disconnect_minutes',
             'auto_download_media', 'ai_parsing_enabled',
@@ -26,7 +29,8 @@ class WhatsAppAccountSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id', 'session_status', 'worker_session_id',
-            'last_connected_at', 'last_disconnected_at', 'created_at',
+            'last_connected_at', 'last_disconnected_at', 'last_worker_heartbeat_at',
+            'worker_liveness_status', 'effective_session_status', 'created_at',
             'effective_classification_version',
             'connection_unhealthy', 'connection_unhealthy_reason', 'connection_unhealthy_since',
         ]
@@ -34,6 +38,23 @@ class WhatsAppAccountSerializer(serializers.ModelSerializer):
     def get_effective_classification_version(self, obj):
         from apps.trading.services.classification_service import effective_classification_version
         return effective_classification_version(obj)
+
+    def get_worker_liveness_status(self, obj):
+        return _worker_liveness_status(obj)
+
+    def get_effective_session_status(self, obj):
+        if obj.session_status == SessionStatus.CONNECTED and _worker_liveness_status(obj) != 'online':
+            return 'stale'
+        return obj.session_status
+
+
+def _worker_liveness_status(obj):
+    from django.utils.timezone import now
+
+    if not obj.last_worker_heartbeat_at:
+        return 'unknown'
+    age_seconds = (now() - obj.last_worker_heartbeat_at).total_seconds()
+    return 'online' if age_seconds <= 90 else 'stale'
 
 
 class ContactSerializer(serializers.ModelSerializer):

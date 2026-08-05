@@ -35,7 +35,11 @@ class SessionService:
             )
             return account
 
-        update_fields = {'session_status': status, 'worker_session_id': worker_session_id}
+        update_fields = {
+            'session_status': status,
+            'worker_session_id': worker_session_id,
+            'last_worker_heartbeat_at': now(),
+        }
 
         if payload.get('phone_number'):
             update_fields['phone_number'] = payload['phone_number']

@@ -46,6 +46,7 @@ class WhatsAppAccount(models.Model):
     worker_session_id = models.CharField(max_length=255, blank=True)
     last_connected_at = models.DateTimeField(null=True, blank=True)
     last_disconnected_at = models.DateTimeField(null=True, blank=True)
+    last_worker_heartbeat_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     sync_history = models.BooleanField(default=True)
     history_days = models.IntegerField(null=True, blank=True)  # null = all time
