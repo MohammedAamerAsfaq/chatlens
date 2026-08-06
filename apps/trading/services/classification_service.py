@@ -925,6 +925,72 @@ def _auto_save_matched_inquiry_products(message, inquiry_ids: list[int], product
     return saved
 
 
+def _auto_track_non_inventory_products(message, inquiry_ids: list[int], products: list[dict]) -> int:
+    """Track V2 product lines that remain unmapped after inventory matching.
+
+    This is deliberately post-match and non-blocking: failures are logged with full
+    context, but inquiry creation/matching results are not changed.
+    """
+    from apps.trading.models import Inquiry
+    from apps.trading.services.non_inventory_product_service import resolve_unmatched_inquiry_product
+
+    tracked = 0
+    inquiries = Inquiry.objects.filter(pk__in=inquiry_ids).select_related('company', 'account', 'contact')
+    for inquiry in inquiries:
+        for index, product in enumerate(products or []):
+            if not isinstance(product, dict):
+                logger.error(
+                    'classification | non-inventory auto-track skipped invalid product line | '
+                    'message_id=%s | inquiry_id=%s | index=%s | type=%s',
+                    getattr(message, 'pk', None),
+                    inquiry.pk,
+                    index,
+                    type(product).__name__,
+                )
+                continue
+            if product.get('product_id'):
+                continue
+            canonical_name = str(product.get('canonical_name') or product.get('raw_text') or '').strip()
+            if not canonical_name:
+                logger.error(
+                    'classification | non-inventory auto-track skipped blank canonical_name | '
+                    'message_id=%s | inquiry_id=%s | index=%s | product=%r',
+                    getattr(message, 'pk', None),
+                    inquiry.pk,
+                    index,
+                    product,
+                )
+                continue
+            try:
+                _, mention = resolve_unmatched_inquiry_product(
+                    inquiry=inquiry,
+                    line={**product, 'canonical_name': canonical_name, 'source_product_index': index},
+                    source_message=message,
+                    match_confidence=product.get('match_confidence'),
+                    match_reason=(
+                        product.get('match_reason')
+                        or 'Automatically tracked after V2 inventory matching left the line unmatched.'
+                    ),
+                )
+                if mention:
+                    tracked += 1
+            except Exception:
+                logger.exception(
+                    'classification | non-inventory auto-track failed | message_id=%s | inquiry_id=%s | index=%s',
+                    getattr(message, 'pk', None),
+                    inquiry.pk,
+                    index,
+                )
+    if tracked:
+        logger.info(
+            'classification | auto-tracked non-inventory products | message_id=%s | inquiries=%s | rows=%s',
+            getattr(message, 'pk', None),
+            inquiry_ids,
+            tracked,
+        )
+    return tracked
+
+
 def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: list[int], total_start) -> None:
     from apps.trading.models import AgentCallLog, AiParseV2Log, Inquiry, MessageClassification
     from apps.trading.services.agent_logger import call_agent
@@ -1040,6 +1106,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
             product_match_status=Inquiry.CLASSIFICATION_MATCH_COMPLETE,
             product_match_error='',
         )
+        auto_tracked_non_inventory = _auto_track_non_inventory_products(message, inquiry_ids, updated_products)
         AiParseV2Log.objects.filter(message_id=message_id).update(
             status=AiParseV2Log.STATUS_COMPLETE,
             candidate_search_ms=candidate_search_ms,
@@ -1061,6 +1128,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
                 'updated_products': updated_products,
                 'settings': settings,
                 'rejected_by_threshold': rejected_by_threshold,
+                'auto_tracked_non_inventory_products': auto_tracked_non_inventory,
             },
             error='',
         )
@@ -1232,6 +1300,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
         product_match_error='',
     )
     auto_saved_rows = _auto_save_matched_inquiry_products(message, inquiry_ids, updated_products)
+    auto_tracked_non_inventory = _auto_track_non_inventory_products(message, inquiry_ids, updated_products)
     AiParseV2Log.objects.filter(message_id=message_id).update(
         status=AiParseV2Log.STATUS_COMPLETE,
         pass2_ai_ms=pass2_ai_ms,
@@ -1251,6 +1320,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
             'line_index_map': combined_line_index_map,
             'no_candidate_line_indexes': sorted(no_candidate_results.keys()),
             'auto_saved_inquiry_products': auto_saved_rows,
+            'auto_tracked_non_inventory_products': auto_tracked_non_inventory,
             'settings': settings,
             'rejected_by_threshold': rejected_by_threshold,
         },

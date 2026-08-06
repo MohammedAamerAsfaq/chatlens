@@ -895,6 +895,33 @@ This phase does not perform embedding search, AI matching, manual review, UI dis
 automatic invocation from inquiry creation. It only provides a safe deterministic foundation for the
 next integration step.
 
+## Non-Inventory Tracking Phase 2B
+
+Implemented automatic post-match tracking for V2 unmatched product lines.
+
+Behavior:
+
+- Runs only after V2 inventory matching finishes.
+- Does not run before pass 2.
+- Does not change inventory candidate selection.
+- Does not change AI match decisions.
+- Does not create inventory products.
+- For each V2 extracted product line where `product_id` remains null, the deterministic
+  non-inventory resolver is called.
+- The resolver finds or creates `NonInventoryProduct` and creates a `NonInventoryProductMention`.
+- Existing manual tracking remains available from inquiry product popups.
+
+Failure handling:
+
+- Non-inventory tracking is non-blocking for inquiry creation and inventory matching.
+- Any resolver failure is logged with message id, inquiry id, and product line index.
+- Failures must not be silently swallowed by alternate routes or fallback matching.
+
+V2 log visibility:
+
+- `AiParseV2Log.pass2_parsed.auto_tracked_non_inventory_products` records how many product-line
+  tracking resolutions completed during that pass.
+
 ## Later Phases
 
 Phase 2:
