@@ -246,21 +246,32 @@
               <div v-if="line.product_name" class="modal-product-mapped">
                 Mapped to inventory: {{ line.product_name }}
               </div>
+              <div v-else-if="line.non_inventory_product_name" class="modal-product-mapped">
+                Tracked as non-inventory: {{ line.non_inventory_product_name }}
+              </div>
               <div v-else-if="line.inquiry_product_id" class="modal-product-mapped">
                 Inquiry product row already exists.
               </div>
             </div>
             <div class="modal-product-actions">
-              <span v-if="line.has_inventory_mapping || line.inquiry_product_id" class="status-badge currently_in_stock">
+              <span v-if="line.has_inventory_mapping || line.non_inventory_mention_id" class="status-badge currently_in_stock">
                 Linked
               </span>
               <button
-                v-else
+                v-if="!line.has_inventory_mapping && !line.inquiry_product_id"
                 class="btn-action deal"
                 :disabled="creatingLineIndex === line.index || !line.valid"
                 @click="createProductFromLine(line)"
               >
                 {{ creatingLineIndex === line.index ? 'Creating...' : 'Create Product' }}
+              </button>
+              <button
+                v-if="line.can_track_non_inventory"
+                class="btn-action products"
+                :disabled="trackingLineIndex === line.index || !line.valid"
+                @click="trackNonInventoryFromLine(line)"
+              >
+                {{ trackingLineIndex === line.index ? 'Tracking...' : 'Track Non-Inventory' }}
               </button>
             </div>
           </div>
@@ -292,6 +303,7 @@ const productLines = ref([])
 const productLinesLoading = ref(false)
 const productLinesError = ref('')
 const creatingLineIndex = ref(null)
+const trackingLineIndex = ref(null)
 
 const filters = ref({
   account: '', type: '', status: '', source: '', date: '',
@@ -402,6 +414,20 @@ async function createProductFromLine(line) {
     productLinesError.value = err.response?.data?.detail || err.message || 'Failed to create product'
   } finally {
     creatingLineIndex.value = null
+  }
+}
+
+async function trackNonInventoryFromLine(line) {
+  if (!productModalInquiry.value) return
+  trackingLineIndex.value = line.index
+  productLinesError.value = ''
+  try {
+    await tradingApi.trackNonInventoryFromInquiryLine(productModalInquiry.value.id, line.index)
+    await loadInquiryProducts(productModalInquiry.value.id)
+  } catch (err) {
+    productLinesError.value = err.response?.data?.detail || err.message || 'Failed to track non-inventory product'
+  } finally {
+    trackingLineIndex.value = null
   }
 }
 

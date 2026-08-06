@@ -23,6 +23,7 @@ import ReportSummaryView    from '../views/ReportSummaryView.vue'
 import InventoryProductMentionsReportView from '../views/InventoryProductMentionsReportView.vue'
 import InquiriesView        from '../views/InquiriesView.vue'
 import InquiryProductsView  from '../views/InquiryProductsView.vue'
+import NonInventoryProductsView from '../views/NonInventoryProductsView.vue'
 import ProductsView         from '../views/ProductsView.vue'
 import V2CandidateSearchView from '../views/V2CandidateSearchView.vue'
 import ProductPriceUpdateView from '../views/ProductPriceUpdateView.vue'
@@ -57,6 +58,7 @@ const router = createRouter({
     { path: '/inventory-product-mentions', name: 'inventory-product-mentions', component: InventoryProductMentionsReportView },
     { path: '/inquiries', name: 'inquiries', component: InquiriesView },
     { path: '/inquiry-products', name: 'inquiry-products', component: InquiryProductsView },
+    { path: '/non-inventory-products', name: 'non-inventory-products', component: NonInventoryProductsView },
     { path: '/products', name: 'products', component: ProductsView },
     { path: '/v2-candidate-search', name: 'v2-candidate-search', component: V2CandidateSearchView },
     { path: '/product-price-update', name: 'product-price-update', component: ProductPriceUpdateView },

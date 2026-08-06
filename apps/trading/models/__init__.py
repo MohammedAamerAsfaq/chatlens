@@ -11,6 +11,13 @@ from .inquiry_product import (
     InquiryProductMatchStatus,
     InquiryProductStockStatus,
 )
+from .non_inventory_product import (
+    NonInventoryProduct,
+    NonInventoryProductEmbeddingStatus,
+    NonInventoryProductMatchSource,
+    NonInventoryProductMention,
+    NonInventoryProductStatus,
+)
 from .prompt_config import (
     PromptConfig,
     PRODUCT_EXTRACTION_DEFAULT,
@@ -42,6 +49,11 @@ __all__ = [
     'InquiryProductMatchSource',
     'InquiryProductMatchStatus',
     'InquiryProductStockStatus',
+    'NonInventoryProduct',
+    'NonInventoryProductEmbeddingStatus',
+    'NonInventoryProductMatchSource',
+    'NonInventoryProductMention',
+    'NonInventoryProductStatus',
     'PromptConfig', 'PRODUCT_EXTRACTION_DEFAULT', 'INQUIRY_CLASSIFICATION_DEFAULT',
     'INQUIRY_EXTRACTION_V2_DEFAULT', 'INQUIRY_MATCH_DECISION_V2_DEFAULT',
     'INVENTORY_UPDATE_DEFAULT', 'PRICE_LIST_FORMAT_DEFAULT',

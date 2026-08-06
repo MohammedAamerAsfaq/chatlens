@@ -747,6 +747,154 @@ Steps:
 
 Do not remove or replace `Inquiry.products` in this phase.
 
+## Non-Inventory Tracking Phase 1
+
+Purpose:
+
+Track product lines that are mentioned in inquiries but are not currently mapped to an inventory
+`Product`. These records allow ChatLens to measure demand/supply trends for products that are not
+yet part of the stock list, without forcing the user to create inventory rows prematurely.
+
+This phase is schema-only. It does not yet change inquiry processing, AI parsing, inventory matching,
+or trading board behavior.
+
+### Implemented Models
+
+`NonInventoryProduct`
+
+Canonical product concept for an item not currently in inventory.
+
+Key fields:
+
+- `company`: tenant owner.
+- `canonical_name`: display name for the tracked non-inventory item.
+- `normalized_name`: normalized searchable name.
+- `normalized_key`: deterministic identity key built later from brand plus normalized product-defining attributes.
+- `brand`: product brand when known.
+- `attributes`: JSON product-defining attributes such as series, model, storage, color, region, SIM type, condition, and variant.
+- `status`: `tracking`, `promoted_to_inventory`, `dismissed`, or `merged`.
+- `promoted_product`: optional link to inventory `Product` when the item is later added to stock.
+- `merged_into`: optional link to another `NonInventoryProduct` when duplicate tracked products are merged.
+- `mention_count`, `buy_mention_count`, `sell_mention_count`: denormalized counters for reporting.
+- `embedding`, `embedding_model`, `embedding_metadata`, `embedding_status`, `embedding_error`: prepared for later semantic matching.
+- `first_seen_at`, `last_seen_at`: trend window markers.
+
+Uniqueness guard:
+
+- `company + normalized_key` is unique when `normalized_key` is not blank.
+- This prevents deterministic duplicate canonical products once the resolver starts generating stable keys.
+
+`NonInventoryProductMention`
+
+Occurrence-level record for every inquiry/message mention linked to a non-inventory product.
+
+Key fields:
+
+- `company`: tenant owner.
+- `non_inventory_product`: canonical tracked product.
+- `inquiry`: inquiry where the item appeared.
+- `inquiry_product`: optional link to the structured `InquiryProduct` row.
+- `source_message`: original WhatsApp message.
+- `account`, `contact`, `company_contact`: source ownership/contact context.
+- `inquiry_type`: buy/sell direction.
+- `source_product_index`: original product-line index from AI extraction.
+- `raw_text`: sender wording.
+- `canonical_name_from_ai`, `normalized_name_from_ai`, `brand_from_ai`, `attributes_from_ai`: AI-extracted product details at the time of mention.
+- `quantity`, `price`, `currency`: commercial details from the inquiry line.
+- `match_source`: `deterministic`, `embedding`, `ai`, or `manual`.
+- `match_confidence`, `match_reason`: audit detail explaining why this mention was linked to the tracked product.
+- `message_time`: source message time.
+
+Duplicate mention guard:
+
+- `company + inquiry_product` is unique when `inquiry_product` is present.
+- This prevents the same structured inquiry product line from being linked repeatedly.
+
+### Intended Future Flow
+
+The future resolver should run only after normal inventory matching has completed.
+
+```text
+WhatsApp message
+  -> AI inquiry extraction
+     -> inventory matching
+        -> matched product_id: normal inventory traceability
+        -> product_id null: non-inventory resolver
+             -> find/create NonInventoryProduct
+             -> create NonInventoryProductMention
+```
+
+Matching should be layered:
+
+1. Deterministic `normalized_key` match.
+2. Attribute-aware comparison.
+3. Embedding search against non-inventory products.
+4. AI comparison only when deterministic/embedding confidence is ambiguous.
+5. Manual review when confidence is still weak.
+
+Strict principle:
+
+Do not silently merge weak non-inventory matches. A bad merge corrupts trend analytics. If the
+resolver is unsure, it should either create a separate tracked product or mark the candidate for
+manual review.
+
+### Admin Visibility
+
+Both models are registered in Django admin for early inspection:
+
+- `NonInventoryProduct`
+- `NonInventoryProductMention`
+
+This is intentionally basic visibility only. Dedicated UI, APIs, resolver service, promotion,
+manual merge, and reporting are later phases.
+
+## Non-Inventory Tracking Phase 2A
+
+Implemented next small step:
+
+`apps.trading.services.non_inventory_product_service`
+
+This service provides deterministic non-inventory resolution, but it is not yet wired into live
+inquiry processing.
+
+Current capabilities:
+
+- Build a normalized product name using the same product-name normalization used by `InquiryProduct`.
+- Build a deterministic `normalized_key` from:
+  - brand
+  - canonical product name
+  - known product-defining attributes
+- Product-defining attributes currently considered:
+  - `Series`
+  - `Model`
+  - `Storage`
+  - `Color`
+  - `Region`
+  - `SIM Type`
+  - `Network`
+  - `Condition`
+  - `Variant`
+- Resolve an unmatched extracted product line to an existing `NonInventoryProduct` by `company + normalized_key`.
+- Create a new `NonInventoryProduct` when no deterministic match exists.
+- Create a `NonInventoryProductMention` linked to:
+  - inquiry
+  - optional `InquiryProduct`
+  - source message
+  - account
+  - contact/company contact
+- Update mention counters only when a new mention is created:
+  - total mentions
+  - buy mentions
+  - sell mentions
+  - last seen time
+- Fail loudly with `NonInventoryResolutionError` when required data is missing or a mention would be linked to a different already-resolved product.
+
+Important boundary:
+
+This phase does not perform embedding search, AI matching, manual review, UI display, reporting, or
+automatic invocation from inquiry creation. It only provides a safe deterministic foundation for the
+next integration step.
+
 ## Later Phases
 
 Phase 2:

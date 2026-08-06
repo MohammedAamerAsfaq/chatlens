@@ -18,7 +18,7 @@ from apps.tenancy.services.access import (
     scope_queryset_to_visible_companies,
     visible_accounts_queryset,
 )
-from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture
+from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, NonInventoryProduct, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture
 from .serializers import (
     ProductSerializer,
     ProductAliasSerializer,
@@ -27,6 +27,8 @@ from .serializers import (
     InquirySerializer,
     InquiryDetailSerializer,
     InquiryProductSerializer,
+    NonInventoryProductSerializer,
+    NonInventoryProductMentionSerializer,
     AiParsingLogSerializer,
     AiParseV2LogSerializer,
     BuyingInquirySerializer,
@@ -743,6 +745,11 @@ class InquiryViewSet(viewsets.GenericViewSet,
             for row in inquiry.tracked_products.select_related('product').all()
             if row.source_product_index is not None
         }
+        non_inventory_mentions = {
+            row.source_product_index: row
+            for row in inquiry.non_inventory_mentions.select_related('non_inventory_product').all()
+            if row.source_product_index is not None
+        }
 
         rows = []
         for index, line in enumerate(products):
@@ -767,6 +774,7 @@ class InquiryViewSet(viewsets.GenericViewSet,
                 ).first()
 
             trace = trace_rows.get(index)
+            non_inventory_mention = non_inventory_mentions.get(index)
             rows.append({
                 'index': index,
                 'valid': True,
@@ -784,6 +792,16 @@ class InquiryViewSet(viewsets.GenericViewSet,
                 'decision_status': trace.decision_status if trace else '',
                 'match_status': trace.match_status if trace else '',
                 'can_create_product': not product and trace is None,
+                'non_inventory_product_id': (
+                    non_inventory_mention.non_inventory_product_id
+                    if non_inventory_mention else None
+                ),
+                'non_inventory_product_name': (
+                    non_inventory_mention.non_inventory_product.canonical_name
+                    if non_inventory_mention else ''
+                ),
+                'non_inventory_mention_id': non_inventory_mention.pk if non_inventory_mention else None,
+                'can_track_non_inventory': bool(not product and non_inventory_mention is None),
             })
 
         return Response({
@@ -846,6 +864,57 @@ class InquiryViewSet(viewsets.GenericViewSet,
         inquiry.refresh_from_db()
         return Response({
             'inquiry_product': InquiryProductSerializer(trace).data,
+            'inquiry': InquiryDetailSerializer(inquiry).data,
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path=r'product-lines/(?P<line_index>[^/.]+)/track-non-inventory')
+    def track_non_inventory_from_line(self, request, pk=None, line_index=None):
+        inquiry = self.get_object()
+        products = inquiry.products or []
+        try:
+            line_index_int = int(line_index)
+            line = products[line_index_int]
+        except (TypeError, ValueError, IndexError):
+            return Response({'detail': 'Invalid product line index.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not isinstance(line, dict):
+            return Response({'detail': 'Product line is not an object.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        product_id = line.get('product_id')
+        if product_id and Product.objects.filter(pk=product_id, company=inquiry.company).exists():
+            return Response({'detail': 'This line is already mapped to inventory.'}, status=status.HTTP_400_BAD_REQUEST)
+        canonical_name = str(line.get('canonical_name') or '').strip()
+        if canonical_name and Product.objects.filter(
+            company=inquiry.company,
+            is_active=True,
+            name__iexact=canonical_name,
+        ).exists():
+            return Response({'detail': 'This line already resolves to an inventory product.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        trace = inquiry.tracked_products.filter(source_product_index=line_index_int).first()
+        try:
+            from apps.trading.services.non_inventory_product_service import resolve_unmatched_inquiry_product
+            non_inventory_product, mention = resolve_unmatched_inquiry_product(
+                inquiry=inquiry,
+                line={**line, 'source_product_index': line_index_int},
+                inquiry_product=trace,
+                match_reason=(
+                    f'Manually tracked as non-inventory from inquiry line by '
+                    f'{getattr(request.user, "username", "") or "user"}.'
+                ),
+            )
+        except Exception as exc:
+            logger.exception(
+                'InquiryViewSet.track_non_inventory_from_line | failed | inquiry_id=%s | index=%s',
+                inquiry.pk,
+                line_index,
+            )
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        inquiry.refresh_from_db()
+        return Response({
+            'non_inventory_product': NonInventoryProductSerializer(non_inventory_product).data,
+            'non_inventory_mention': NonInventoryProductMentionSerializer(mention).data,
             'inquiry': InquiryDetailSerializer(inquiry).data,
         }, status=status.HTTP_201_CREATED)
 
@@ -1479,6 +1548,60 @@ class InquiryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixi
             'mapped_marked_inventory_backed': mapped_updated,
             'unmapped': result,
         })
+
+
+class NonInventoryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin):
+    serializer_class = NonInventoryProductSerializer
+    permission_classes = [IsAuthenticated]
+    ordering_map = {
+        'last_seen_newest': ('-last_seen_at', '-id'),
+        'last_seen_oldest': ('last_seen_at', 'id'),
+        'first_seen_newest': ('-first_seen_at', '-id'),
+        'first_seen_oldest': ('first_seen_at', 'id'),
+        'mentions_desc': ('-mention_count', '-last_seen_at', '-id'),
+        'mentions_asc': ('mention_count', '-last_seen_at', '-id'),
+        'name_asc': ('canonical_name', 'id'),
+        'name_desc': ('-canonical_name', '-id'),
+    }
+
+    def get_queryset(self):
+        qs = (
+            NonInventoryProduct.objects
+            .select_related('company', 'promoted_product', 'merged_into')
+            .prefetch_related('mentions')
+        )
+        qs = scope_queryset_to_visible_companies(qs, self.request.user, company_field='company')
+        p = self.request.query_params
+
+        if status_val := p.get('status'):
+            qs = qs.filter(status=status_val)
+        if brand := (p.get('brand') or '').strip():
+            qs = qs.filter(brand__icontains=brand)
+        if direction := p.get('type'):
+            if direction == 'buy':
+                qs = qs.filter(buy_mention_count__gt=0)
+            elif direction == 'sell':
+                qs = qs.filter(sell_mention_count__gt=0)
+        if date := p.get('date'):
+            try:
+                from datetime import date as dt
+                d = dt.fromisoformat(date)
+                qs = qs.filter(last_seen_at__date=d)
+            except ValueError:
+                pass
+        search = (p.get('search') or '').strip()
+        if search:
+            qs = qs.filter(
+                Q(canonical_name__icontains=search)
+                | Q(normalized_name__icontains=search)
+                | Q(normalized_key__icontains=search)
+                | Q(brand__icontains=search)
+                | Q(mentions__raw_text__icontains=search)
+                | Q(mentions__canonical_name_from_ai__icontains=search)
+                | Q(mentions__source_message__message_text__icontains=search)
+            ).distinct()
+        ordering = p.get('ordering') or 'last_seen_newest'
+        return qs.order_by(*self.ordering_map.get(ordering, self.ordering_map['last_seen_newest']))
 
 
 class MessageClassificationViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):

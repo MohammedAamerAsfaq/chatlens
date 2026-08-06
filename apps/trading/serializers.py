@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from .models import (
     Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryMessage,
-    InquiryProduct, AiParsingLog, AiParseV2Log, BuyingInquiry, SupplierQuote,
+    InquiryProduct, NonInventoryProduct, NonInventoryProductMention,
+    AiParsingLog, AiParseV2Log, BuyingInquiry, SupplierQuote,
     AutomationRule, AutomationRuleSource, AutomatedPriceCapture,
 )
 
@@ -300,6 +301,77 @@ class InquiryProductSerializer(serializers.ModelSerializer):
         if not obj.product:
             return ''
         return f'{obj.product.brand} {obj.product.name}'.strip()
+
+
+class NonInventoryProductMentionSerializer(serializers.ModelSerializer):
+    account_name = serializers.SerializerMethodField()
+    contact_name = serializers.SerializerMethodField()
+    contact_phone = serializers.SerializerMethodField()
+    source_message_text = serializers.CharField(source='source_message.message_text', read_only=True)
+    source_chat_id = serializers.IntegerField(source='source_message.chat_id', read_only=True)
+
+    class Meta:
+        model = NonInventoryProductMention
+        fields = [
+            'id', 'non_inventory_product', 'inquiry', 'inquiry_product',
+            'source_message', 'source_message_text', 'source_chat_id',
+            'account', 'account_name', 'contact', 'contact_name', 'contact_phone',
+            'company_contact', 'inquiry_type', 'source_product_index', 'raw_text',
+            'canonical_name_from_ai', 'normalized_name_from_ai', 'brand_from_ai',
+            'attributes_from_ai', 'quantity', 'price', 'currency', 'match_source',
+            'match_confidence', 'match_reason', 'message_time', 'created_at',
+        ]
+        read_only_fields = fields
+
+    def get_account_name(self, obj):
+        if not obj.account:
+            return ''
+        return obj.account.display_name or obj.account.phone_number or f'Account {obj.account_id}'
+
+    def get_contact_name(self, obj):
+        if not obj.contact:
+            return ''
+        return (
+            obj.contact.display_name
+            or obj.contact.push_name
+            or obj.contact.phone_number
+            or obj.contact.wa_contact_id
+        )
+
+    def get_contact_phone(self, obj):
+        return obj.contact.phone_number if obj.contact else ''
+
+
+class NonInventoryProductSerializer(serializers.ModelSerializer):
+    promoted_product_name = serializers.SerializerMethodField()
+    merged_into_name = serializers.CharField(source='merged_into.canonical_name', read_only=True)
+    latest_mentions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = NonInventoryProduct
+        fields = [
+            'id', 'company', 'canonical_name', 'normalized_name', 'normalized_key',
+            'brand', 'attributes', 'status', 'promoted_product',
+            'promoted_product_name', 'merged_into', 'merged_into_name',
+            'mention_count', 'buy_mention_count', 'sell_mention_count',
+            'embedding_status', 'embedding_model', 'embedding_error',
+            'first_seen_at', 'last_seen_at', 'created_at', 'updated_at',
+            'latest_mentions',
+        ]
+        read_only_fields = fields
+
+    def get_promoted_product_name(self, obj):
+        if not obj.promoted_product:
+            return ''
+        return f'{obj.promoted_product.brand} {obj.promoted_product.name}'.strip()
+
+    def get_latest_mentions(self, obj):
+        qs = (
+            obj.mentions
+            .select_related('account', 'contact', 'source_message', 'source_message__chat')
+            .order_by('-message_time', '-id')[:5]
+        )
+        return NonInventoryProductMentionSerializer(qs, many=True).data
 
 
 class SupplierQuoteSerializer(serializers.ModelSerializer):
