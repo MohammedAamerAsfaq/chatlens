@@ -1617,6 +1617,84 @@ class NonInventoryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin,
         ordering = p.get('ordering') or 'last_seen_newest'
         return qs.order_by(*self.ordering_map.get(ordering, self.ordering_map['last_seen_newest']))
 
+    @action(detail=False, methods=['get'], url_path='search-embeddings')
+    def search_embeddings(self, request):
+        """Embedding search over tracked non-inventory products."""
+        from pgvector import Vector
+        from apps.ai_providers.manager import ai_manager
+
+        query = request.query_params.get('q', '').strip()
+        if not query:
+            return Response({'results': []})
+
+        try:
+            top_k = int(request.query_params.get('top_k', 10))
+        except (TypeError, ValueError):
+            top_k = 10
+        top_k = max(1, min(top_k, 50))
+
+        visible_ids = list(self.get_queryset().values_list('id', flat=True))
+        if not visible_ids:
+            return Response({'results': []})
+
+        try:
+            query_vec = ai_manager.embed(query)
+            query_vec_text = Vector(query_vec).to_text()
+            with _db_conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, (embedding <=> %(qv)s::vector) AS distance
+                    FROM trading_non_inventory_product
+                    WHERE id = ANY(%(ids)s)
+                      AND embedding IS NOT NULL
+                    ORDER BY distance ASC
+                    LIMIT %(top_k)s
+                    """,
+                    {'qv': query_vec_text, 'ids': visible_ids, 'top_k': top_k},
+                )
+                rows = cursor.fetchall()
+        except Exception as exc:
+            logger.warning('non_inventory_product_search_embeddings | query=%r failed: %s', query, exc)
+            return Response({'detail': 'Embedding search unavailable'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        products_by_id = self.get_queryset().filter(pk__in=[row_id for row_id, _ in rows]).in_bulk()
+        results = [
+            {
+                'non_inventory_product': NonInventoryProductSerializer(products_by_id[row_id]).data,
+                'distance': round(float(distance), 4),
+            }
+            for row_id, distance in rows
+            if row_id in products_by_id
+        ]
+        return Response({'results': results})
+
+    @action(detail=False, methods=['post'], url_path='backfill-embeddings')
+    def backfill_embeddings(self, request):
+        """Generate missing/error embeddings for visible non-inventory products."""
+        from apps.message_intelligence.services.embedding_service import embed_non_inventory_products_batch
+        from apps.trading.models import NonInventoryProductEmbeddingStatus
+
+        try:
+            limit = int(request.data.get('limit', 250))
+        except (TypeError, ValueError):
+            return Response({'detail': 'limit must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+        if limit <= 0 or limit > 1000:
+            return Response({'detail': 'limit must be between 1 and 1000'}, status=status.HTTP_400_BAD_REQUEST)
+
+        ids = list(
+            self.get_queryset()
+            .exclude(embedding_status=NonInventoryProductEmbeddingStatus.EMBEDDED)
+            .order_by('-last_seen_at', '-id')
+            .values_list('id', flat=True)[:limit]
+        )
+        result = embed_non_inventory_products_batch(ids) if ids else {
+            'total': 0,
+            'embedded': 0,
+            'skipped': 0,
+            'errors': 0,
+        }
+        return Response(result)
+
 
 class MessageClassificationViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
     serializer_class   = MessageClassificationSerializer

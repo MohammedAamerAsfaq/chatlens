@@ -15,6 +15,13 @@ const pageSize = ref(25)
 const ordering = ref('last_seen_newest')
 const detailRow = ref(null)
 const pageSizeOptions = [25, 50, 100]
+const smartQuery = ref('')
+const smartResults = ref([])
+const smartSearching = ref(false)
+const smartSearched = ref(false)
+const smartError = ref('')
+const backfillRunning = ref(false)
+const backfillMessage = ref('')
 let requestSeq = 0
 let searchTimer = null
 
@@ -57,6 +64,52 @@ async function load() {
   }
 }
 
+async function runSmartSearch() {
+  const q = smartQuery.value.trim()
+  if (!q) {
+    smartResults.value = []
+    smartSearched.value = false
+    smartError.value = ''
+    return
+  }
+  smartSearching.value = true
+  smartError.value = ''
+  smartSearched.value = true
+  try {
+    const { data } = await tradingApi.searchNonInventoryProductEmbeddings({ q, top_k: 20 })
+    smartResults.value = (data.results || []).map(item => ({
+      row: item.non_inventory_product,
+      distance: item.distance,
+    }))
+  } catch (err) {
+    smartResults.value = []
+    smartError.value = err.response?.data?.detail || err.message || 'Embedding search failed'
+  } finally {
+    smartSearching.value = false
+  }
+}
+
+function clearSmartSearch() {
+  smartQuery.value = ''
+  smartResults.value = []
+  smartSearched.value = false
+  smartError.value = ''
+}
+
+async function backfillEmbeddings() {
+  backfillRunning.value = true
+  backfillMessage.value = ''
+  try {
+    const { data } = await tradingApi.backfillNonInventoryProductEmbeddings({ limit: 250 })
+    backfillMessage.value = `Backfill complete: ${data.embedded || 0} embedded, ${data.skipped || 0} skipped, ${data.errors || 0} errors.`
+    await load()
+  } catch (err) {
+    backfillMessage.value = err.response?.data?.detail || err.message || 'Embedding backfill failed'
+  } finally {
+    backfillRunning.value = false
+  }
+}
+
 function resetFilters() {
   filters.value = { status: '', type: '', brand: '', search: '', date: '' }
   page.value = 1
@@ -91,6 +144,11 @@ function statusClass(value) {
 
 function statusLabel(value) {
   return String(value || '-').replaceAll('_', ' ')
+}
+
+function matchPercent(distance) {
+  if (distance == null) return '-'
+  return `${Math.max(0, Math.round((1 - Number(distance)) * 100))}%`
 }
 
 function openDetail(row) {
@@ -168,17 +226,29 @@ watch(() => filters.value.search, () => {
           <h1 class="text-2xl font-bold text-gray-900">Non-Inventory Products</h1>
           <p class="text-sm text-gray-500 mt-1">Track products mentioned in inquiries but not yet mapped to inventory</p>
         </div>
-        <button
-          class="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition-colors"
-          :disabled="loading"
-          @click="load"
-        >
-          {{ loading ? 'Loading...' : 'Refresh' }}
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            class="px-4 py-2 rounded-lg border border-indigo-200 bg-white text-indigo-700 text-sm font-semibold hover:bg-indigo-50 disabled:opacity-50 transition-colors"
+            :disabled="backfillRunning"
+            @click="backfillEmbeddings"
+          >
+            {{ backfillRunning ? 'Backfilling...' : 'Backfill Embeddings' }}
+          </button>
+          <button
+            class="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition-colors"
+            :disabled="loading"
+            @click="load"
+          >
+            {{ loading ? 'Loading...' : 'Refresh' }}
+          </button>
+        </div>
       </div>
 
       <div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
         This page displays products mentioned in inquiries but not mapped to inventory. V2 unmatched lines are auto-tracked after matching completes; manual tracking remains available from inquiry product popups.
+      </div>
+      <div v-if="backfillMessage" class="mb-4 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
+        {{ backfillMessage }}
       </div>
 
       <div class="flex items-center gap-6 mb-6 bg-white rounded-xl border border-gray-200 px-6 py-4 shadow-sm flex-wrap">
@@ -230,6 +300,88 @@ watch(() => filters.value.search, () => {
           <option value="name_desc">Name Z-A</option>
         </select>
         <button class="px-3 py-1.5 rounded-lg border border-gray-200 text-sm bg-white text-gray-500 hover:bg-gray-50 transition-colors" @click="resetFilters">Reset</button>
+      </div>
+
+      <div class="mb-4 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
+        <div class="flex items-center gap-3 flex-wrap">
+          <span class="text-indigo-600 text-sm font-bold">Smart Search</span>
+          <input
+            v-model="smartQuery"
+            class="filter-control flex-1 min-w-[260px]"
+            placeholder="Search non-inventory products by meaning..."
+            @keydown.enter="runSmartSearch"
+          />
+          <button
+            class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+            :disabled="smartSearching || !smartQuery.trim()"
+            @click="runSmartSearch"
+          >
+            {{ smartSearching ? 'Searching...' : 'Smart Search' }}
+          </button>
+          <button class="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white text-gray-600 hover:bg-gray-50" @click="clearSmartSearch">
+            Clear
+          </button>
+        </div>
+        <div v-if="smartError" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ smartError }}</div>
+        <div v-if="smartSearched && !smartSearching" class="mt-3">
+          <div v-if="!smartResults.length && !smartError" class="text-sm text-gray-500">
+            No embedding matches found. If records are pending, run Backfill Embeddings first.
+          </div>
+          <div v-else class="overflow-x-auto rounded-lg border border-indigo-100 bg-white">
+            <table class="w-full text-sm min-w-[960px]">
+              <thead>
+                <tr class="bg-white border-b border-indigo-100 text-xs text-gray-500 uppercase tracking-wide">
+                  <th class="text-left px-4 py-2">Product</th>
+                  <th class="text-left px-4 py-2 w-28">Match</th>
+                  <th class="text-left px-4 py-2 w-32">Mentions</th>
+                  <th class="text-left px-4 py-2 w-52">Latest Mention</th>
+                  <th class="text-left px-4 py-2 w-36"></th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-50">
+                <tr v-for="result in smartResults" :key="result.row.id" class="hover:bg-gray-50">
+                  <td class="px-4 py-2 align-top">
+                    <div class="font-semibold text-gray-900">{{ result.row.canonical_name }}</div>
+                    <div class="text-xs text-gray-500 mt-0.5">{{ result.row.brand || 'No brand' }}</div>
+                  </td>
+                  <td class="px-4 py-2 align-top">
+                    <span class="text-xs font-semibold rounded-full bg-indigo-100 text-indigo-700 px-2 py-0.5">{{ matchPercent(result.distance) }}</span>
+                    <div class="text-xs text-gray-400 mt-1">d {{ result.distance }}</div>
+                  </td>
+                  <td class="px-4 py-2 align-top">
+                    <div class="font-semibold text-gray-900">{{ result.row.mention_count }}</div>
+                    <div class="text-xs text-gray-500">WTB {{ result.row.buy_mention_count }} / WTS {{ result.row.sell_mention_count }}</div>
+                  </td>
+                  <td class="px-4 py-2 align-top">
+                    <div class="text-xs text-gray-400">{{ formatTime(result.row.last_seen_at) }}</div>
+                    <div class="text-xs text-gray-700 mt-1 max-w-[280px] truncate">
+                      {{ latestMention(result.row)?.raw_text || latestMention(result.row)?.canonical_name_from_ai || '-' }}
+                    </div>
+                  </td>
+                  <td class="px-4 py-2 align-top">
+                    <div class="flex items-center gap-3 flex-wrap">
+                      <button class="text-xs text-green-700 font-semibold hover:text-green-800" @click="openDetail(result.row)">Details</button>
+                      <button
+                        v-if="latestMention(result.row)?.source_chat_id"
+                        class="text-xs text-blue-700 font-semibold hover:text-blue-800"
+                        @click="viewChat(result.row)"
+                      >
+                        Chat ->
+                      </button>
+                      <a
+                        v-if="waLinkForRow(result.row)"
+                        :href="waLinkForRow(result.row)"
+                        class="text-xs text-green-700 font-semibold hover:text-green-800"
+                      >
+                        WA
+                      </a>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">

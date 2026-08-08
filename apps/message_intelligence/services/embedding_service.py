@@ -139,6 +139,22 @@ def _build_inquiry_product_text(inquiry_product) -> str:
     return ' '.join(str(part).strip() for part in parts if str(part or '').strip())
 
 
+def _build_non_inventory_product_text(non_inventory_product) -> str:
+    """Compose the durable search text for a tracked non-inventory product."""
+    parts = [
+        non_inventory_product.brand,
+        non_inventory_product.canonical_name,
+        non_inventory_product.normalized_name,
+    ]
+    attributes = non_inventory_product.attributes or {}
+    if isinstance(attributes, dict):
+        for key in sorted(attributes):
+            value = attributes.get(key)
+            if value not in (None, ''):
+                parts.append(f'{key}: {value}')
+    return ' '.join(str(part).strip() for part in parts if str(part or '').strip())
+
+
 def embed_inquiry_product(inquiry_product_id: int) -> bool:
     """Generate and store an embedding for one unmapped InquiryProduct row."""
     from apps.ai_providers.manager import ai_manager
@@ -284,6 +300,148 @@ def embed_inquiry_products_batch(inquiry_product_ids: list[int]) -> dict:
         len(inquiry_product_ids), embedded, skipped, errors,
     )
     return {'total': len(inquiry_product_ids), 'embedded': embedded, 'skipped': skipped, 'errors': errors}
+
+
+def embed_non_inventory_product(non_inventory_product_id: int) -> bool:
+    """Generate and store an embedding for one NonInventoryProduct row."""
+    from apps.ai_providers.manager import ai_manager
+    from apps.trading.models import NonInventoryProduct, NonInventoryProductEmbeddingStatus
+
+    row = NonInventoryProduct.objects.get(pk=non_inventory_product_id)
+    text = _build_non_inventory_product_text(row)
+    if not text:
+        row.embedding = None
+        row.embedding_model = ''
+        row.embedding_metadata = {'source': 'non_inventory_product_text'}
+        row.embedding_status = NonInventoryProductEmbeddingStatus.SKIPPED
+        row.embedding_error = 'No non-inventory product text available for embedding.'
+        row.save(update_fields=[
+            'embedding', 'embedding_model', 'embedding_metadata',
+            'embedding_status', 'embedding_error', 'updated_at',
+        ])
+        logger.info(
+            'embed_non_inventory_product | skipped empty text | non_inventory_product_id=%s',
+            non_inventory_product_id,
+        )
+        return False
+
+    config = ai_manager.active_config('embedding')
+    if config is None:
+        row.embedding_status = NonInventoryProductEmbeddingStatus.ERROR
+        row.embedding_error = 'No active embedding provider configured.'
+        row.save(update_fields=['embedding_status', 'embedding_error', 'updated_at'])
+        logger.error(
+            'embed_non_inventory_product | no active embedding provider | non_inventory_product_id=%s',
+            non_inventory_product_id,
+        )
+        return False
+
+    try:
+        vector = ai_manager.embed(text)
+    except Exception as exc:
+        row.embedding_status = NonInventoryProductEmbeddingStatus.ERROR
+        row.embedding_error = str(exc)
+        row.save(update_fields=['embedding_status', 'embedding_error', 'updated_at'])
+        logger.exception(
+            'embed_non_inventory_product | provider error | non_inventory_product_id=%s',
+            non_inventory_product_id,
+        )
+        raise
+
+    row.embedding = vector
+    row.embedding_model = config.model
+    row.embedding_metadata = {
+        'provider': config.provider,
+        'dimensions': len(vector),
+        'source': 'non_inventory_product_text',
+    }
+    row.embedding_status = NonInventoryProductEmbeddingStatus.EMBEDDED
+    row.embedding_error = ''
+    row.save(update_fields=[
+        'embedding', 'embedding_model', 'embedding_metadata',
+        'embedding_status', 'embedding_error', 'updated_at',
+    ])
+    logger.info(
+        'embed_non_inventory_product | stored | non_inventory_product_id=%s | dims=%s',
+        non_inventory_product_id,
+        len(vector),
+    )
+    return True
+
+
+def embed_non_inventory_products_batch(non_inventory_product_ids: list[int]) -> dict:
+    """Embed NonInventoryProduct rows in provider-side batches."""
+    from apps.ai_providers.manager import ai_manager
+    from apps.trading.models import NonInventoryProduct, NonInventoryProductEmbeddingStatus
+    from django.utils.timezone import now
+
+    rows = list(NonInventoryProduct.objects.filter(pk__in=non_inventory_product_ids))
+    pending = [(row, _build_non_inventory_product_text(row)) for row in rows]
+    empty_ids = [row.pk for row, text in pending if not text]
+    if empty_ids:
+        NonInventoryProduct.objects.filter(pk__in=empty_ids).update(
+            embedding=None,
+            embedding_model='',
+            embedding_metadata={'source': 'non_inventory_product_text'},
+            embedding_status=NonInventoryProductEmbeddingStatus.SKIPPED,
+            embedding_error='No non-inventory product text available for embedding.',
+        )
+
+    to_embed = [(row, text) for row, text in pending if text]
+    config = ai_manager.active_config('embedding')
+    if config is None:
+        if to_embed:
+            NonInventoryProduct.objects.filter(pk__in=[row.pk for row, _ in to_embed]).update(
+                embedding_status=NonInventoryProductEmbeddingStatus.ERROR,
+                embedding_error='No active embedding provider configured.',
+            )
+        logger.error('embed_non_inventory_products_batch | no active embedding provider')
+        return {
+            'total': len(non_inventory_product_ids),
+            'embedded': 0,
+            'skipped': len(empty_ids),
+            'errors': len(to_embed),
+        }
+
+    embedded = errors = 0
+    for i in range(0, len(to_embed), BATCH_SIZE):
+        chunk = to_embed[i:i + BATCH_SIZE]
+        texts = [text for _, text in chunk]
+        try:
+            vectors = ai_manager.embed_batch(texts)
+        except Exception as exc:
+            failed_ids = [row.pk for row, _ in chunk]
+            NonInventoryProduct.objects.filter(pk__in=failed_ids).update(
+                embedding_status=NonInventoryProductEmbeddingStatus.ERROR,
+                embedding_error=str(exc),
+            )
+            logger.exception('embed_non_inventory_products_batch | provider error | chunk_start=%s', i)
+            errors += len(chunk)
+            continue
+
+        for (row, _), vector in zip(chunk, vectors):
+            row.embedding = vector
+            row.embedding_model = config.model
+            row.embedding_metadata = {
+                'provider': config.provider,
+                'dimensions': len(vector),
+                'source': 'non_inventory_product_text',
+            }
+            row.embedding_status = NonInventoryProductEmbeddingStatus.EMBEDDED
+            row.embedding_error = ''
+            row.updated_at = now()
+        NonInventoryProduct.objects.bulk_update(
+            [row for row, _ in chunk],
+            ['embedding', 'embedding_model', 'embedding_metadata', 'embedding_status', 'embedding_error', 'updated_at'],
+        )
+        embedded += len(chunk)
+
+    skipped = len(empty_ids)
+    logger.info(
+        'embed_non_inventory_products_batch | done | total=%s embedded=%s skipped=%s errors=%s',
+        len(non_inventory_product_ids), embedded, skipped, errors,
+    )
+    return {'total': len(non_inventory_product_ids), 'embedded': embedded, 'skipped': skipped, 'errors': errors}
 
 
 def embed_product(product_id: int) -> bool:
