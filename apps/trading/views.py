@@ -1628,10 +1628,18 @@ class NonInventoryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin,
             row['status']: row['count']
             for row in qs.values('status').annotate(count=Count('id'))
         }
+        distinct_products = (
+            qs.exclude(normalized_key='')
+            .values('company_id', 'normalized_key')
+            .distinct()
+            .count()
+        )
+        blank_key_count = qs.filter(normalized_key='').count()
         total = sum(embedding_counts.values())
         embedded = embedding_counts.get('embedded', 0)
         return Response({
             'total': total,
+            'distinct_products': distinct_products + blank_key_count,
             'embedded': embedded,
             'pending': embedding_counts.get('pending', 0),
             'error': embedding_counts.get('error', 0),

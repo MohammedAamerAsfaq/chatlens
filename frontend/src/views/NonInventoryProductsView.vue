@@ -29,6 +29,7 @@ const embeddingStatus = ref({
   error: 0,
   skipped: 0,
   pending_work: 0,
+  distinct_products: 0,
   tracking: 0,
   promoted: 0,
   dismissed: 0,
@@ -95,6 +96,7 @@ async function loadEmbeddingStatus() {
     error: data.error || 0,
     skipped: data.skipped || 0,
     pending_work: data.pending_work || 0,
+    distinct_products: data.distinct_products || 0,
     tracking: data.tracking || 0,
     promoted: data.promoted || 0,
     dismissed: data.dismissed || 0,
@@ -348,6 +350,11 @@ watch(dateInput, () => {
         <div>
           <p class="text-xs text-gray-400 uppercase tracking-wide">Total</p>
           <p class="text-xl font-bold text-gray-900">{{ total.toLocaleString() }}</p>
+        </div>
+        <div class="w-px h-8 bg-gray-100"></div>
+        <div>
+          <p class="text-xs text-slate-500 uppercase tracking-wide">Distinct Products</p>
+          <p class="text-xl font-bold text-gray-900">{{ embeddingStatus.distinct_products.toLocaleString() }}</p>
         </div>
         <div class="w-px h-8 bg-gray-100"></div>
         <div>
