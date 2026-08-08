@@ -29,15 +29,11 @@ const embeddingStatus = ref({
   error: 0,
   skipped: 0,
   pending_work: 0,
-  distinct_products: 0,
   tracking: 0,
   promoted: 0,
   dismissed: 0,
   merged: 0,
 })
-const dateInput = ref('')
-const dateError = ref('')
-const nativeDateInput = ref(null)
 let requestSeq = 0
 let searchTimer = null
 
@@ -96,7 +92,6 @@ async function loadEmbeddingStatus() {
     error: data.error || 0,
     skipped: data.skipped || 0,
     pending_work: data.pending_work || 0,
-    distinct_products: data.distinct_products || 0,
     tracking: data.tracking || 0,
     promoted: data.promoted || 0,
     dismissed: data.dismissed || 0,
@@ -155,8 +150,6 @@ async function backfillEmbeddings() {
 
 function resetFilters() {
   filters.value = { status: '', type: '', brand: '', search: '', date: '' }
-  dateInput.value = ''
-  dateError.value = ''
   page.value = 1
   load()
 }
@@ -164,46 +157,6 @@ function resetFilters() {
 function formatTime(value) {
   if (!value) return '-'
   return new Date(value).toLocaleString()
-}
-
-function parseDdMmYyyy(value) {
-  const text = String(value || '').trim()
-  if (!text) return ''
-  const match = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
-  if (!match) return null
-  const [, dd, mm, yyyy] = match
-  const date = new Date(Number(yyyy), Number(mm) - 1, Number(dd))
-  if (
-    date.getFullYear() !== Number(yyyy)
-    || date.getMonth() !== Number(mm) - 1
-    || date.getDate() !== Number(dd)
-  ) {
-    return null
-  }
-  return `${yyyy}-${mm}-${dd}`
-}
-
-function formatIsoDateForDisplay(value) {
-  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (!match) return ''
-  return `${match[3]}/${match[2]}/${match[1]}`
-}
-
-function openDatePicker() {
-  const input = nativeDateInput.value
-  if (!input) return
-  if (typeof input.showPicker === 'function') {
-    input.showPicker()
-  } else {
-    input.click()
-  }
-}
-
-function onNativeDatePicked(event) {
-  const value = event.target.value
-  filters.value.date = value
-  dateInput.value = formatIsoDateForDisplay(value)
-  dateError.value = ''
 }
 
 function statusClass(value) {
@@ -302,15 +255,6 @@ watch(() => filters.value.search, () => {
   }, 300)
 })
 
-watch(dateInput, () => {
-  const parsed = parseDdMmYyyy(dateInput.value)
-  if (parsed === null) {
-    dateError.value = 'Use dd/MM/yyyy'
-    return
-  }
-  dateError.value = ''
-  filters.value.date = parsed
-})
 </script>
 
 <template>
@@ -350,11 +294,6 @@ watch(dateInput, () => {
         <div>
           <p class="text-xs text-gray-400 uppercase tracking-wide">Total</p>
           <p class="text-xl font-bold text-gray-900">{{ total.toLocaleString() }}</p>
-        </div>
-        <div class="w-px h-8 bg-gray-100"></div>
-        <div>
-          <p class="text-xs text-slate-500 uppercase tracking-wide">Distinct Products</p>
-          <p class="text-xl font-bold text-gray-900">{{ embeddingStatus.distinct_products.toLocaleString() }}</p>
         </div>
         <div class="w-px h-8 bg-gray-100"></div>
         <div>
@@ -401,32 +340,7 @@ watch(dateInput, () => {
           <option value="buy">Mentioned in WTB</option>
           <option value="sell">Mentioned in WTS</option>
         </select>
-        <div>
-          <div class="flex items-center">
-            <input
-              v-model="dateInput"
-              class="filter-control w-[135px] rounded-r-none"
-              placeholder="dd/MM/yyyy"
-              inputmode="numeric"
-            />
-            <button
-              type="button"
-              class="h-[34px] px-2 rounded-r-lg border border-l-0 border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
-              title="Pick date"
-              @click="openDatePicker"
-            >
-              Calendar
-            </button>
-            <input
-              ref="nativeDateInput"
-              type="date"
-              class="sr-only"
-              :value="filters.date"
-              @change="onNativeDatePicked"
-            />
-          </div>
-          <div v-if="dateError" class="text-xs text-red-600 mt-1">{{ dateError }}</div>
-        </div>
+        <input v-model="filters.date" type="date" class="filter-control min-w-[150px]" />
         <select v-model="ordering" class="filter-control min-w-[180px]">
           <option value="last_seen_newest">Last seen newest</option>
           <option value="last_seen_oldest">Last seen oldest</option>
