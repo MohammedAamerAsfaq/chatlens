@@ -22,6 +22,16 @@ const smartSearched = ref(false)
 const smartError = ref('')
 const backfillRunning = ref(false)
 const backfillMessage = ref('')
+const embeddingStatus = ref({
+  total: 0,
+  embedded: 0,
+  pending: 0,
+  error: 0,
+  skipped: 0,
+  pending_work: 0,
+})
+const dateInput = ref('')
+const dateError = ref('')
 let requestSeq = 0
 let searchTimer = null
 
@@ -47,6 +57,14 @@ function params() {
   return p
 }
 
+function statusParams() {
+  const p = {}
+  for (const [key, value] of Object.entries(filters.value)) {
+    if (value !== '') p[key] = value
+  }
+  return p
+}
+
 async function load() {
   const seq = ++requestSeq
   loading.value = true
@@ -56,11 +74,24 @@ async function load() {
     if (seq !== requestSeq) return
     rows.value = data.results ?? data
     total.value = data.count ?? rows.value.length
+    await loadEmbeddingStatus()
   } catch (err) {
     if (seq !== requestSeq) return
     error.value = err.response?.data?.detail || err.message || 'Failed to load non-inventory products'
   } finally {
     if (seq === requestSeq) loading.value = false
+  }
+}
+
+async function loadEmbeddingStatus() {
+  const { data } = await tradingApi.getNonInventoryProductEmbeddingStatus(statusParams())
+  embeddingStatus.value = {
+    total: data.total || 0,
+    embedded: data.embedded || 0,
+    pending: data.pending || 0,
+    error: data.error || 0,
+    skipped: data.skipped || 0,
+    pending_work: data.pending_work || 0,
   }
 }
 
@@ -101,7 +132,10 @@ async function backfillEmbeddings() {
   backfillMessage.value = ''
   try {
     const { data } = await tradingApi.backfillNonInventoryProductEmbeddings({ limit: 250 })
-    backfillMessage.value = `Backfill complete: ${data.embedded || 0} embedded, ${data.skipped || 0} skipped, ${data.errors || 0} errors.`
+    if (data.status) {
+      embeddingStatus.value = data.status
+    }
+    backfillMessage.value = `Backfill complete: ${data.embedded || 0} embedded, ${data.skipped || 0} skipped, ${data.errors || 0} errors. Current status: ${embeddingStatus.value.embedded || 0} embedded, ${embeddingStatus.value.pending_work || 0} pending work.`
     await load()
   } catch (err) {
     backfillMessage.value = err.response?.data?.detail || err.message || 'Embedding backfill failed'
@@ -112,6 +146,8 @@ async function backfillEmbeddings() {
 
 function resetFilters() {
   filters.value = { status: '', type: '', brand: '', search: '', date: '' }
+  dateInput.value = ''
+  dateError.value = ''
   page.value = 1
   load()
 }
@@ -119,6 +155,23 @@ function resetFilters() {
 function formatTime(value) {
   if (!value) return '-'
   return new Date(value).toLocaleString()
+}
+
+function parseDdMmYyyy(value) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  const match = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (!match) return null
+  const [, dd, mm, yyyy] = match
+  const date = new Date(Number(yyyy), Number(mm) - 1, Number(dd))
+  if (
+    date.getFullYear() !== Number(yyyy)
+    || date.getMonth() !== Number(mm) - 1
+    || date.getDate() !== Number(dd)
+  ) {
+    return null
+  }
+  return `${yyyy}-${mm}-${dd}`
 }
 
 function statusClass(value) {
@@ -216,6 +269,16 @@ watch(() => filters.value.search, () => {
     load()
   }, 300)
 })
+
+watch(dateInput, () => {
+  const parsed = parseDdMmYyyy(dateInput.value)
+  if (parsed === null) {
+    dateError.value = 'Use dd/MM/yyyy'
+    return
+  }
+  dateError.value = ''
+  filters.value.date = parsed
+})
 </script>
 
 <template>
@@ -266,6 +329,19 @@ watch(() => filters.value.search, () => {
           <p class="text-xs text-green-500 uppercase tracking-wide">Promoted</p>
           <p class="text-xl font-bold text-gray-900">{{ promotedCount.toLocaleString() }}</p>
         </div>
+        <div class="w-px h-8 bg-gray-100"></div>
+        <div>
+          <p class="text-xs text-indigo-500 uppercase tracking-wide">Embedded</p>
+          <p class="text-xl font-bold text-gray-900">{{ embeddingStatus.embedded.toLocaleString() }}</p>
+        </div>
+        <div class="w-px h-8 bg-gray-100"></div>
+        <div>
+          <p class="text-xs text-amber-500 uppercase tracking-wide">Pending Work</p>
+          <p class="text-xl font-bold text-gray-900">{{ embeddingStatus.pending_work.toLocaleString() }}</p>
+          <p class="text-[11px] text-gray-400 mt-0.5">
+            Pending {{ embeddingStatus.pending.toLocaleString() }} / Error {{ embeddingStatus.error.toLocaleString() }}
+          </p>
+        </div>
       </div>
 
       <div class="flex items-center gap-3 mb-4 flex-wrap">
@@ -288,7 +364,15 @@ watch(() => filters.value.search, () => {
           <option value="buy">Mentioned in WTB</option>
           <option value="sell">Mentioned in WTS</option>
         </select>
-        <input v-model="filters.date" type="date" class="filter-control" />
+        <div>
+          <input
+            v-model="dateInput"
+            class="filter-control w-[135px]"
+            placeholder="dd/MM/yyyy"
+            inputmode="numeric"
+          />
+          <div v-if="dateError" class="text-xs text-red-600 mt-1">{{ dateError }}</div>
+        </div>
         <select v-model="ordering" class="filter-control min-w-[180px]">
           <option value="last_seen_newest">Last seen newest</option>
           <option value="last_seen_oldest">Last seen oldest</option>

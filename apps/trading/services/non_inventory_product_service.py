@@ -28,6 +28,18 @@ class NonInventoryResolutionError(Exception):
     """Raised when an unmatched inquiry line cannot be tracked safely."""
 
 
+def _embed_non_inventory_product_after_commit(non_inventory_product_id: int) -> None:
+    from apps.message_intelligence.services.embedding_service import embed_non_inventory_product
+
+    try:
+        embed_non_inventory_product(non_inventory_product_id)
+    except Exception:
+        logger.exception(
+            'resolve_unmatched_inquiry_product | auto embedding failed | non_inventory_product_id=%s',
+            non_inventory_product_id,
+        )
+
+
 def _clean(value) -> str:
     return str(value or '').strip()
 
@@ -231,6 +243,9 @@ def resolve_unmatched_inquiry_product(
                 counter_updates['sell_mention_count'] = F('sell_mention_count') + 1
             NonInventoryProduct.objects.filter(pk=product.pk).update(**counter_updates)
             product.refresh_from_db()
+
+        if created or product.embedding_status != 'embedded':
+            transaction.on_commit(lambda product_id=product.pk: _embed_non_inventory_product_after_commit(product_id))
 
     logger.info(
         'resolve_unmatched_inquiry_product | done | inquiry_id=%s | inquiry_product_id=%s '

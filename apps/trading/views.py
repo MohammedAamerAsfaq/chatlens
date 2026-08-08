@@ -1617,6 +1617,24 @@ class NonInventoryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin,
         ordering = p.get('ordering') or 'last_seen_newest'
         return qs.order_by(*self.ordering_map.get(ordering, self.ordering_map['last_seen_newest']))
 
+    @action(detail=False, methods=['get'], url_path='embedding-status')
+    def embedding_status(self, request):
+        qs = self.get_queryset()
+        counts = {
+            row['embedding_status']: row['count']
+            for row in qs.values('embedding_status').annotate(count=Count('id'))
+        }
+        total = sum(counts.values())
+        embedded = counts.get('embedded', 0)
+        return Response({
+            'total': total,
+            'embedded': embedded,
+            'pending': counts.get('pending', 0),
+            'error': counts.get('error', 0),
+            'skipped': counts.get('skipped', 0),
+            'pending_work': max(0, total - embedded),
+        })
+
     @action(detail=False, methods=['get'], url_path='search-embeddings')
     def search_embeddings(self, request):
         """Embedding search over tracked non-inventory products."""
@@ -1692,6 +1710,19 @@ class NonInventoryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin,
             'embedded': 0,
             'skipped': 0,
             'errors': 0,
+        }
+        counts = {
+            row['embedding_status']: row['count']
+            for row in self.get_queryset().values('embedding_status').annotate(count=Count('id'))
+        }
+        total = sum(counts.values())
+        result['status'] = {
+            'total': total,
+            'embedded': counts.get('embedded', 0),
+            'pending': counts.get('pending', 0),
+            'error': counts.get('error', 0),
+            'skipped': counts.get('skipped', 0),
+            'pending_work': max(0, total - counts.get('embedded', 0)),
         }
         return Response(result)
 
