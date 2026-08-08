@@ -29,6 +29,10 @@ const embeddingStatus = ref({
   error: 0,
   skipped: 0,
   pending_work: 0,
+  tracking: 0,
+  promoted: 0,
+  dismissed: 0,
+  merged: 0,
 })
 const dateInput = ref('')
 const dateError = ref('')
@@ -47,8 +51,6 @@ const filters = ref({
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 const pageStart = computed(() => total.value === 0 ? 0 : (page.value - 1) * pageSize.value + 1)
 const pageEnd = computed(() => Math.min(page.value * pageSize.value, total.value))
-const trackingCount = computed(() => rows.value.filter(row => row.status === 'tracking').length)
-const promotedCount = computed(() => rows.value.filter(row => row.status === 'promoted_to_inventory').length)
 
 function params() {
   const p = { page: page.value, page_size: pageSize.value, ordering: ordering.value }
@@ -93,6 +95,10 @@ async function loadEmbeddingStatus() {
     error: data.error || 0,
     skipped: data.skipped || 0,
     pending_work: data.pending_work || 0,
+    tracking: data.tracking || 0,
+    promoted: data.promoted || 0,
+    dismissed: data.dismissed || 0,
+    merged: data.merged || 0,
   }
 }
 
@@ -346,12 +352,12 @@ watch(dateInput, () => {
         <div class="w-px h-8 bg-gray-100"></div>
         <div>
           <p class="text-xs text-blue-500 uppercase tracking-wide">Tracking</p>
-          <p class="text-xl font-bold text-gray-900">{{ trackingCount.toLocaleString() }}</p>
+          <p class="text-xl font-bold text-gray-900">{{ embeddingStatus.tracking.toLocaleString() }}</p>
         </div>
         <div class="w-px h-8 bg-gray-100"></div>
         <div>
           <p class="text-xs text-green-500 uppercase tracking-wide">Promoted</p>
-          <p class="text-xl font-bold text-gray-900">{{ promotedCount.toLocaleString() }}</p>
+          <p class="text-xl font-bold text-gray-900">{{ embeddingStatus.promoted.toLocaleString() }}</p>
         </div>
         <div class="w-px h-8 bg-gray-100"></div>
         <div>

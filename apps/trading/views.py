@@ -1619,20 +1619,28 @@ class NonInventoryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin,
 
     @action(detail=False, methods=['get'], url_path='embedding-status')
     def embedding_status(self, request):
-        qs = self.get_queryset()
-        counts = {
+        qs = self.get_queryset().order_by()
+        embedding_counts = {
             row['embedding_status']: row['count']
             for row in qs.values('embedding_status').annotate(count=Count('id'))
         }
-        total = sum(counts.values())
-        embedded = counts.get('embedded', 0)
+        status_counts = {
+            row['status']: row['count']
+            for row in qs.values('status').annotate(count=Count('id'))
+        }
+        total = sum(embedding_counts.values())
+        embedded = embedding_counts.get('embedded', 0)
         return Response({
             'total': total,
             'embedded': embedded,
-            'pending': counts.get('pending', 0),
-            'error': counts.get('error', 0),
-            'skipped': counts.get('skipped', 0),
+            'pending': embedding_counts.get('pending', 0),
+            'error': embedding_counts.get('error', 0),
+            'skipped': embedding_counts.get('skipped', 0),
             'pending_work': max(0, total - embedded),
+            'tracking': status_counts.get('tracking', 0),
+            'promoted': status_counts.get('promoted_to_inventory', 0),
+            'dismissed': status_counts.get('dismissed', 0),
+            'merged': status_counts.get('merged', 0),
         })
 
     @action(detail=False, methods=['get'], url_path='search-embeddings')
