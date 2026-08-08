@@ -32,6 +32,7 @@ const embeddingStatus = ref({
 })
 const dateInput = ref('')
 const dateError = ref('')
+const nativeDateInput = ref(null)
 let requestSeq = 0
 let searchTimer = null
 
@@ -172,6 +173,29 @@ function parseDdMmYyyy(value) {
     return null
   }
   return `${yyyy}-${mm}-${dd}`
+}
+
+function formatIsoDateForDisplay(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) return ''
+  return `${match[3]}/${match[2]}/${match[1]}`
+}
+
+function openDatePicker() {
+  const input = nativeDateInput.value
+  if (!input) return
+  if (typeof input.showPicker === 'function') {
+    input.showPicker()
+  } else {
+    input.click()
+  }
+}
+
+function onNativeDatePicked(event) {
+  const value = event.target.value
+  filters.value.date = value
+  dateInput.value = formatIsoDateForDisplay(value)
+  dateError.value = ''
 }
 
 function statusClass(value) {
@@ -365,12 +389,29 @@ watch(dateInput, () => {
           <option value="sell">Mentioned in WTS</option>
         </select>
         <div>
-          <input
-            v-model="dateInput"
-            class="filter-control w-[135px]"
-            placeholder="dd/MM/yyyy"
-            inputmode="numeric"
-          />
+          <div class="flex items-center">
+            <input
+              v-model="dateInput"
+              class="filter-control w-[135px] rounded-r-none"
+              placeholder="dd/MM/yyyy"
+              inputmode="numeric"
+            />
+            <button
+              type="button"
+              class="h-[34px] px-2 rounded-r-lg border border-l-0 border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
+              title="Pick date"
+              @click="openDatePicker"
+            >
+              Calendar
+            </button>
+            <input
+              ref="nativeDateInput"
+              type="date"
+              class="sr-only"
+              :value="filters.date"
+              @change="onNativeDatePicked"
+            />
+          </div>
           <div v-if="dateError" class="text-xs text-red-600 mt-1">{{ dateError }}</div>
         </div>
         <select v-model="ordering" class="filter-control min-w-[180px]">

@@ -192,6 +192,31 @@ function closeDetail() {
   detailRow.value = null
 }
 
+function inquiryProductWaText(row) {
+  if (!row) return ''
+  const lines = []
+  const productLine = (row.original_text || row.canonical_name || '').trim()
+  if (productLine) lines.push(productLine)
+  const details = []
+  if (row.quantity != null && row.quantity !== '') details.push(`Qty: ${row.quantity}`)
+  if (row.price != null && row.price !== '') {
+    details.push(`Price: ${row.currency || ''} ${row.price}`.trim())
+  }
+  if (details.length) lines.push(details.join(' | '))
+  return lines.join('\n')
+}
+
+function waLink(row) {
+  const phone = row?.contact_phone
+  if (!phone) return null
+  const clean = phone.split('@')[0].replace(/\D/g, '')
+  if (!clean) return null
+  const text = inquiryProductWaText(row)
+  const params = new URLSearchParams({ phone: clean })
+  if (text) params.set('text', text)
+  return `whatsapp://send?${params.toString()}`
+}
+
 async function viewChat(row) {
   if (!row?.source_chat_id) return
   if (row.account && conversations.selectedAccountId !== row.account) {
@@ -430,7 +455,17 @@ watch(() => filters.value.search, () => {
                     <div class="text-xs text-gray-700 mt-1 max-w-[280px] max-h-10 overflow-hidden leading-snug">{{ result.inquiry_product.source_message_text || '-' }}</div>
                   </td>
                   <td class="px-4 py-3 align-top">
-                    <button class="text-xs text-green-700 font-semibold hover:text-green-800" @click="openDetail(result.inquiry_product)">View details</button>
+                    <div class="flex items-center gap-3 flex-wrap">
+                      <button class="text-xs text-green-700 font-semibold hover:text-green-800" @click="openDetail(result.inquiry_product)">View details</button>
+                      <a
+                        v-if="waLink(result.inquiry_product)"
+                        :href="waLink(result.inquiry_product)"
+                        class="text-xs text-green-700 font-semibold hover:text-green-800"
+                        title="Open WhatsApp with this item prefilled"
+                      >
+                        WA
+                      </a>
+                    </div>
                   </td>
                 </tr>
               </tbody>
@@ -544,6 +579,14 @@ watch(() => filters.value.search, () => {
                     >
                       Chat →
                     </button>
+                    <a
+                      v-if="waLink(row)"
+                      :href="waLink(row)"
+                      class="text-xs text-green-700 font-semibold hover:text-green-800"
+                      title="Open WhatsApp with this item prefilled"
+                    >
+                      WA
+                    </a>
                   </div>
                 </td>
               </tr>
@@ -648,6 +691,14 @@ watch(() => filters.value.search, () => {
                 >
                   Chat →
                 </button>
+                <a
+                  v-if="waLink(detailRow)"
+                  :href="waLink(detailRow)"
+                  class="text-xs text-green-700 font-semibold hover:text-green-800"
+                  title="Open WhatsApp with this item prefilled"
+                >
+                  WA
+                </a>
               </div>
             </div>
             <p class="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{{ detailRow.source_message_text || '-' }}</p>
