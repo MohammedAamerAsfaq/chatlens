@@ -2,7 +2,7 @@ import json
 import logging
 import threading
 from django.db import connection as _db_conn
-from django.db.models import Count, Max, Min, Q
+from django.db.models import Count, Max, Min, Prefetch, Q
 from django.utils.timezone import now, make_aware
 from datetime import timedelta, date as _date, datetime as _datetime, time as _time
 from rest_framework import viewsets, mixins, status
@@ -1550,9 +1550,16 @@ class InquiryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixi
         })
 
 
+class NonInventoryProductPagination(PageNumberPagination):
+    page_size = 25
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
 class NonInventoryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin):
     serializer_class = NonInventoryProductSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = NonInventoryProductPagination
     ordering_map = {
         'last_seen_newest': ('-last_seen_at', '-id'),
         'last_seen_oldest': ('last_seen_at', 'id'),
@@ -1565,10 +1572,17 @@ class NonInventoryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin,
     }
 
     def get_queryset(self):
+        from apps.trading.models import NonInventoryProductMention
+
+        latest_mentions_qs = (
+            NonInventoryProductMention.objects
+            .select_related('account', 'contact', 'source_message', 'source_message__chat')
+            .order_by('-message_time', '-id')
+        )
         qs = (
             NonInventoryProduct.objects
             .select_related('company', 'promoted_product', 'merged_into')
-            .prefetch_related('mentions')
+            .prefetch_related(Prefetch('mentions', queryset=latest_mentions_qs, to_attr='prefetched_mentions'))
         )
         qs = scope_queryset_to_visible_companies(qs, self.request.user, company_field='company')
         p = self.request.query_params

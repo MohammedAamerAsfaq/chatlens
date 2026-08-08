@@ -1,7 +1,11 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { tradingApi } from '@/api'
+import { useConversationsStore } from '@/stores/conversations'
 
+const router = useRouter()
+const conversations = useConversationsStore()
 const rows = ref([])
 const loading = ref(false)
 const error = ref('')
@@ -97,6 +101,44 @@ function closeDetail() {
   detailRow.value = null
 }
 
+function latestMention(row) {
+  return row?.latest_mentions?.[0] || null
+}
+
+function mentionProductText(mention, row = null) {
+  return (
+    mention?.raw_text
+    || mention?.canonical_name_from_ai
+    || row?.canonical_name
+    || ''
+  ).trim()
+}
+
+function waLinkForRow(row) {
+  const mention = latestMention(row)
+  const phone = mention?.contact_phone
+  if (!phone) return null
+  const clean = phone.split('@')[0].replace(/\D/g, '')
+  if (!clean) return null
+  const text = mentionProductText(mention, row)
+  const params = new URLSearchParams({ phone: clean })
+  if (text) params.set('text', text)
+  return `whatsapp://send?${params.toString()}`
+}
+
+async function viewChat(row) {
+  const mention = latestMention(row)
+  if (!mention?.source_chat_id) return
+  if (mention.account && conversations.selectedAccountId !== mention.account) {
+    await conversations.switchAccount(mention.account)
+  }
+  conversations.selectChat(mention.source_chat_id, {
+    messageId: mention.source_message,
+    messageTime: mention.message_time,
+  })
+  router.push({ name: 'conversations' })
+}
+
 onMounted(load)
 
 watch(
@@ -136,7 +178,7 @@ watch(() => filters.value.search, () => {
       </div>
 
       <div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-        UI-first phase: this page displays existing non-inventory tracking rows. Automatic creation from unmatched inquiries is not wired yet.
+        This page displays products mentioned in inquiries but not mapped to inventory. V2 unmatched lines are auto-tracked after matching completes; manual tracking remains available from inquiry product popups.
       </div>
 
       <div class="flex items-center gap-6 mb-6 bg-white rounded-xl border border-gray-200 px-6 py-4 shadow-sm flex-wrap">
@@ -230,7 +272,7 @@ watch(() => filters.value.search, () => {
                 <th class="text-left px-4 py-3 w-56">Latest Mention</th>
                 <th class="text-left px-4 py-3 w-48">Promoted / Merged</th>
                 <th class="text-left px-4 py-3 w-28">Embedding</th>
-                <th class="text-left px-4 py-3 w-28"></th>
+                <th class="text-left px-4 py-3 w-44"></th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-50">
@@ -264,7 +306,23 @@ watch(() => filters.value.search, () => {
                   <div v-if="row.embedding_model" class="text-xs text-gray-400 mt-0.5">{{ row.embedding_model }}</div>
                 </td>
                 <td class="px-4 py-3 align-top">
-                  <button class="text-xs text-green-700 font-semibold hover:text-green-800" @click="openDetail(row)">View details</button>
+                  <div class="flex items-center gap-3 flex-wrap">
+                    <button class="text-xs text-green-700 font-semibold hover:text-green-800" @click="openDetail(row)">View details</button>
+                    <button
+                      v-if="latestMention(row)?.source_chat_id"
+                      class="text-xs text-blue-700 font-semibold hover:text-blue-800"
+                      @click="viewChat(row)"
+                    >
+                      Chat →
+                    </button>
+                    <a
+                      v-if="waLinkForRow(row)"
+                      :href="waLinkForRow(row)"
+                      class="text-xs text-green-700 font-semibold hover:text-green-800"
+                    >
+                      WA
+                    </a>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -281,7 +339,23 @@ watch(() => filters.value.search, () => {
             <h2 class="text-lg font-bold text-gray-900 mt-1">{{ detailRow.canonical_name }}</h2>
             <p class="text-sm text-gray-500 mt-1">{{ detailRow.brand || 'No brand' }} · {{ statusLabel(detailRow.status) }}</p>
           </div>
-          <button class="text-gray-400 hover:text-gray-700 text-xl leading-none" @click="closeDetail">×</button>
+          <div class="flex items-center gap-3">
+            <button
+              v-if="latestMention(detailRow)?.source_chat_id"
+              class="text-xs text-blue-700 font-semibold hover:text-blue-800"
+              @click="viewChat(detailRow)"
+            >
+              Chat →
+            </button>
+            <a
+              v-if="waLinkForRow(detailRow)"
+              :href="waLinkForRow(detailRow)"
+              class="text-xs text-green-700 font-semibold hover:text-green-800"
+            >
+              WA
+            </a>
+            <button class="text-gray-400 hover:text-gray-700 text-xl leading-none" @click="closeDetail">×</button>
+          </div>
         </div>
 
         <div class="p-6 overflow-y-auto space-y-5">

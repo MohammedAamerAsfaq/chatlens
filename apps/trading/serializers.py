@@ -366,6 +366,9 @@ class NonInventoryProductSerializer(serializers.ModelSerializer):
         return f'{obj.promoted_product.brand} {obj.promoted_product.name}'.strip()
 
     def get_latest_mentions(self, obj):
+        prefetched = getattr(obj, 'prefetched_mentions', None)
+        if prefetched is not None:
+            return NonInventoryProductMentionSerializer(prefetched[:5], many=True).data
         qs = (
             obj.mentions
             .select_related('account', 'contact', 'source_message', 'source_message__chat')
