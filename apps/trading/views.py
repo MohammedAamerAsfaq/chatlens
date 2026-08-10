@@ -1,7 +1,7 @@
 import json
 import logging
 import threading
-from django.db import connection as _db_conn
+from django.db import connection as _db_conn, transaction
 from django.db.models import Count, Max, Min, Prefetch, Q
 from django.utils.timezone import now, make_aware
 from datetime import timedelta, date as _date, datetime as _datetime, time as _time
@@ -1733,6 +1733,61 @@ class NonInventoryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin,
             'pending_work': max(0, total - counts.get('embedded', 0)),
         }
         return Response(result)
+
+    @action(detail=True, methods=['post'], url_path='create-inventory-product')
+    def create_inventory_product(self, request, pk=None):
+        """Promote a tracked non-inventory item into the inventory product master."""
+        from apps.trading.models import NonInventoryProductStatus
+
+        source = self.get_object()
+        if source.promoted_product_id:
+            return Response(
+                {'detail': 'This non-inventory product is already linked to an inventory product.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        name = (request.data.get('name') or source.canonical_name or '').strip()
+        if not name:
+            return Response({'detail': 'Product name is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        product_payload = {
+            'name': name,
+            'brand': (request.data.get('brand') or source.brand or '').strip(),
+            'category': (request.data.get('category') or '').strip(),
+            'sku': (request.data.get('sku') or '').strip(),
+            'is_active': True,
+            'tracking': request.data.get('tracking', True) is not False,
+            'qty': request.data.get('qty') if request.data.get('qty') not in ('', None) else 0,
+            'cost_price': request.data.get('cost_price') if request.data.get('cost_price') not in ('', None) else None,
+            'sale_price': request.data.get('sale_price') if request.data.get('sale_price') not in ('', None) else None,
+            'currency': (request.data.get('currency') or 'USD').strip() or 'USD',
+        }
+        serializer = ProductSerializer(data=product_payload)
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            product = serializer.save(company=source.company)
+            attribute_rows = []
+            if isinstance(source.attributes, dict):
+                for key, value in source.attributes.items():
+                    key_text = str(key).strip()
+                    if not key_text or value in (None, ''):
+                        continue
+                    value_text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+                    attribute_rows.append(ProductAttribute(product=product, key=key_text, value=str(value_text)))
+            if attribute_rows:
+                ProductAttribute.objects.bulk_create(attribute_rows)
+
+            source.promoted_product = product
+            source.status = NonInventoryProductStatus.PROMOTED
+            source.save(update_fields=['promoted_product', 'status', 'updated_at'])
+
+        invalidate_product_cache()
+        _embed_product_in_background(product.pk)
+        return Response({
+            'product': ProductSerializer(product).data,
+            'non_inventory_product': NonInventoryProductSerializer(source).data,
+        }, status=status.HTTP_201_CREATED)
 
 
 class MessageClassificationViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):

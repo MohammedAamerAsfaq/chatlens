@@ -22,6 +22,23 @@ const smartSearched = ref(false)
 const smartError = ref('')
 const backfillRunning = ref(false)
 const backfillMessage = ref('')
+const createModal = ref({
+  open: false,
+  source: null,
+  saving: false,
+  error: '',
+  form: {
+    name: '',
+    brand: '',
+    category: '',
+    sku: '',
+    qty: 0,
+    cost_price: '',
+    sale_price: '',
+    currency: 'USD',
+    tracking: true,
+  },
+})
 const embeddingStatus = ref({
   total: 0,
   embedded: 0,
@@ -204,6 +221,66 @@ function openDetail(row) {
 
 function closeDetail() {
   detailRow.value = null
+}
+
+function openCreateInventoryModal(row) {
+  createModal.value = {
+    open: true,
+    source: row,
+    saving: false,
+    error: '',
+    form: {
+      name: row.canonical_name || '',
+      brand: row.brand || '',
+      category: '',
+      sku: '',
+      qty: 0,
+      cost_price: '',
+      sale_price: '',
+      currency: 'USD',
+      tracking: true,
+    },
+  }
+}
+
+function closeCreateInventoryModal() {
+  if (createModal.value.saving) return
+  createModal.value.open = false
+}
+
+async function createInventoryProduct() {
+  const source = createModal.value.source
+  if (!source) return
+  const form = createModal.value.form
+  if (!String(form.name || '').trim()) {
+    createModal.value.error = 'Product name is required.'
+    return
+  }
+  createModal.value.saving = true
+  createModal.value.error = ''
+  try {
+    const payload = {
+      name: String(form.name || '').trim(),
+      brand: String(form.brand || '').trim(),
+      category: String(form.category || '').trim(),
+      sku: String(form.sku || '').trim(),
+      qty: form.qty === '' || form.qty == null ? 0 : Number(form.qty),
+      cost_price: form.cost_price === '' || form.cost_price == null ? null : Number(form.cost_price),
+      sale_price: form.sale_price === '' || form.sale_price == null ? null : Number(form.sale_price),
+      currency: String(form.currency || 'USD').trim() || 'USD',
+      tracking: form.tracking !== false,
+    }
+    const { data } = await tradingApi.createInventoryProductFromNonInventory(source.id, payload)
+    const updated = data.non_inventory_product
+    rows.value = rows.value.map(row => row.id === updated.id ? updated : row)
+    if (detailRow.value?.id === updated.id) detailRow.value = updated
+    createModal.value.open = false
+    await loadEmbeddingStatus()
+  } catch (err) {
+    createModal.value.error = err.response?.data?.detail || err.message || 'Failed to create inventory product'
+  } finally {
+    createModal.value.saving = false
+  }
 }
 
 function latestMention(row) {
@@ -428,6 +505,13 @@ watch(() => filters.value.search, () => {
                   </td>
                   <td class="px-4 py-2 align-top">
                     <div class="flex items-center gap-3 flex-wrap">
+                      <button
+                        v-if="!result.row.promoted_product"
+                        class="text-xs text-indigo-700 font-semibold hover:text-indigo-800"
+                        @click="openCreateInventoryModal(result.row)"
+                      >
+                        Create Product
+                      </button>
                       <button class="text-xs text-green-700 font-semibold hover:text-green-800" @click="openDetail(result.row)">Details</button>
                       <button
                         v-if="latestMention(result.row)?.source_chat_id"
@@ -534,6 +618,13 @@ watch(() => filters.value.search, () => {
                 </td>
                 <td class="px-4 py-3 align-top">
                   <div class="flex items-center gap-3 flex-wrap">
+                    <button
+                      v-if="!row.promoted_product"
+                      class="text-xs text-indigo-700 font-semibold hover:text-indigo-800"
+                      @click="openCreateInventoryModal(row)"
+                    >
+                      Create Product
+                    </button>
                     <button class="text-xs text-green-700 font-semibold hover:text-green-800" @click="openDetail(row)">View details</button>
                     <button
                       v-if="latestMention(row)?.source_chat_id"
@@ -567,6 +658,13 @@ watch(() => filters.value.search, () => {
             <p class="text-sm text-gray-500 mt-1">{{ detailRow.brand || 'No brand' }} · {{ statusLabel(detailRow.status) }}</p>
           </div>
           <div class="flex items-center gap-3">
+            <button
+              v-if="!detailRow.promoted_product"
+              class="text-xs text-indigo-700 font-semibold hover:text-indigo-800"
+              @click="openCreateInventoryModal(detailRow)"
+            >
+              Create Product
+            </button>
             <button
               v-if="latestMention(detailRow)?.source_chat_id"
               class="text-xs text-blue-700 font-semibold hover:text-blue-800"
@@ -635,6 +733,76 @@ watch(() => filters.value.search, () => {
 
         <div class="px-6 py-4 border-t border-gray-100 flex justify-end bg-white">
           <button class="px-4 py-2 rounded-lg border border-gray-200 text-sm bg-white hover:bg-gray-50" @click="closeDetail">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="createModal.open" class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" @click.self="closeCreateInventoryModal">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-4">
+          <div>
+            <p class="text-xs uppercase tracking-wide text-gray-400">Create Inventory Product</p>
+            <h2 class="text-lg font-bold text-gray-900 mt-1">{{ createModal.source?.canonical_name }}</h2>
+            <p class="text-sm text-gray-500 mt-1">This will link the non-inventory row as promoted.</p>
+          </div>
+          <button class="text-gray-400 hover:text-gray-700 text-xl leading-none" @click="closeCreateInventoryModal">x</button>
+        </div>
+
+        <div class="p-6 space-y-4">
+          <div v-if="createModal.error" class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {{ createModal.error }}
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label class="block md:col-span-2">
+              <span class="text-xs font-semibold uppercase tracking-wide text-gray-500">Name</span>
+              <input v-model="createModal.form.name" class="filter-control w-full mt-1" />
+            </label>
+            <label class="block">
+              <span class="text-xs font-semibold uppercase tracking-wide text-gray-500">Brand</span>
+              <input v-model="createModal.form.brand" class="filter-control w-full mt-1" />
+            </label>
+            <label class="block">
+              <span class="text-xs font-semibold uppercase tracking-wide text-gray-500">Category</span>
+              <input v-model="createModal.form.category" class="filter-control w-full mt-1" />
+            </label>
+            <label class="block">
+              <span class="text-xs font-semibold uppercase tracking-wide text-gray-500">SKU</span>
+              <input v-model="createModal.form.sku" class="filter-control w-full mt-1" />
+            </label>
+            <label class="block">
+              <span class="text-xs font-semibold uppercase tracking-wide text-gray-500">Qty</span>
+              <input v-model="createModal.form.qty" type="number" class="filter-control w-full mt-1" />
+            </label>
+            <label class="block">
+              <span class="text-xs font-semibold uppercase tracking-wide text-gray-500">Cost Price</span>
+              <input v-model="createModal.form.cost_price" type="number" step="0.01" class="filter-control w-full mt-1" />
+            </label>
+            <label class="block">
+              <span class="text-xs font-semibold uppercase tracking-wide text-gray-500">Sale Price</span>
+              <input v-model="createModal.form.sale_price" type="number" step="0.01" class="filter-control w-full mt-1" />
+            </label>
+            <label class="block">
+              <span class="text-xs font-semibold uppercase tracking-wide text-gray-500">Currency</span>
+              <input v-model="createModal.form.currency" class="filter-control w-full mt-1" />
+            </label>
+            <label class="flex items-center gap-2 pt-5">
+              <input v-model="createModal.form.tracking" type="checkbox" />
+              <span class="text-sm text-gray-700">Enable product tracking</span>
+            </label>
+          </div>
+
+          <div v-if="Object.keys(createModal.source?.attributes || {}).length" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Attributes copied to inventory product</p>
+            <pre class="text-xs text-gray-700 overflow-auto">{{ JSON.stringify(createModal.source.attributes || {}, null, 2) }}</pre>
+          </div>
+        </div>
+
+        <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 bg-white">
+          <button class="px-4 py-2 rounded-lg border border-gray-200 text-sm bg-white hover:bg-gray-50" :disabled="createModal.saving" @click="closeCreateInventoryModal">Cancel</button>
+          <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50" :disabled="createModal.saving" @click="createInventoryProduct">
+            {{ createModal.saving ? 'Creating...' : 'Create Product' }}
+          </button>
         </div>
       </div>
     </div>

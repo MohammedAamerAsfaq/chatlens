@@ -212,6 +212,7 @@ export const tradingApi = {
   backfillInquiryProductEmbeddings: (data) => http.post('/inquiry-products/backfill-embeddings/', data || {}),
   backfillNonInventoryProductEmbeddings: (data) => http.post('/non-inventory-products/backfill-embeddings/', data || {}),
   getNonInventoryProductEmbeddingStatus: (params) => http.get('/non-inventory-products/embedding-status/', { params }),
+  createInventoryProductFromNonInventory: (id, data) => http.post(`/non-inventory-products/${id}/create-inventory-product/`, data),
   getInquiry:             (id)          => http.get(`/inquiries/${id}/`),
   getInquiryProductLines:  (id)          => http.get(`/inquiries/${id}/product-lines/`),
   createProductFromInquiryLine: (id, index, data) => http.post(`/inquiries/${id}/product-lines/${index}/create-product/`, data),
