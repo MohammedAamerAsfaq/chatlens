@@ -184,6 +184,15 @@ function statusLabel(value) {
   return String(value || '-').replaceAll('_', ' ')
 }
 
+function mentionTypeClass(count, type) {
+  if (!Number(count || 0)) {
+    return 'bg-gray-100 text-gray-400 border-gray-200'
+  }
+  return type === 'buy'
+    ? 'bg-green-100 text-green-700 border-green-200'
+    : 'bg-amber-100 text-amber-700 border-amber-200'
+}
+
 function matchPercent(distance) {
   if (distance == null) return '-'
   return `${Math.max(0, Math.round((1 - Number(distance)) * 100))}%`
@@ -402,7 +411,14 @@ watch(() => filters.value.search, () => {
                   </td>
                   <td class="px-4 py-2 align-top">
                     <div class="font-semibold text-gray-900">{{ result.row.mention_count }}</div>
-                    <div class="text-xs text-gray-500">WTB {{ result.row.buy_mention_count }} / WTS {{ result.row.sell_mention_count }}</div>
+                    <div class="mt-1 flex items-center gap-1.5 flex-wrap">
+                      <span :class="['inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold', mentionTypeClass(result.row.buy_mention_count, 'buy')]">
+                        WTB {{ result.row.buy_mention_count }}
+                      </span>
+                      <span :class="['inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold', mentionTypeClass(result.row.sell_mention_count, 'sell')]">
+                        WTS {{ result.row.sell_mention_count }}
+                      </span>
+                    </div>
                   </td>
                   <td class="px-4 py-2 align-top">
                     <div class="text-xs text-gray-400">{{ formatTime(result.row.last_seen_at) }}</div>
@@ -491,7 +507,14 @@ watch(() => filters.value.search, () => {
                 </td>
                 <td class="px-4 py-3 align-top">
                   <div class="font-semibold text-gray-900">{{ row.mention_count }}</div>
-                  <div class="text-xs text-gray-500 mt-0.5">WTB {{ row.buy_mention_count }} / WTS {{ row.sell_mention_count }}</div>
+                  <div class="mt-1 flex items-center gap-1.5 flex-wrap">
+                    <span :class="['inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold', mentionTypeClass(row.buy_mention_count, 'buy')]">
+                      WTB {{ row.buy_mention_count }}
+                    </span>
+                    <span :class="['inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold', mentionTypeClass(row.sell_mention_count, 'sell')]">
+                      WTS {{ row.sell_mention_count }}
+                    </span>
+                  </div>
                 </td>
                 <td class="px-4 py-3 align-top">
                   <div class="text-xs text-gray-400">{{ formatTime(row.last_seen_at) }}</div>
