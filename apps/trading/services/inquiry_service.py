@@ -52,23 +52,26 @@ def _resolve_contact(message):
     return None
 
 
-def _layer1_match(account, contact, dedup_key: str):
+def _layer1_match(account, contact, dedup_key: str, inquiry_type: str):
     """Exact dedup_key lookup within the time window."""
     if not dedup_key:
         return None
     from apps.trading.models import Inquiry, InquiryStatus
 
     window = now() - timedelta(hours=DEDUP_WINDOW_HOURS)
-    return Inquiry.objects.filter(
+    qs = Inquiry.objects.filter(
         account=account,
         contact=contact,
         dedup_key=dedup_key,
         status=InquiryStatus.OPEN,
         first_seen_at__gte=window,
-    ).first()
+    )
+    if inquiry_type in ('buy', 'sell'):
+        qs = qs.filter(inquiry_type=inquiry_type)
+    return qs.first()
 
 
-def _layer2_match(account, contact, message):
+def _layer2_match(account, contact, message, inquiry_type: str):
     """Semantic similarity fallback using stored embeddings."""
     try:
         from apps.message_intelligence.models import MessageEmbedding
@@ -86,6 +89,8 @@ def _layer2_match(account, contact, message):
             status=InquiryStatus.OPEN,
             first_seen_at__gte=window,
         )
+        if inquiry_type in ('buy', 'sell'):
+            recent = recent.filter(inquiry_type=inquiry_type)
         for candidate in recent:
             first_link = candidate.inquiry_messages.select_related('message').first()
             if not first_link:
@@ -120,10 +125,12 @@ def process_inquiry(message, classification) -> None:
         company = company_for_message(message)
         contact = _resolve_contact(message)
         dedup_key = classification.dedup_key or ''
+        inquiry_type = classification.inquiry_type
+        match_inquiry_type = 'buy' if inquiry_type == 'both' else inquiry_type
 
-        existing = _layer1_match(account, contact, dedup_key)
+        existing = _layer1_match(account, contact, dedup_key, match_inquiry_type)
         if not existing:
-            existing = _layer2_match(account, contact, message)
+            existing = _layer2_match(account, contact, message, match_inquiry_type)
 
         from apps.trading.services.classification_service import validate_category_suggestion
 
@@ -152,7 +159,6 @@ def process_inquiry(message, classification) -> None:
             )
             return [existing]
 
-        inquiry_type = classification.inquiry_type
         if inquiry_type == 'both':
             inquiry_type = 'buy'
 
