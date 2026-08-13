@@ -3,7 +3,8 @@ import logging
 import threading
 from django.db import connection as _db_conn, transaction
 from django.db.models import Count, Max, Min, Prefetch, Q
-from django.utils.timezone import now, make_aware
+from django.utils.dateparse import parse_datetime
+from django.utils.timezone import now, make_aware, is_naive
 from datetime import timedelta, date as _date, datetime as _datetime, time as _time
 from rest_framework import viewsets, mixins, status
 from rest_framework.decorators import action
@@ -68,9 +69,19 @@ def _visible_rule_queryset(user, qs=None):
     ).distinct()
 
 
+def _parse_date_or_datetime_param(value, *, date_end_exclusive=False):
+    parsed = parse_datetime(value)
+    if parsed is not None:
+        return make_aware(parsed) if is_naive(parsed) else parsed
+
+    parsed_date = _date.fromisoformat(value)
+    parsed_start = make_aware(_datetime.combine(parsed_date, _time.min))
+    return parsed_start + timedelta(days=1) if date_end_exclusive else parsed_start
+
+
 def _resolve_date_range(request):
     """(start, end) timezone-aware datetimes for the requested date_from/date_to query
-    params (YYYY-MM-DD, inclusive on both ends). Defaults to "today" (a single day) when
+    params. Date-only values are inclusive on both ends. Defaults to "today" when
     neither is given — preserves the existing behavior for callers that don't pass them,
     e.g. the Trading Dashboard's stat chips, which must keep showing today-only numbers.
     """
@@ -78,12 +89,12 @@ def _resolve_date_range(request):
     date_to   = request.query_params.get('date_to')
 
     if date_from:
-        start = make_aware(_datetime.combine(_date.fromisoformat(date_from), _time.min))
+        start = _parse_date_or_datetime_param(date_from)
     else:
         start = now().replace(hour=0, minute=0, second=0, microsecond=0)
 
     if date_to:
-        end = make_aware(_datetime.combine(_date.fromisoformat(date_to), _time.min)) + timedelta(days=1)
+        end = _parse_date_or_datetime_param(date_to, date_end_exclusive=True)
     else:
         end = start + timedelta(days=1)
 

@@ -834,6 +834,10 @@ const feedSortOptions = [
   { value: 'contact_name', label: 'Contact A-Z' },
 ]
 const feedDateOptions = [
+  { value: 'last_30_minutes', label: 'Last 30 mins' },
+  { value: 'last_hour', label: 'Last hour' },
+  { value: 'last_2_hours', label: 'Last 2 hours' },
+  { value: 'last_5_hours', label: 'Last 5 hours' },
   { value: 'today', label: 'Today' },
   { value: 'yesterday', label: 'Yesterday' },
   { value: 'this_week', label: 'This week' },
@@ -1508,6 +1512,10 @@ function isoDate(date) {
   return `${year}-${month}-${day}`
 }
 
+function isoDateTime(date) {
+  return date.toISOString()
+}
+
 function startOfWeek(date) {
   const d = new Date(date)
   const day = d.getDay() || 7
@@ -1519,6 +1527,17 @@ function feedDateRangeParams(value) {
   const today = new Date()
   const start = new Date(today)
   const end = new Date(today)
+  const rollingMinutes = {
+    last_30_minutes: 30,
+    last_hour: 60,
+    last_2_hours: 120,
+    last_5_hours: 300,
+  }
+
+  if (rollingMinutes[value]) {
+    start.setTime(today.getTime() - rollingMinutes[value] * 60 * 1000)
+    return { date_from: isoDateTime(start), date_to: isoDateTime(end) }
+  }
 
   if (value === 'yesterday') {
     start.setDate(today.getDate() - 1)
