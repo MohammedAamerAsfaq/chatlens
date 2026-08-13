@@ -1140,6 +1140,7 @@ class InquiryViewSet(viewsets.GenericViewSet,
         status_val = request.query_params.get('status', InquiryStatus.OPEN)
         type_val   = request.query_params.get('type')
         sort_val   = request.query_params.get('sort', 'latest')
+        contact_id = request.query_params.get('contact')
 
         try:
             page = int(request.query_params.get('page', 1))
@@ -1158,12 +1159,13 @@ class InquiryViewSet(viewsets.GenericViewSet,
             'oldest': 'first_seen_at',
             'recently_updated': '-updated_at',
             'least_recently_updated': 'updated_at',
+            'contact_name': 'contact__display_name',
         }
         if sort_val not in sort_map:
             raise ValidationError({'detail': f'Unsupported sort value: {sort_val}'})
 
-        today = now().replace(hour=0, minute=0, second=0, microsecond=0)
-        qs = Inquiry.objects.filter(first_seen_at__gte=today).select_related('account', 'contact')
+        start, end = _resolve_date_range(request)
+        qs = Inquiry.objects.filter(first_seen_at__gte=start, first_seen_at__lt=end).select_related('account', 'contact')
         qs = scope_queryset_to_visible_companies(qs, request.user, company_field='company')
 
         if status_val and status_val != 'all':
@@ -1174,6 +1176,9 @@ class InquiryViewSet(viewsets.GenericViewSet,
         if type_val in ('buy', 'sell'):
             qs = qs.filter(inquiry_type=type_val)
 
+        if contact_id:
+            qs = qs.filter(contact_id=contact_id)
+
         qs = qs.order_by(sort_map[sort_val], '-id')
         count = qs.count()
         offset = (page - 1) * page_size
@@ -1183,6 +1188,8 @@ class InquiryViewSet(viewsets.GenericViewSet,
             'page_size': page_size,
             'total_pages': (count + page_size - 1) // page_size if count else 1,
             'sort': sort_val,
+            'date_from': start.date().isoformat(),
+            'date_to': (end - timedelta(days=1)).date().isoformat(),
             'results': InquirySerializer(qs[offset:offset + page_size], many=True).data,
         })
 

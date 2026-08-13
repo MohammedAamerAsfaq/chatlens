@@ -79,7 +79,10 @@
               </td>
               <td class="td-inv">{{ r.product.qty ?? 0 }}</td>
               <td class="td-inv">{{ r.product.sale_price != null ? r.product.sale_price : '—' }}</td>
-              <td><button class="btn-sm" @click="openEdit(r.product)">Edit</button></td>
+              <td class="col-actions">
+                <button class="btn-sm" @click="openEdit(r.product)">Edit</button>
+                <button class="btn-sm" @click="openDuplicate(r.product)">Duplicate</button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -183,6 +186,7 @@
             </td>
             <td class="col-actions">
               <button class="btn-sm" @click="openEdit(p)">Edit</button>
+              <button class="btn-sm" @click="openDuplicate(p)">Duplicate</button>
               <button v-if="p.is_active" class="btn-sm danger" @click="deactivate(p)">
                 Deactivate
               </button>
@@ -452,7 +456,7 @@
       >
         <div class="modal-head product-modal-head" @mousedown="startProductModalDrag">
           <div>
-            <h3>{{ modal.id ? 'Edit Product' : 'Add Product' }}</h3>
+            <h3>{{ productModalTitle }}</h3>
             <p class="product-modal-subtitle">Catalog details, pricing, and search aliases</p>
           </div>
           <button type="button" class="modal-close" @mousedown.stop @click="closeModal" title="Close">×</button>
@@ -640,7 +644,7 @@ function clearSmartSearch() {
 }
 
 const modal = ref({
-  open: false, id: null,
+  open: false, id: null, duplicateFrom: null,
   name: '', brand: '', category: '', sku: '',
   tracking: true,
 })
@@ -765,6 +769,12 @@ const embeddingMissing = computed(() => {
   return embeddingStatus.value.products.missing + embeddingStatus.value.aliases.missing
 })
 
+const productModalTitle = computed(() => {
+  if (modal.value.id) return 'Edit Product'
+  if (modal.value.duplicateFrom) return 'Duplicate Product'
+  return 'Add Product'
+})
+
 async function loadEmbeddingStatus() {
   try {
     const { data } = await tradingApi.getEmbeddingStatus()
@@ -868,7 +878,7 @@ function resetAttributeState() {
 
 function openCreate() {
   modal.value = {
-    open: true, id: null, name: '', brand: '', category: '', sku: '',
+    open: true, id: null, duplicateFrom: null, name: '', brand: '', category: '', sku: '',
     tracking: true,
     qty: 0, cost_price: '', sale_price: '', currency: 'USD',
   }
@@ -879,7 +889,7 @@ function openCreate() {
 
 async function openEdit(p) {
   modal.value = {
-    open: true, id: p.id,
+    open: true, id: p.id, duplicateFrom: null,
     name: p.name, brand: p.brand, category: p.category, sku: p.sku,
     qty: p.qty ?? 0,
     cost_price: p.cost_price ?? '',
@@ -898,6 +908,38 @@ async function openEdit(p) {
     const { data } = await tradingApi.listProductAttributes(p.id)
     modalAttributes.value = data
   } catch { /* non-critical — attribute section just starts empty */ }
+}
+
+async function openDuplicate(p) {
+  modal.value = {
+    open: true, id: null, duplicateFrom: p.id,
+    name: `${p.name || ''} Copy`.trim(),
+    brand: p.brand || '',
+    category: p.category || '',
+    sku: '',
+    qty: p.qty ?? 0,
+    cost_price: p.cost_price ?? '',
+    sale_price: p.sale_price ?? '',
+    currency: p.currency || 'USD',
+    tracking: p.tracking !== false,
+  }
+  productModalDrag.value = { x: 0, y: 0 }
+  resetAliasState()
+  resetAttributeState()
+
+  try {
+    const { data } = await tradingApi.listProductAliases(p.id)
+    pendingAliases.value = (data || []).map(a => a.alias).filter(Boolean)
+  } catch {
+    pendingAliases.value = (p.aliases || []).filter(Boolean)
+  }
+
+  try {
+    const { data } = await tradingApi.listProductAttributes(p.id)
+    pendingAttributes.value = (data || []).map(a => ({ key: a.key, value: a.value })).filter(a => a.key)
+  } catch {
+    pendingAttributes.value = (p.attributes || []).map(a => ({ key: a.key, value: a.value })).filter(a => a.key)
+  }
 }
 
 function closeModal() {

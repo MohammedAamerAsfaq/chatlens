@@ -65,6 +65,7 @@ class ContactSerializer(serializers.ModelSerializer):
 
 class ContactDetailSerializer(serializers.ModelSerializer):
     account_id    = serializers.IntegerField(source='account.pk', read_only=True)
+    account_name  = serializers.SerializerMethodField()
     message_count = serializers.IntegerField(read_only=True, default=0)
     chat_id       = serializers.SerializerMethodField()
     chat_db_id    = serializers.SerializerMethodField()
@@ -78,18 +79,23 @@ class ContactDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'account_id', 'wa_contact_id', 'lid_jid', 'username', 'phone_number',
             'display_name', 'push_name', 'is_business', 'category', 'role_tags', 'role_category',
+            'account_name',
             'contact_type', 'message_count', 'chat_id', 'chat_db_id', 'ai_parsing',
             'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'account_id', 'wa_contact_id', 'lid_jid', 'username', 'phone_number',
-            'push_name', 'is_business', 'role_tags', 'role_category', 'contact_type',
+            'push_name', 'is_business', 'role_tags', 'role_category', 'account_name', 'contact_type',
             'message_count', 'chat_id', 'chat_db_id', 'ai_parsing',
             'created_at', 'updated_at',
         ]
 
     def _first_chat(self, obj):
         return next(iter(obj.chats.all()), None)
+
+    def get_account_name(self, obj):
+        account = obj.account
+        return account.display_name or account.phone_number or f'Account {account.pk}'
 
     def get_contact_type(self, obj):
         jid = obj.wa_contact_id

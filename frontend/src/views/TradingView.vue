@@ -94,6 +94,36 @@
             <span class="feed-count">{{ buyTotal }}</span>
           </div>
           <div class="feed-controls">
+            <div class="contact-picker contact-picker-buy">
+              <input
+                v-model="buyContactSearch"
+                class="feed-control-input contact-search"
+                placeholder="Search contact..."
+                @focus="openContactPicker('buy')"
+                @input="searchContacts('buy')"
+              />
+              <button v-if="buyContact" class="contact-clear-btn" title="Clear contact filter" @click="clearFeedContact('buy')">x</button>
+              <div v-if="buyContactOpen" class="contact-menu" @scroll="onContactMenuScroll('buy', $event)">
+                <button class="contact-option muted" @mousedown.prevent="clearFeedContact('buy')">All contacts</button>
+                <button
+                  v-for="contact in buyContactOptions"
+                  :key="contact.id"
+                  class="contact-option"
+                  @mousedown.prevent="selectFeedContact('buy', contact)"
+                >
+                  <span class="contact-option-main">
+                    <span>{{ contactLabel(contact) }}</span>
+                    <span class="contact-account-badge">{{ contact.account_name || `Account ${contact.account_id}` }}</span>
+                  </span>
+                  <small>{{ contact.phone_number || contact.wa_contact_id }}</small>
+                </button>
+                <div v-if="buyContactLoading" class="contact-loading">Loading...</div>
+                <div v-else-if="!buyContactOptions.length" class="contact-loading">No contacts</div>
+              </div>
+            </div>
+            <select v-model="buyDateRange" class="feed-control-select" @change="setFeedDateRange('buy')">
+              <option v-for="opt in feedDateOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
             <select v-model="buySort" class="feed-control-select" @change="setFeedSort('buy')">
               <option v-for="opt in feedSortOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
             </select>
@@ -298,6 +328,36 @@
             <span class="feed-count">{{ sellTotal }}</span>
           </div>
           <div class="feed-controls">
+            <div class="contact-picker contact-picker-sell">
+              <input
+                v-model="sellContactSearch"
+                class="feed-control-input contact-search"
+                placeholder="Search contact..."
+                @focus="openContactPicker('sell')"
+                @input="searchContacts('sell')"
+              />
+              <button v-if="sellContact" class="contact-clear-btn" title="Clear contact filter" @click="clearFeedContact('sell')">x</button>
+              <div v-if="sellContactOpen" class="contact-menu" @scroll="onContactMenuScroll('sell', $event)">
+                <button class="contact-option muted" @mousedown.prevent="clearFeedContact('sell')">All contacts</button>
+                <button
+                  v-for="contact in sellContactOptions"
+                  :key="contact.id"
+                  class="contact-option"
+                  @mousedown.prevent="selectFeedContact('sell', contact)"
+                >
+                  <span class="contact-option-main">
+                    <span>{{ contactLabel(contact) }}</span>
+                    <span class="contact-account-badge">{{ contact.account_name || `Account ${contact.account_id}` }}</span>
+                  </span>
+                  <small>{{ contact.phone_number || contact.wa_contact_id }}</small>
+                </button>
+                <div v-if="sellContactLoading" class="contact-loading">Loading...</div>
+                <div v-else-if="!sellContactOptions.length" class="contact-loading">No contacts</div>
+              </div>
+            </div>
+            <select v-model="sellDateRange" class="feed-control-select" @change="setFeedDateRange('sell')">
+              <option v-for="opt in feedDateOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
             <select v-model="sellSort" class="feed-control-select" @change="setFeedSort('sell')">
               <option v-for="opt in feedSortOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
             </select>
@@ -743,9 +803,27 @@ const buyPageSize      = ref(50)
 const sellPageSize     = ref(50)
 const buySort          = ref('latest')
 const sellSort         = ref('latest')
+const buyContact       = ref('')
+const sellContact      = ref('')
+const buyContactSearch = ref('')
+const sellContactSearch = ref('')
+const buyContactOpen = ref(false)
+const sellContactOpen = ref(false)
+const buyContactLoading = ref(false)
+const sellContactLoading = ref(false)
+const buyContactPage = ref(1)
+const sellContactPage = ref(1)
+const buyContactTotalPages = ref(1)
+const sellContactTotalPages = ref(1)
+const buyDateRange     = ref('today')
+const sellDateRange    = ref('today')
+const buyContactOptions = ref([])
+const sellContactOptions = ref([])
 const buyLoading       = ref(false)
 const sellLoading      = ref(false)
 let   pollTimer        = null
+let   buyContactSearchTimer = null
+let   sellContactSearchTimer = null
 
 const feedPageSizeOptions = [25, 50, 100, 200]
 const feedSortOptions = [
@@ -753,6 +831,15 @@ const feedSortOptions = [
   { value: 'oldest', label: 'Oldest first' },
   { value: 'recently_updated', label: 'Recently updated' },
   { value: 'least_recently_updated', label: 'Least updated' },
+  { value: 'contact_name', label: 'Contact A-Z' },
+]
+const feedDateOptions = [
+  { value: 'today', label: 'Today' },
+  { value: 'yesterday', label: 'Yesterday' },
+  { value: 'this_week', label: 'This week' },
+  { value: 'last_week', label: 'Last week' },
+  { value: 'this_month', label: 'This month' },
+  { value: 'last_month', label: 'Last month' },
 ]
 
 // Ticks once a second so `isFreshInquiry` re-evaluates and the Close button
@@ -1163,6 +1250,12 @@ function setStatusFilter(val) {
   selectedStatus.value = val
   buyPage.value = 1
   sellPage.value = 1
+  buyContact.value = ''
+  sellContact.value = ''
+  buyContactSearch.value = ''
+  sellContactSearch.value = ''
+  loadContactOptions('buy', { reset: true })
+  loadContactOptions('sell', { reset: true })
   refresh()
 }
 
@@ -1293,9 +1386,167 @@ function formatAge(secs) {
   return `${Math.floor(secs / 3600)}h`
 }
 
+function contactLabel(contact) {
+  return contact?.display_name || contact?.push_name || contact?.phone_number || contact?.wa_contact_id || `Contact ${contact?.id || ''}`
+}
+
+function contactPickerState(type) {
+  const isBuy = type === 'buy'
+  return {
+    options: isBuy ? buyContactOptions : sellContactOptions,
+    search: isBuy ? buyContactSearch : sellContactSearch,
+    loading: isBuy ? buyContactLoading : sellContactLoading,
+    page: isBuy ? buyContactPage : sellContactPage,
+    totalPages: isBuy ? buyContactTotalPages : sellContactTotalPages,
+    open: isBuy ? buyContactOpen : sellContactOpen,
+  }
+}
+
+async function loadContactOptions(type, { reset = false } = {}) {
+  const state = contactPickerState(type)
+  if (state.loading.value) return
+  if (!reset && state.page.value >= state.totalPages.value) return
+
+  if (reset) {
+    state.page.value = 1
+    state.totalPages.value = 1
+    state.options.value = []
+  } else {
+    state.page.value += 1
+  }
+
+  state.loading.value = true
+  try {
+    const params = {
+      page: state.page.value,
+      page_size: 10,
+      ordering: 'display_name',
+      type: 'phone',
+    }
+    if (selectedAccount.value) params.account = selectedAccount.value
+    if (state.search.value.trim()) params.search = state.search.value.trim()
+
+    const { data } = await contactsApi.list(params)
+    const incoming = data.results ?? data
+    state.totalPages.value = data.total_pages || Math.max(1, Math.ceil((data.count || incoming.length) / 10))
+    const seen = new Set(state.options.value.map(c => c.id))
+    const merged = reset ? [] : [...state.options.value]
+    for (const contact of incoming) {
+      if (!seen.has(contact.id)) {
+        merged.push(contact)
+        seen.add(contact.id)
+      }
+    }
+    state.options.value = merged
+  } finally {
+    state.loading.value = false
+  }
+}
+
+function openContactPicker(type) {
+  const state = contactPickerState(type)
+  state.open.value = true
+  if (!state.options.value.length) loadContactOptions(type, { reset: true })
+}
+
+function closeContactPickersOnOutsideClick(event) {
+  if (event.target.closest?.('.contact-picker')) return
+  buyContactOpen.value = false
+  sellContactOpen.value = false
+}
+
+function searchContacts(type) {
+  const timerRef = type === 'buy' ? 'buy' : 'sell'
+  if (timerRef === 'buy') {
+    clearTimeout(buyContactSearchTimer)
+    buyContactSearchTimer = setTimeout(() => loadContactOptions('buy', { reset: true }), 250)
+  } else {
+    clearTimeout(sellContactSearchTimer)
+    sellContactSearchTimer = setTimeout(() => loadContactOptions('sell', { reset: true }), 250)
+  }
+}
+
+function onContactMenuScroll(type, event) {
+  const el = event.target
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 20) {
+    loadContactOptions(type)
+  }
+}
+
+function selectFeedContact(type, contact) {
+  if (type === 'buy') {
+    buyContact.value = contact.id
+    buyContactSearch.value = contactLabel(contact)
+    buyContactOpen.value = false
+    setFeedContact('buy')
+  } else {
+    sellContact.value = contact.id
+    sellContactSearch.value = contactLabel(contact)
+    sellContactOpen.value = false
+    setFeedContact('sell')
+  }
+}
+
+function clearFeedContact(type) {
+  if (type === 'buy') {
+    buyContact.value = ''
+    buyContactSearch.value = ''
+    buyContactOpen.value = false
+    setFeedContact('buy')
+  } else {
+    sellContact.value = ''
+    sellContactSearch.value = ''
+    sellContactOpen.value = false
+    setFeedContact('sell')
+  }
+}
+
+function isoDate(date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function startOfWeek(date) {
+  const d = new Date(date)
+  const day = d.getDay() || 7
+  d.setDate(d.getDate() - day + 1)
+  return d
+}
+
+function feedDateRangeParams(value) {
+  const today = new Date()
+  const start = new Date(today)
+  const end = new Date(today)
+
+  if (value === 'yesterday') {
+    start.setDate(today.getDate() - 1)
+    end.setDate(today.getDate() - 1)
+  } else if (value === 'this_week') {
+    const weekStart = startOfWeek(today)
+    start.setTime(weekStart.getTime())
+  } else if (value === 'last_week') {
+    const weekStart = startOfWeek(today)
+    start.setTime(weekStart.getTime())
+    start.setDate(start.getDate() - 7)
+    end.setTime(start.getTime())
+    end.setDate(start.getDate() + 6)
+  } else if (value === 'this_month') {
+    start.setDate(1)
+  } else if (value === 'last_month') {
+    start.setMonth(today.getMonth() - 1, 1)
+    end.setFullYear(start.getFullYear(), start.getMonth() + 1, 0)
+  }
+
+  return { date_from: isoDate(start), date_to: isoDate(end) }
+}
+
 function feedParams(type) {
   const accountParam = selectedAccount.value || undefined
   const isBuy = type === 'buy'
+  const contact = isBuy ? buyContact.value : sellContact.value
+  const dateParams = feedDateRangeParams(isBuy ? buyDateRange.value : sellDateRange.value)
   return {
     ...(accountParam ? { account: accountParam } : {}),
     status: selectedStatus.value,
@@ -1303,6 +1554,8 @@ function feedParams(type) {
     page: isBuy ? buyPage.value : sellPage.value,
     page_size: isBuy ? buyPageSize.value : sellPageSize.value,
     sort: isBuy ? buySort.value : sellSort.value,
+    ...(contact ? { contact } : {}),
+    ...dateParams,
   }
 }
 
@@ -1379,6 +1632,12 @@ async function loadSellFeed() {
 function resetFeedPagesAndRefresh() {
   buyPage.value = 1
   sellPage.value = 1
+  buyContact.value = ''
+  sellContact.value = ''
+  buyContactSearch.value = ''
+  sellContactSearch.value = ''
+  loadContactOptions('buy', { reset: true })
+  loadContactOptions('sell', { reset: true })
   refresh()
 }
 
@@ -1398,6 +1657,32 @@ function setFeedPageSize(type) {
     loadBuyFeed()
   } else {
     sellPage.value = 1
+    loadSellFeed()
+  }
+}
+
+function setFeedContact(type) {
+  if (type === 'buy') {
+    buyPage.value = 1
+    loadBuyFeed()
+  } else {
+    sellPage.value = 1
+    loadSellFeed()
+  }
+}
+
+function setFeedDateRange(type) {
+  if (type === 'buy') {
+    buyPage.value = 1
+    buyContact.value = ''
+    buyContactSearch.value = ''
+    loadContactOptions('buy', { reset: true })
+    loadBuyFeed()
+  } else {
+    sellPage.value = 1
+    sellContact.value = ''
+    sellContactSearch.value = ''
+    loadContactOptions('sell', { reset: true })
     loadSellFeed()
   }
 }
@@ -1627,6 +1912,7 @@ onMounted(async () => {
   // on the Products page, not on the 15s live-feed cadence.
   tradingApi.getPriceList().then(({ data }) => { formattedPriceList.value = data.body }).catch(() => {})
   tradingApi.getWtsReplySettings().then(({ data }) => { Object.assign(wtsReply.value, data) }).catch(() => {})
+  document.addEventListener('pointerdown', closeContactPickersOnOutsideClick)
   pollTimer = setInterval(refresh, 15000)
   freshnessTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
 })
@@ -1634,6 +1920,7 @@ onMounted(async () => {
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
   if (freshnessTimer) clearInterval(freshnessTimer)
+  document.removeEventListener('pointerdown', closeContactPickersOnOutsideClick)
   stopRowDialogDrag()
   stopMatchFixDrag()
 })
@@ -1683,7 +1970,68 @@ onUnmounted(() => {
 .feed-count { background: #e5e7eb; border-radius: 999px; padding: 1px 8px; font-size: 0.78rem; }
 .feed-controls { display: flex; align-items: center; gap: 6px; margin-left: auto; }
 .feed-control-select { height: 28px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #374151; font-size: 0.78rem; padding: 2px 8px; }
+.feed-control-input { height: 28px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #374151; font-size: 0.78rem; padding: 2px 8px; }
 .feed-control-select.compact { width: 72px; }
+.contact-picker { position: relative; width: 170px; }
+.contact-search { width: 100%; padding-right: 22px; }
+.contact-clear-btn {
+  position: absolute;
+  right: 5px;
+  top: 5px;
+  border: 0;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+  font-size: 0.74rem;
+  line-height: 1;
+}
+.contact-menu {
+  position: absolute;
+  z-index: 30;
+  top: 32px;
+  left: 0;
+  width: 260px;
+  max-height: 230px;
+  overflow-y: auto;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+  padding: 4px;
+}
+.contact-option {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #111827;
+  cursor: pointer;
+  padding: 6px 8px;
+  text-align: left;
+  font-size: 0.78rem;
+}
+.contact-option:hover { background: #f3f4f6; }
+.contact-option.muted { color: #6b7280; font-weight: 600; }
+.contact-option-main { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.contact-account-badge {
+  max-width: 98px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  padding: 1px 7px;
+  font-size: 0.64rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.contact-option small { color: #9ca3af; font-size: 0.68rem; }
+.contact-loading { padding: 8px; color: #9ca3af; font-size: 0.74rem; text-align: center; }
 .feed-list { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 .feed-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; height: 300px; }
 .feed-card.urgent { border-left: 3px solid #f59e0b; }
