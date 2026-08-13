@@ -195,9 +195,11 @@ export const tradingApi = {
 
   // AI Prompts
   listPrompts:      ()            => http.get('/prompts/'),
-  savePrompt:       (key, body)   => http.patch(`/prompts/${key}/`, { body }),
+  savePrompt:       (key, body, agent_config) => http.patch(`/prompts/${key}/`, { body, agent_config }),
+  savePromptAgent:  (key, agent_config) => http.patch(`/prompts/${key}/`, { agent_config }),
   resetPrompt:      (key)         => http.delete(`/prompts/${key}/`),
   getActiveAgent:   ()            => http.get('/prompts/active-agent/'),
+  listPromptAgentOptions: ()      => http.get('/prompts/agent-options/'),
   saveAgentPricing: (data)        => http.patch('/prompts/active-agent/', data),
   listAgentLogs:    (params)      => http.get('/agent-logs/', { params }),
   listAiParsingLogs: (params)     => http.get('/ai-parsing-logs/', { params }),

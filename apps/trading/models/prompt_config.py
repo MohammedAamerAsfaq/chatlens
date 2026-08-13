@@ -446,6 +446,13 @@ class PromptConfig(models.Model):
     key        = models.CharField(max_length=100)
     label      = models.CharField(max_length=200)
     body       = models.TextField()
+    agent_config = models.ForeignKey(
+        'ai_providers.AIProviderConfig',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='prompt_configs',
+        limit_choices_to={'capability': 'agent'},
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -463,3 +470,13 @@ class PromptConfig(models.Model):
             return cls.objects.get(company=company, key=key).body
         except cls.DoesNotExist:
             return default
+
+    @classmethod
+    def get_agent_config(cls, key: str, company=None):
+        try:
+            return cls.objects.select_related('agent_config').get(
+                company=company,
+                key=key,
+            ).agent_config
+        except cls.DoesNotExist:
+            return None

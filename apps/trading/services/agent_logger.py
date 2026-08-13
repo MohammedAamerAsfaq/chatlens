@@ -12,9 +12,10 @@ def call_agent(purpose: str, messages: list, wa_message_id=None, **kwargs) -> st
     from apps.ai_providers.manager import ai_manager
     from apps.trading.models import AgentCallLog
 
+    agent_config = kwargs.pop('agent_config', None)
     provider = model = ''
     try:
-        config = ai_manager.active_config('agent')
+        config = agent_config or ai_manager.active_config('agent')
         if config:
             provider = config.provider
             model    = config.model
@@ -30,7 +31,7 @@ def call_agent(purpose: str, messages: list, wa_message_id=None, **kwargs) -> st
     error    = ''
 
     try:
-        response = ai_manager.agent(messages, **kwargs)
+        response = ai_manager.agent(messages, config=agent_config, **kwargs)
         success  = True
         return response
     except Exception as exc:

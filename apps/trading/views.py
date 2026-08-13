@@ -209,18 +209,17 @@ class ProductViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='parse-text')
     def parse_text(self, request):
         """Extract product names from free-form price list text using AI."""
-        from apps.ai_providers.manager import ai_manager
-
         from apps.trading.models import PromptConfig, PRODUCT_EXTRACTION_DEFAULT
 
         text = (request.data.get('text') or '').strip()
         if not text:
             return Response({'error': 'text is required'}, status=status.HTTP_400_BAD_REQUEST)
 
+        company = default_company_for_user(request.user)
         system_prompt = PromptConfig.get_body(
             PromptConfig.KEY_PRODUCT_EXTRACTION,
             PRODUCT_EXTRACTION_DEFAULT,
-            company=default_company_for_user(request.user),
+            company=company,
         )
 
         messages = [
@@ -232,6 +231,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             raw = call_agent(
                 PromptConfig.KEY_PRODUCT_EXTRACTION,
                 messages,
+                agent_config=PromptConfig.get_agent_config(PromptConfig.KEY_PRODUCT_EXTRACTION, company=company),
                 temperature=0,
             )
             cleaned = raw.strip()
@@ -374,11 +374,12 @@ class ProductViewSet(viewsets.ModelViewSet):
         from apps.trading.services.product_cache import get_product_prompt_block
         from apps.trading.services.agent_logger import call_agent
 
-        product_block = get_product_prompt_block(company=default_company_for_user(request.user))
+        company = default_company_for_user(request.user)
+        product_block = get_product_prompt_block(company=company)
         system_prompt = PromptConfig.get_body(
             PromptConfig.KEY_INVENTORY_UPDATE,
             INVENTORY_UPDATE_DEFAULT,
-            company=default_company_for_user(request.user),
+            company=company,
         ).replace('{product_block}', product_block)
 
         parts = []
@@ -395,6 +396,7 @@ class ProductViewSet(viewsets.ModelViewSet):
                     {'role': 'system', 'content': system_prompt},
                     {'role': 'user',   'content': user_text},
                 ],
+                agent_config=PromptConfig.get_agent_config(PromptConfig.KEY_INVENTORY_UPDATE, company=company),
                 temperature=0,
             )
             cleaned = raw.strip()
@@ -1828,9 +1830,8 @@ class MessageClassificationViewSet(viewsets.GenericViewSet, mixins.ListModelMixi
 class PromptConfigViewSet(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated]
 
-    def list(self, request):
-        """Return all prompt configs with their current body (or default if not saved yet)."""
-        defaults = {
+    def _prompt_defaults(self):
+        return {
             PromptConfig.KEY_PRODUCT_EXTRACTION:     (PRODUCT_EXTRACTION_DEFAULT,     'Product Extraction (bulk import)'),
             PromptConfig.KEY_INQUIRY_CLASSIFICATION: (INQUIRY_CLASSIFICATION_DEFAULT, 'Inquiry Classification (live messages)'),
             PromptConfig.KEY_INQUIRY_CLASSIFICATION_V1: (INQUIRY_CLASSIFICATION_DEFAULT, 'Inquiry Classification V1 (live messages)'),
@@ -1842,19 +1843,50 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
             PromptConfig.KEY_SALE_PRICE_UPDATE:      (SALE_PRICE_UPDATE_DEFAULT,      'Sale Price Update (Product Price Update page)'),
             PromptConfig.KEY_MATCH_VERIFICATION:     (MATCH_VERIFICATION_DEFAULT,     'Inquiry Match Verification (manual review)'),
         }
+
+    def _serialize_prompt(self, obj, key, label, default_body):
+        agent = obj.agent_config if obj else None
+        return {
+            'key':        key,
+            'label':      label,
+            'body':       obj.body if obj else default_body,
+            'is_default': obj is None,
+            'updated_at': obj.updated_at.isoformat() if obj else None,
+            'agent_config': agent.pk if agent else None,
+            'agent_display_name': agent.display_name if agent else '',
+            'agent_provider': agent.provider if agent else '',
+            'agent_model': agent.model if agent else '',
+        }
+
+    def list(self, request):
+        """Return all prompt configs with their current body (or default if not saved yet)."""
+        defaults = self._prompt_defaults()
         company = default_company_for_user(request.user)
-        saved = {p.key: p for p in PromptConfig.objects.filter(company=company)}
+        saved = {
+            p.key: p
+            for p in PromptConfig.objects.select_related('agent_config').filter(company=company)
+        }
         result = []
         for key, (default_body, label) in defaults.items():
             obj = saved.get(key)
-            result.append({
-                'key':        key,
-                'label':      label,
-                'body':       obj.body if obj else default_body,
-                'is_default': obj is None,
-                'updated_at': obj.updated_at.isoformat() if obj else None,
-            })
+            result.append(self._serialize_prompt(obj, key, label, default_body))
         return Response(result)
+
+    @action(detail=False, methods=['get'], url_path='agent-options')
+    def agent_options(self, request):
+        from apps.ai_providers.models import AIProviderConfig as APC
+
+        configs = APC.objects.filter(capability=APC.CAPABILITY_AGENT).order_by('-is_active', 'display_name')
+        return Response([
+            {
+                'id': config.pk,
+                'display_name': config.display_name,
+                'provider': config.provider,
+                'model': config.model,
+                'is_active': config.is_active,
+            }
+            for config in configs
+        ])
 
     @action(detail=False, methods=['get', 'patch'], url_path='active-agent')
     def active_agent(self, request):
@@ -1880,6 +1912,7 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
 
         extra = config.extra_config or {}
         return Response({
+            'id':                   config.pk,
             'display_name':         config.display_name,
             'provider':             config.provider,
             'model':                config.model,
@@ -1890,36 +1923,36 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
     def partial_update(self, request, pk=None):
         """Save (upsert) a prompt by key."""
         key  = pk
-        body = (request.data.get('body') or '').strip()
+        defaults_map = self._prompt_defaults()
+        if key not in defaults_map:
+            return Response({'error': f'Unknown prompt key: {key}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        default_body, label = defaults_map[key]
+        company = default_company_for_user(request.user)
+        existing = PromptConfig.objects.filter(company=company, key=key).first()
+        body_input = request.data.get('body')
+        body = (body_input if body_input is not None else (existing.body if existing else default_body)).strip()
         if not body:
             return Response({'error': 'body is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        defaults_map = {
-            PromptConfig.KEY_PRODUCT_EXTRACTION:     'Product Extraction (bulk import)',
-            PromptConfig.KEY_INQUIRY_CLASSIFICATION: 'Inquiry Classification (live messages)',
-            PromptConfig.KEY_INQUIRY_CLASSIFICATION_V1: 'Inquiry Classification V1 (live messages)',
-            PromptConfig.KEY_INQUIRY_EXTRACTION_V2:  'Inquiry Extraction V2 (pass 1)',
-            PromptConfig.KEY_INQUIRY_MATCH_DECISION_V2: 'Inquiry Match Decision V2 (pass 2)',
-            PromptConfig.KEY_INVENTORY_UPDATE:       'Inventory Update (bulk qty + price)',
-            PromptConfig.KEY_PRICE_LIST_FORMAT:      'Price List Formatting (WhatsApp send)',
-            PromptConfig.KEY_QTY_COST_UPDATE:        'Qty & Cost Update (Product Price Update page)',
-            PromptConfig.KEY_SALE_PRICE_UPDATE:      'Sale Price Update (Product Price Update page)',
-            PromptConfig.KEY_MATCH_VERIFICATION:     'Inquiry Match Verification (manual review)',
-        }
-        label = defaults_map.get(key, key)
-        company = default_company_for_user(request.user)
+        agent_config = existing.agent_config if existing else None
+        if 'agent_config' in request.data and request.data.get('agent_config') not in ('', None):
+            from apps.ai_providers.models import AIProviderConfig as APC
+            agent_config = APC.objects.filter(
+                pk=request.data.get('agent_config'),
+                capability=APC.CAPABILITY_AGENT,
+            ).first()
+            if not agent_config:
+                return Response({'error': 'Selected AI agent is invalid.'}, status=status.HTTP_400_BAD_REQUEST)
+        elif 'agent_config' in request.data:
+            agent_config = None
+
         obj, _ = PromptConfig.objects.update_or_create(
             company=company,
             key=key,
-            defaults={'body': body, 'label': label},
+            defaults={'body': body, 'label': label, 'agent_config': agent_config},
         )
-        return Response({
-            'key':        obj.key,
-            'label':      obj.label,
-            'body':       obj.body,
-            'is_default': False,
-            'updated_at': obj.updated_at.isoformat(),
-        })
+        return Response(self._serialize_prompt(obj, key, label, default_body))
 
     def destroy(self, request, pk=None):
         """Reset a prompt to its default by deleting the saved override."""

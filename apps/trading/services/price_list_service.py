@@ -44,6 +44,7 @@ def generate_price_list(company):
             {'role': 'system', 'content': system_prompt},
             {'role': 'user',   'content': f'Format this price list:\n{product_block}'},
         ],
+        agent_config=PromptConfig.get_agent_config(PromptConfig.KEY_PRICE_LIST_FORMAT, company=company),
         temperature=0,
     )
 

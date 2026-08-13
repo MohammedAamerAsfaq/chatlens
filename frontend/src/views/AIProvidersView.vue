@@ -20,6 +20,7 @@ const deleting   = ref({})
 
 const liveModels      = ref([])    // fetched from provider API
 const liveModelSource = ref('')    // 'api' | 'fallback' | ''
+const fetchModelError = ref('')
 const fetchingModels  = ref(false)
 
 const form = ref(emptyForm())
@@ -56,6 +57,14 @@ const providerOptions = computed(() =>
   Object.entries(meta.value.providers).map(([v, l]) => ({ value: v, label: l }))
 )
 
+const apiKeyOptional = computed(() => form.value.provider === 'lm_studio')
+const baseUrlRequired = computed(() => form.value.provider === 'other')
+const canFetchModels = computed(() => {
+  if (!form.value.provider || !form.value.capability || fetchingModels.value) return false
+  if (apiKeyOptional.value) return true
+  return !!(form.value.api_key || form.value._editId)
+})
+
 // ── Data ─────────────────────────────────────────────────────────────────────
 
 async function load() {
@@ -80,6 +89,7 @@ function openCreate() {
   form.value = emptyForm()
   liveModels.value = []
   liveModelSource.value = ''
+  fetchModelError.value = ''
   modalMode.value = 'create'
   saveError.value = ''
   showModal.value = true
@@ -102,6 +112,7 @@ function openEdit(p) {
   }
   liveModels.value = []
   liveModelSource.value = ''
+  fetchModelError.value = ''
   modalMode.value = 'edit'
   saveError.value = ''
   showModal.value = true
@@ -117,6 +128,10 @@ function onProviderChange() {
   // Clear live models and reset model selection when provider/capability changes
   liveModels.value = []
   liveModelSource.value = ''
+  fetchModelError.value = ''
+  if (form.value.provider === 'lm_studio' && !form.value.base_url) {
+    form.value.base_url = 'http://localhost:1234/v1'
+  }
   const models = meta.value.models[`${form.value.provider}_${form.value.capability}`] || []
   if (models.length && !models.includes(form.value.model)) {
     form.value.model = models[0]
@@ -125,30 +140,33 @@ function onProviderChange() {
 
 async function doFetchModels() {
   if (!form.value.provider || !form.value.capability) return
-  // Need either a saved config id or an api_key entered in the form
+  // Cloud providers need either a saved config id or an api_key entered in the form.
+  // LM Studio Local can be queried without a key.
   const apiKey  = form.value.api_key
   const editId  = form.value._editId
-  if (!apiKey && !editId) return
+  if (!apiKey && !editId && !apiKeyOptional.value) return
 
   fetchingModels.value  = true
   liveModels.value      = []
   liveModelSource.value = ''
+  fetchModelError.value = ''
   try {
     const payload = {
       provider:   form.value.provider,
       capability: form.value.capability,
       base_url:   form.value.base_url || '',
-      ...(apiKey ? { api_key: apiKey } : { config_id: editId }),
+      ...(apiKey ? { api_key: apiKey } : editId ? { config_id: editId } : { api_key: '' }),
     }
     const res = await aiProvidersApi.fetchModels(payload)
     liveModels.value      = res.data.models || []
     liveModelSource.value = res.data.source || ''
+    fetchModelError.value = res.data.warning || ''
     // Keep current model if it's in the list; otherwise default to first
     if (liveModels.value.length && !liveModels.value.includes(form.value.model)) {
       form.value.model = liveModels.value[0]
     }
-  } catch {
-    // Silent — fall back to hardcoded list
+  } catch (e) {
+    fetchModelError.value = e.response?.data?.error || e.message || 'Model fetch failed.'
   } finally {
     fetchingModels.value = false
   }
@@ -382,13 +400,19 @@ function capabilityBadge(cap) {
                   <button
                     type="button"
                     @click="doFetchModels"
-                    :disabled="fetchingModels || !form.provider || !form.capability || (!form.api_key && !form._editId)"
+                    :disabled="!canFetchModels"
                     class="text-xs px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 text-gray-500 disabled:opacity-40 transition-colors"
                   >
                     {{ fetchingModels ? 'Fetching…' : '↻ Fetch Models' }}
                   </button>
                 </div>
               </div>
+              <p v-if="form.provider === 'lm_studio'" class="text-xs text-gray-500 mb-2">
+                Fetch reads from the local LM Studio OpenAI-compatible endpoint, usually http://localhost:1234/v1/models.
+              </p>
+              <p v-if="fetchModelError" class="text-xs text-red-600 mb-2">
+                Model fetch warning: {{ fetchModelError }}
+              </p>
               <select v-if="availableModels.length" v-model="form.model" required
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
                 <option v-for="m in availableModels" :key="m" :value="m">{{ m }}</option>
@@ -401,21 +425,24 @@ function capabilityBadge(cap) {
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">
                 API Key
+                <span v-if="apiKeyOptional" class="text-gray-400 font-normal">(optional for local)</span>
                 <span v-if="modalMode === 'edit'" class="text-gray-400 font-normal">(leave blank to keep current)</span>
               </label>
               <input v-model="form.api_key" type="password" autocomplete="new-password"
-                :required="modalMode === 'create'"
+                :required="modalMode === 'create' && !apiKeyOptional"
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500"
                 placeholder="sk-…" />
             </div>
 
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">
-                Base URL <span class="text-gray-400 font-normal">(optional — override for proxies)</span>
+                Base URL
+                <span v-if="baseUrlRequired" class="text-gray-400 font-normal">(required for Other)</span>
+                <span v-else class="text-gray-400 font-normal">(optional — override for proxies)</span>
               </label>
-              <input v-model="form.base_url" type="url"
+              <input v-model="form.base_url" type="url" :required="baseUrlRequired"
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="https://api.voyageai.com/v1" />
+                :placeholder="form.provider === 'lm_studio' ? 'http://localhost:1234/v1' : 'https://api.example.com/v1'" />
             </div>
 
             <div class="border border-gray-200 rounded-lg p-3">
@@ -461,4 +488,3 @@ function capabilityBadge(cap) {
     </Teleport>
   </div>
 </template>
-

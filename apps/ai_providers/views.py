@@ -84,7 +84,8 @@ class AIProviderConfigViewSet(viewsets.ModelViewSet):
             except AIProviderConfig.DoesNotExist:
                 return Response({'error': 'Config not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        if not provider or not capability or not api_key:
+        api_key_required = provider != AIProviderConfig.PROVIDER_LM_STUDIO
+        if not provider or not capability or (api_key_required and not api_key):
             return Response(
                 {'error': 'provider, capability, and api_key are required'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -99,10 +100,12 @@ class AIProviderConfigViewSet(viewsets.ModelViewSet):
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+        list_error = ''
         try:
             models = p.list_models()
         except Exception as e:
             logger.warning('list_models failed for %s/%s: %s', provider, capability, e)
+            list_error = str(e)
             models = []
 
         if models:
@@ -110,4 +113,7 @@ class AIProviderConfigViewSet(viewsets.ModelViewSet):
 
         # Provider doesn't expose a models endpoint — return the hardcoded fallback
         fallback = PROVIDER_MODELS.get((provider, capability), [])
-        return Response({'models': fallback, 'source': 'fallback'})
+        payload = {'models': fallback, 'source': 'fallback'}
+        if list_error:
+            payload['warning'] = list_error
+        return Response(payload)

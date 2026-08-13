@@ -80,6 +80,21 @@ def _get_v1_prompt_body(company):
     )
 
 
+def _get_v1_prompt_agent_config(company):
+    from apps.trading.models import PromptConfig
+
+    v1 = PromptConfig.objects.filter(
+        company=company,
+        key=PromptConfig.KEY_INQUIRY_CLASSIFICATION_V1,
+    ).select_related('agent_config').first()
+    if v1 and v1.agent_config:
+        return v1.agent_config
+    return PromptConfig.get_agent_config(
+        PromptConfig.KEY_INQUIRY_CLASSIFICATION,
+        company=company,
+    )
+
+
 def _build_prompts(message, product_block: str) -> tuple[str, str]:
     from apps.whatsapp_bridge.models import ChatType
     from apps.tenancy.services.access import company_for_message
@@ -719,6 +734,7 @@ def classify_message(message) -> None:
             ],
             wa_message_id=msg_id,
             classification_version=CLASSIFICATION_V1,
+            agent_config=_get_v1_prompt_agent_config(company_for_message(message)),
             temperature=0,
         )
     except Exception:
@@ -776,7 +792,8 @@ def classify_message_v2(message) -> None:
     3. A background thread retrieves candidates and sends all product lines to AI in
        one batched match-decision request.
     """
-    from apps.trading.models import AgentCallLog, AiParseV2Log, MessageClassification
+    from apps.tenancy.services.access import company_for_message
+    from apps.trading.models import AgentCallLog, AiParseV2Log, MessageClassification, PromptConfig
     from apps.trading.services.agent_logger import call_agent
     from apps.trading.services.inquiry_service import process_inquiry
 
@@ -809,6 +826,10 @@ def classify_message_v2(message) -> None:
             ],
             wa_message_id=message.pk,
             classification_version=CLASSIFICATION_V2,
+            agent_config=PromptConfig.get_agent_config(
+                PromptConfig.KEY_INQUIRY_EXTRACTION_V2,
+                company=company_for_message(message),
+            ),
             temperature=0,
         )
         log.pass1_ai_ms = _elapsed_ms(pass1_ai_start)
@@ -992,7 +1013,7 @@ def _auto_track_non_inventory_products(message, inquiry_ids: list[int], products
 
 
 def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: list[int], total_start) -> None:
-    from apps.trading.models import AgentCallLog, AiParseV2Log, Inquiry, MessageClassification
+    from apps.trading.models import AgentCallLog, AiParseV2Log, Inquiry, MessageClassification, PromptConfig
     from apps.trading.services.agent_logger import call_agent
     from apps.trading.services.trading_settings_service import get_v2_matching_settings
     from apps.tenancy.services.access import company_for_message
@@ -1213,6 +1234,10 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
                 ],
                 wa_message_id=message_id,
                 classification_version=CLASSIFICATION_V2,
+                agent_config=PromptConfig.get_agent_config(
+                    PromptConfig.KEY_INQUIRY_MATCH_DECISION_V2,
+                    company=company_for_message(message),
+                ),
                 temperature=0,
             ),
             pass2_ai_timeout_seconds,

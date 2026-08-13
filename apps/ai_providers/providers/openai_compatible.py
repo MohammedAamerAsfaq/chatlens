@@ -58,6 +58,23 @@ class CohereChatProvider(OpenAIChatProvider):
         super().__init__(api_key, model, base_url or 'https://api.cohere.com/compatibility/v1')
 
 
+class LMStudioChatProvider(OpenAIChatProvider):
+    def __init__(self, api_key='', model='local-model', base_url=''):
+        super().__init__(api_key or 'lm-studio', model, base_url or 'http://localhost:1234/v1')
+
+    def list_models(self) -> list:
+        resp = self.session.get(f'{self.base_url}/models', timeout=10)
+        resp.raise_for_status()
+        return sorted(m['id'] for m in resp.json().get('data', []))
+
+
+class OtherOpenAICompatibleChatProvider(OpenAIChatProvider):
+    def __init__(self, api_key, model='custom-model', base_url=''):
+        if not base_url:
+            raise ValueError('Base URL is required for Other OpenAI-compatible chat providers.')
+        super().__init__(api_key, model, base_url)
+
+
 # ── Embedding providers ────────────────────────────────────────────────────────
 
 class GoogleEmbeddingProvider(OpenAIEmbeddingProvider):
@@ -83,3 +100,20 @@ class JinaEmbeddingProvider(OpenAIEmbeddingProvider):
 class TogetherEmbeddingProvider(OpenAIEmbeddingProvider):
     def __init__(self, api_key, model='togethercomputer/m2-bert-80M-8k-retrieval', base_url=''):
         super().__init__(api_key, model, base_url or 'https://api.together.xyz/v1')
+
+
+class LMStudioEmbeddingProvider(OpenAIEmbeddingProvider):
+    def __init__(self, api_key='', model='local-embedding-model', base_url=''):
+        super().__init__(api_key or 'lm-studio', model, base_url or 'http://localhost:1234/v1')
+
+    def list_models(self) -> list:
+        resp = self.session.get(f'{self.base_url}/models', timeout=10)
+        resp.raise_for_status()
+        return sorted(m['id'] for m in resp.json().get('data', []))
+
+
+class OtherOpenAICompatibleEmbeddingProvider(OpenAIEmbeddingProvider):
+    def __init__(self, api_key, model='custom-embedding-model', base_url=''):
+        if not base_url:
+            raise ValueError('Base URL is required for Other OpenAI-compatible embedding providers.')
+        super().__init__(api_key, model, base_url)

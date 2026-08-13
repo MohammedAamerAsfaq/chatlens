@@ -16,6 +16,8 @@ from .providers.openai_compatible import (
     TogetherChatProvider, TogetherEmbeddingProvider,
     CohereChatProvider, CohereEmbeddingProvider,
     JinaEmbeddingProvider,
+    LMStudioChatProvider, LMStudioEmbeddingProvider,
+    OtherOpenAICompatibleChatProvider, OtherOpenAICompatibleEmbeddingProvider,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,6 +30,8 @@ _EMBEDDING_REGISTRY = {
     'cohere':    CohereEmbeddingProvider,
     'jina':      JinaEmbeddingProvider,
     'together':  TogetherEmbeddingProvider,
+    'lm_studio': LMStudioEmbeddingProvider,
+    'other':     OtherOpenAICompatibleEmbeddingProvider,
 }
 
 _CHAT_REGISTRY = {
@@ -43,6 +47,8 @@ _CHAT_REGISTRY = {
     'perplexity':  PerplexityChatProvider,
     'together':    TogetherChatProvider,
     'cohere':      CohereChatProvider,
+    'lm_studio':   LMStudioChatProvider,
+    'other':       OtherOpenAICompatibleChatProvider,
 }
 
 # Agent uses the same ChatProvider interface — registered separately so
@@ -133,8 +139,8 @@ class AIManager:
     # a faster/cheaper model assigned for background tasks (enrichment, tagging,
     # summarisation) independently of the user-facing chat model.
 
-    def agent(self, messages: list, **kwargs) -> str:
-        config = self._active_config(AIProviderConfig.CAPABILITY_AGENT)
+    def agent(self, messages: list, config=None, **kwargs) -> str:
+        config = config or self._active_config(AIProviderConfig.CAPABILITY_AGENT)
         self._throttle(config, sum(rate_limiter.estimate_tokens(m.get('content', '')) for m in messages))
         return build_provider(config).chat(messages, **kwargs)
 

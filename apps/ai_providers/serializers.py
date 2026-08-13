@@ -12,6 +12,8 @@ PROVIDER_MODELS = {
     ('cohere',    'embedding'): ['embed-v4', 'embed-english-v3.0', 'embed-multilingual-v3.0'],
     ('jina',      'embedding'): ['jina-embeddings-v3', 'jina-embeddings-v2-base-en', 'jina-embeddings-v2-base-code'],
     ('together',  'embedding'): ['togethercomputer/m2-bert-80M-8k-retrieval', 'togethercomputer/m2-bert-80M-32k-retrieval'],
+    ('lm_studio', 'embedding'): ['local-embedding-model'],
+    ('other',     'embedding'): ['custom-embedding-model'],
 
     # ── Chat ───────────────────────────────────────────────────────────────────
     ('openai',     'chat'): ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo', 'o1-mini', 'o3-mini'],
@@ -26,6 +28,8 @@ PROVIDER_MODELS = {
     ('perplexity', 'chat'): ['sonar-pro', 'sonar', 'sonar-reasoning-pro', 'sonar-reasoning'],
     ('together',   'chat'): ['meta-llama/Llama-3.3-70B-Instruct-Turbo', 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', 'mistralai/Mistral-7B-Instruct-v0.3', 'Qwen/Qwen2.5-72B-Instruct-Turbo'],
     ('cohere',     'chat'): ['command-r-plus-08-2024', 'command-r-08-2024', 'command-r7b-12-2024'],
+    ('lm_studio',  'chat'): ['local-model'],
+    ('other',      'chat'): ['custom-model'],
 
     # ── General AI Agent (same providers as chat, tuned for speed/cost) ────────
     ('openai',     'agent'): ['gpt-4o-mini', 'gpt-4o', 'o3-mini', 'gpt-3.5-turbo'],
@@ -40,6 +44,8 @@ PROVIDER_MODELS = {
     ('perplexity', 'agent'): ['sonar', 'sonar-pro', 'sonar-reasoning'],
     ('together',   'agent'): ['meta-llama/Llama-3.3-70B-Instruct-Turbo', 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', 'Qwen/Qwen2.5-72B-Instruct-Turbo'],
     ('cohere',     'agent'): ['command-r7b-12-2024', 'command-r-08-2024', 'command-r-plus-08-2024'],
+    ('lm_studio',  'agent'): ['local-model'],
+    ('other',      'agent'): ['custom-model'],
 }
 
 
@@ -72,8 +78,10 @@ class AIProviderConfigSerializer(serializers.ModelSerializer):
         # On update, drop api_key from attrs if it is empty (keep existing key)
         if self.instance and not attrs.get('api_key'):
             attrs.pop('api_key', None)
-        # On create, api_key is required
-        if not self.instance and not attrs.get('api_key'):
+        provider = attrs.get('provider') or getattr(self.instance, 'provider', '')
+        api_key_optional = provider == AIProviderConfig.PROVIDER_LM_STUDIO
+        # On create, api_key is required except for local LM Studio.
+        if not self.instance and not attrs.get('api_key') and not api_key_optional:
             raise serializers.ValidationError({'api_key': 'API key is required.'})
         return attrs
 

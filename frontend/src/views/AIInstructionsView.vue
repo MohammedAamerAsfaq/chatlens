@@ -159,6 +159,10 @@
       </div>
 
       <div v-if="promptsLoading" class="loading">Loading…</div>
+      <div v-if="!promptsLoading" class="prompt-toolbar">
+        <button class="btn-ghost btn-sm" @click="expandAllPrompts">Expand All</button>
+        <button class="btn-ghost btn-sm" @click="collapseAllPrompts">Collapse All</button>
+      </div>
       <div v-if="!promptsLoading" class="prompt-list">
         <div v-for="p in prompts" :key="p.key" class="prompt-card">
           <div class="card-header">
@@ -169,12 +173,27 @@
               <span v-else class="saved-badge">saved {{ formatDate(p.updated_at) }}</span>
             </div>
             <div class="card-actions">
+              <select
+                v-model="p.agent_config"
+                class="agent-select"
+                :disabled="savingAgent[p.key]"
+                @change="savePromptAgent(p)"
+              >
+                <option :value="null">Active agent (default){{ agent.display_name ? ` · ${agent.display_name}` : '' }}</option>
+                <option v-for="option in agentOptions" :key="option.id" :value="option.id">
+                  {{ option.display_name }} · {{ option.model }}{{ option.is_active ? ' · active' : '' }}
+                </option>
+              </select>
+              <button class="btn-ghost btn-sm" @click="togglePromptPanel(p.key)">
+                {{ isPromptCollapsed(p.key) ? 'Expand' : 'Collapse' }}
+              </button>
               <button class="btn-ghost btn-sm" :disabled="p.is_default" @click="reset(p)">Reset to default</button>
               <button class="btn-primary btn-sm" :disabled="saving[p.key]" @click="save(p)">
                 {{ saving[p.key] ? 'Saving…' : 'Save' }}
               </button>
             </div>
           </div>
+          <template v-if="!isPromptCollapsed(p.key)">
           <div class="meta-row">
             <span class="meta-note" v-if="p.key === 'inquiry_classification'">
               Used for every live inbound message · supports <code>{product_block}</code> placeholder
@@ -195,6 +214,7 @@
             :rows="p.key === 'inquiry_classification' ? 28 : 18" spellcheck="false" />
           <div v-if="errors[p.key]" class="card-error">{{ errors[p.key] }}</div>
           <div v-if="saved[p.key]"  class="card-ok">Saved.</div>
+          </template>
         </div>
       </div>
 
@@ -288,9 +308,12 @@ const tab = ref('prompts')
 const prompts      = ref([])
 const promptsLoading = ref(true)
 const saving       = ref({})
+const savingAgent  = ref({})
 const saved        = ref({})
 const errors       = ref({})
 const pricingSaved = ref(false)
+const collapsedPrompts = ref(new Set())
+const agentOptions = ref([])
 
 const agent = ref({ display_name: '', provider: '', model: '', input_price_per_1m: null, output_price_per_1m: null })
 
@@ -315,17 +338,38 @@ function inputCost(text) {
   return ((tokenCount(text) / 1_000_000) * price).toFixed(6)
 }
 
+function isPromptCollapsed(key) {
+  return collapsedPrompts.value.has(key)
+}
+
+function togglePromptPanel(key) {
+  const next = new Set(collapsedPrompts.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  collapsedPrompts.value = next
+}
+
+function collapseAllPrompts() {
+  collapsedPrompts.value = new Set(prompts.value.map(p => p.key))
+}
+
+function expandAllPrompts() {
+  collapsedPrompts.value = new Set()
+}
+
 async function loadPrompts() {
   promptsLoading.value = true
   try {
-    const [pr, ar, wr, ips] = await Promise.all([
+    const [pr, ar, ao, wr, ips] = await Promise.all([
       tradingApi.listPrompts(),
       tradingApi.getActiveAgent().catch(() => ({ data: {} })),
+      tradingApi.listPromptAgentOptions().catch(() => ({ data: [] })),
       tradingApi.getWtsReplySettings().catch(() => ({ data: {} })),
       tradingApi.getInquiryProductSaveSettings().catch(() => ({ data: {} })),
     ])
     prompts.value = pr.data
     Object.assign(agent.value, ar.data)
+    agentOptions.value = ao.data
     if (wr.data.heading !== undefined) Object.assign(wtsReply.value, wr.data)
     if (ips.data.mode !== undefined) Object.assign(inquiryProductSave.value, ips.data)
   } finally {
@@ -338,7 +382,7 @@ async function save(p) {
   saved.value[p.key]  = false
   errors.value[p.key] = ''
   try {
-    const { data } = await tradingApi.savePrompt(p.key, p.body)
+    const { data } = await tradingApi.savePrompt(p.key, p.body, p.agent_config || null)
     const idx = prompts.value.findIndex(x => x.key === p.key)
     if (idx !== -1) prompts.value[idx] = data
     saved.value[p.key] = true
@@ -347,6 +391,23 @@ async function save(p) {
     errors.value[p.key] = e.response?.data?.error || 'Save failed'
   } finally {
     saving.value[p.key] = false
+  }
+}
+
+async function savePromptAgent(p) {
+  savingAgent.value[p.key] = true
+  saved.value[p.key] = false
+  errors.value[p.key] = ''
+  try {
+    const { data } = await tradingApi.savePromptAgent(p.key, p.agent_config || null)
+    const idx = prompts.value.findIndex(x => x.key === p.key)
+    if (idx !== -1) prompts.value[idx] = data
+    saved.value[p.key] = true
+    setTimeout(() => { saved.value[p.key] = false }, 2500)
+  } catch (e) {
+    errors.value[p.key] = e.response?.data?.error || 'Agent update failed'
+  } finally {
+    savingAgent.value[p.key] = false
   }
 }
 
@@ -466,6 +527,7 @@ onMounted(loadPrompts)
 .pricing-ok { font-size: 0.82rem; color: #16a34a; align-self: flex-end; padding-bottom: 6px; }
 
 /* Prompt cards */
+.prompt-toolbar { display: flex; justify-content: flex-end; gap: 8px; }
 .prompt-list { display: flex; flex-direction: column; gap: 24px; }
 .prompt-card { border: 1px solid #e5e7eb; border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 10px; background: #fff; }
 .card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -475,6 +537,7 @@ onMounted(loadPrompts)
 .default-badge { background: #fef9c3; color: #854d0e; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; }
 .saved-badge { background: #dcfce7; color: #166534; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; }
 .card-actions { display: flex; gap: 8px; }
+.agent-select { max-width: 260px; height: 30px; padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #374151; font-size: 0.8rem; }
 .meta-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .meta-note { font-size: 0.8rem; color: #6b7280; }
 .meta-note code { background: #f3f4f6; padding: 1px 5px; border-radius: 3px; font-size: 0.78rem; }

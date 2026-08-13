@@ -16,6 +16,8 @@ class AIProviderConfig(models.Model):
     PROVIDER_TOGETHER    = 'together'
     PROVIDER_COHERE      = 'cohere'
     PROVIDER_JINA        = 'jina'
+    PROVIDER_LM_STUDIO   = 'lm_studio'
+    PROVIDER_OTHER       = 'other'
 
     PROVIDER_CHOICES = [
         (PROVIDER_VOYAGE,     'Voyage AI'),
@@ -32,6 +34,8 @@ class AIProviderConfig(models.Model):
         (PROVIDER_TOGETHER,   'Together AI'),
         (PROVIDER_COHERE,     'Cohere'),
         (PROVIDER_JINA,       'Jina AI'),
+        (PROVIDER_LM_STUDIO,  'LM Studio Local'),
+        (PROVIDER_OTHER,      'Other'),
     ]
 
     CAPABILITY_EMBEDDING = 'embedding'
