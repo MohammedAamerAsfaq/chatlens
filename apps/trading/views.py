@@ -70,6 +70,11 @@ def _visible_rule_queryset(user, qs=None):
 
 
 def _parse_date_or_datetime_param(value, *, date_end_exclusive=False):
+    if len(value) == 10:
+        parsed_date = _date.fromisoformat(value)
+        parsed_start = make_aware(_datetime.combine(parsed_date, _time.min))
+        return parsed_start + timedelta(days=1) if date_end_exclusive else parsed_start
+
     parsed = parse_datetime(value)
     if parsed is not None:
         return make_aware(parsed) if is_naive(parsed) else parsed
