@@ -67,6 +67,18 @@ class DjangoClient {
       await this.http.post('/api/internal/whatsapp/group-participants-update/', payload);
       return { status: 'replayed' };
     }
+    if (record.kind === 'dropped_message') {
+      await this.http.post('/api/internal/whatsapp/dropped-message/', payload);
+      return { status: 'replayed' };
+    }
+    if (record.kind === 'worker_alert') {
+      await this.http.post('/api/internal/whatsapp/worker-alert/', payload);
+      return { status: 'replayed' };
+    }
+    if (record.kind === 'stuck_receipt') {
+      await this.http.post('/api/internal/whatsapp/stuck-receipt/', payload);
+      return { status: 'replayed' };
+    }
     return { status: 'retained', reason: 'unknown_fallback_kind' };
   }
 

@@ -76,6 +76,27 @@ test('fallback replay posts replay-safe metadata records and removes the file on
   assert.equal(fs.existsSync(filePath), false);
 });
 
+test('fallback replay posts worker safety-net records and removes the file on success', async () => {
+  const { client, logsDir } = makeClient();
+  const filePath = path.join(logsDir, 'failed-reports.ndjson');
+  fs.writeFileSync(filePath, [
+    JSON.stringify({ kind: 'dropped_message', payload: { worker_session_id: 'session-1', msg_id: 'm1', reason: 'forward_failed' } }),
+    JSON.stringify({ kind: 'worker_alert', payload: { worker_session_id: 'session-1', alert_type: 'other', severity: 'error', message: 'failed' } }),
+    JSON.stringify({ kind: 'stuck_receipt', payload: { worker_session_id: 'session-1', message_id: 'm2', raw_jid: '123@lid' } }),
+  ].join('\n') + '\n', 'utf8');
+  client.http.post = test.mock.fn(async () => ({ data: { success: true } }));
+
+  const result = await client.replayFallbackReports();
+
+  assert.deepEqual(result, { attempted: 3, replayed: 3, retained: 0, discarded: 0 });
+  assert.deepEqual(client.http.post.mock.calls.map(call => call.arguments[0]), [
+    '/api/internal/whatsapp/dropped-message/',
+    '/api/internal/whatsapp/worker-alert/',
+    '/api/internal/whatsapp/stuck-receipt/',
+  ]);
+  assert.equal(fs.existsSync(filePath), false);
+});
+
 test('fallback replay discards group participant modify records because they are replay-unsafe', async () => {
   const { client, logger, logsDir } = makeClient();
   const filePath = path.join(logsDir, 'failed-reports.ndjson');
