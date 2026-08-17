@@ -11,7 +11,14 @@ const auth = useAuthStore()
 const showCreate = ref(false)
 const qrAccountId = ref(null)
 const switchingCompany = ref(false)
+const togglingAiParsing = ref(false)
+const aiParsingError = ref('')
 const currentCompany = computed(() => auth.currentCompany)
+const companyAiParsingEnabled = computed(() => currentCompany.value?.ai_parsing_enabled !== false)
+const canToggleCompanyAiParsing = computed(() => {
+  const role = auth.currentRole
+  return ['super_user', 'admin'].includes(role)
+})
 let accountRefreshTimer = null
 
 const workerStatus = computed(() => {
@@ -85,6 +92,21 @@ async function switchCompany(companyId) {
     switchingCompany.value = false
   }
 }
+
+async function toggleCompanyAiParsing() {
+  if (!currentCompany.value || !canToggleCompanyAiParsing.value || togglingAiParsing.value) return
+  togglingAiParsing.value = true
+  aiParsingError.value = ''
+  try {
+    await auth.updateCurrentCompanySettings({
+      ai_parsing_enabled: !companyAiParsingEnabled.value,
+    })
+  } catch (err) {
+    aiParsingError.value = err.response?.data?.detail || 'Failed to update company AI parsing.'
+  } finally {
+    togglingAiParsing.value = false
+  }
+}
 </script>
 
 <template>
@@ -120,6 +142,21 @@ async function switchCompany(companyId) {
         <p class="text-sm text-gray-500 mt-1">Manage WhatsApp linked device sessions</p>
       </div>
       <div class="session-actions">
+        <div class="company-ai-toggle-wrap">
+          <button
+            type="button"
+            class="company-ai-toggle"
+            :class="companyAiParsingEnabled ? 'company-ai-on' : 'company-ai-off'"
+            :disabled="!currentCompany || !canToggleCompanyAiParsing || togglingAiParsing"
+            :title="canToggleCompanyAiParsing ? 'Toggle AI parsing for this company' : 'Company admin access required'"
+            @click="toggleCompanyAiParsing"
+          >
+            <span class="company-ai-label">AI Parsing</span>
+            <strong>{{ companyAiParsingEnabled ? 'ON' : 'OFF' }}</strong>
+            <small>{{ togglingAiParsing ? 'Updating...' : 'Company level' }}</small>
+          </button>
+          <p v-if="aiParsingError" class="company-ai-error">{{ aiParsingError }}</p>
+        </div>
         <div :class="['worker-status', workerStatus.cls]" :title="`Latest heartbeat: ${formatHeartbeat(workerStatus.latestHeartbeat)}`">
           <span :class="['worker-dot', workerStatus.dot]" />
           <span>
@@ -240,6 +277,63 @@ async function switchCompany(companyId) {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+.company-ai-toggle-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.company-ai-toggle {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  column-gap: 10px;
+  row-gap: 1px;
+  align-items: center;
+  min-width: 156px;
+  padding: 8px 11px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #374151;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background-color 0.15s, opacity 0.15s;
+}
+.company-ai-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+.company-ai-toggle strong {
+  justify-self: end;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+.company-ai-toggle small {
+  grid-column: 1 / -1;
+  font-size: 0.72rem;
+  color: #6b7280;
+}
+.company-ai-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.company-ai-on {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+.company-ai-off {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+.company-ai-error {
+  margin: 0;
+  max-width: 230px;
+  font-size: 0.72rem;
+  color: #dc2626;
+  text-align: right;
 }
 .worker-status {
   display: inline-flex;

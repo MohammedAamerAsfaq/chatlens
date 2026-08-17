@@ -120,8 +120,36 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(payload['username'], 'user_a')
         self.assertEqual(payload['current_company']['id'], self.company_a.id)
         self.assertEqual(payload['current_company']['name'], 'Company A')
+        self.assertEqual(payload['current_company']['ai_parsing_enabled'], True)
         self.assertEqual(payload['current_company']['role'], CompanyMembership.ROLE_SUPER_USER)
         self.assertEqual({m['company']['id'] for m in payload['memberships']}, {self.company_a.id, self.company_b.id})
+
+    def test_company_admin_can_toggle_current_company_ai_parsing(self):
+        self.client.force_authenticate(self.user_a)
+
+        resp = self.client.patch(
+            '/api/auth/current-company-settings/',
+            {'ai_parsing_enabled': False},
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.company_a.refresh_from_db()
+        self.assertFalse(self.company_a.ai_parsing_enabled)
+        self.assertEqual(resp.json()['current_company']['ai_parsing_enabled'], False)
+
+    def test_company_toggle_rejects_non_admin_member(self):
+        CompanyMembership.objects.filter(company=self.company_b, user=self.user_a).update(role=CompanyMembership.ROLE_USER)
+        self.client.force_authenticate(self.user_a)
+        self.client.post('/api/auth/select-company/', {'company_id': self.company_b.id}, format='json')
+
+        resp = self.client.patch(
+            '/api/auth/current-company-settings/',
+            {'ai_parsing_enabled': False},
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 403)
 
     def test_select_company_changes_scoped_workspace(self):
         resp = self.client.post('/api/auth/login/', {'username': 'user_a', 'password': 'pw'}, format='json')

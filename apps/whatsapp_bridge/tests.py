@@ -5,11 +5,12 @@ from django.contrib.auth.models import User
 from django.test import TestCase, Client
 from django.utils import timezone
 
+from apps.tenancy.models import CommunicationAccount, Company, ConnectionProvider
 from .models import (
-    WhatsAppAccount, WhatsAppContact, WhatsAppMessage,
+    WhatsAppAccount, WhatsAppChat, WhatsAppContact, WhatsAppMessage,
     WhatsAppUnresolvedMessage, ResolutionStatus,
 )
-from .services.ingestion_service import IngestionService
+from .services.ingestion_service import IngestionService, _classify_skip_reason
 
 INTERNAL_HEADERS = {'HTTP_X_INTERNAL_TOKEN': 'test-token'}
 
@@ -445,3 +446,54 @@ class ContactsUpdateTriggersRecoveryTests(TestCase):
         self.assertFalse(
             WhatsAppContact.objects.filter(account=self.account, wa_contact_id='16011805913098@lid').exists()
         )
+
+
+class CompanyAiParsingGateTests(TestCase):
+    def test_company_disabled_skips_ai_parsing_before_chat_or_account_settings(self):
+        owner = User.objects.create_user(username='company-ai-gate-owner')
+        provider = ConnectionProvider.objects.get(key='baileys')
+        company = Company.objects.create(
+            name='AI Disabled Company',
+            slug='ai-disabled-company',
+            ai_parsing_enabled=False,
+        )
+        communication_account = CommunicationAccount.objects.create(
+            company=company,
+            provider=provider,
+            channel='whatsapp',
+            name='AI Disabled WhatsApp',
+        )
+        account = WhatsAppAccount.objects.create(
+            owner=owner,
+            communication_account=communication_account,
+            display_name='AI Disabled Account',
+            phone_number='971500000111',
+            worker_session_id='ai-disabled-account',
+            ai_parsing_enabled=True,
+        )
+        contact = WhatsAppContact.objects.create(
+            account=account,
+            wa_contact_id='971500000222@s.whatsapp.net',
+            phone_number='971500000222',
+            display_name='Sender',
+        )
+        chat = WhatsAppChat.objects.create(
+            account=account,
+            contact=contact,
+            wa_chat_id='971500000222@s.whatsapp.net',
+            chat_type='individual',
+            ai_parsing=True,
+        )
+        message = WhatsAppMessage.objects.create(
+            account=account,
+            chat=chat,
+            contact=contact,
+            provider_message_id='COMPANY_DISABLED_1',
+            sender_number='971500000222',
+            direction='inbound',
+            message_type='text',
+            message_text='WTB iPhone 17 Pro Max 256 Blue',
+            message_time=timezone.now(),
+        )
+
+        self.assertEqual(_classify_skip_reason(message), 'company_disabled')

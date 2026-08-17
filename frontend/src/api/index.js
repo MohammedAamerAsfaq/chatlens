@@ -32,6 +32,7 @@ export const authApi = {
   logout: ()      => http.post('/auth/logout/'),
   me:     ()      => http.get('/auth/me/'),
   selectCompany: (company_id) => http.post('/auth/select-company/', { company_id }),
+  updateCurrentCompanySettings: (data) => http.patch('/auth/current-company-settings/', data),
 }
 
 export const accountsApi = {

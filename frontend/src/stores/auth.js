@@ -35,6 +35,11 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = data
   }
 
+  async function updateCurrentCompanySettings(payload) {
+    const { data } = await authApi.updateCurrentCompanySettings(payload)
+    user.value = data
+  }
+
   async function logout() {
     try { await authApi.logout() } catch { /* ignore */ }
     user.value = null
@@ -51,6 +56,7 @@ export const useAuthStore = defineStore('auth', () => {
     init,
     login,
     selectCompany,
+    updateCurrentCompanySettings,
     logout,
   }
 })

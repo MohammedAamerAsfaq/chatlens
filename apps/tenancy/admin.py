@@ -13,9 +13,9 @@ from .models import (
 
 @admin.register(Company)
 class CompanyAdmin(admin.ModelAdmin):
-    list_display = ('name', 'company_type', 'industry_type', 'is_active', 'valid_until')
+    list_display = ('name', 'company_type', 'industry_type', 'ai_parsing_enabled', 'is_active', 'valid_until')
     search_fields = ('name', 'slug')
-    list_filter = ('company_type', 'industry_type', 'is_active')
+    list_filter = ('company_type', 'industry_type', 'ai_parsing_enabled', 'is_active')
 
 
 @admin.register(CompanyMembership)
@@ -57,4 +57,3 @@ class CompanyContactAdmin(admin.ModelAdmin):
     search_fields = ('display_name', 'legal_name', 'company__name')
     list_filter = ('category', 'is_company', 'is_active')
     inlines = [CompanyContactIdentityInline]
-

@@ -45,6 +45,7 @@ class Company(models.Model):
         choices=CLASSIFICATION_VERSION_CHOICES,
         default=CLASSIFICATION_V1,
     )
+    ai_parsing_enabled = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
     valid_from = models.DateField(null=True, blank=True)
     valid_until = models.DateField(null=True, blank=True)

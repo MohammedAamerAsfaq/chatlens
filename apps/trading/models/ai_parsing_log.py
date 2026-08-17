@@ -10,6 +10,7 @@ class AiParsingLog(models.Model):
         ('no_text',             'No text content'),
         ('outbound',            'Outbound message'),
         ('too_old',             'Older than 24h (history sync)'),
+        ('company_disabled',    'AI parsing off for this company'),
         ('chat_disabled',       'AI parsing off for this chat'),
         ('account_disabled',    'AI parsing off for this account'),
         ('duplicate_broadcast', 'Duplicate of a recent group broadcast'),

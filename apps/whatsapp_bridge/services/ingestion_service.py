@@ -123,12 +123,20 @@ def _classify_skip_reason(message) -> str | None:
     """Return the AiParsingLog skip_reason code, or None if the message should
     be sent for AI classification.
 
+    Company-level toggle is the tenant-wide kill switch. Chat/account settings
+    are evaluated only when the company allows parsing.
+
     Tri-state per-chat override: chat.ai_parsing=True forces on, False forces off,
     None inherits account.ai_parsing_enabled global toggle.
     """
     reason = _base_eligibility_skip_reason(message)
     if reason:
         return reason
+
+    from apps.tenancy.services.access import company_for_message
+    company = company_for_message(message)
+    if company and not getattr(company, 'ai_parsing_enabled', True):
+        return 'company_disabled'
 
     # Tri-state: per-chat setting takes priority over account global.
     chat_override = getattr(message.chat, 'ai_parsing', None)

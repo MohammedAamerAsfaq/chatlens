@@ -1660,6 +1660,7 @@ def _serialize_auth_user(user):
             'slug': current_company.slug,
             'company_type': current_company.company_type,
             'industry_type': current_company.industry_type,
+            'ai_parsing_enabled': current_company.ai_parsing_enabled,
             'role': current_membership.role if current_membership else ('super_user' if user.is_superuser else ''),
         }
 
@@ -1677,12 +1678,21 @@ def _serialize_auth_user(user):
                     'slug': company.slug,
                     'company_type': company.company_type,
                     'industry_type': company.industry_type,
+                    'ai_parsing_enabled': company.ai_parsing_enabled,
                 },
                 'role': memberships[company.pk].role if company.pk in memberships else ('super_user' if user.is_superuser else ''),
             }
             for company in visible_companies
         ],
     }
+
+
+def _parse_bool_param(value, field_name):
+    if value in (True, 'true', '1', 1):
+        return True, None
+    if value in (False, 'false', '0', 0):
+        return False, None
+    return None, f'{field_name} must be true or false'
 
 
 def _require_control_admin(request):
@@ -1700,6 +1710,7 @@ def _serialize_company(company):
         'company_type': company.company_type,
         'industry_type': company.industry_type,
         'default_classification_version': company.default_classification_version,
+        'ai_parsing_enabled': company.ai_parsing_enabled,
         'is_active': company.is_active,
         'valid_from': company.valid_from.isoformat() if company.valid_from else None,
         'valid_until': company.valid_until.isoformat() if company.valid_until else None,
@@ -1774,6 +1785,42 @@ def auth_select_company_view(request):
     return Response(_serialize_auth_user(request.user))
 
 
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def auth_current_company_settings_view(request):
+    company = default_company_for_user(request.user)
+    if not company:
+        return Response({'detail': 'No active company'}, status=status.HTTP_404_NOT_FOUND)
+
+    role = ''
+    membership = (
+        CompanyMembership.objects
+        .filter(company=company, user=request.user, is_active=True)
+        .first()
+    )
+    if membership:
+        role = membership.role
+    elif request.user.is_superuser:
+        role = CompanyMembership.ROLE_SUPER_USER
+
+    if role not in (CompanyMembership.ROLE_SUPER_USER, CompanyMembership.ROLE_ADMIN):
+        return Response({'detail': 'Company admin access required'}, status=status.HTTP_403_FORBIDDEN)
+
+    update_fields = []
+    if 'ai_parsing_enabled' in request.data:
+        enabled, error = _parse_bool_param(request.data.get('ai_parsing_enabled'), 'ai_parsing_enabled')
+        if error:
+            return Response({'detail': error}, status=status.HTTP_400_BAD_REQUEST)
+        company.ai_parsing_enabled = enabled
+        update_fields.append('ai_parsing_enabled')
+
+    if update_fields:
+        company.save(update_fields=update_fields + ['updated_at'])
+        request.user.active_company = company
+
+    return Response(_serialize_auth_user(request.user))
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def admin_companies_view(request):
@@ -1807,6 +1854,13 @@ def admin_company_detail_view(request, company_id):
             )
         company.default_classification_version = version
         update_fields.append('default_classification_version')
+
+    if 'ai_parsing_enabled' in request.data:
+        enabled, error = _parse_bool_param(request.data.get('ai_parsing_enabled'), 'ai_parsing_enabled')
+        if error:
+            return Response({'detail': error}, status=status.HTTP_400_BAD_REQUEST)
+        company.ai_parsing_enabled = enabled
+        update_fields.append('ai_parsing_enabled')
 
     if update_fields:
         company.save(update_fields=update_fields + ['updated_at'])
