@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useAccountsStore } from '@/stores/accounts'
 import { useAuthStore } from '@/stores/auth.js'
 import AccountCard from '@/components/AccountCard.vue'
@@ -12,8 +12,59 @@ const showCreate = ref(false)
 const qrAccountId = ref(null)
 const switchingCompany = ref(false)
 const currentCompany = computed(() => auth.currentCompany)
+let accountRefreshTimer = null
 
-onMounted(() => store.fetchAccounts())
+const workerStatus = computed(() => {
+  const accounts = store.accounts || []
+  const onlineCount = accounts.filter(a => a.worker_liveness_status === 'online').length
+  const staleCount = accounts.filter(a => a.worker_liveness_status === 'stale').length
+  const knownCount = onlineCount + staleCount
+  const latestHeartbeat = accounts
+    .map(a => a.last_worker_heartbeat_at)
+    .filter(Boolean)
+    .sort()
+    .at(-1)
+
+  if (onlineCount > 0) {
+    return {
+      label: 'Worker online',
+      detail: `${onlineCount} active heartbeat${onlineCount === 1 ? '' : 's'}`,
+      cls: 'worker-online',
+      dot: 'dot-online',
+      latestHeartbeat,
+    }
+  }
+  if (staleCount > 0) {
+    return {
+      label: 'Worker stale',
+      detail: `${staleCount} stale heartbeat${staleCount === 1 ? '' : 's'}`,
+      cls: 'worker-stale',
+      dot: 'dot-stale',
+      latestHeartbeat,
+    }
+  }
+  return {
+    label: store.loading ? 'Checking worker' : 'Worker unknown',
+    detail: knownCount ? 'No fresh heartbeat' : 'No heartbeat received',
+    cls: 'worker-unknown',
+    dot: 'dot-unknown',
+    latestHeartbeat,
+  }
+})
+
+function formatHeartbeat(dt) {
+  if (!dt) return 'Never'
+  return new Date(dt).toLocaleString()
+}
+
+onMounted(() => {
+  store.fetchAccounts()
+  accountRefreshTimer = setInterval(() => store.fetchAccounts(true), 30000)
+})
+
+onUnmounted(() => {
+  clearInterval(accountRefreshTimer)
+})
 
 function onQRRequested(id) {
   qrAccountId.value = id
@@ -68,12 +119,21 @@ async function switchCompany(companyId) {
         <h1 class="text-2xl font-bold text-gray-900">Session Manager</h1>
         <p class="text-sm text-gray-500 mt-1">Manage WhatsApp linked device sessions</p>
       </div>
-      <button
-        @click="showCreate = true"
-        class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-      >
-        + Add Account
-      </button>
+      <div class="session-actions">
+        <div :class="['worker-status', workerStatus.cls]" :title="`Latest heartbeat: ${formatHeartbeat(workerStatus.latestHeartbeat)}`">
+          <span :class="['worker-dot', workerStatus.dot]" />
+          <span>
+            <strong>{{ workerStatus.label }}</strong>
+            <small>{{ workerStatus.detail }}</small>
+          </span>
+        </div>
+        <button
+          @click="showCreate = true"
+          class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+        >
+          + Add Account
+        </button>
+      </div>
     </div>
 
     <div v-if="store.loading" class="text-center text-gray-400 py-16">Loading...</div>
@@ -175,5 +235,74 @@ async function switchCompany(companyId) {
   font-size: 0.78rem;
   color: #6b7280;
   text-transform: capitalize;
+}
+.session-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.worker-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 170px;
+  padding: 8px 11px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #374151;
+}
+.worker-status strong,
+.worker-status small {
+  display: block;
+  line-height: 1.15;
+}
+.worker-status strong {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.worker-status small {
+  margin-top: 2px;
+  font-size: 0.72rem;
+  color: #6b7280;
+}
+.worker-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex: none;
+}
+.worker-online {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+.worker-stale {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+}
+.worker-unknown {
+  border-color: #e5e7eb;
+  background: #f8fafc;
+  color: #475569;
+}
+.dot-online {
+  background: #22c55e;
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
+}
+.dot-stale {
+  background: #f97316;
+  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.14);
+}
+.dot-unknown {
+  background: #94a3b8;
+  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.14);
+}
+@media (max-width: 760px) {
+  .session-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 </style>

@@ -7,8 +7,8 @@ export const useAccountsStore = defineStore('accounts', () => {
   const loading = ref(false)
   const error = ref(null)
 
-  async function fetchAccounts() {
-    loading.value = true
+  async function fetchAccounts(silent = false) {
+    if (!silent) loading.value = true
     error.value = null
     try {
       const { data } = await accountsApi.list()
@@ -16,7 +16,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     } catch (e) {
       error.value = e.message
     } finally {
-      loading.value = false
+      if (!silent) loading.value = false
     }
   }
 

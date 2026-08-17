@@ -372,6 +372,7 @@ async function toggleGlobalAi() {
             <th class="text-left px-4 py-3 w-44 cursor-pointer select-none hover:text-gray-700" @click="toggleSort('push_name')">
               WhatsApp Name<span class="ml-1">{{ sortIcon('push_name') }}</span>
             </th>
+            <th class="text-left px-4 py-3 w-40">Account</th>
             <th class="text-left px-4 py-3 w-36 cursor-pointer select-none hover:text-gray-700" @click="toggleSort('phone_number')">
               Phone<span class="ml-1">{{ sortIcon('phone_number') }}</span>
             </th>
@@ -447,6 +448,16 @@ async function toggleGlobalAi() {
             <td class="px-4 py-3">
               <span class="text-sm text-gray-600 truncate block max-w-[160px]">
                 {{ contact.push_name || '—' }}
+              </span>
+            </td>
+
+            <!-- Account -->
+            <td class="px-4 py-3">
+              <span
+                class="inline-flex max-w-[150px] items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                :title="contact.account_name || 'Unknown account'"
+              >
+                <span class="truncate">{{ contact.account_name || 'Unknown' }}</span>
               </span>
             </td>
 

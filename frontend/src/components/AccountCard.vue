@@ -12,6 +12,7 @@ const showDeleteConfirm = ref(false)
 const exportBeforeDelete = ref(true)
 const deleting          = ref(false)
 const savingSettings    = ref(false)
+const connecting        = ref(false)
 
 // Local copy of settings for editing
 const localSettings = ref({
@@ -58,8 +59,14 @@ const displayedSessionStatus = computed(() => (
 ))
 
 async function connect() {
-  await store.startSession(props.account.id)
-  emit('show-qr', props.account.id)
+  if (connecting.value) return
+  connecting.value = true
+  try {
+    await store.startSession(props.account.id)
+    emit('show-qr', props.account.id)
+  } finally {
+    connecting.value = false
+  }
 }
 
 async function disconnect() {
@@ -309,9 +316,18 @@ onUnmounted(() => {
       <button
         v-if="['disconnected', 'pending_qr', 'logged_out', 'error', 'stale'].includes(displayedSessionStatus)"
         @click="connect"
-        class="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm py-1.5 rounded-lg transition-colors"
+        :disabled="connecting"
+        :class="[
+          'flex-1 text-white text-sm py-1.5 rounded-lg transition-colors inline-flex items-center justify-center gap-2',
+          connecting ? 'bg-green-500 cursor-wait opacity-80' : 'bg-green-600 hover:bg-green-700',
+        ]"
       >
-        Connect
+        <span
+          v-if="connecting"
+          class="h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-white animate-spin"
+          aria-hidden="true"
+        />
+        {{ connecting ? 'Connecting...' : 'Connect' }}
       </button>
 
       <button
