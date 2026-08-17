@@ -63,7 +63,7 @@ The worker persists dropped messages, worker alerts, and stuck receipts to `fail
 
 ### 2.3 Unbounded background thread creation
 
-Django currently spawns one daemon thread per live message for embed/classify work and one thread per LID-bearing contact update for unresolved-message recovery. This has no concurrency bound, no queue, and no backpressure.
+Django still uses daemon threads for live embed/classify work, but unresolved-message recovery from `contacts_update` no longer spawns one thread per LID contact. As of 2026-08-17, `internal_contacts_update` batches all LID mappings from one worker contact update into a single recovery thread with explicit DB connection cleanup (`close_old_connections()` at start, `connection.close()` in `finally`). Remaining risk: live embed/classify threads are still unbounded until the planned queue/task module is implemented.
 
 **Impact:** medium/high operational risk under sustained traffic.
 

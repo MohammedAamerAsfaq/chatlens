@@ -334,7 +334,11 @@ class ContactsUpdateTriggersRecoveryTests(TestCase):
             def start(self):
                 self._target(*self._args)
 
-        with patch('apps.whatsapp_bridge.views.threading.Thread', _ImmediateThread):
+        with (
+            patch('apps.whatsapp_bridge.views.threading.Thread', _ImmediateThread),
+            patch('apps.whatsapp_bridge.views.close_old_connections'),
+            patch('apps.whatsapp_bridge.views.connection.close'),
+        ):
             resp = self.client.post(
                 '/api/internal/whatsapp/contacts-update/',
                 data=json.dumps({
@@ -354,6 +358,51 @@ class ContactsUpdateTriggersRecoveryTests(TestCase):
         row = WhatsAppUnresolvedMessage.objects.get(account=self.account, provider_message_id='ABC123')
         self.assertEqual(row.resolution_status, ResolutionStatus.RESOLVED)
         self.assertTrue(WhatsAppMessage.objects.filter(provider_message_id='ABC123').exists())
+
+    def test_contacts_update_batches_lid_recovery_into_one_thread(self):
+        thread_starts = []
+
+        class _CapturedThread:
+            def __init__(self, target=None, args=(), daemon=None):
+                self._target, self._args, self.daemon = target, args, daemon
+
+            def start(self):
+                thread_starts.append((self._target, self._args, self.daemon))
+
+        with patch('apps.whatsapp_bridge.views.threading.Thread', _CapturedThread):
+            resp = self.client.post(
+                '/api/internal/whatsapp/contacts-update/',
+                data=json.dumps({
+                    'worker_session_id': self.account.pk,
+                    'contacts': [
+                        {
+                            'wa_contact_id': '971544732206@s.whatsapp.net',
+                            'push_name': 'Azan',
+                            'phone_number': '971544732206',
+                            'lid_jid': '16011805913098@lid',
+                        },
+                        {
+                            'wa_contact_id': '971555555555@s.whatsapp.net',
+                            'push_name': 'Second',
+                            'phone_number': '971555555555',
+                            'lid_jid': '15552143724787@lid',
+                        },
+                    ],
+                }),
+                content_type='application/json',
+                **INTERNAL_HEADERS,
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(thread_starts), 1)
+        target, args, daemon = thread_starts[0]
+        self.assertEqual(target.__name__, '_recover_unresolved_for_lid_batch_background')
+        self.assertEqual(daemon, True)
+        self.assertEqual(args[0], self.account.pk)
+        self.assertEqual(args[1], [
+            ('16011805913098@lid', '971544732206@s.whatsapp.net'),
+            ('15552143724787@lid', '971555555555@s.whatsapp.net'),
+        ])
 
     def test_contacts_update_reports_updated_skipped_and_rejected_counts(self):
         resp = self.client.post(

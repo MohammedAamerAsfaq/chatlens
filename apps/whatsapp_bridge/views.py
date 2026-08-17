@@ -2,7 +2,7 @@ import json
 import logging
 import threading
 from django.conf import settings
-from django.db import IntegrityError, models
+from django.db import IntegrityError, close_old_connections, connection, models
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -27,6 +27,7 @@ def _recover_unresolved_for_lid_background(account_id, lid_jid, phone_jid):
     """Runs off-request (see internal_contacts_update) — a failure here must not
     look like a successful contacts-update to the worker, so it's logged loudly
     rather than raised into a thread with nothing to catch it."""
+    close_old_connections()
     try:
         account = WhatsAppAccount.objects.get(pk=account_id)
         result = IngestionService().recover_unresolved_for_lid(account, lid_jid, phone_jid)
@@ -40,6 +41,44 @@ def _recover_unresolved_for_lid_background(account_id, lid_jid, phone_jid):
             'recover_unresolved_for_lid_background failed | account=%s lid_jid=%s',
             account_id, lid_jid,
         )
+    finally:
+        connection.close()
+
+
+def _recover_unresolved_for_lid_batch_background(account_id, lid_mappings):
+    """Recover unresolved messages for all LID mappings learned in one contacts-update batch."""
+    if not lid_mappings:
+        return
+
+    close_old_connections()
+    totals = {'total': 0, 'recovered': 0, 'failed': 0}
+    try:
+        account = WhatsAppAccount.objects.get(pk=account_id)
+        service = IngestionService()
+        for lid_jid, phone_jid in lid_mappings:
+            try:
+                result = service.recover_unresolved_for_lid(account, lid_jid, phone_jid)
+                totals['total'] += result['total']
+                totals['recovered'] += result['recovered']
+                totals['failed'] += result['failed']
+            except Exception:
+                totals['failed'] += 1
+                logger.exception(
+                    'recover_unresolved_for_lid_batch item failed | account=%s lid_jid=%s',
+                    account_id, lid_jid,
+                )
+        if totals['total'] or totals['failed']:
+            logger.info(
+                'recover_unresolved_for_lid_batch | account=%s mappings=%s total=%s recovered=%s failed=%s',
+                account_id, len(lid_mappings), totals['total'], totals['recovered'], totals['failed'],
+            )
+    except Exception:
+        logger.exception(
+            'recover_unresolved_for_lid_batch_background failed | account=%s mappings=%s',
+            account_id, len(lid_mappings),
+        )
+    finally:
+        connection.close()
 
 
 @csrf_exempt
@@ -269,6 +308,8 @@ def internal_contacts_update(request):
         updated = 0
         skipped = 0
         rejected = 0
+        lid_recovery_items = []
+        seen_lid_recovery_items = set()
         for contact_data in contacts_data:
             wa_contact_id = contact_data.get('wa_contact_id', '')
             push_name = (contact_data.get('push_name') or '').strip()
@@ -331,13 +372,18 @@ def internal_contacts_update(request):
             # so a contacts-update batch (up to 100 contacts) never blocks on it; a no-op
             # (cheap indexed lookup) when nothing is pending for this LID.
             if lid_jid:
-                threading.Thread(
-                    target=_recover_unresolved_for_lid_background,
-                    args=(account.pk, lid_jid, wa_contact_id),
-                    daemon=True,
-                ).start()
+                recovery_item = (lid_jid, wa_contact_id)
+                if recovery_item not in seen_lid_recovery_items:
+                    seen_lid_recovery_items.add(recovery_item)
+                    lid_recovery_items.append(recovery_item)
 
             updated += 1
+        if lid_recovery_items:
+            threading.Thread(
+                target=_recover_unresolved_for_lid_batch_background,
+                args=(account.pk, lid_recovery_items),
+                daemon=True,
+            ).start()
         return JsonResponse({'status': 'ok', 'updated': updated, 'skipped': skipped, 'rejected': rejected})
     except WhatsAppAccount.DoesNotExist:
         return JsonResponse({'error': 'Account not found'}, status=404)
