@@ -1,7 +1,7 @@
 <template>
   <div class="analytics-view">
     <!-- Header -->
-    <div class="analytics-header">
+    <div class="analytics-header no-print">
       <div class="header-left">
         <h2>Trading Analytics</h2>
         <span class="last-update">Updated {{ lastUpdateLabel }}</span>
@@ -20,11 +20,16 @@
           <option value="">All accounts</option>
           <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.display_name }}</option>
         </select>
+        <button class="btn-ghost sm" @click="printReport">Print Report</button>
         <button class="btn-ghost sm" @click="refresh">Refresh</button>
       </div>
     </div>
 
     <div class="page-body">
+      <div class="print-report-head print-only">
+        <h1>ChatLens - Trading Analytics</h1>
+        <p>{{ reportRangeLabel }} · {{ selectedAccountLabel }} · Printed {{ printTimestamp }}</p>
+      </div>
 
       <!-- AI Pipeline -->
       <div class="section-card">
@@ -210,6 +215,19 @@ const lastUpdateLabel = computed(() => {
   return `${secs}s ago`
 })
 
+const selectedAccountLabel = computed(() => {
+  if (!selectedAccount.value) return 'All accounts'
+  const account = accounts.value.find(a => String(a.id) === String(selectedAccount.value))
+  return account?.display_name || account?.phone_number || `Account ${selectedAccount.value}`
+})
+
+const reportRangeLabel = computed(() => {
+  const params = resolveDateParams()
+  return `${selectedRange.value}: ${params.date_from} to ${params.date_to}`
+})
+
+const printTimestamp = computed(() => new Date().toLocaleString())
+
 const maxBar = computed(() => {
   const vals = (stats.value.timeline || []).flatMap(s => [s.wtb, s.wts])
   return Math.max(...vals, 1)
@@ -217,6 +235,10 @@ const maxBar = computed(() => {
 
 function barHeight(val) {
   return Math.round((val / maxBar.value) * 80)
+}
+
+function printReport() {
+  window.print()
 }
 
 async function refresh() {
@@ -341,4 +363,84 @@ onUnmounted(() => {
 .legend-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .legend-dot.wtb { background: #22c55e; }
 .legend-dot.wts { background: #f97316; }
+.print-only { display: none; }
+
+@media print {
+  :global(body) {
+    background: #fff !important;
+  }
+  :global(nav),
+  :global(.top-nav),
+  :global(.navbar),
+  :global(.app-nav),
+  :global(header:not(.print-report-head)) {
+    display: none !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .analytics-view {
+    height: auto;
+    overflow: visible;
+    background: #fff;
+    color: #111827;
+  }
+  .page-body {
+    overflow: visible;
+    padding: 0;
+    gap: 12px;
+  }
+  .print-report-head {
+    margin-bottom: 14px;
+    border-bottom: 2px solid #111827;
+    padding-bottom: 10px;
+  }
+  .print-report-head h1 {
+    margin: 0 0 4px;
+    font-size: 18pt;
+  }
+  .print-report-head p {
+    margin: 0;
+    color: #475569;
+    font-size: 9pt;
+  }
+  .section-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    border: 1px solid #cbd5e1;
+    border-radius: 0;
+    padding: 10px;
+    box-shadow: none;
+  }
+  .two-col {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .section-actions,
+  .backfill-msg,
+  .retry-error {
+    display: none !important;
+  }
+  .recent-classifications {
+    max-height: none;
+    overflow: visible;
+  }
+  .mini-table {
+    font-size: 8.5pt;
+  }
+  .mini-table th,
+  .mini-table td {
+    padding: 4px 6px;
+  }
+  .chart-wrap {
+    height: 80px;
+  }
+  .bar {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
 </style>

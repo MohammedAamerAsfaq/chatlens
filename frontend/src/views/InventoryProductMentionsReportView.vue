@@ -5,12 +5,20 @@
         <h1>Inventory Product Mentions</h1>
         <p>Item-wise report of how often inventory products appeared in WTB and WTS inquiries.</p>
       </div>
-      <button class="primary-btn" :disabled="loading" @click="load">
-        {{ loading ? 'Loading...' : 'Refresh' }}
-      </button>
+      <div class="header-actions no-print">
+        <button class="ghost-btn" :disabled="loading" @click="printReport">Print Report</button>
+        <button class="primary-btn" :disabled="loading" @click="load">
+          {{ loading ? 'Loading...' : 'Refresh' }}
+        </button>
+      </div>
     </div>
 
-    <div class="filters">
+    <div class="print-report-head print-only">
+      <h1>ChatLens - Inventory Product Mentions</h1>
+      <p>{{ reportFilterLabel }} · Printed {{ printTimestamp }}</p>
+    </div>
+
+    <div class="filters no-print">
       <input v-model="filters.search" placeholder="Search product, brand, or extracted line..." @keydown.enter="load" />
       <label>
         From
@@ -88,7 +96,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { tradingApi } from '@/api'
 
 const rows = ref([])
@@ -101,6 +109,13 @@ const filters = ref({
   date_from: today,
   date_to: today,
   limit: 100,
+})
+
+const printTimestamp = computed(() => new Date().toLocaleString())
+const reportFilterLabel = computed(() => {
+  const range = `${filters.value.date_from || 'Any start'} to ${filters.value.date_to || 'Any end'}`
+  const search = filters.value.search ? `Search: ${filters.value.search}` : 'All products'
+  return `${range} · ${search} · Limit ${filters.value.limit}`
 })
 
 function params() {
@@ -116,6 +131,10 @@ function productName(row) {
 function formatTime(value) {
   if (!value) return '-'
   return new Date(value).toLocaleString()
+}
+
+function printReport() {
+  window.print()
 }
 
 async function load() {
@@ -140,6 +159,7 @@ onMounted(load)
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .page-header h1 { margin: 0; font-size: 1.5rem; font-weight: 800; }
 .page-header p { margin: 6px 0 0; color: #64748b; font-size: 0.9rem; }
+.header-actions { display: flex; align-items: center; gap: 8px; }
 .filters { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
 .filters input, .filters select { height: 36px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 10px; background: #fff; font-size: 0.86rem; }
 .filters > input { min-width: 320px; flex: 1; }
@@ -163,8 +183,96 @@ tr:last-child td { border-bottom: none; }
 .count-pill.sell { background: #fef3c7; color: #b45309; }
 .empty-state { padding: 48px; text-align: center; color: #94a3b8; }
 .error-box { margin-bottom: 14px; border: 1px solid #fecaca; background: #fef2f2; color: #b91c1c; border-radius: 8px; padding: 10px 12px; font-size: 0.86rem; }
+.print-only { display: none; }
 @media (max-width: 900px) {
   .summary-grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
   .filters > input { min-width: 220px; }
+}
+@media print {
+  :global(body) {
+    background: #fff !important;
+  }
+  :global(nav),
+  :global(.top-nav),
+  :global(.navbar),
+  :global(.app-nav),
+  :global(header:not(.print-report-head)) {
+    display: none !important;
+  }
+  .mentions-report {
+    height: auto;
+    overflow: visible;
+    padding: 0;
+    background: #fff;
+    color: #111827;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .page-header {
+    display: none;
+  }
+  .print-report-head {
+    margin-bottom: 14px;
+    border-bottom: 2px solid #111827;
+    padding-bottom: 10px;
+  }
+  .print-report-head h1 {
+    margin: 0 0 4px;
+    font-size: 18pt;
+  }
+  .print-report-head p {
+    margin: 0;
+    color: #475569;
+    font-size: 9pt;
+  }
+  .summary-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .summary-card {
+    border: 1px solid #cbd5e1;
+    border-radius: 0;
+    padding: 8px 10px;
+  }
+  .summary-card span {
+    font-size: 7.5pt;
+  }
+  .summary-card strong {
+    font-size: 15pt;
+  }
+  .report-card {
+    border: none;
+    border-radius: 0;
+    overflow: visible;
+  }
+  table {
+    font-size: 8.5pt;
+  }
+  th {
+    color: #111827;
+    background: #f1f5f9;
+  }
+  th,
+  td {
+    padding: 5px 6px;
+  }
+  tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .count-pill {
+    border-radius: 0;
+    border: 1px solid currentColor;
+    background: #fff !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
 }
 </style>
