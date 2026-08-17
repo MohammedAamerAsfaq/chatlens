@@ -68,6 +68,7 @@ module.exports = function sessionsRouter(sessionManager, mediaStorePath, message
       return res.status(500).json({
         error: sessionManager.getLastError(req.params.id) || 'Connection failed.',
         status: snapshot.status,
+        startupPhase: snapshot.startupPhase,
       });
     }
 
@@ -76,10 +77,17 @@ module.exports = function sessionsRouter(sessionManager, mediaStorePath, message
       return res.status(202).json({
         message: 'QR not ready yet',
         status: snapshot.status,
+        startupPhase: snapshot.startupPhase,
+        connecting: snapshot.connecting,
       });
     }
 
-    return res.json({ qr: qrDataUrl, status: snapshot.status });
+    return res.json({
+      qr: qrDataUrl,
+      status: snapshot.status,
+      startupPhase: snapshot.startupPhase,
+      connecting: snapshot.connecting,
+    });
   });
 
   // POST /sessions/:id/disconnect  (full logout — requires QR on next connect)

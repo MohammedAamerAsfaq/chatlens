@@ -16,6 +16,10 @@ const pino = require('pino');
 const QRCode = require('qrcode');
 
 const SESSION_STATUS = {
+  STARTING:      'starting',
+  LOADING_AUTH:  'loading_auth',
+  FETCHING_VERSION: 'fetching_version',
+  CONNECTING_TO_WHATSAPP: 'connecting_to_whatsapp',
   PENDING_QR:    'pending_qr',
   QR_GENERATED:  'qr_generated',
   CONNECTED:     'connected',
@@ -331,6 +335,9 @@ class SessionManager {
     if (existing?.sock) {
       return this._snapshot(sessionId);
     }
+    if (existing?.connecting) {
+      return this._snapshot(sessionId);
+    }
 
     const authDir = path.join(this.sessionStorePath, sessionId);
     const credsFile = path.join(authDir, 'creds.json');
@@ -344,7 +351,9 @@ class SessionManager {
 
     this.sessions.set(sessionId, {
       sock: null,
-      status: SESSION_STATUS.PENDING_QR,
+      status: SESSION_STATUS.STARTING,
+      startupPhase: SESSION_STATUS.STARTING,
+      connecting: false,
       qrDataUrl: null,
       qrEverGenerated: false,
       hasCredentials: fs.existsSync(credsFile),
@@ -393,9 +402,30 @@ class SessionManager {
       // WhatsApp asks again, which costs one crash, already-safely-caught by Baileys.
       knownStuckMessageIds: new Set(),
     });
-    await this.djangoClient.replayFallbackReports?.();
-    await this._connect(sessionId);
+    this._connect(sessionId).catch(err => {
+      const session = this.sessions.get(sessionId);
+      if (session) {
+        session.connecting = false;
+        session.status = SESSION_STATUS.ERROR;
+        session.startupPhase = SESSION_STATUS.ERROR;
+        session.lastError = `Failed to start session: ${err.message}`;
+      }
+      this.logger.error({ sessionId, error: err.message }, 'Unhandled session connect failure');
+      this.djangoClient.sendSessionStatus(sessionId, { status: SESSION_STATUS.ERROR });
+    });
+    this._replayFallbackReportsInBackground();
     return this._snapshot(sessionId);
+  }
+
+  _replayFallbackReportsInBackground() {
+    if (!this.djangoClient.replayFallbackReports) return;
+    setImmediate(async () => {
+      try {
+        await this.djangoClient.replayFallbackReports();
+      } catch (err) {
+        this.logger.error({ err: err.message }, 'Fallback report replay failed outside connect path');
+      }
+    });
   }
 
   async softDisconnect(sessionId) {
@@ -509,6 +539,8 @@ class SessionManager {
     session.watchdogFired = true;
     session.preventReconnect = true;
     session.status = SESSION_STATUS.ERROR;
+    session.startupPhase = SESSION_STATUS.ERROR;
+    session.connecting = false;
     session.lastError = 'No response from WhatsApp servers — connection timed out. Please try again.';
     session.qrDataUrl = null;
     session.sock = null;
@@ -524,6 +556,10 @@ class SessionManager {
 
   async _connect(sessionId) {
     const session = this.sessions.get(sessionId);
+    if (!session || session.connecting) return;
+    session.connecting = true;
+    session.status = SESSION_STATUS.LOADING_AUTH;
+    session.startupPhase = SESSION_STATUS.LOADING_AUTH;
 
     // Auth-state load, version fetch, and socket construction all happen before any
     // connection.update event can fire — the watchdog (armed just below, once we have
@@ -537,6 +573,8 @@ class SessionManager {
       fs.mkdirSync(authDir, { recursive: true });
 
       const { state, saveCreds } = await useMultiFileAuthState(authDir);
+      session.status = SESSION_STATUS.FETCHING_VERSION;
+      session.startupPhase = SESSION_STATUS.FETCHING_VERSION;
       const configuredVersion = _parseWhatsAppWebVersion(process.env.WHATSAPP_WEB_VERSION);
       const versionInfo = configuredVersion
         ? { version: configuredVersion, isLatest: null, source: 'env' }
@@ -552,6 +590,8 @@ class SessionManager {
         'Using Baileys WhatsApp Web version',
       );
       const { version } = versionInfo;
+      session.status = SESSION_STATUS.CONNECTING_TO_WHATSAPP;
+      session.startupPhase = SESSION_STATUS.CONNECTING_TO_WHATSAPP;
 
       // Baileys' own internal logger — routed to a durable file (Baileys errors before
       // ever emitting messages.upsert, e.g. a decrypt failure, are otherwise invisible:
@@ -600,6 +640,8 @@ class SessionManager {
       this.logger.error({ sessionId, error: err.message }, 'Failed to initialize connection');
       session.sock = null;
       session.status = SESSION_STATUS.ERROR;
+      session.startupPhase = SESSION_STATUS.ERROR;
+      session.connecting = false;
       session.lastError = `Failed to start session: ${err.message}`;
       session.qrDataUrl = null;
       await this.djangoClient.sendSessionStatus(sessionId, { status: SESSION_STATUS.ERROR });
@@ -607,6 +649,7 @@ class SessionManager {
     }
 
     session.sock = sock;
+    session.connecting = false;
     session.watchdogFired = false;
     this._armWatchdog(sessionId);
 
@@ -617,6 +660,7 @@ class SessionManager {
         session.qrDataUrl = await QRCode.toDataURL(qr);
         session.qrEverGenerated = true;
         session.status = SESSION_STATUS.QR_GENERATED;
+        session.startupPhase = SESSION_STATUS.QR_GENERATED;
         this._armWatchdog(sessionId);
         this.logger.info({ sessionId }, 'QR generated');
         await this.djangoClient.sendSessionStatus(sessionId, {
@@ -628,6 +672,7 @@ class SessionManager {
         this._clearWatchdog(session);
         const me = sock.user;
         session.status = SESSION_STATUS.CONNECTED;
+        session.startupPhase = SESSION_STATUS.CONNECTED;
         session.hasCredentials = true;
         session.phoneNumber = me?.id?.split(':')[0] || null;
         session.displayName = me?.name || null;
@@ -699,6 +744,8 @@ class SessionManager {
         }
 
         session.status = loggedOut ? SESSION_STATUS.LOGGED_OUT : SESSION_STATUS.DISCONNECTED;
+        session.startupPhase = session.status;
+        session.connecting = false;
         session.sock = null;
         this.logger.info({ sessionId, ...closeDetail }, 'Session closed');
 
@@ -715,6 +762,8 @@ class SessionManager {
           }
 
           session.status = SESSION_STATUS.ERROR;
+          session.startupPhase = SESSION_STATUS.ERROR;
+          session.connecting = false;
           session.lastError = `WhatsApp closed the connection before QR generation (code ${code || 'unknown'}).`;
           session.preventReconnect = true;
           await this.djangoClient.sendSessionStatus(sessionId, {
@@ -1644,6 +1693,8 @@ class SessionManager {
     return {
       sessionId,
       status: s.status,
+      startupPhase: s.startupPhase || s.status,
+      connecting: !!s.connecting,
       phoneNumber: s.phoneNumber,
       displayName: s.displayName,
       hasQR: !!s.qrDataUrl,

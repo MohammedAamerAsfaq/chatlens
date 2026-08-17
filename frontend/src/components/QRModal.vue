@@ -5,11 +5,26 @@ import { accountsApi } from '@/api'
 const props = defineProps({ accountId: Number })
 const emit = defineEmits(['close'])
 
-const qrImage   = ref(null)
+const qrImage = ref(null)
 const connected = ref(false)
-const message   = ref('Starting session…')
-const error     = ref('')
-let pollTimer   = null
+const message = ref('Starting session...')
+const error = ref('')
+let pollTimer = null
+
+const PHASE_MESSAGES = {
+  starting: 'Starting worker session...',
+  loading_auth: 'Loading WhatsApp credentials...',
+  fetching_version: 'Checking WhatsApp Web version...',
+  connecting_to_whatsapp: 'Connecting to WhatsApp...',
+  pending_qr: 'Waiting for QR code...',
+  qr_generated: 'Open WhatsApp -> Linked Devices -> Link a Device -> Scan',
+  connected: 'Connected successfully!',
+  error: 'Failed to connect',
+}
+
+function messageForPhase(data) {
+  return PHASE_MESSAGES[data?.startupPhase] || PHASE_MESSAGES[data?.status] || 'Generating QR code...'
+}
 
 function stopPolling() {
   clearInterval(pollTimer)
@@ -40,38 +55,36 @@ async function poll() {
     }
 
     if (status === 202 || !data.qr) {
-      message.value = 'Generating QR code…'
+      message.value = messageForPhase(data)
       return
     }
 
-    error.value   = ''
+    error.value = ''
     qrImage.value = data.qr
-    message.value = 'Open WhatsApp → Linked Devices → Link a Device → Scan'
+    message.value = messageForPhase(data)
   } catch (e) {
     const status = e.response?.status
     if (status === 404) {
-      // Session died or never started — restart it automatically
       stopPolling()
-      message.value = 'Restarting session…'
+      message.value = 'Restarting session...'
       try {
         await accountsApi.startSession(props.accountId)
-        message.value = 'Generating QR code…'
+        message.value = 'Starting worker session...'
         startPolling()
       } catch {
-        error.value   = 'Could not start session. Check that the WhatsApp worker is running.'
+        error.value = 'Could not start session. Check that the WhatsApp worker is running.'
         message.value = 'Failed to start'
       }
     } else if (status === 503) {
-      error.value   = 'Worker is offline. Restart the WhatsApp worker and try again.'
+      error.value = 'Worker is offline. Restart the WhatsApp worker and try again.'
       message.value = 'Worker offline'
       stopPolling()
     } else if (status === 500) {
-      error.value   = e.response?.data?.error || 'Connection failed — please try again.'
-      message.value = 'Failed to connect'
+      error.value = e.response?.data?.error || 'Connection failed - please try again.'
+      message.value = messageForPhase(e.response?.data)
       stopPolling()
     } else {
-      // Unknown/network error talking to our own backend — don't spin forever, surface it.
-      error.value   = 'Lost contact with the server while generating the QR code.'
+      error.value = 'Lost contact with the server while generating the QR code.'
       message.value = 'Connection error'
       stopPolling()
     }
@@ -83,22 +96,19 @@ async function pollConnection() {
     const { data } = await accountsApi.get(props.accountId)
     if (data.session_status === 'connected') {
       connected.value = true
-      message.value   = 'Connected successfully!'
+      message.value = 'Connected successfully!'
       stopPolling()
     }
   } catch {}
 }
 
 onMounted(async () => {
-  // Always (re)start the session when the modal opens so stale qr_generated
-  // states are automatically recovered without the user having to close and
-  // click Connect separately.
   try {
     await accountsApi.startSession(props.accountId)
   } catch {
-    // Session may already be running — ignore and just start polling
+    // Session may already be running. Polling below will surface real errors.
   }
-  message.value = 'Generating QR code…'
+  message.value = 'Starting worker session...'
   startPolling()
 })
 
@@ -116,7 +126,7 @@ onUnmounted(stopPolling)
 
       <div class="flex justify-center mb-6">
         <div v-if="connected" class="w-56 h-56 flex items-center justify-center">
-          <span class="text-green-500 text-7xl">✓</span>
+          <span class="text-green-500 text-7xl">OK</span>
         </div>
         <div v-else-if="error" class="w-56 h-56 bg-red-50 border border-red-200 rounded-lg flex items-center justify-center p-4">
           <span class="text-red-600 text-sm text-center">{{ error }}</span>
@@ -129,9 +139,10 @@ onUnmounted(stopPolling)
         />
         <div
           v-else
-          class="w-56 h-56 bg-gray-100 rounded-lg flex items-center justify-center animate-pulse"
+          class="w-56 h-56 bg-gray-100 rounded-lg flex flex-col gap-3 items-center justify-center"
         >
-          <span class="text-gray-400 text-sm">Loading...</span>
+          <span class="h-7 w-7 rounded-full border-4 border-gray-300 border-t-green-600 animate-spin" />
+          <span class="text-gray-400 text-sm">Working...</span>
         </div>
       </div>
 

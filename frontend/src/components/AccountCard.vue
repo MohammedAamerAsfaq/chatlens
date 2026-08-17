@@ -58,15 +58,11 @@ const displayedSessionStatus = computed(() => (
   || props.account.session_status
 ))
 
-async function connect() {
+function connect() {
   if (connecting.value) return
   connecting.value = true
-  try {
-    await store.startSession(props.account.id)
-    emit('show-qr', props.account.id)
-  } finally {
-    connecting.value = false
-  }
+  emit('show-qr', props.account.id)
+  connecting.value = false
 }
 
 async function disconnect() {
