@@ -398,7 +398,26 @@
           <button :class="['filter-chip', captureFilter === 'test' && 'sel']" @click="filterCaptures('test')">🧪 Test matches</button>
         </div>
 
-        <div v-if="!captures.length" class="empty-msg">No detections yet.</div>
+        <div class="capture-list-toolbar">
+          <span>{{ captureRangeText() }}</span>
+          <div class="capture-pager">
+            <span>Rows:</span>
+            <button
+              v-for="size in capturePageSizes"
+              :key="size"
+              :class="['page-size-btn', capturePageSize === size && 'active']"
+              @click="setCapturePageSize(size)"
+            >
+              {{ size }}
+            </button>
+            <button class="pager-btn" :disabled="capturePage <= 1 || captureLoading" @click="setCapturePage(capturePage - 1)">Previous</button>
+            <span class="pager-label">Page {{ capturePage }} of {{ captureTotalPages() }}</span>
+            <button class="pager-btn" :disabled="capturePage >= captureTotalPages() || captureLoading" @click="setCapturePage(capturePage + 1)">Next</button>
+          </div>
+        </div>
+
+        <div v-if="captureLoading" class="empty-msg">Loading detections...</div>
+        <div v-else-if="!captures.length" class="empty-msg">No detections yet.</div>
         <div v-else class="feed-list">
           <div v-for="cap in captures" :key="cap.id" class="feed-row">
             <div :class="['feed-avatar', cap.source_kind === 'group' && 'group']">{{ (cap.source_name || '?').charAt(0).toUpperCase() }}</div>
@@ -474,6 +493,11 @@ const automationSummary = ref({ active_rules: 0, watched_sources: 0, captured_th
 const automationRules   = ref([])
 const captures          = ref([])
 const captureFilter     = ref('')
+const captureLoading    = ref(false)
+const captureCount      = ref(0)
+const capturePage       = ref(1)
+const capturePageSize   = ref(10)
+const capturePageSizes  = [10, 25, 50, 100]
 
 const ruleForm      = ref(null)
 const ruleFormError = ref('')
@@ -487,19 +511,69 @@ function emptyRuleForm() {
 }
 
 async function loadAutomation() {
-  const [rulesRes, summaryRes, capturesRes] = await Promise.all([
+  const [rulesRes, summaryRes] = await Promise.all([
     tradingApi.listAutomationRules(),
     tradingApi.captureSummary(),
-    tradingApi.listPriceCaptures(captureFilter.value ? { status: captureFilter.value } : {}),
   ])
   automationRules.value = rulesRes.data.results || rulesRes.data
   automationSummary.value = summaryRes.data
-  captures.value = capturesRes.data.results || capturesRes.data
+  await loadCaptures()
+}
+
+async function loadAutomationSummary() {
+  const { data } = await tradingApi.captureSummary()
+  automationSummary.value = data
+}
+
+async function loadCaptures() {
+  captureLoading.value = true
+  try {
+    const params = {
+      page: capturePage.value,
+      page_size: capturePageSize.value,
+    }
+    if (captureFilter.value) params.status = captureFilter.value
+    const { data } = await tradingApi.listPriceCaptures(params)
+    captures.value = data.results || data
+    captureCount.value = data.count ?? captures.value.length
+    const totalPages = captureTotalPages()
+    if (!captures.value.length && captureCount.value && capturePage.value > totalPages) {
+      capturePage.value = totalPages
+      await loadCaptures()
+    }
+  } finally {
+    captureLoading.value = false
+  }
+}
+
+function captureTotalPages() {
+  return Math.max(1, Math.ceil(captureCount.value / capturePageSize.value))
+}
+
+function captureRangeText() {
+  if (!captureCount.value) return 'Showing 0 detections'
+  const start = ((capturePage.value - 1) * capturePageSize.value) + 1
+  const end = Math.min(capturePage.value * capturePageSize.value, captureCount.value)
+  return `Showing ${start}-${end} of ${captureCount.value.toLocaleString()}`
+}
+
+function setCapturePage(page) {
+  const next = Math.min(Math.max(1, page), captureTotalPages())
+  if (next === capturePage.value) return
+  capturePage.value = next
+  loadCaptures()
+}
+
+function setCapturePageSize(size) {
+  capturePageSize.value = Number(size)
+  capturePage.value = 1
+  loadCaptures()
 }
 
 function filterCaptures(statusVal) {
   captureFilter.value = statusVal
-  loadAutomation()
+  capturePage.value = 1
+  loadCaptures()
 }
 
 function openNewRule() {
@@ -584,12 +658,12 @@ async function deleteRule(rule) {
 
 async function applyCapture(cap) {
   await tradingApi.applyPriceCapture(cap.id)
-  await loadAutomation()
+  await Promise.all([loadAutomationSummary(), loadCaptures()])
 }
 
 async function ignoreCapture(cap) {
   await tradingApi.ignorePriceCapture(cap.id)
-  await loadAutomation()
+  await Promise.all([loadAutomationSummary(), loadCaptures()])
 }
 
 // Source pickers — three independent search-and-add mechanisms feeding the same
@@ -908,6 +982,30 @@ onMounted(() => {
 .capture-filter-bar { display: flex; gap: 6px; margin-bottom: 14px; }
 .filter-chip { padding: 5px 12px; border-radius: 20px; border: 1px solid #e5e7eb; background: #fff; color: #6b7280; font-size: 0.78rem; cursor: pointer; }
 .filter-chip.sel { background: #0d7a70; border-color: #0d7a70; color: #fff; }
+.capture-list-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; color: #6b7280; font-size: 0.76rem; flex-wrap: wrap; }
+.capture-pager { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.page-size-btn,
+.pager-btn {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #4b5563;
+  border-radius: 7px;
+  padding: 5px 9px;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.page-size-btn.active {
+  border-color: #16a34a;
+  background: #16a34a;
+  color: #fff;
+  font-weight: 700;
+}
+.pager-btn:disabled {
+  cursor: not-allowed;
+  color: #cbd5e1;
+  background: #f9fafb;
+}
+.pager-label { padding: 0 6px; color: #4b5563; }
 
 .feed-list { display: flex; flex-direction: column; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; background: #fff; }
 .feed-row { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 14px; padding: 12px 16px; border-bottom: 1px solid #f3f4f6; }

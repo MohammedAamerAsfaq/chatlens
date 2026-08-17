@@ -2636,6 +2636,13 @@ class AutomationRuleViewSet(viewsets.ModelViewSet):
         return Response(AutomationRuleSerializer(rule).data)
 
 
+class AutomatedPriceCapturePagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+    page_query_param = 'page'
+
+
 class AutomatedPriceCaptureViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin):
     """Read/review surface for the "Recent detections" feed — a human confirms
     (apply, with optional edits to the parsed items) or dismisses (ignore) each
@@ -2643,6 +2650,7 @@ class AutomatedPriceCaptureViewSet(viewsets.GenericViewSet, mixins.ListModelMixi
     purely as an audit trail."""
     serializer_class = AutomatedPriceCaptureSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = AutomatedPriceCapturePagination
 
     def get_queryset(self):
         qs = (
