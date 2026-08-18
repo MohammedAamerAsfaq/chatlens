@@ -129,28 +129,128 @@
         </button>
       </div>
 
+      <div class="list-tools">
+        <input
+          v-model="offerSearch"
+          placeholder="Search selling inquiries, products, customers..."
+          @keydown.enter.prevent="applyOfferSearch"
+        />
+        <button class="ghost-btn" @click="applyOfferSearch">Search</button>
+        <button class="ghost-btn" :disabled="!offerSearch" @click="clearOfferSearch">Clear</button>
+        <select v-model.number="offerPageSize" @change="changeOfferPageSize">
+          <option :value="10">10</option>
+          <option :value="25">25</option>
+          <option :value="50">50</option>
+          <option :value="100">100</option>
+        </select>
+      </div>
+
+      <div class="list-meta">
+        <span>{{ offerRangeText }}</span>
+        <div class="pager">
+          <button class="ghost-btn" :disabled="offerPage <= 1 || loadingOffers" @click="goOfferPage(offerPage - 1)">Previous</button>
+          <span>Page {{ offerPage }} of {{ offerTotalPages }}</span>
+          <button class="ghost-btn" :disabled="offerPage >= offerTotalPages || loadingOffers" @click="goOfferPage(offerPage + 1)">Next</button>
+        </div>
+      </div>
+
       <div class="offer-list">
         <div v-if="loadingOffers" class="empty-note">Loading selling offers...</div>
         <div v-else-if="offers.length === 0" class="empty-note">No selling offers created yet.</div>
-        <div v-for="offer in offers" :key="offer.id" class="offer-card">
+        <div v-for="(offer, index) in offers" :key="offer.id" class="offer-card">
           <button class="offer-summary" @click="toggleOffer(offer.id)">
-            <div>
-              <strong>{{ offer.name }}</strong>
-              <span>{{ offer.products.length }} products - {{ offer.customer_count }} customers</span>
+            <div class="offer-title-row">
+              <span class="row-index"><span>{{ offerRowNumber(index) }}</span></span>
+              <div>
+                <strong>{{ offer.name }}</strong>
+                <span>{{ offer.products.length }} products - {{ offer.customer_count }} customers</span>
+              </div>
             </div>
             <div class="offer-right">
               <span class="progress-pill">{{ offer.notified_count }}/{{ offer.customer_count }} notified</span>
               <span :class="['status-chip', offer.status]">{{ offer.status === 'open' ? 'Open' : 'Closed' }}</span>
-              <span class="chevron">{{ expandedOffers.has(offer.id) ? 'UP' : 'DOWN' }}</span>
+              <span v-if="editingOfferId === offer.id" class="edit-pill">Editing</span>
+              <span
+                :class="['caret-btn', expandedOffers.has(offer.id) ? 'is-open' : '']"
+                :aria-label="expandedOffers.has(offer.id) ? 'Collapse inquiry' : 'Expand inquiry'"
+              >
+                <FontAwesomeIcon :icon="expandedOffers.has(offer.id) ? faChevronDown : faChevronRight" />
+              </span>
             </div>
           </button>
 
           <div v-if="expandedOffers.has(offer.id)" class="offer-detail">
+            <div class="edit-toolbar">
+              <button v-if="editingOfferId !== offer.id" class="ghost-btn" @click="startEditOffer(offer)">Edit Inquiry</button>
+              <template v-else>
+                <button class="primary-btn" :disabled="busyAction === `save-${offer.id}`" @click="saveEditOffer(offer)">
+                  {{ busyAction === `save-${offer.id}` ? 'Saving...' : 'Save Changes' }}
+                </button>
+                <button class="ghost-btn" @click="cancelEditOffer">Cancel</button>
+              </template>
+            </div>
+
+            <div v-if="editingOfferId === offer.id" class="edit-panel">
+              <div class="form-grid">
+                <label>
+                  <span>Inquiry name</span>
+                  <input v-model="editDraft.name" />
+                </label>
+                <label>
+                  <span>Status</span>
+                  <select v-model="editDraft.status">
+                    <option value="open">Inquiry Open</option>
+                    <option value="closed">Inquiry Closed</option>
+                  </select>
+                </label>
+              </div>
+              <div class="template-grid edit-template-grid">
+                <label>
+                  <span>Header</span>
+                  <textarea v-model="editDraft.header_template" rows="2" />
+                </label>
+                <label>
+                  <span>Product line</span>
+                  <textarea v-model="editDraft.product_line_template" rows="2" />
+                </label>
+                <label>
+                  <span>Footer</span>
+                  <textarea v-model="editDraft.footer_template" rows="2" />
+                </label>
+              </div>
+            </div>
+
             <div class="detail-grid">
               <div>
                 <div class="section-title-row compact-title">
                   <h3>Products</h3>
                   <span class="muted">{{ offer.products.length }} selected</span>
+                </div>
+                <div v-if="editingOfferId === offer.id" class="product-picker inline-picker">
+                  <input
+                    v-model="editProductSearch[offer.id]"
+                    placeholder="Search product to add..."
+                    @keydown.enter.prevent="searchEditProducts(offer)"
+                  />
+                  <button class="ghost-btn" @click="searchEditProducts(offer)">Search</button>
+                  <button
+                    class="ghost-btn"
+                    :disabled="!editProductSearch[offer.id] && !editProductOptions[offer.id]?.length"
+                    @click="clearEditProductSearch(offer.id)"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div v-if="editingOfferId === offer.id && editProductOptions[offer.id]?.length" class="option-list">
+                  <button
+                    v-for="product in editProductOptions[offer.id]"
+                    :key="product.id"
+                    class="option-row"
+                    @click="addProductToOffer(offer, product)"
+                  >
+                    <strong>{{ productLabel(product) }}</strong>
+                    <span>{{ product.qty }} in stock - {{ money(product.sale_price, product.currency) }}</span>
+                  </button>
                 </div>
                 <div class="detail-products">
                   <div v-for="row in offer.products" :key="row.id" class="product-token-row">
@@ -158,9 +258,19 @@
                       <strong>{{ row.product_name }}</strong>
                       <span>{{ row.quantity ?? '-' }} qty - {{ money(row.price, row.currency) }}</span>
                     </div>
-                    <button class="link-btn" :disabled="busyAction === `auto-${offer.id}-${row.product}`" @click="autoAddCustomers(offer, row)">
-                      {{ busyAction === `auto-${offer.id}-${row.product}` ? 'Finding...' : 'Find customers from Inquiry Products' }}
-                    </button>
+                    <div class="row-actions">
+                      <button class="link-btn" :disabled="busyAction === `auto-${offer.id}-${row.product}`" @click="autoAddCustomers(offer, row)">
+                        {{ busyAction === `auto-${offer.id}-${row.product}` ? 'Finding...' : 'Find customers from Inquiry Products' }}
+                      </button>
+                      <button
+                        v-if="editingOfferId === offer.id"
+                        class="link-btn danger"
+                        :disabled="busyAction === `remove-product-${offer.id}-${row.product}`"
+                        @click="removeProductFromOffer(offer, row)"
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -172,6 +282,13 @@
                 <div class="customer-tools">
                   <input v-model="customerSearch[offer.id]" placeholder="Search customer name or phone..." @keydown.enter.prevent="searchContacts(offer)" />
                   <button class="ghost-btn" @click="searchContacts(offer)">Search</button>
+                  <button
+                    class="ghost-btn"
+                    :disabled="!customerSearch[offer.id] && !contactOptions[offer.id]?.length"
+                    @click="clearContactSearch(offer.id)"
+                  >
+                    Clear
+                  </button>
                 </div>
                 <div v-if="contactOptions[offer.id]?.length" class="option-list">
                   <button v-for="contact in contactOptions[offer.id]" :key="contact.id" class="option-row" @click="addCustomer(offer, contact)">
@@ -184,7 +301,8 @@
 
             <div class="detail-customer-list">
               <div v-if="offer.customers.length === 0" class="empty-note">No customers added yet.</div>
-              <div v-for="customer in offer.customers" :key="customer.id" class="customer-row compact-row">
+              <div v-for="(customer, index) in offer.customers" :key="customer.id" class="customer-row compact-row">
+                <span class="row-index"><span>{{ index + 1 }}</span></span>
                 <div class="customer-main">
                   <strong>{{ customer.contact_name }}</strong>
                   <span>{{ customer.phone_number || 'No phone' }} - {{ customer.account_name }} - {{ customer.source === 'auto' ? 'Auto: WTB inquiry product' : 'Manual add' }}</span>
@@ -215,6 +333,8 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons'
 import { contactsApi, tradingApi } from '@/api'
 
 const DEFAULT_HEADER = 'Hello, available stock offer:'
@@ -226,12 +346,26 @@ const productOptions = ref([])
 const expandedOffers = reactive(new Set())
 const customerSearch = reactive({})
 const contactOptions = reactive({})
+const editProductSearch = reactive({})
+const editProductOptions = reactive({})
+const offerSearch = ref('')
+const offerPage = ref(1)
+const offerPageSize = ref(25)
+const offerTotal = ref(0)
 const productSearch = ref('')
 const loadingOffers = ref(false)
 const searchingProducts = ref(false)
 const savingOffer = ref(false)
 const busyAction = ref('')
 const error = ref('')
+const editingOfferId = ref(null)
+const editDraft = reactive({
+  name: '',
+  status: 'open',
+  header_template: DEFAULT_HEADER,
+  product_line_template: DEFAULT_LINE,
+  footer_template: DEFAULT_FOOTER,
+})
 
 const draft = reactive({
   name: '',
@@ -254,14 +388,27 @@ const draftPreview = computed(() => formatOfferMessage({
   })),
 }))
 
+const offerTotalPages = computed(() => Math.max(1, Math.ceil(offerTotal.value / offerPageSize.value)))
+const offerRangeText = computed(() => {
+  if (!offerTotal.value) return 'Showing 0 selling inquiries'
+  const start = (offerPage.value - 1) * offerPageSize.value + 1
+  const end = Math.min(start + offers.value.length - 1, offerTotal.value)
+  return `Showing ${start}-${end} of ${offerTotal.value}`
+})
+
 onMounted(loadOffers)
 
 async function loadOffers() {
   loadingOffers.value = true
   error.value = ''
   try {
-    const { data } = await tradingApi.listSellingOffers({ page_size: 50 })
+    const { data } = await tradingApi.listSellingOffers({
+      page: offerPage.value,
+      page_size: offerPageSize.value,
+      search: offerSearch.value || undefined,
+    })
     offers.value = data.results || data
+    offerTotal.value = data.count ?? offers.value.length
   } catch (exc) {
     error.value = apiError(exc, 'Failed to load selling offers.')
   } finally {
@@ -308,7 +455,9 @@ async function createOffer() {
       product_ids: draft.products.map(product => product.id),
     }
     const { data } = await tradingApi.createSellingOffer(payload)
-    offers.value.unshift(data)
+    offerSearch.value = ''
+    offerPage.value = 1
+    await loadOffers()
     expandedOffers.add(data.id)
     resetDraft()
   } catch (exc) {
@@ -354,6 +503,96 @@ async function addCustomer(offer, contact) {
   }
 }
 
+function startEditOffer(offer) {
+  editingOfferId.value = offer.id
+  editDraft.name = offer.name
+  editDraft.status = offer.status
+  editDraft.header_template = offer.header_template || DEFAULT_HEADER
+  editDraft.product_line_template = offer.product_line_template || DEFAULT_LINE
+  editDraft.footer_template = offer.footer_template || DEFAULT_FOOTER
+}
+
+function cancelEditOffer() {
+  editingOfferId.value = null
+}
+
+async function saveEditOffer(offer) {
+  const name = editDraft.name.trim()
+  if (!name) {
+    error.value = 'Inquiry name is required.'
+    return
+  }
+  busyAction.value = `save-${offer.id}`
+  error.value = ''
+  try {
+    const { data } = await tradingApi.updateSellingOffer(offer.id, {
+      name,
+      status: editDraft.status,
+      header_template: editDraft.header_template,
+      product_line_template: editDraft.product_line_template,
+      footer_template: editDraft.footer_template,
+    })
+    replaceOffer(data)
+    editingOfferId.value = null
+  } catch (exc) {
+    error.value = apiError(exc, 'Save inquiry changes failed.')
+  } finally {
+    busyAction.value = ''
+  }
+}
+
+async function searchEditProducts(offer) {
+  error.value = ''
+  try {
+    const { data } = await tradingApi.listProducts({
+      search: editProductSearch[offer.id] || '',
+      active: 'true',
+    })
+    editProductOptions[offer.id] = (data.results || data).filter(
+      product => !offer.products.some(row => row.product === product.id),
+    )
+  } catch (exc) {
+    error.value = apiError(exc, 'Product search failed.')
+  }
+}
+
+function clearEditProductSearch(offerId) {
+  editProductSearch[offerId] = ''
+  editProductOptions[offerId] = []
+}
+
+async function addProductToOffer(offer, product) {
+  busyAction.value = `add-product-${offer.id}-${product.id}`
+  error.value = ''
+  try {
+    await tradingApi.addSellingOfferProduct(offer.id, product.id)
+    clearEditProductSearch(offer.id)
+    await refreshOffer(offer.id)
+  } catch (exc) {
+    error.value = apiError(exc, 'Add product failed.')
+  } finally {
+    busyAction.value = ''
+  }
+}
+
+async function removeProductFromOffer(offer, productRow) {
+  busyAction.value = `remove-product-${offer.id}-${productRow.product}`
+  error.value = ''
+  try {
+    await tradingApi.removeSellingOfferProduct(offer.id, productRow.product)
+    await refreshOffer(offer.id)
+  } catch (exc) {
+    error.value = apiError(exc, 'Remove product failed.')
+  } finally {
+    busyAction.value = ''
+  }
+}
+
+function clearContactSearch(offerId) {
+  customerSearch[offerId] = ''
+  contactOptions[offerId] = []
+}
+
 async function markSent(offer, customer) {
   try {
     const { data } = await tradingApi.markSellingOfferCustomerSent(offer.id, customer.id)
@@ -388,8 +627,7 @@ async function reopenOffer(offer) {
 }
 
 async function refreshOffer(id) {
-  const { data } = await tradingApi.listSellingOffers({ page_size: 50 })
-  offers.value = data.results || data
+  await loadOffers()
   expandedOffers.add(id)
 }
 
@@ -413,6 +651,31 @@ function resetDraft() {
 function toggleOffer(id) {
   if (expandedOffers.has(id)) expandedOffers.delete(id)
   else expandedOffers.add(id)
+}
+
+function offerRowNumber(index) {
+  return (offerPage.value - 1) * offerPageSize.value + index + 1
+}
+
+function applyOfferSearch() {
+  offerPage.value = 1
+  loadOffers()
+}
+
+function clearOfferSearch() {
+  offerSearch.value = ''
+  offerPage.value = 1
+  loadOffers()
+}
+
+function goOfferPage(page) {
+  offerPage.value = Math.min(Math.max(page, 1), offerTotalPages.value)
+  loadOffers()
+}
+
+function changeOfferPageSize() {
+  offerPage.value = 1
+  loadOffers()
 }
 
 function productLabel(product) {
@@ -604,9 +867,32 @@ textarea {
 .product-picker,
 .customer-tools {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 8px;
   margin-top: 12px;
+}
+.list-tools {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto auto auto;
+  gap: 8px;
+  align-items: center;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #edf2f7;
+}
+.list-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  color: #64748b;
+  font-size: 0.84rem;
+}
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .template-grid,
 .product-list,
@@ -671,9 +957,32 @@ textarea {
   min-width: 0;
   flex: 1;
 }
+.row-index {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.76rem;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: center;
+  vertical-align: middle;
+  flex: 0 0 auto;
+}
+.row-index > span {
+  display: block;
+  line-height: 1;
+  transform: translateY(1px);
+}
 .status-chip,
 .notify-pill,
-.progress-pill {
+.progress-pill,
+.edit-pill {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
@@ -701,6 +1010,10 @@ textarea {
 .progress-pill {
   background: #fff7ed;
   color: #c2410c;
+}
+.edit-pill {
+  background: #eef2ff;
+  color: #4338ca;
 }
 .primary-btn,
 .ghost-btn,
@@ -781,6 +1094,7 @@ pre {
 }
 .offer-summary {
   width: 100%;
+  min-height: 78px;
   padding: 14px 16px;
   border: none;
   background: transparent;
@@ -792,14 +1106,54 @@ pre {
   align-items: center;
   gap: 8px;
 }
-.chevron {
-  color: #94a3b8;
-  font-size: 0.68rem;
-  font-weight: 900;
+.offer-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.caret-btn {
+  position: relative;
+  display: block;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #dbe4ee;
+  border-radius: 999px;
+  background: #fff;
+  color: #475569;
+  flex: 0 0 auto;
+}
+.caret-btn :deep(svg) {
+  display: block;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 11px;
+  height: 11px;
+  transform: translate(-50%, -50%);
 }
 .offer-detail {
   padding: 0 16px 16px;
   border-top: 1px solid #edf2f7;
+}
+.edit-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+}
+.edit-panel {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: #f8fbff;
+}
+.edit-template-grid {
+  margin-top: 12px;
+}
+.inline-picker {
+  margin-bottom: 10px;
 }
 .detail-grid {
   display: grid;
@@ -809,6 +1163,13 @@ pre {
 }
 .compact-row {
   border-radius: 12px;
+}
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .detail-actions {
   justify-content: flex-end;
@@ -840,8 +1201,14 @@ pre {
   }
   .form-grid,
   .product-picker,
-  .customer-tools {
+  .customer-tools,
+  .list-tools {
     grid-template-columns: 1fr;
+  }
+  .list-meta,
+  .pager {
+    align-items: stretch;
+    flex-direction: column;
   }
   .offer-right {
     flex-wrap: wrap;
