@@ -265,6 +265,7 @@ export const tradingApi = {
   removeSellingOfferProduct: (id, product_id) => http.post(`/selling-offers/${id}/remove-product/`, { product_id }),
   autoAddSellingOfferCustomers: (id, product_id) => http.post(`/selling-offers/${id}/auto-add-customers/`, { product_id }),
   addSellingOfferCustomer: (id, contact_id) => http.post(`/selling-offers/${id}/add-customer/`, { contact_id }),
+  removeSellingOfferCustomer: (id, customer_id) => http.post(`/selling-offers/${id}/remove-customer/`, { customer_id }),
   markSellingOfferCustomerSent: (id, customer_id) => http.post(`/selling-offers/${id}/mark-sent/`, { customer_id }),
 
   askSupplierQuote:     (id)         => http.post(`/supplier-quotes/${id}/ask/`),

@@ -253,7 +253,8 @@
                   </button>
                 </div>
                 <div class="detail-products">
-                  <div v-for="row in offer.products" :key="row.id" class="product-token-row">
+                  <div v-for="(row, productIndex) in offer.products" :key="row.id" class="product-token-row">
+                    <span class="row-index"><span>{{ productIndex + 1 }}</span></span>
                     <div>
                       <strong>{{ row.product_name }}</strong>
                       <span>{{ row.quantity ?? '-' }} qty - {{ money(row.price, row.currency) }}</span>
@@ -299,6 +300,13 @@
               </div>
             </div>
 
+            <div class="customer-list-title">
+              <div>
+                <h3>Customers to Send Offer</h3>
+                <p>Saved customer list for this selling inquiry.</p>
+              </div>
+              <span class="muted">{{ offer.customers.length }} customers</span>
+            </div>
             <div class="detail-customer-list">
               <div v-if="offer.customers.length === 0" class="empty-note">No customers added yet.</div>
               <div v-for="(customer, index) in offer.customers" :key="customer.id" class="customer-row compact-row">
@@ -310,13 +318,22 @@
                 <span class="notify-pill" :class="{ sent: customer.sent_count > 0 }">
                   {{ customer.sent_count > 0 ? `WA pressed ${customer.sent_count}x` : 'Not notified' }}
                 </span>
-                <a
-                  class="wa-btn"
-                  :href="whatsappUrl(customer.phone_number, offerPreview(offer))"
-                  @click="markSent(offer, customer)"
-                >
-                  WA
-                </a>
+                <div class="row-actions">
+                  <a
+                    class="wa-btn"
+                    :href="whatsappUrl(customer.phone_number, offerPreview(offer))"
+                    @click="markSent(offer, customer)"
+                  >
+                    WA
+                  </a>
+                  <button
+                    class="link-btn danger"
+                    :disabled="busyAction === `remove-customer-${offer.id}-${customer.id}`"
+                    @click="removeCustomerFromOffer(offer, customer)"
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -500,6 +517,19 @@ async function addCustomer(offer, contact) {
     customerSearch[offer.id] = ''
   } catch (exc) {
     error.value = apiError(exc, 'Add customer failed.')
+  }
+}
+
+async function removeCustomerFromOffer(offer, customer) {
+  busyAction.value = `remove-customer-${offer.id}-${customer.id}`
+  error.value = ''
+  try {
+    await tradingApi.removeSellingOfferCustomer(offer.id, customer.id)
+    await refreshOffer(offer.id)
+  } catch (exc) {
+    error.value = apiError(exc, 'Remove customer failed.')
+  } finally {
+    busyAction.value = ''
   }
 }
 
@@ -1148,6 +1178,20 @@ pre {
   border: 1px solid #dbeafe;
   border-radius: 14px;
   background: #f8fbff;
+}
+.customer-list-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #edf2f7;
+}
+.customer-list-title p {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 0.8rem;
 }
 .edit-template-grid {
   margin-top: 12px;

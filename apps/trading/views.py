@@ -2307,6 +2307,17 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
         status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(SellingOfferCustomerSerializer(customer).data, status=status_code)
 
+    @action(detail=True, methods=['post'], url_path='remove-customer')
+    def remove_customer(self, request, pk=None):
+        offer = self.get_object()
+        customer_id = request.data.get('customer_id')
+        if not customer_id:
+            return Response({'customer_id': 'customer_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        deleted, _ = offer.customers.filter(pk=customer_id).delete()
+        if not deleted:
+            return Response({'detail': 'Customer row not found for this offer.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'removed': deleted})
+
     @action(detail=True, methods=['post'], url_path='mark-sent')
     def mark_sent(self, request, pk=None):
         offer = self.get_object()
