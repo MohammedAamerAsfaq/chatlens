@@ -167,6 +167,14 @@
                 <span class="card-age" :class="{ red: inq.age_seconds > 60 }">
                   {{ formatAge(inq.age_seconds) }}
                 </span>
+                <button
+                  class="card-close-btn"
+                  :disabled="isFreshInquiry(inq)"
+                  :title="isFreshInquiry(inq) ? 'Just appeared - wait a moment to avoid closing it by accident' : 'Close inquiry'"
+                  @click.stop="act(inq, 'closed')"
+                >
+                  <FontAwesomeIcon :icon="faXmark" />
+                </button>
               </div>
             </div>
             <div class="card-body">
@@ -269,14 +277,11 @@
                   <option value="tracking">Tracking</option>
                   <option value="incorrect_match">Incorrect Match</option>
                 </select>
-                <button
-                  class="act-btn close"
-                  :disabled="isFreshInquiry(inq)"
-                  :title="isFreshInquiry(inq) ? 'Just appeared — wait a moment to avoid closing it by accident' : ''"
-                  @click="act(inq, 'closed')"
-                >Close</button>
                 <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
                 <button v-if="inq.products?.length" class="act-btn products" @click="openInquiryProducts(inq)">Inquiry Products</button>
+                <button v-if="inq.products?.length" class="act-btn market" @click="openMarketParties(inq)">
+                  {{ inq.inquiry_type === 'sell' ? 'Potential Buyers' : 'Available Sellers' }}
+                </button>
                 <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id, inq.account, inq.source_message_id, inq.source_message_time)" title="Open conversation">Chat →</button>
                 <a v-if="waLink(inq)" :href="waLink(inq)" class="act-btn wa" title="Open in WhatsApp">
                   <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2zm4.82 13.68c-.2.56-1.18 1.07-1.62 1.14-.44.07-.98.1-1.58-.1-.36-.12-.83-.28-1.42-.55-2.5-1.08-4.13-3.6-4.26-3.77-.13-.17-1.05-1.4-1.05-2.67 0-1.27.66-1.9.9-2.16.23-.26.5-.32.67-.32.17 0 .33 0 .48.01.15.01.36-.06.56.43.2.49.7 1.7.76 1.82.06.13.1.27.02.43-.08.17-.12.27-.23.41-.11.14-.24.31-.33.42-.11.13-.23.27-.1.53.13.26.59 1 1.27 1.63.87.8 1.61 1.04 1.87 1.16.26.12.41.1.57-.06.16-.16.66-.77.83-1.04.17-.26.34-.22.57-.13.23.09 1.44.68 1.69.8.25.12.41.18.47.28.07.1.07.56-.13 1.12z"/></svg>
@@ -401,6 +406,14 @@
                 <span class="card-age" :class="{ red: inq.age_seconds > 60 }">
                   {{ formatAge(inq.age_seconds) }}
                 </span>
+                <button
+                  class="card-close-btn"
+                  :disabled="isFreshInquiry(inq)"
+                  :title="isFreshInquiry(inq) ? 'Just appeared - wait a moment to avoid closing it by accident' : 'Close inquiry'"
+                  @click.stop="act(inq, 'closed')"
+                >
+                  <FontAwesomeIcon :icon="faXmark" />
+                </button>
               </div>
             </div>
             <div class="card-body">
@@ -503,14 +516,11 @@
                   <option value="tracking">Tracking</option>
                   <option value="incorrect_match">Incorrect Match</option>
                 </select>
-                <button
-                  class="act-btn close"
-                  :disabled="isFreshInquiry(inq)"
-                  :title="isFreshInquiry(inq) ? 'Just appeared — wait a moment to avoid closing it by accident' : ''"
-                  @click="act(inq, 'closed')"
-                >Close</button>
                 <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
                 <button v-if="inq.products?.length" class="act-btn products" @click="openInquiryProducts(inq)">Inquiry Products</button>
+                <button v-if="inq.products?.length" class="act-btn market" @click="openMarketParties(inq)">
+                  {{ inq.inquiry_type === 'sell' ? 'Potential Buyers' : 'Available Sellers' }}
+                </button>
                 <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id, inq.account, inq.source_message_id, inq.source_message_time)" title="Open conversation">Chat →</button>
                 <a v-if="waLink(inq)" :href="waLink(inq)" class="act-btn wa" title="Open in WhatsApp">
                   <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2zm4.82 13.68c-.2.56-1.18 1.07-1.62 1.14-.44.07-.98.1-1.58-.1-.36-.12-.83-.28-1.42-.55-2.5-1.08-4.13-3.6-4.26-3.77-.13-.17-1.05-1.4-1.05-2.67 0-1.27.66-1.9.9-2.16.23-.26.5-.32.67-.32.17 0 .33 0 .48.01.15.01.36-.06.56.43.2.49.7 1.7.76 1.82.06.13.1.27.02.43-.08.17-.12.27-.23.41-.11.14-.24.31-.33.42-.11.13-.23.27-.1.53.13.26.59 1 1.27 1.63.87.8 1.61 1.04 1.87 1.16.26.12.41.1.57-.06.16-.16.66-.77.83-1.04.17-.26.34-.22.57-.13.23.09 1.44.68 1.69.8.25.12.41.18.47.28.07.1.07.56-.13 1.12z"/></svg>
@@ -746,11 +756,124 @@
       </div>
     </div>
   </Teleport>
+
+  <Teleport to="body">
+    <div v-if="marketModalOpen" class="market-backdrop" @click.self="closeMarketParties">
+      <div
+        class="market-dialog"
+        :style="{ transform: `translate(${marketDialogDrag.x}px, ${marketDialogDrag.y}px)` }"
+      >
+        <div class="market-header" @mousedown="startMarketDialogDrag">
+          <div>
+            <div class="market-eyebrow">{{ marketModalTitle }}</div>
+            <div class="market-title">{{ marketModalInquiry?.summary || 'Market parties for selected inquiry' }}</div>
+            <div class="market-subtitle">
+              {{ marketModalInquiry?.inquiry_type === 'sell' ? 'Showing parties asking for these products' : 'Showing parties selling these products' }}
+            </div>
+          </div>
+          <button class="match-fix-close" @mousedown.stop @click="closeMarketParties" title="Close">×</button>
+        </div>
+
+        <div class="market-body">
+          <div class="market-source-tabs">
+            <button
+              class="market-source-tab"
+              :class="{ active: marketSource === 'inventory' }"
+              @click="setMarketSource('inventory')"
+            >Inventory Matches</button>
+            <button
+              class="market-source-tab"
+              :class="{ active: marketSource === 'non_inventory' }"
+              @click="setMarketSource('non_inventory')"
+            >Non-Inventory Tracking</button>
+          </div>
+          <div class="market-source-tabs method-tabs">
+            <button
+              class="market-source-tab"
+              :class="{ active: marketMethod === 'exact' }"
+              @click="setMarketMethod('exact')"
+            >Exact</button>
+            <button
+              class="market-source-tab"
+              :class="{ active: marketMethod === 'text' }"
+              @click="setMarketMethod('text')"
+            >Text</button>
+            <button
+              class="market-source-tab"
+              :class="{ active: marketMethod === 'embedding' }"
+              @click="setMarketMethod('embedding')"
+            >Embedding</button>
+          </div>
+          <div v-if="marketLoading" class="market-state">Loading market offers...</div>
+          <div v-else-if="marketError" class="market-error">{{ marketError }}</div>
+          <div v-else-if="!marketProducts.length" class="market-state">No product lines available.</div>
+          <div v-else class="market-product-list">
+            <div
+              v-for="product in marketProducts"
+              :key="`${product.index}-${product.product_id || 'unmapped'}`"
+              class="market-product"
+            >
+              <div class="market-product-head">
+                <div>
+                  <div class="market-product-name">
+                    {{ product.product_name || product.canonical_name || `Product line ${product.index + 1}` }}
+                  </div>
+                  <div class="market-product-meta">
+                    Line {{ product.index + 1 }} · {{ product.action_label === 'selling' ? 'parties selling this item' : 'parties asking for this item' }}
+                  </div>
+                </div>
+                <span class="market-count">{{ product.parties?.length || 0 }}</span>
+              </div>
+
+              <div v-if="product.message" class="market-state compact">{{ product.message }}</div>
+              <div v-else class="market-party-list">
+                <div
+                  v-for="party in product.parties"
+                  :key="party.inquiry_product_id"
+                  class="market-party"
+                >
+                  <div class="market-party-main">
+                    <div class="market-party-name">{{ party.contact_name || 'Unknown contact' }}</div>
+                    <div class="market-party-meta">
+                      <span>{{ party.contact_phone || 'No phone' }}</span>
+                      <span v-if="party.account_name">· {{ party.account_name }}</span>
+                      <span v-if="party.source_chat_name">· {{ party.source_chat_name }}</span>
+                    </div>
+                    <div class="market-party-text">{{ party.original_text || 'No source text' }}</div>
+                    <div class="market-party-facts">
+                      <span v-if="party.quantity">Qty {{ party.quantity }}</span>
+                      <span v-if="party.price">{{ party.currency || '' }} {{ party.price }}</span>
+                      <span v-if="party.first_seen_at">{{ formatDateTime(party.first_seen_at) }}</span>
+                      <span v-if="party.distance != null">Distance {{ party.distance }}</span>
+                    </div>
+                  </div>
+                  <div class="market-party-actions">
+                    <button
+                      v-if="party.source_chat_id"
+                      class="act-btn chat"
+                      @click="viewChat(party.source_chat_id, party.account_id, party.source_message_id, party.source_message_time)"
+                    >Chat →</button>
+                    <a
+                      v-if="marketWaLink(party)"
+                      :href="marketWaLink(party)"
+                      class="act-btn wa"
+                    >WA</a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import { faXmark } from '@fortawesome/free-solid-svg-icons'
 import { useConversationsStore } from '@/stores/conversations'
 import { accountsApi, tradingApi, contactsApi } from '../api/index.js'
 
@@ -944,6 +1067,21 @@ const productLinesLoading = ref(false)
 const productLinesError = ref('')
 const creatingLineIndex = ref(null)
 const trackingLineIndex = ref(null)
+const marketModalOpen = ref(false)
+const marketModalInquiry = ref(null)
+const marketProducts = ref([])
+const marketLoading = ref(false)
+const marketError = ref('')
+const marketActionLabel = ref('')
+const marketSource = ref('inventory')
+const marketMethod = ref('exact')
+const marketDialogDrag = ref({ x: 0, y: 0 })
+let marketDragState = null
+
+const marketModalTitle = computed(() => {
+  if (marketModalInquiry.value?.inquiry_type === 'sell') return 'Potential Buyers'
+  return 'Available Sellers'
+})
 
 function matchVerificationKey(inq, hint) {
   return `${inq?.id || 'unknown'}:${hint?.index ?? 'unknown'}`
@@ -992,6 +1130,81 @@ function closeInquiryProducts() {
   productModalInquiry.value = null
   productLines.value = []
   productLinesError.value = ''
+}
+
+async function openMarketParties(inq) {
+  marketModalInquiry.value = inq
+  marketModalOpen.value = true
+  marketSource.value = 'inventory'
+  marketMethod.value = 'exact'
+  marketDialogDrag.value = { x: 0, y: 0 }
+  await loadMarketParties(inq.id)
+}
+
+function closeMarketParties() {
+  marketModalOpen.value = false
+  marketModalInquiry.value = null
+  marketProducts.value = []
+  marketError.value = ''
+  stopMarketDialogDrag()
+}
+
+async function loadMarketParties(inquiryId) {
+  marketLoading.value = true
+  marketError.value = ''
+  try {
+    const { data } = await tradingApi.getInquiryMarketParties(inquiryId, {
+      limit: 25,
+      market_source: marketSource.value,
+      market_method: marketMethod.value,
+    })
+    marketProducts.value = data.products || []
+    marketModalInquiry.value = data.inquiry || marketModalInquiry.value
+    marketActionLabel.value = data.action_label || ''
+    marketSource.value = data.source || marketSource.value
+    marketMethod.value = data.method || marketMethod.value
+  } catch (e) {
+    marketError.value = e.response?.data?.detail || e.message || 'Failed to load market offers'
+  } finally {
+    marketLoading.value = false
+  }
+}
+
+async function setMarketSource(source) {
+  if (marketSource.value === source || !marketModalInquiry.value) return
+  marketSource.value = source
+  await loadMarketParties(marketModalInquiry.value.id)
+}
+
+async function setMarketMethod(method) {
+  if (marketMethod.value === method || !marketModalInquiry.value) return
+  marketMethod.value = method
+  await loadMarketParties(marketModalInquiry.value.id)
+}
+
+function startMarketDialogDrag(e) {
+  marketDragState = {
+    startX: e.clientX,
+    startY: e.clientY,
+    baseX: marketDialogDrag.value.x,
+    baseY: marketDialogDrag.value.y,
+  }
+  window.addEventListener('mousemove', onMarketDialogDrag)
+  window.addEventListener('mouseup', stopMarketDialogDrag)
+}
+
+function onMarketDialogDrag(e) {
+  if (!marketDragState) return
+  marketDialogDrag.value = {
+    x: marketDragState.baseX + (e.clientX - marketDragState.startX),
+    y: marketDragState.baseY + (e.clientY - marketDragState.startY),
+  }
+}
+
+function stopMarketDialogDrag() {
+  marketDragState = null
+  window.removeEventListener('mousemove', onMarketDialogDrag)
+  window.removeEventListener('mouseup', stopMarketDialogDrag)
 }
 
 function formatLineAttributes(attributes) {
@@ -1922,6 +2135,26 @@ function waPriceListLink(inq) {
   return `whatsapp://send?${params.toString()}`
 }
 
+function marketWaLink(party) {
+  const phone = party?.contact_phone
+  if (!phone) return null
+  const clean = phone.split('@')[0].replace(/\D/g, '')
+  if (!clean) return null
+  const text = party.original_text || ''
+  const params = new URLSearchParams({ phone: clean })
+  if (text) params.set('text', text)
+  return `whatsapp://send?${params.toString()}`
+}
+
+function formatDateTime(value) {
+  if (!value) return ''
+  try {
+    return new Date(value).toLocaleString()
+  } catch {
+    return ''
+  }
+}
+
 
 onMounted(async () => {
   const { data } = await accountsApi.list()
@@ -1942,6 +2175,7 @@ onUnmounted(() => {
   document.removeEventListener('pointerdown', closeContactPickersOnOutsideClick)
   stopRowDialogDrag()
   stopMatchFixDrag()
+  stopMarketDialogDrag()
 })
 </script>
 
@@ -2062,6 +2296,23 @@ onUnmounted(() => {
 .card-phone { font-weight: 400; font-size: 0.78rem; color: #6b7280; margin-left: 6px; }
 .card-age { font-size: 0.78rem; color: #6b7280; margin-left: auto; flex-shrink: 0; white-space: nowrap; }
 .card-age.red { color: #dc2626; font-weight: 700; }
+.card-close-btn {
+  width: 24px;
+  height: 24px;
+  border: 1px solid #fecaca;
+  border-radius: 999px;
+  background: #fef2f2;
+  color: #dc2626;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 0.76rem;
+  line-height: 1;
+}
+.card-close-btn:hover:not(:disabled) { background: #fee2e2; border-color: #fca5a5; }
+.card-close-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .category-select-mini { padding: 2px 6px; border: 1px solid #d1d5db; border-radius: 5px; font-size: 0.72rem; color: #374151; cursor: pointer; background: #fff; flex-shrink: 0; }
 .category-select-suggested { border-color: #fbbf24; background: #fffbeb; color: #92400e; font-weight: 600; }
 .category-suggestion-chip { padding: 2px 8px; border: 1px solid #fbbf24; border-radius: 999px; font-size: 0.72rem; color: #92400e; background: #fef9c3; cursor: pointer; font-weight: 600; flex-shrink: 0; }
@@ -2090,6 +2341,7 @@ onUnmounted(() => {
 .act-btn.close:disabled { opacity: 0.45; cursor: not-allowed; }
 .act-btn.deal  { background: #16a34a; color: #fff; }
 .act-btn.products { background: #eef2ff; color: #3730a3; }
+.act-btn.market { background: #ecfeff; color: #0e7490; }
 .act-btn.chat  { background: #eff6ff; color: #1d4ed8; margin-left: auto; }
 .act-btn.wa    { background: #dcfce7; color: #16a34a; display: flex; align-items: center; gap: 3px; text-decoration: none; }
 .act-btn.wa-ask { background: #fef9c3; color: #92400e; text-decoration: none; }
@@ -2271,6 +2523,170 @@ onUnmounted(() => {
 .match-fix-section-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.03em; color: #9ca3af; font-weight: 700; margin-top: 2px; }
 .match-fix-source { margin-left: auto; font-size: 0.68rem; font-weight: 600; color: #16a34a; flex-shrink: 0; }
 .match-fix-source.embedding { color: #2563eb; }
+.market-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 95;
+}
+.market-dialog {
+  width: min(980px, calc(100vw - 36px));
+  max-height: calc(100vh - 54px);
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.28);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.market-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid #e5e7eb;
+  cursor: move;
+  user-select: none;
+}
+.market-eyebrow {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #0e7490;
+  font-weight: 800;
+}
+.market-title {
+  margin-top: 3px;
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: #111827;
+}
+.market-subtitle {
+  margin-top: 3px;
+  font-size: 0.78rem;
+  color: #6b7280;
+}
+.market-body {
+  padding: 14px 18px 18px;
+  overflow-y: auto;
+  min-height: 260px;
+}
+.market-source-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  margin: 0 8px 12px 0;
+  border: 1px solid #dbe4ef;
+  border-radius: 999px;
+  background: #f8fafc;
+}
+.market-source-tabs.method-tabs { background: #fff; }
+.market-source-tab {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+.market-source-tab.active {
+  background: #0e7490;
+  color: #fff;
+}
+.market-state {
+  padding: 18px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  color: #64748b;
+  background: #f8fafc;
+  text-align: center;
+  font-size: 0.84rem;
+}
+.market-state.compact {
+  padding: 10px;
+  text-align: left;
+  font-size: 0.78rem;
+}
+.market-error {
+  padding: 12px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  color: #b91c1c;
+  background: #fef2f2;
+  font-size: 0.84rem;
+}
+.market-product-list { display: flex; flex-direction: column; gap: 12px; }
+.market-product {
+  border: 1px solid #dbe4ef;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+.market-product-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e5e7eb;
+}
+.market-product-name { font-weight: 800; color: #111827; }
+.market-product-meta { margin-top: 2px; font-size: 0.73rem; color: #64748b; }
+.market-count {
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #cffafe;
+  color: #0e7490;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+.market-party-list { display: flex; flex-direction: column; }
+.market-party {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 13px;
+  border-top: 1px solid #f1f5f9;
+}
+.market-party:first-child { border-top: 0; }
+.market-party-main { min-width: 0; flex: 1; }
+.market-party-name { font-weight: 800; color: #111827; }
+.market-party-meta,
+.market-party-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 0.74rem;
+}
+.market-party-text {
+  margin-top: 6px;
+  color: #334155;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+.market-party-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
 .row-expand-backdrop {
   position: fixed;
   inset: 0;

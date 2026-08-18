@@ -20,7 +20,7 @@ from apps.tenancy.services.access import (
     scope_queryset_to_visible_companies,
     visible_accounts_queryset,
 )
-from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, NonInventoryProduct, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, BuyingInquiryProduct, BuyingInquirySupplier, BuyingInquirySupplierSource, BuyingInquiryStatus, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture, SellingOffer, SellingOfferCustomer, SellingOfferCustomerSource, SellingOfferProduct, SellingOfferStatus
+from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, NonInventoryProduct, NonInventoryProductMention, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, BuyingInquiryProduct, BuyingInquirySupplier, BuyingInquirySupplierSource, BuyingInquiryStatus, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture, SellingOffer, SellingOfferCustomer, SellingOfferCustomerSource, SellingOfferProduct, SellingOfferStatus
 from .serializers import (
     ProductSerializer,
     ProductAliasSerializer,
@@ -1022,6 +1022,421 @@ class InquiryViewSet(viewsets.GenericViewSet,
             return Response({'detail': 'match verification failed'}, status=status.HTTP_502_BAD_GATEWAY)
 
         return Response(result)
+
+    @action(detail=True, methods=['get'], url_path='market-parties')
+    def market_parties(self, request, pk=None):
+        """Opposite-side market parties for each product in this inquiry.
+
+        market_source=inventory uses mapped InquiryProduct rows.
+        market_source=non_inventory uses NonInventoryProductMention rows for lines that
+        were tracked as non-inventory products. Both modes are read-only and
+        company-scoped, so this popup cannot create cross-tenant links.
+        """
+        inquiry = self.get_object()
+        opposite_type = 'sell' if inquiry.inquiry_type == 'buy' else 'buy'
+        action_label = 'selling' if opposite_type == 'sell' else 'asking'
+        limit = min(max(int(request.query_params.get('limit') or 25), 1), 100)
+        source = request.query_params.get('market_source') or 'inventory'
+        if source not in {'inventory', 'non_inventory'}:
+            return Response(
+                {'detail': 'market_source must be "inventory" or "non_inventory".'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        method = request.query_params.get('market_method') or 'exact'
+        if method not in {'exact', 'text', 'embedding'}:
+            return Response(
+                {'detail': 'market_method must be "exact", "text", or "embedding".'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        trace_by_index = {
+            row.source_product_index: row
+            for row in inquiry.tracked_products.select_related('product')
+            if row.source_product_index is not None
+        }
+        non_inventory_by_index = {
+            row.source_product_index: row
+            for row in inquiry.non_inventory_mentions.select_related('non_inventory_product')
+            if row.source_product_index is not None
+        }
+
+        def line_search_text(line):
+            return str(
+                line.get('canonical_name')
+                or line.get('raw_text')
+                or line.get('raw')
+                or ''
+            ).strip()
+
+        def text_filter_for(fields, query_text):
+            q = Q()
+            if query_text:
+                for field in fields:
+                    q |= Q(**{f'{field}__icontains': query_text})
+                tokens = [
+                    token for token in query_text.replace('/', ' ').replace('-', ' ').split()
+                    if len(token) >= 3
+                ][:8]
+                token_q = Q()
+                for token in tokens:
+                    per_token = Q()
+                    for field in fields:
+                        per_token |= Q(**{f'{field}__icontains': token})
+                    token_q &= per_token
+                q |= token_q
+            return q
+
+        def source_chat_name(message):
+            if not message or not message.chat:
+                return ''
+            return message.chat.name or message.chat.wa_chat_id
+
+        def inventory_party(row, distance=None):
+            contact = row.contact
+            message = row.source_message
+            return {
+                'source': 'inventory',
+                'inquiry_product_id': row.pk,
+                'non_inventory_mention_id': None,
+                'inquiry_id': row.inquiry_id,
+                'contact_id': row.contact_id,
+                'contact_name': (
+                    contact.display_name
+                    or contact.push_name
+                    or contact.phone_number
+                    or contact.wa_contact_id
+                ),
+                'contact_phone': contact.phone_number or '',
+                'account_id': row.account_id,
+                'account_name': row.account.display_name if row.account else '',
+                'quantity': row.quantity,
+                'price': row.price,
+                'currency': row.currency or '',
+                'original_text': row.original_text or row.canonical_name,
+                'first_seen_at': row.first_seen_at,
+                'source_chat_id': message.chat_id if message else None,
+                'source_message_id': message.id if message else None,
+                'source_message_time': message.message_time if message else None,
+                'source_chat_name': source_chat_name(message),
+                'distance': round(float(distance), 4) if distance is not None else None,
+            }
+
+        def non_inventory_party(row, distance=None):
+            contact = row.contact
+            message = row.source_message
+            return {
+                'source': 'non_inventory',
+                'inquiry_product_id': row.inquiry_product_id,
+                'non_inventory_mention_id': row.pk,
+                'inquiry_id': row.inquiry_id,
+                'contact_id': row.contact_id,
+                'contact_name': (
+                    contact.display_name
+                    or contact.push_name
+                    or contact.phone_number
+                    or contact.wa_contact_id
+                ),
+                'contact_phone': contact.phone_number or '',
+                'account_id': row.account_id,
+                'account_name': row.account.display_name if row.account else '',
+                'quantity': row.quantity,
+                'price': row.price,
+                'currency': row.currency or '',
+                'original_text': row.raw_text or row.canonical_name_from_ai,
+                'first_seen_at': row.message_time or row.created_at,
+                'source_chat_id': message.chat_id if message else None,
+                'source_message_id': message.id if message else None,
+                'source_message_time': message.message_time if message else None,
+                'source_chat_name': source_chat_name(message),
+                'distance': round(float(distance), 4) if distance is not None else None,
+            }
+
+        products = []
+        for index, line in enumerate(inquiry.products or []):
+            if not isinstance(line, dict):
+                continue
+
+            parties = []
+            seen_contacts = set()
+            product_id = None
+            product_name = ''
+            message_text = ''
+            query_text = line_search_text(line)
+
+            if source == 'inventory':
+                trace = trace_by_index.get(index)
+                inventory_product_id = line.get('product_id') or (trace.product_id if trace else None)
+                product = None
+                if inventory_product_id:
+                    product = Product.objects.filter(pk=inventory_product_id, company=inquiry.company).first()
+                if method == 'exact' and not product:
+                    message_text = 'No inventory mapping available for this product line.'
+                else:
+                    if product:
+                        product_id = product.pk
+                        product_name = f'{product.brand} {product.name}'.strip()
+
+                    if method == 'exact':
+                        rows = (
+                            InquiryProduct.objects
+                            .filter(
+                                company=inquiry.company,
+                                product=product,
+                                inquiry_type=opposite_type,
+                                contact__isnull=False,
+                            )
+                            .exclude(inquiry=inquiry)
+                            .select_related('account', 'contact', 'source_message', 'source_message__chat')
+                            .order_by('-first_seen_at', '-id')
+                        )
+                        if inquiry.contact_id:
+                            rows = rows.exclude(contact_id=inquiry.contact_id)
+                        row_distances = {}
+                    elif method == 'text':
+                        rows = (
+                            InquiryProduct.objects
+                            .filter(
+                                company=inquiry.company,
+                                inquiry_type=opposite_type,
+                                contact__isnull=False,
+                            )
+                            .exclude(inquiry=inquiry)
+                            .filter(text_filter_for(
+                                ['canonical_name', 'normalized_name', 'original_text', 'product__name', 'product__brand'],
+                                query_text,
+                            ))
+                            .select_related('account', 'contact', 'source_message', 'source_message__chat')
+                            .order_by('-first_seen_at', '-id')
+                        )
+                        if inquiry.contact_id:
+                            rows = rows.exclude(contact_id=inquiry.contact_id)
+                        row_distances = {}
+                    else:
+                        try:
+                            from pgvector import Vector
+                            from apps.ai_providers.manager import ai_manager
+                            query_vec_text = Vector(ai_manager.embed(query_text)).to_text()
+                            with _db_conn.cursor() as cursor:
+                                cursor.execute(
+                                    """
+                                    WITH scored AS (
+                                        SELECT ip.id AS inquiry_product_id, (pe.embedding <=> %(qv)s::vector) AS distance
+                                        FROM trading_inquiry_product ip
+                                        JOIN product_embedding pe ON pe.product_id = ip.product_id
+                                        WHERE ip.company_id = %(company_id)s
+                                          AND ip.inquiry_type = %(opposite_type)s
+                                          AND ip.contact_id IS NOT NULL
+                                          AND ip.inquiry_id <> %(inquiry_id)s
+                                          AND (%(contact_id)s IS NULL OR ip.contact_id <> %(contact_id)s)
+                                          AND ip.product_id IS NOT NULL
+                                          AND pe.embedding IS NOT NULL
+
+                                        UNION ALL
+
+                                        SELECT ip.id AS inquiry_product_id, (pae.embedding <=> %(qv)s::vector) AS distance
+                                        FROM trading_inquiry_product ip
+                                        JOIN trading_product_alias pa ON pa.product_id = ip.product_id
+                                        JOIN product_alias_embedding pae ON pae.alias_id = pa.id
+                                        WHERE ip.company_id = %(company_id)s
+                                          AND ip.inquiry_type = %(opposite_type)s
+                                          AND ip.contact_id IS NOT NULL
+                                          AND ip.inquiry_id <> %(inquiry_id)s
+                                          AND (%(contact_id)s IS NULL OR ip.contact_id <> %(contact_id)s)
+                                          AND ip.product_id IS NOT NULL
+                                          AND pae.embedding IS NOT NULL
+
+                                        UNION ALL
+
+                                        SELECT ip.id AS inquiry_product_id, (ip.embedding <=> %(qv)s::vector) AS distance
+                                        FROM trading_inquiry_product ip
+                                        WHERE ip.company_id = %(company_id)s
+                                          AND ip.inquiry_type = %(opposite_type)s
+                                          AND ip.contact_id IS NOT NULL
+                                          AND ip.inquiry_id <> %(inquiry_id)s
+                                          AND (%(contact_id)s IS NULL OR ip.contact_id <> %(contact_id)s)
+                                          AND ip.product_id IS NULL
+                                          AND ip.embedding IS NOT NULL
+                                    )
+                                    SELECT inquiry_product_id, MIN(distance) AS best_distance
+                                    FROM scored
+                                    GROUP BY inquiry_product_id
+                                    ORDER BY best_distance ASC
+                                    LIMIT %(limit)s
+                                    """,
+                                    {
+                                        'qv': query_vec_text,
+                                        'company_id': inquiry.company_id,
+                                        'opposite_type': opposite_type,
+                                        'inquiry_id': inquiry.pk,
+                                        'contact_id': inquiry.contact_id,
+                                        'limit': limit * 4,
+                                    },
+                                )
+                                distance_rows = cursor.fetchall()
+                        except Exception as exc:
+                            logger.exception(
+                                'market_parties inventory embedding failed | inquiry_id=%s | index=%s',
+                                inquiry.pk,
+                                index,
+                            )
+                            return Response(
+                                {'detail': f'Embedding search unavailable: {exc}'},
+                                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            )
+                        row_distances = {row_id: distance for row_id, distance in distance_rows}
+                        ordered_ids = [row_id for row_id, _ in distance_rows]
+                        rows_by_id = InquiryProduct.objects.filter(
+                            pk__in=ordered_ids,
+                        ).select_related('account', 'contact', 'source_message', 'source_message__chat')
+                        rows_map = {row.pk: row for row in rows_by_id}
+                        rows = [rows_map[row_id] for row_id in ordered_ids if row_id in rows_map]
+
+                    for row in rows:
+                        if row.contact_id in seen_contacts:
+                            continue
+                        seen_contacts.add(row.contact_id)
+                        parties.append(inventory_party(row, row_distances.get(row.pk)))
+                        if len(parties) >= limit:
+                            break
+                    message_text = '' if parties else f'No parties found {action_label} this product by {method} search.'
+            else:
+                current_mention = non_inventory_by_index.get(index)
+                non_inventory_product = current_mention.non_inventory_product if current_mention else None
+                if method == 'exact' and not non_inventory_product:
+                    message_text = 'No non-inventory tracking available for this product line.'
+                else:
+                    if non_inventory_product:
+                        product_id = non_inventory_product.pk
+                        product_name = non_inventory_product.canonical_name
+
+                    if method == 'exact':
+                        rows = (
+                            NonInventoryProductMention.objects
+                            .filter(
+                                company=inquiry.company,
+                                non_inventory_product=non_inventory_product,
+                                inquiry_type=opposite_type,
+                                contact__isnull=False,
+                            )
+                            .exclude(inquiry=inquiry)
+                            .select_related('account', 'contact', 'source_message', 'source_message__chat')
+                            .order_by('-message_time', '-id')
+                        )
+                        if inquiry.contact_id:
+                            rows = rows.exclude(contact_id=inquiry.contact_id)
+                        row_distances = {}
+                    elif method == 'text':
+                        rows = (
+                            NonInventoryProductMention.objects
+                            .filter(
+                                company=inquiry.company,
+                                inquiry_type=opposite_type,
+                                contact__isnull=False,
+                            )
+                            .exclude(inquiry=inquiry)
+                            .filter(text_filter_for(
+                                [
+                                    'raw_text',
+                                    'canonical_name_from_ai',
+                                    'normalized_name_from_ai',
+                                    'brand_from_ai',
+                                    'non_inventory_product__canonical_name',
+                                    'non_inventory_product__normalized_name',
+                                    'non_inventory_product__brand',
+                                ],
+                                query_text,
+                            ))
+                            .select_related('account', 'contact', 'source_message', 'source_message__chat')
+                            .order_by('-message_time', '-id')
+                        )
+                        if inquiry.contact_id:
+                            rows = rows.exclude(contact_id=inquiry.contact_id)
+                        row_distances = {}
+                    else:
+                        try:
+                            from pgvector import Vector
+                            from apps.ai_providers.manager import ai_manager
+                            query_vec_text = Vector(ai_manager.embed(query_text)).to_text()
+                            with _db_conn.cursor() as cursor:
+                                cursor.execute(
+                                    """
+                                    SELECT id, (embedding <=> %(qv)s::vector) AS distance
+                                    FROM trading_non_inventory_product
+                                    WHERE company_id = %(company_id)s
+                                      AND embedding IS NOT NULL
+                                    ORDER BY distance ASC
+                                    LIMIT %(limit)s
+                                    """,
+                                    {
+                                        'qv': query_vec_text,
+                                        'company_id': inquiry.company_id,
+                                        'limit': limit * 4,
+                                    },
+                                )
+                                non_inventory_distance_rows = cursor.fetchall()
+                        except Exception as exc:
+                            logger.exception(
+                                'market_parties non_inventory embedding failed | inquiry_id=%s | index=%s',
+                                inquiry.pk,
+                                index,
+                            )
+                            return Response(
+                                {'detail': f'Embedding search unavailable: {exc}'},
+                                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            )
+                        product_distances = {
+                            row_id: distance for row_id, distance in non_inventory_distance_rows
+                        }
+                        product_ids = [row_id for row_id, _ in non_inventory_distance_rows]
+                        rows = (
+                            NonInventoryProductMention.objects
+                            .filter(
+                                company=inquiry.company,
+                                non_inventory_product_id__in=product_ids,
+                                inquiry_type=opposite_type,
+                                contact__isnull=False,
+                            )
+                            .exclude(inquiry=inquiry)
+                            .select_related('account', 'contact', 'source_message', 'source_message__chat')
+                            .order_by('-message_time', '-id')
+                        )
+                        if inquiry.contact_id:
+                            rows = rows.exclude(contact_id=inquiry.contact_id)
+                        row_distances = {
+                            row.pk: product_distances.get(row.non_inventory_product_id)
+                            for row in rows
+                        }
+
+                    for row in rows:
+                        if row.contact_id in seen_contacts:
+                            continue
+                        seen_contacts.add(row.contact_id)
+                        parties.append(non_inventory_party(row, row_distances.get(row.pk)))
+                        if len(parties) >= limit:
+                            break
+                    message_text = '' if parties else f'No non-inventory parties found {action_label} this product by {method} search.'
+
+            products.append({
+                'index': index,
+                'canonical_name': line.get('canonical_name') or '',
+                'product_id': product_id,
+                'product_name': product_name,
+                'source': source,
+                'method': method,
+                'opposite_type': opposite_type,
+                'action_label': action_label,
+                'parties': parties,
+                'message': message_text,
+            })
+
+        return Response({
+            'inquiry': InquiryDetailSerializer(inquiry).data,
+            'opposite_type': opposite_type,
+            'action_label': action_label,
+            'source': source,
+            'method': method,
+            'products': products,
+        })
 
     @action(detail=False, methods=['post'], url_path='close-stale')
     def close_stale(self, request):

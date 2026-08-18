@@ -218,6 +218,7 @@ export const tradingApi = {
   createInventoryProductFromNonInventory: (id, data) => http.post(`/non-inventory-products/${id}/create-inventory-product/`, data),
   getInquiry:             (id)          => http.get(`/inquiries/${id}/`),
   getInquiryProductLines:  (id)          => http.get(`/inquiries/${id}/product-lines/`),
+  getInquiryMarketParties: (id, params)  => http.get(`/inquiries/${id}/market-parties/`, { params }),
   createProductFromInquiryLine: (id, index, data) => http.post(`/inquiries/${id}/product-lines/${index}/create-product/`, data),
   createInquiryProductFromLine: (id, index) => http.post(`/inquiries/${id}/product-lines/${index}/create-inquiry/`),
   trackNonInventoryFromInquiryLine: (id, index) => http.post(`/inquiries/${id}/product-lines/${index}/track-non-inventory/`),
