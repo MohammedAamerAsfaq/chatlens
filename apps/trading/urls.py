@@ -12,6 +12,7 @@ router.register('agent-logs',     views.AgentCallLogViewSet,          basename='
 router.register('ai-parsing-logs', views.AiParsingLogViewSet,         basename='ai-parsing-logs')
 router.register('ai-parse-v2-logs', views.AiParseV2LogViewSet,        basename='ai-parse-v2-logs')
 router.register('buying-inquiries', views.BuyingInquiryViewSet,       basename='buying-inquiries')
+router.register('selling-offers',   views.SellingOfferViewSet,        basename='selling-offers')
 router.register('supplier-quotes',  views.SupplierQuoteViewSet,       basename='supplier-quotes')
 router.register('reports',          views.ReportViewSet,              basename='reports')
 router.register('trading-settings', views.TradingSettingsViewSet,     basename='trading-settings')

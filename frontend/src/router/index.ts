@@ -18,6 +18,7 @@ import AiParseV2LogView     from '../views/AiParseV2LogView.vue'
 import ContactsView         from '../views/ContactsView.vue'
 import GroupsView           from '../views/GroupsView.vue'
 import TradingView          from '../views/TradingView.vue'
+import SellingOffersView    from '../views/SellingOffersView.vue'
 import TradingAnalyticsView from '../views/TradingAnalyticsView.vue'
 import ReportSummaryView    from '../views/ReportSummaryView.vue'
 import InventoryProductMentionsReportView from '../views/InventoryProductMentionsReportView.vue'
@@ -55,6 +56,7 @@ const router = createRouter({
     { path: '/contacts', name: 'contacts', component: ContactsView, meta: { title: 'Contacts' } },
     { path: '/groups', name: 'groups', component: GroupsView, meta: { title: 'Groups' } },
     { path: '/trading', name: 'trading', component: TradingView, meta: { title: 'Trading' } },
+    { path: '/selling-offers', name: 'selling-offers', component: SellingOffersView, meta: { title: 'Selling Offers' } },
     { path: '/trading-analytics', name: 'trading-analytics', component: TradingAnalyticsView, meta: { title: 'Trading Analytics' } },
     { path: '/report-summary', name: 'report-summary', component: ReportSummaryView, meta: { title: 'Report Summary' } },
     { path: '/inventory-product-mentions', name: 'inventory-product-mentions', component: InventoryProductMentionsReportView, meta: { title: 'Inventory Product Mentions' } },

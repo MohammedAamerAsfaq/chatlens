@@ -36,6 +36,13 @@ from .ai_parse_v2_log import AiParseV2Log
 from .buying_inquiry import BuyingInquiry, BuyingInquiryStatus, SupplierQuote, SupplierQuoteStatus
 from .price_list import FormattedPriceList
 from .automation_rule import AutomationRule, AutomationRuleSource, AutomatedPriceCapture
+from .selling_offer import (
+    SellingOffer,
+    SellingOfferCustomer,
+    SellingOfferCustomerSource,
+    SellingOfferProduct,
+    SellingOfferStatus,
+)
 
 __all__ = [
     'Product',
@@ -64,4 +71,6 @@ __all__ = [
     'BuyingInquiry', 'BuyingInquiryStatus', 'SupplierQuote', 'SupplierQuoteStatus',
     'FormattedPriceList',
     'AutomationRule', 'AutomationRuleSource', 'AutomatedPriceCapture',
+    'SellingOffer', 'SellingOfferCustomer', 'SellingOfferCustomerSource',
+    'SellingOfferProduct', 'SellingOfferStatus',
 ]

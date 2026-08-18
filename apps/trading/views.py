@@ -2,7 +2,7 @@ import json
 import logging
 import threading
 from django.db import connection as _db_conn, transaction
-from django.db.models import Count, Max, Min, Prefetch, Q
+from django.db.models import Count, F, Max, Min, Prefetch, Q
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import now, make_aware, is_naive
 from datetime import timedelta, date as _date, datetime as _datetime, time as _time
@@ -15,11 +15,12 @@ from rest_framework.response import Response
 
 from apps.tenancy.services.access import (
     default_company_for_user,
+    company_for_whatsapp_account,
     scope_queryset_to_visible_accounts,
     scope_queryset_to_visible_companies,
     visible_accounts_queryset,
 )
-from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, NonInventoryProduct, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture
+from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, NonInventoryProduct, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture, SellingOffer, SellingOfferCustomer, SellingOfferCustomerSource, SellingOfferProduct, SellingOfferStatus
 from .serializers import (
     ProductSerializer,
     ProductAliasSerializer,
@@ -34,6 +35,8 @@ from .serializers import (
     AiParseV2LogSerializer,
     BuyingInquirySerializer,
     SupplierQuoteSerializer,
+    SellingOfferCustomerSerializer,
+    SellingOfferSerializer,
     AutomationRuleSerializer,
     AutomatedPriceCaptureSerializer,
 )
@@ -188,6 +191,14 @@ class ProductViewSet(viewsets.ModelViewSet):
             qs = qs.filter(is_active=True)
         elif active == 'false':
             qs = qs.filter(is_active=False)
+        search = (self.request.query_params.get('search') or '').strip()
+        if search:
+            qs = qs.filter(
+                Q(name__icontains=search)
+                | Q(brand__icontains=search)
+                | Q(sku__icontains=search)
+                | Q(alias_set__alias__icontains=search)
+            ).distinct()
         return qs
 
     def perform_create(self, serializer):
@@ -2109,6 +2120,214 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Supplier not found for this account'}, status=status.HTTP_404_NOT_FOUND)
         quote, _ = SupplierQuote.objects.get_or_create(buying_inquiry=inquiry, supplier=supplier)
         return Response(SupplierQuoteSerializer(quote).data, status=status.HTTP_201_CREATED)
+
+
+class SellingOfferPagination(PageNumberPagination):
+    page_size = 25
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class SellingOfferViewSet(viewsets.ModelViewSet):
+    serializer_class = SellingOfferSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = SellingOfferPagination
+
+    def get_queryset(self):
+        qs = (
+            SellingOffer.objects
+            .select_related('company', 'created_by')
+            .prefetch_related(
+                'products__product',
+                'customers__contact__account',
+                'customers__source_product',
+            )
+            .order_by('-created_at', '-id')
+        )
+        qs = scope_queryset_to_visible_companies(qs, self.request.user, company_field='company')
+        if status_ := self.request.query_params.get('status'):
+            qs = qs.filter(status=status_)
+        search = (self.request.query_params.get('search') or '').strip()
+        if search:
+            qs = qs.filter(
+                Q(name__icontains=search)
+                | Q(products__product__name__icontains=search)
+                | Q(products__product__brand__icontains=search)
+                | Q(customers__contact__display_name__icontains=search)
+                | Q(customers__contact__push_name__icontains=search)
+                | Q(customers__contact__phone_number__icontains=search)
+            ).distinct()
+        return qs
+
+    def _visible_product(self, product_id):
+        product = _visible_product_or_none(self.request.user, product_id)
+        if not product:
+            raise ValidationError({'product_id': 'A visible product is required.'})
+        return product
+
+    def _visible_contact(self, contact_id, company):
+        from apps.whatsapp_bridge.models import WhatsAppContact
+        if not contact_id:
+            raise ValidationError({'contact_id': 'contact_id is required.'})
+        contact = scope_queryset_to_visible_accounts(
+            WhatsAppContact.objects.select_related('account').filter(pk=contact_id),
+            self.request.user,
+            account_field='account',
+        ).first()
+        if not contact:
+            raise ValidationError({'contact_id': 'A visible contact is required.'})
+        if company_for_whatsapp_account(contact.account) != company:
+            raise ValidationError({'contact_id': 'Contact belongs to a different company.'})
+        return contact
+
+    def _add_product_row(self, offer, product):
+        if product.company_id != offer.company_id:
+            raise ValidationError({'product_id': 'Product belongs to a different company.'})
+        row, _ = SellingOfferProduct.objects.get_or_create(
+            offer=offer,
+            product=product,
+            defaults={
+                'quantity': product.qty,
+                'price': product.sale_price,
+                'currency': product.currency or '',
+            },
+        )
+        return row
+
+    def create(self, request, *args, **kwargs):
+        company = default_company_for_user(request.user)
+        if not company:
+            return Response({'detail': 'No active company selected.'}, status=status.HTTP_400_BAD_REQUEST)
+        name = (request.data.get('name') or '').strip()
+        if not name:
+            return Response({'name': 'Name is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        product_ids = request.data.get('product_ids') or []
+        if not isinstance(product_ids, list):
+            return Response({'product_ids': 'product_ids must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
+        requested_status = request.data.get('status') or SellingOfferStatus.OPEN
+        if requested_status not in SellingOfferStatus.values:
+            return Response({'status': 'Invalid selling offer status.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            offer = SellingOffer.objects.create(
+                company=company,
+                name=name,
+                status=requested_status,
+                header_template=request.data.get('header_template') or SellingOffer._meta.get_field('header_template').default,
+                product_line_template=request.data.get('product_line_template') or SellingOffer._meta.get_field('product_line_template').default,
+                footer_template=request.data.get('footer_template') or SellingOffer._meta.get_field('footer_template').default,
+                created_by=request.user,
+                closed_at=now() if requested_status == SellingOfferStatus.CLOSED else None,
+            )
+            for product_id in product_ids:
+                self._add_product_row(offer, self._visible_product(product_id))
+
+        offer = self.get_queryset().get(pk=offer.pk)
+        return Response(self.get_serializer(offer).data, status=status.HTTP_201_CREATED)
+
+    def partial_update(self, request, *args, **kwargs):
+        offer = self.get_object()
+        allowed = {'name', 'status', 'header_template', 'product_line_template', 'footer_template'}
+        update_fields = ['updated_at']
+        if 'status' in request.data and request.data['status'] not in SellingOfferStatus.values:
+            return Response({'status': 'Invalid selling offer status.'}, status=status.HTTP_400_BAD_REQUEST)
+        for field in allowed:
+            if field in request.data:
+                setattr(offer, field, request.data[field])
+                update_fields.append(field)
+        if 'status' in request.data:
+            if offer.status == SellingOfferStatus.CLOSED and offer.closed_at is None:
+                offer.closed_at = now()
+                update_fields.append('closed_at')
+            elif offer.status == SellingOfferStatus.OPEN and offer.closed_at is not None:
+                offer.closed_at = None
+                update_fields.append('closed_at')
+        offer.save(update_fields=sorted(set(update_fields)))
+        return Response(self.get_serializer(self.get_queryset().get(pk=offer.pk)).data)
+
+    @action(detail=True, methods=['post'], url_path='add-product')
+    def add_product(self, request, pk=None):
+        offer = self.get_object()
+        row = self._add_product_row(offer, self._visible_product(request.data.get('product_id')))
+        return Response({'product': row.pk, 'offer': self.get_serializer(self.get_queryset().get(pk=offer.pk)).data})
+
+    @action(detail=True, methods=['post'], url_path='remove-product')
+    def remove_product(self, request, pk=None):
+        offer = self.get_object()
+        product = self._visible_product(request.data.get('product_id'))
+        deleted, _ = offer.products.filter(product=product).delete()
+        return Response({'removed': deleted})
+
+    @action(detail=True, methods=['post'], url_path='auto-add-customers')
+    def auto_add_customers(self, request, pk=None):
+        offer = self.get_object()
+        product = self._visible_product(request.data.get('product_id'))
+        if product.company_id != offer.company_id:
+            raise ValidationError({'product_id': 'Product belongs to a different company.'})
+
+        rows = (
+            InquiryProduct.objects
+            .filter(company=offer.company, product=product, inquiry_type='buy', contact__isnull=False)
+            .select_related('contact', 'contact__account')
+            .order_by('-first_seen_at', '-id')
+        )
+        seen_contact_ids = set()
+        added = 0
+        skipped = 0
+        for row in rows:
+            if row.contact_id in seen_contact_ids:
+                continue
+            seen_contact_ids.add(row.contact_id)
+            customer, created = SellingOfferCustomer.objects.get_or_create(
+                offer=offer,
+                contact=row.contact,
+                defaults={
+                    'source': SellingOfferCustomerSource.AUTO,
+                    'source_product': product,
+                    'source_inquiry_product': row,
+                },
+            )
+            if created:
+                added += 1
+            else:
+                skipped += 1
+
+        offer = self.get_queryset().get(pk=offer.pk)
+        return Response({'added': added, 'skipped': skipped, 'offer': self.get_serializer(offer).data})
+
+    @action(detail=True, methods=['post'], url_path='add-customer')
+    def add_customer(self, request, pk=None):
+        offer = self.get_object()
+        contact = self._visible_contact(request.data.get('contact_id'), offer.company)
+        customer, created = SellingOfferCustomer.objects.get_or_create(
+            offer=offer,
+            contact=contact,
+            defaults={'source': SellingOfferCustomerSource.MANUAL},
+        )
+        status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(SellingOfferCustomerSerializer(customer).data, status=status_code)
+
+    @action(detail=True, methods=['post'], url_path='mark-sent')
+    def mark_sent(self, request, pk=None):
+        offer = self.get_object()
+        customer_id = request.data.get('customer_id')
+        try:
+            customer = offer.customers.select_related('contact', 'contact__account', 'source_product').get(pk=customer_id)
+        except SellingOfferCustomer.DoesNotExist:
+            return Response({'detail': 'Customer row not found for this offer.'}, status=status.HTTP_404_NOT_FOUND)
+        customer.sent_count = F('sent_count') + 1
+        customer.last_sent_at = now()
+        customer.save(update_fields=['sent_count', 'last_sent_at', 'updated_at'])
+        customer.refresh_from_db()
+        return Response(SellingOfferCustomerSerializer(customer).data)
+
+    @action(detail=True, methods=['post'], url_path='close')
+    def close(self, request, pk=None):
+        offer = self.get_object()
+        offer.status = SellingOfferStatus.CLOSED
+        offer.closed_at = now()
+        offer.save(update_fields=['status', 'closed_at', 'updated_at'])
+        return Response(self.get_serializer(self.get_queryset().get(pk=offer.pk)).data)
 
 
 class SupplierQuoteViewSet(

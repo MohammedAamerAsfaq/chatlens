@@ -90,6 +90,7 @@ async function handleCompanySwitch(event) {
       <RouterLink to="/conversations"   class="nav-link" active-class="nav-link-active">Conversations</RouterLink>
       <RouterLink to="/trading"            class="nav-link" active-class="nav-link-active">Trading</RouterLink>
       <RouterLink to="/buying-inquiries"  class="nav-link" active-class="nav-link-active">Buying Inquiries</RouterLink>
+      <RouterLink to="/selling-offers"     class="nav-link" active-class="nav-link-active">Selling Offers</RouterLink>
 
       <!-- Reports — grouped dropdown, opens on hover -->
       <div class="relative group">
