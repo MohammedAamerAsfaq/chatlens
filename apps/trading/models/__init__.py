@@ -33,7 +33,15 @@ from .prompt_config import (
 from .agent_call_log import AgentCallLog
 from .ai_parsing_log import AiParsingLog
 from .ai_parse_v2_log import AiParseV2Log
-from .buying_inquiry import BuyingInquiry, BuyingInquiryStatus, SupplierQuote, SupplierQuoteStatus
+from .buying_inquiry import (
+    BuyingInquiry,
+    BuyingInquiryProduct,
+    BuyingInquiryStatus,
+    BuyingInquirySupplier,
+    BuyingInquirySupplierSource,
+    SupplierQuote,
+    SupplierQuoteStatus,
+)
 from .price_list import FormattedPriceList
 from .automation_rule import AutomationRule, AutomationRuleSource, AutomatedPriceCapture
 from .selling_offer import (
@@ -68,7 +76,9 @@ __all__ = [
     'AgentCallLog',
     'AiParsingLog',
     'AiParseV2Log',
-    'BuyingInquiry', 'BuyingInquiryStatus', 'SupplierQuote', 'SupplierQuoteStatus',
+    'BuyingInquiry', 'BuyingInquiryProduct', 'BuyingInquiryStatus',
+    'BuyingInquirySupplier', 'BuyingInquirySupplierSource',
+    'SupplierQuote', 'SupplierQuoteStatus',
     'FormattedPriceList',
     'AutomationRule', 'AutomationRuleSource', 'AutomatedPriceCapture',
     'SellingOffer', 'SellingOfferCustomer', 'SellingOfferCustomerSource',

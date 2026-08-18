@@ -255,7 +255,13 @@ export const tradingApi = {
   createBuyingInquiry:  (data)       => http.post('/buying-inquiries/', data),
   updateBuyingInquiry:  (id, data)   => http.patch(`/buying-inquiries/${id}/`, data),
   deleteBuyingInquiry:  (id)         => http.delete(`/buying-inquiries/${id}/`),
+  closeBuyingInquiry:   (id)         => http.post(`/buying-inquiries/${id}/close/`),
+  addBuyingInquiryProduct: (id, product_id) => http.post(`/buying-inquiries/${id}/add-product/`, { product_id }),
+  removeBuyingInquiryProduct: (id, product_id) => http.post(`/buying-inquiries/${id}/remove-product/`, { product_id }),
+  autoAddBuyingInquirySuppliers: (id, product_id) => http.post(`/buying-inquiries/${id}/auto-add-suppliers/`, { product_id }),
   addSupplierToInquiry: (id, supplier_id) => http.post(`/buying-inquiries/${id}/add-supplier/`, { supplier_id }),
+  removeBuyingInquirySupplier: (id, supplier_id) => http.post(`/buying-inquiries/${id}/remove-supplier/`, { supplier_id }),
+  markBuyingInquirySupplierSent: (id, supplier_id) => http.post(`/buying-inquiries/${id}/mark-sent/`, { supplier_id }),
 
   // Selling Offers (manual offer-to-customers workflow)
   listSellingOffers:       (params) => http.get('/selling-offers/', { params }),

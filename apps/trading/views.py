@@ -20,7 +20,7 @@ from apps.tenancy.services.access import (
     scope_queryset_to_visible_companies,
     visible_accounts_queryset,
 )
-from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, NonInventoryProduct, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture, SellingOffer, SellingOfferCustomer, SellingOfferCustomerSource, SellingOfferProduct, SellingOfferStatus
+from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, NonInventoryProduct, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, BuyingInquiryProduct, BuyingInquirySupplier, BuyingInquirySupplierSource, BuyingInquiryStatus, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture, SellingOffer, SellingOfferCustomer, SellingOfferCustomerSource, SellingOfferProduct, SellingOfferStatus
 from .serializers import (
     ProductSerializer,
     ProductAliasSerializer,
@@ -34,6 +34,7 @@ from .serializers import (
     AiParsingLogSerializer,
     AiParseV2LogSerializer,
     BuyingInquirySerializer,
+    BuyingInquirySupplierSerializer,
     SupplierQuoteSerializer,
     SellingOfferCustomerSerializer,
     SellingOfferSerializer,
@@ -2074,24 +2075,41 @@ class AiParseV2LogViewSet(viewsets.ReadOnlyModelViewSet):
         return qs
 
 
+class BuyingInquiryPagination(PageNumberPagination):
+    page_size = 25
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
 class BuyingInquiryViewSet(viewsets.ModelViewSet):
     serializer_class = BuyingInquirySerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = BuyingInquiryPagination
 
     def get_queryset(self):
         qs = (
             BuyingInquiry.objects
-            .select_related('account')
-            .prefetch_related('supplier_quotes__supplier')
-            .order_by('-created_at')
+            .select_related('company', 'created_by')
+            .prefetch_related(
+                'products__product',
+                'suppliers__contact__account',
+                'suppliers__source_product',
+            )
+            .order_by('-created_at', '-id')
         )
-        qs = scope_queryset_to_visible_accounts(qs, self.request.user, account_field='account')
-        p = self.request.query_params
-        if account_id := p.get('account'):
-            visible_account = _visible_account_or_none(self.request.user, account_id)
-            qs = qs.filter(account=visible_account) if visible_account else qs.none()
-        if status_ := p.get('status'):
+        qs = scope_queryset_to_visible_companies(qs, self.request.user, company_field='company')
+        if status_ := self.request.query_params.get('status'):
             qs = qs.filter(status=status_)
+        search = (self.request.query_params.get('search') or '').strip()
+        if search:
+            qs = qs.filter(
+                Q(name__icontains=search)
+                | Q(products__product__name__icontains=search)
+                | Q(products__product__brand__icontains=search)
+                | Q(suppliers__contact__display_name__icontains=search)
+                | Q(suppliers__contact__push_name__icontains=search)
+                | Q(suppliers__contact__phone_number__icontains=search)
+            ).distinct()
         return qs
 
     def perform_create(self, serializer):
@@ -2120,6 +2138,187 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Supplier not found for this account'}, status=status.HTTP_404_NOT_FOUND)
         quote, _ = SupplierQuote.objects.get_or_create(buying_inquiry=inquiry, supplier=supplier)
         return Response(SupplierQuoteSerializer(quote).data, status=status.HTTP_201_CREATED)
+
+    def _visible_product(self, product_id):
+        product = _visible_product_or_none(self.request.user, product_id)
+        if not product:
+            raise ValidationError({'product_id': 'A visible product is required.'})
+        return product
+
+    def _visible_contact(self, contact_id, company):
+        from apps.whatsapp_bridge.models import WhatsAppContact
+        if not contact_id:
+            raise ValidationError({'contact_id': 'contact_id is required.'})
+        contact = scope_queryset_to_visible_accounts(
+            WhatsAppContact.objects.select_related('account').filter(pk=contact_id),
+            self.request.user,
+            account_field='account',
+        ).first()
+        if not contact:
+            raise ValidationError({'contact_id': 'A visible contact is required.'})
+        if company_for_whatsapp_account(contact.account) != company:
+            raise ValidationError({'contact_id': 'Contact belongs to a different company.'})
+        return contact
+
+    def _add_product_row(self, inquiry, product):
+        if product.company_id != inquiry.company_id:
+            raise ValidationError({'product_id': 'Product belongs to a different company.'})
+        row, _ = BuyingInquiryProduct.objects.get_or_create(
+            inquiry=inquiry,
+            product=product,
+            defaults={
+                'quantity': product.qty,
+                'target_price': product.sale_price,
+                'currency': product.currency or '',
+            },
+        )
+        return row
+
+    def create(self, request, *args, **kwargs):
+        company = default_company_for_user(request.user)
+        if not company:
+            return Response({'detail': 'No active company selected.'}, status=status.HTTP_400_BAD_REQUEST)
+        name = (request.data.get('name') or '').strip()
+        if not name:
+            return Response({'name': 'Name is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        product_ids = request.data.get('product_ids') or []
+        if not isinstance(product_ids, list):
+            return Response({'product_ids': 'product_ids must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
+        requested_status = request.data.get('status') or BuyingInquiryStatus.OPEN
+        if requested_status not in BuyingInquiryStatus.values:
+            return Response({'status': 'Invalid buying inquiry status.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            inquiry = BuyingInquiry.objects.create(
+                company=company,
+                name=name,
+                status=requested_status,
+                header_template=request.data.get('header_template') or BuyingInquiry._meta.get_field('header_template').default,
+                product_line_template=request.data.get('product_line_template') or BuyingInquiry._meta.get_field('product_line_template').default,
+                footer_template=request.data.get('footer_template') or BuyingInquiry._meta.get_field('footer_template').default,
+                created_by=request.user,
+                closed_at=now() if requested_status == BuyingInquiryStatus.CLOSED else None,
+            )
+            for product_id in product_ids:
+                self._add_product_row(inquiry, self._visible_product(product_id))
+
+        inquiry = self.get_queryset().get(pk=inquiry.pk)
+        return Response(self.get_serializer(inquiry).data, status=status.HTTP_201_CREATED)
+
+    def partial_update(self, request, *args, **kwargs):
+        inquiry = self.get_object()
+        allowed = {'name', 'status', 'header_template', 'product_line_template', 'footer_template'}
+        update_fields = ['updated_at']
+        if 'status' in request.data and request.data['status'] not in BuyingInquiryStatus.values:
+            return Response({'status': 'Invalid buying inquiry status.'}, status=status.HTTP_400_BAD_REQUEST)
+        for field in allowed:
+            if field in request.data:
+                setattr(inquiry, field, request.data[field])
+                update_fields.append(field)
+        if 'status' in request.data:
+            if inquiry.status == BuyingInquiryStatus.CLOSED and inquiry.closed_at is None:
+                inquiry.closed_at = now()
+                update_fields.append('closed_at')
+            elif inquiry.status == BuyingInquiryStatus.OPEN and inquiry.closed_at is not None:
+                inquiry.closed_at = None
+                update_fields.append('closed_at')
+        inquiry.save(update_fields=sorted(set(update_fields)))
+        return Response(self.get_serializer(self.get_queryset().get(pk=inquiry.pk)).data)
+
+    @action(detail=True, methods=['post'], url_path='add-product')
+    def add_product(self, request, pk=None):
+        inquiry = self.get_object()
+        row = self._add_product_row(inquiry, self._visible_product(request.data.get('product_id')))
+        return Response({'product': row.pk, 'inquiry': self.get_serializer(self.get_queryset().get(pk=inquiry.pk)).data})
+
+    @action(detail=True, methods=['post'], url_path='remove-product')
+    def remove_product(self, request, pk=None):
+        inquiry = self.get_object()
+        product = self._visible_product(request.data.get('product_id'))
+        deleted, _ = inquiry.products.filter(product=product).delete()
+        return Response({'removed': deleted})
+
+    @action(detail=True, methods=['post'], url_path='auto-add-suppliers')
+    def auto_add_suppliers(self, request, pk=None):
+        inquiry = self.get_object()
+        product = self._visible_product(request.data.get('product_id'))
+        if product.company_id != inquiry.company_id:
+            raise ValidationError({'product_id': 'Product belongs to a different company.'})
+
+        rows = (
+            InquiryProduct.objects
+            .filter(company=inquiry.company, product=product, inquiry_type='sell', contact__isnull=False)
+            .select_related('contact', 'contact__account')
+            .order_by('-first_seen_at', '-id')
+        )
+        seen_contact_ids = set()
+        added = 0
+        skipped = 0
+        for row in rows:
+            if row.contact_id in seen_contact_ids:
+                continue
+            seen_contact_ids.add(row.contact_id)
+            supplier, created = BuyingInquirySupplier.objects.get_or_create(
+                inquiry=inquiry,
+                contact=row.contact,
+                defaults={
+                    'source': BuyingInquirySupplierSource.AUTO,
+                    'source_product': product,
+                    'source_inquiry_product': row,
+                },
+            )
+            if created:
+                added += 1
+            else:
+                skipped += 1
+
+        inquiry = self.get_queryset().get(pk=inquiry.pk)
+        return Response({'added': added, 'skipped': skipped, 'inquiry': self.get_serializer(inquiry).data})
+
+    @action(detail=True, methods=['post'], url_path='add-supplier')
+    def add_supplier(self, request, pk=None):
+        inquiry = self.get_object()
+        contact = self._visible_contact(request.data.get('contact_id') or request.data.get('supplier_id'), inquiry.company)
+        supplier, created = BuyingInquirySupplier.objects.get_or_create(
+            inquiry=inquiry,
+            contact=contact,
+            defaults={'source': BuyingInquirySupplierSource.MANUAL},
+        )
+        status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(BuyingInquirySupplierSerializer(supplier).data, status=status_code)
+
+    @action(detail=True, methods=['post'], url_path='remove-supplier')
+    def remove_supplier(self, request, pk=None):
+        inquiry = self.get_object()
+        supplier_id = request.data.get('supplier_id')
+        if not supplier_id:
+            return Response({'supplier_id': 'supplier_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        deleted, _ = inquiry.suppliers.filter(pk=supplier_id).delete()
+        if not deleted:
+            return Response({'detail': 'Supplier row not found for this inquiry.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'removed': deleted})
+
+    @action(detail=True, methods=['post'], url_path='mark-sent')
+    def mark_sent(self, request, pk=None):
+        inquiry = self.get_object()
+        supplier_id = request.data.get('supplier_id')
+        try:
+            supplier = inquiry.suppliers.select_related('contact', 'contact__account', 'source_product').get(pk=supplier_id)
+        except BuyingInquirySupplier.DoesNotExist:
+            return Response({'detail': 'Supplier row not found for this inquiry.'}, status=status.HTTP_404_NOT_FOUND)
+        supplier.sent_count = F('sent_count') + 1
+        supplier.last_sent_at = now()
+        supplier.save(update_fields=['sent_count', 'last_sent_at', 'updated_at'])
+        supplier.refresh_from_db()
+        return Response(BuyingInquirySupplierSerializer(supplier).data)
+
+    @action(detail=True, methods=['post'], url_path='close')
+    def close(self, request, pk=None):
+        inquiry = self.get_object()
+        inquiry.status = BuyingInquiryStatus.CLOSED
+        inquiry.closed_at = now()
+        inquiry.save(update_fields=['status', 'closed_at', 'updated_at'])
+        return Response(self.get_serializer(self.get_queryset().get(pk=inquiry.pk)).data)
 
 
 class SellingOfferPagination(PageNumberPagination):

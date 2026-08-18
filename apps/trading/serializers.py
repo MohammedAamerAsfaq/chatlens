@@ -2,7 +2,8 @@ from rest_framework import serializers
 from .models import (
     Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryMessage,
     InquiryProduct, NonInventoryProduct, NonInventoryProductMention,
-    AiParsingLog, AiParseV2Log, BuyingInquiry, SupplierQuote,
+    AiParsingLog, AiParseV2Log, BuyingInquiry, BuyingInquiryProduct,
+    BuyingInquirySupplier, SupplierQuote,
     AutomationRule, AutomationRuleSource, AutomatedPriceCapture,
     SellingOffer, SellingOfferCustomer, SellingOfferProduct,
 )
@@ -396,21 +397,82 @@ class SupplierQuoteSerializer(serializers.ModelSerializer):
         return c.display_name or c.push_name or c.phone_number or c.wa_contact_id
 
 
+class BuyingInquiryProductSerializer(serializers.ModelSerializer):
+    product_name = serializers.SerializerMethodField()
+    brand = serializers.CharField(source='product.brand', read_only=True)
+    product_qty = serializers.IntegerField(source='product.qty', read_only=True)
+    product_sale_price = serializers.DecimalField(source='product.sale_price', max_digits=12, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = BuyingInquiryProduct
+        fields = [
+            'id', 'product', 'product_name', 'brand', 'quantity', 'target_price',
+            'currency', 'product_qty', 'product_sale_price', 'created_at',
+        ]
+        read_only_fields = fields
+
+    def get_product_name(self, obj):
+        return f'{obj.product.brand} {obj.product.name}'.strip()
+
+
+class BuyingInquirySupplierSerializer(serializers.ModelSerializer):
+    contact_name = serializers.SerializerMethodField()
+    phone_number = serializers.CharField(source='contact.phone_number', read_only=True)
+    account_name = serializers.SerializerMethodField()
+    source_product_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BuyingInquirySupplier
+        fields = [
+            'id', 'contact', 'contact_name', 'phone_number', 'account_name',
+            'source', 'source_product', 'source_product_name', 'source_inquiry_product',
+            'sent_count', 'last_sent_at', 'created_at', 'updated_at',
+        ]
+        read_only_fields = fields
+
+    def get_contact_name(self, obj):
+        contact = obj.contact
+        return contact.display_name or contact.push_name or contact.phone_number or contact.wa_contact_id
+
+    def get_account_name(self, obj):
+        account = obj.contact.account
+        return account.display_name or account.phone_number or f'Account {account.pk}'
+
+    def get_source_product_name(self, obj):
+        if not obj.source_product:
+            return ''
+        return f'{obj.source_product.brand} {obj.source_product.name}'.strip()
+
+
 class BuyingInquirySerializer(serializers.ModelSerializer):
-    account_name    = serializers.SerializerMethodField()
-    supplier_quotes = SupplierQuoteSerializer(many=True, read_only=True)
+    products = BuyingInquiryProductSerializer(many=True, read_only=True)
+    suppliers = BuyingInquirySupplierSerializer(many=True, read_only=True)
+    supplier_count = serializers.SerializerMethodField()
+    notified_count = serializers.SerializerMethodField()
 
     class Meta:
         model = BuyingInquiry
         fields = [
-            'id', 'account', 'account_name', 'product_name', 'quantity', 'notes',
-            'status', 'supplier_quotes', 'created_at', 'updated_at',
+            'id', 'company', 'name', 'status', 'header_template',
+            'product_line_template', 'footer_template', 'products', 'suppliers',
+            'supplier_count', 'notified_count', 'closed_at', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'account_name', 'supplier_quotes', 'created_at', 'updated_at']
+        read_only_fields = [
+            'id', 'company', 'products', 'suppliers', 'supplier_count',
+            'notified_count', 'closed_at', 'created_at', 'updated_at',
+        ]
 
-    def get_account_name(self, obj):
-        a = obj.account
-        return a.display_name or a.phone_number or f'Account {a.pk}'
+    def get_supplier_count(self, obj):
+        prefetched = getattr(obj, '_prefetched_objects_cache', {})
+        if 'suppliers' in prefetched:
+            return len(prefetched['suppliers'])
+        return obj.suppliers.count()
+
+    def get_notified_count(self, obj):
+        prefetched = getattr(obj, '_prefetched_objects_cache', {})
+        if 'suppliers' in prefetched:
+            return sum(1 for row in prefetched['suppliers'] if row.sent_count > 0)
+        return obj.suppliers.filter(sent_count__gt=0).count()
 
 
 class SellingOfferProductSerializer(serializers.ModelSerializer):
