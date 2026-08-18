@@ -2,7 +2,7 @@ import json
 import logging
 import threading
 from django.db import connection as _db_conn, transaction
-from django.db.models import Count, F, Max, Min, Prefetch, Q
+from django.db.models import Count, F, Max, Min, Prefetch, Q, Sum
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import now, make_aware, is_naive
 from datetime import timedelta, date as _date, datetime as _datetime, time as _time
@@ -2544,6 +2544,118 @@ class ReportViewSet(viewsets.ViewSet):
         return Response({
             'results': rows,
             'summary': totals,
+            'range': {
+                'date_from': start.date().isoformat(),
+                'date_to': (end - timedelta(days=1)).date().isoformat(),
+            },
+        })
+
+    @action(detail=False, methods=['get'], url_path='selling-offers')
+    def selling_offers(self, request):
+        """Date-range report for manually created selling offers.
+
+        Counts are based on the selling-offer workflow tables: one offer is one
+        selling inquiry, products are offer product rows, and "sent" means the WA
+        button was pressed at least once for an offer customer row.
+        """
+        start, end = _resolve_date_range(request)
+        search = (request.query_params.get('search') or '').strip()
+        limit = min(max(int(request.query_params.get('limit') or 250), 1), 500)
+
+        offers_qs = SellingOffer.objects.filter(created_at__gte=start, created_at__lt=end)
+        offers_qs = scope_queryset_to_visible_companies(
+            offers_qs,
+            request.user,
+            company_field='company',
+        )
+        if search:
+            offers_qs = offers_qs.filter(
+                Q(name__icontains=search)
+                | Q(products__product__name__icontains=search)
+                | Q(products__product__brand__icontains=search)
+                | Q(customers__contact__display_name__icontains=search)
+                | Q(customers__contact__phone_number__icontains=search)
+            ).distinct()
+
+        offer_ids = list(offers_qs.values_list('id', flat=True))
+        products_qs = SellingOfferProduct.objects.filter(offer_id__in=offer_ids)
+        customers_qs = SellingOfferCustomer.objects.filter(offer_id__in=offer_ids)
+
+        offer_status_counts = {
+            row['status']: row['count']
+            for row in offers_qs.values('status').annotate(count=Count('id'))
+        }
+        customer_totals = customers_qs.aggregate(
+            targeted=Count('id'),
+            notified=Count('id', filter=Q(sent_count__gt=0)),
+            wa_presses=Sum('sent_count'),
+        )
+        product_totals = products_qs.aggregate(
+            product_rows=Count('id'),
+            distinct_products=Count('product_id', distinct=True),
+        )
+
+        product_counts = {
+            row['offer_id']: row['product_count']
+            for row in products_qs.values('offer_id').annotate(product_count=Count('id'))
+        }
+        customer_counts = {
+            row['offer_id']: row
+            for row in customers_qs.values('offer_id').annotate(
+                customer_count=Count('id'),
+                notified_count=Count('id', filter=Q(sent_count__gt=0)),
+                wa_press_count=Sum('sent_count'),
+            )
+        }
+        offer_rows = list(
+            offers_qs
+            .order_by('-created_at', '-id')
+            .values('id', 'name', 'status', 'created_at', 'closed_at')[:limit]
+        )
+        for row in offer_rows:
+            customer_stats = customer_counts.get(row['id']) or {}
+            row['product_count'] = product_counts.get(row['id'], 0)
+            row['customer_count'] = customer_stats.get('customer_count') or 0
+            row['notified_count'] = customer_stats.get('notified_count') or 0
+            row['wa_press_count'] = customer_stats.get('wa_press_count') or 0
+
+        product_rows = [
+            {
+                'product_id': row['product_id'],
+                'brand': row['product__brand'] or '',
+                'name': row['product__name'] or '',
+                'sku': row['product__sku'] or '',
+                'offer_count': row['offer_count'],
+                'customers_sent_to': row['customers_sent_to'] or 0,
+            }
+            for row in (
+                products_qs
+                .values('product_id', 'product__brand', 'product__name', 'product__sku')
+                .annotate(
+                    offer_count=Count('offer_id', distinct=True),
+                    customers_sent_to=Count(
+                        'offer__customers__contact_id',
+                        filter=Q(offer__customers__sent_count__gt=0),
+                        distinct=True,
+                    ),
+                )
+                .order_by('-offer_count', '-customers_sent_to', 'product__brand', 'product__name')[:limit]
+            )
+        ]
+
+        return Response({
+            'results': offer_rows,
+            'products': product_rows,
+            'summary': {
+                'offers_created': len(offer_ids),
+                'open_offers': offer_status_counts.get(SellingOfferStatus.OPEN, 0),
+                'closed_offers': offer_status_counts.get(SellingOfferStatus.CLOSED, 0),
+                'product_rows': product_totals['product_rows'] or 0,
+                'distinct_products': product_totals['distinct_products'] or 0,
+                'customers_targeted': customer_totals['targeted'] or 0,
+                'customers_notified': customer_totals['notified'] or 0,
+                'wa_presses': customer_totals['wa_presses'] or 0,
+            },
             'range': {
                 'date_from': start.date().isoformat(),
                 'date_to': (end - timedelta(days=1)).date().isoformat(),

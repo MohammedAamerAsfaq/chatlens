@@ -238,6 +238,7 @@ export const tradingApi = {
   // Reports
   getReportSummary: (params) => http.get('/reports/summary/', { params }),
   getInventoryProductMentions: (params) => http.get('/reports/inventory-product-mentions/', { params }),
+  getSellingOffersReport: (params) => http.get('/reports/selling-offers/', { params }),
 
   // Trading settings (hot-settable plain UI values, not AI prompts)
   getWtsReplySettings: () => http.get('/trading-settings/wts-reply/'),

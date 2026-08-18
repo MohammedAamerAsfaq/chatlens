@@ -49,7 +49,7 @@ onMounted(() => {
 })
 onUnmounted(() => clearInterval(alertPollTimer))
 
-const REPORT_ROUTES = ['trading-analytics', 'report-summary', 'inventory-product-mentions']
+const REPORT_ROUTES = ['trading-analytics', 'report-summary', 'inventory-product-mentions', 'selling-offers-report']
 const isReportsActive = computed(() => REPORT_ROUTES.includes(route.name))
 
 const LIST_ROUTES = ['contacts', 'groups', 'products', 'inquiry-products', 'non-inventory-products', 'v2-candidate-search', 'product-price-update']
@@ -104,6 +104,7 @@ async function handleCompanySwitch(event) {
           <RouterLink to="/trading-analytics" class="dropdown-item" active-class="dropdown-item-active">Analytics</RouterLink>
           <RouterLink to="/report-summary" class="dropdown-item" active-class="dropdown-item-active">Summary</RouterLink>
           <RouterLink to="/inventory-product-mentions" class="dropdown-item" active-class="dropdown-item-active">Inventory Product Mentions</RouterLink>
+          <RouterLink to="/selling-offers-report" class="dropdown-item" active-class="dropdown-item-active">Selling Offers Report</RouterLink>
         </div>
       </div>
 

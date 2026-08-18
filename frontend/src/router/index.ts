@@ -22,6 +22,7 @@ import SellingOffersView    from '../views/SellingOffersView.vue'
 import TradingAnalyticsView from '../views/TradingAnalyticsView.vue'
 import ReportSummaryView    from '../views/ReportSummaryView.vue'
 import InventoryProductMentionsReportView from '../views/InventoryProductMentionsReportView.vue'
+import SellingOffersReportView from '../views/SellingOffersReportView.vue'
 import InquiriesView        from '../views/InquiriesView.vue'
 import InquiryProductsView  from '../views/InquiryProductsView.vue'
 import NonInventoryProductsView from '../views/NonInventoryProductsView.vue'
@@ -60,6 +61,7 @@ const router = createRouter({
     { path: '/trading-analytics', name: 'trading-analytics', component: TradingAnalyticsView, meta: { title: 'Trading Analytics' } },
     { path: '/report-summary', name: 'report-summary', component: ReportSummaryView, meta: { title: 'Report Summary' } },
     { path: '/inventory-product-mentions', name: 'inventory-product-mentions', component: InventoryProductMentionsReportView, meta: { title: 'Inventory Product Mentions' } },
+    { path: '/selling-offers-report', name: 'selling-offers-report', component: SellingOffersReportView, meta: { title: 'Selling Offers Report' } },
     { path: '/inquiries', name: 'inquiries', component: InquiriesView, meta: { title: 'Inquiries' } },
     { path: '/inquiry-products', name: 'inquiry-products', component: InquiryProductsView, meta: { title: 'Inquiry Products' } },
     { path: '/non-inventory-products', name: 'non-inventory-products', component: NonInventoryProductsView, meta: { title: 'Non-Inventory Products' } },
