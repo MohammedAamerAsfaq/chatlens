@@ -164,6 +164,20 @@
                 >✓ Apply</button>
                 <span class="source-label">{{ inq.source_type }}</span>
                 <span v-if="inq.account_name" class="account-badge">{{ inq.account_name }}</span>
+                <select class="status-select-mini header-status-select" @change="setStatus(inq, $event)">
+                  <option value="" disabled selected>Set status...</option>
+                  <option value="requested_price">Requested Price</option>
+                  <option value="quoted_waiting">Quoted - Waiting</option>
+                  <option value="no_response">No Response</option>
+                  <option value="price_high">Price High</option>
+                  <option value="no_stock">No Stock</option>
+                  <option value="currently_in_stock">Currently In Stock</option>
+                  <option value="not_dealing">Not Dealing ATM</option>
+                  <option value="irrelevant">Irrelevant</option>
+                  <option value="closed">Close</option>
+                  <option value="tracking">Tracking</option>
+                  <option value="incorrect_match">Incorrect Match</option>
+                </select>
                 <span class="card-age" :class="{ red: inq.age_seconds > 60 }">
                   {{ formatAge(inq.age_seconds) }}
                 </span>
@@ -263,21 +277,6 @@
             </div>
             <div class="card-footer">
               <div class="card-actions">
-                <select class="status-select-mini" @change="setStatus(inq, $event)">
-                  <option value="" disabled selected>Set status…</option>
-                  <option value="requested_price">Requested Price</option>
-                  <option value="quoted_waiting">Quoted - Waiting</option>
-                  <option value="no_response">No Response</option>
-                  <option value="price_high">Price High</option>
-                  <option value="no_stock">No Stock</option>
-                  <option value="currently_in_stock">Currently In Stock</option>
-                  <option value="not_dealing">Not Dealing ATM</option>
-                  <option value="irrelevant">Irrelevant</option>
-                  <option value="closed">Close</option>
-                  <option value="tracking">Tracking</option>
-                  <option value="incorrect_match">Incorrect Match</option>
-                </select>
-                <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
                 <button v-if="inq.products?.length" class="act-btn products" @click="openInquiryProducts(inq)">Inquiry Products</button>
                 <button v-if="inq.products?.length" class="act-btn market" @click="openMarketParties(inq)">
                   {{ inq.inquiry_type === 'sell' ? 'Potential Buyers' : 'Available Sellers' }}
@@ -403,6 +402,20 @@
                 >✓ Apply</button>
                 <span class="source-label">{{ inq.source_type }}</span>
                 <span v-if="inq.account_name" class="account-badge">{{ inq.account_name }}</span>
+                <select class="status-select-mini header-status-select" @change="setStatus(inq, $event)">
+                  <option value="" disabled selected>Set status...</option>
+                  <option value="requested_price">Requested Price</option>
+                  <option value="quoted_waiting">Quoted - Waiting</option>
+                  <option value="no_response">No Response</option>
+                  <option value="price_high">Price High</option>
+                  <option value="no_stock">No Stock</option>
+                  <option value="currently_in_stock">Currently In Stock</option>
+                  <option value="not_dealing">Not Dealing ATM</option>
+                  <option value="irrelevant">Irrelevant</option>
+                  <option value="closed">Close</option>
+                  <option value="tracking">Tracking</option>
+                  <option value="incorrect_match">Incorrect Match</option>
+                </select>
                 <span class="card-age" :class="{ red: inq.age_seconds > 60 }">
                   {{ formatAge(inq.age_seconds) }}
                 </span>
@@ -502,21 +515,6 @@
             </div>
             <div class="card-footer">
               <div class="card-actions">
-                <select class="status-select-mini" @change="setStatus(inq, $event)">
-                  <option value="" disabled selected>Set status…</option>
-                  <option value="requested_price">Requested Price</option>
-                  <option value="quoted_waiting">Quoted - Waiting</option>
-                  <option value="no_response">No Response</option>
-                  <option value="price_high">Price High</option>
-                  <option value="no_stock">No Stock</option>
-                  <option value="currently_in_stock">Currently In Stock</option>
-                  <option value="not_dealing">Not Dealing ATM</option>
-                  <option value="irrelevant">Irrelevant</option>
-                  <option value="closed">Close</option>
-                  <option value="tracking">Tracking</option>
-                  <option value="incorrect_match">Incorrect Match</option>
-                </select>
-                <button class="act-btn deal" @click="act(inq, 'deal_done')">Deal Done</button>
                 <button v-if="inq.products?.length" class="act-btn products" @click="openInquiryProducts(inq)">Inquiry Products</button>
                 <button v-if="inq.products?.length" class="act-btn market" @click="openMarketParties(inq)">
                   {{ inq.inquiry_type === 'sell' ? 'Potential Buyers' : 'Available Sellers' }}
@@ -2294,7 +2292,7 @@ onUnmounted(() => {
 .card-top { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
 .card-contact { font-weight: 600; font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex-shrink: 1; }
 .card-phone { font-weight: 400; font-size: 0.78rem; color: #6b7280; margin-left: 6px; }
-.card-age { font-size: 0.78rem; color: #6b7280; margin-left: auto; flex-shrink: 0; white-space: nowrap; }
+.card-age { font-size: 0.78rem; color: #6b7280; flex-shrink: 0; white-space: nowrap; }
 .card-age.red { color: #dc2626; font-weight: 700; }
 .card-close-btn {
   width: 24px;
@@ -2347,6 +2345,12 @@ onUnmounted(() => {
 .act-btn.wa-ask { background: #fef9c3; color: #92400e; text-decoration: none; }
 .act-btn.wa-list { background: #e0e7ff; color: #4338ca; text-decoration: none; }
 .status-select-mini { padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 5px; font-size: 0.78rem; color: #374151; cursor: pointer; background: #fff; }
+.header-status-select {
+  width: 118px;
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+}
 .rating-row { display: flex; align-items: center; gap: 4px; margin-top: 8px; }
 .rating-label { font-size: 0.72rem; color: #9ca3af; margin-right: 2px; }
 .rating-btn {
