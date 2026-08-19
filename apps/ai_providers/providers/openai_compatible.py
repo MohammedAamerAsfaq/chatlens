@@ -33,6 +33,11 @@ class GlmChatProvider(OpenAIChatProvider):
         super().__init__(api_key, model, base_url or 'https://open.bigmodel.cn/api/paas/v4')
 
 
+class OpenRouterChatProvider(OpenAIChatProvider):
+    def __init__(self, api_key, model='openrouter/auto', base_url=''):
+        super().__init__(api_key, model, base_url or 'https://openrouter.ai/api/v1')
+
+
 class GroqChatProvider(OpenAIChatProvider):
     def __init__(self, api_key, model='llama-3.3-70b-versatile', base_url=''):
         super().__init__(api_key, model, base_url or 'https://api.groq.com/openai/v1')
