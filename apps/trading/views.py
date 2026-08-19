@@ -2745,6 +2745,19 @@ class SellingOfferPagination(PageNumberPagination):
 class SellingOfferViewSet(viewsets.ModelViewSet):
     serializer_class = SellingOfferSerializer
     permission_classes = [IsAuthenticated]
+
+    _FORMAT_POSITIONS = {'prefix', 'suffix'}
+
+    @staticmethod
+    def _template_value(data, field, default):
+        if field not in data:
+            return default
+        value = data.get(field)
+        return '' if value is None else str(value)
+
+    @classmethod
+    def _format_position(cls, value):
+        return value if value in cls._FORMAT_POSITIONS else 'prefix'
     pagination_class = SellingOfferPagination
 
     def get_queryset(self):
@@ -2827,9 +2840,13 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
                 company=company,
                 name=name,
                 status=requested_status,
-                header_template=request.data.get('header_template') or SellingOffer._meta.get_field('header_template').default,
-                product_line_template=request.data.get('product_line_template') or SellingOffer._meta.get_field('product_line_template').default,
-                footer_template=request.data.get('footer_template') or SellingOffer._meta.get_field('footer_template').default,
+                header_template=self._template_value(request.data, 'header_template', SellingOffer._meta.get_field('header_template').default),
+                product_line_template=self._template_value(request.data, 'product_line_template', SellingOffer._meta.get_field('product_line_template').default),
+                footer_template=self._template_value(request.data, 'footer_template', SellingOffer._meta.get_field('footer_template').default),
+                send_flag=bool(request.data.get('send_flag', False)),
+                flag_position=self._format_position(request.data.get('flag_position')),
+                send_color=bool(request.data.get('send_color', False)),
+                color_position=self._format_position(request.data.get('color_position')),
                 created_by=request.user,
                 closed_at=now() if requested_status == SellingOfferStatus.CLOSED else None,
             )
@@ -2841,13 +2858,23 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
 
     def partial_update(self, request, *args, **kwargs):
         offer = self.get_object()
-        allowed = {'name', 'status', 'header_template', 'product_line_template', 'footer_template'}
+        allowed = {
+            'name', 'status', 'header_template', 'product_line_template', 'footer_template',
+            'send_flag', 'flag_position', 'send_color', 'color_position',
+        }
         update_fields = ['updated_at']
         if 'status' in request.data and request.data['status'] not in SellingOfferStatus.values:
             return Response({'status': 'Invalid selling offer status.'}, status=status.HTTP_400_BAD_REQUEST)
         for field in allowed:
             if field in request.data:
-                setattr(offer, field, request.data[field])
+                value = request.data[field]
+                if field in {'flag_position', 'color_position'}:
+                    value = self._format_position(value)
+                elif field in {'send_flag', 'send_color'}:
+                    value = bool(value)
+                elif field in {'header_template', 'product_line_template', 'footer_template'}:
+                    value = '' if value is None else str(value)
+                setattr(offer, field, value)
                 update_fields.append(field)
         if 'status' in request.data:
             if offer.status == SellingOfferStatus.CLOSED and offer.closed_at is None:

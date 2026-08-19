@@ -92,6 +92,30 @@
               <textarea v-model="draft.footer_template" rows="2" />
             </label>
           </div>
+          <div class="format-options">
+            <label class="checkbox-label">
+              <input v-model="draft.send_flag" type="checkbox" />
+              <span>Add region flag</span>
+            </label>
+            <label>
+              <span>Flag position</span>
+              <select v-model="draft.flag_position" :disabled="!draft.send_flag">
+                <option value="prefix">Before product line</option>
+                <option value="suffix">After product line</option>
+              </select>
+            </label>
+            <label class="checkbox-label">
+              <input v-model="draft.send_color" type="checkbox" />
+              <span>Add color icon</span>
+            </label>
+            <label>
+              <span>Color position</span>
+              <select v-model="draft.color_position" :disabled="!draft.send_color">
+                <option value="prefix">Before product line</option>
+                <option value="suffix">After product line</option>
+              </select>
+            </label>
+          </div>
         </div>
 
         <div class="form-actions">
@@ -216,6 +240,30 @@
                 <label>
                   <span>Footer</span>
                   <textarea v-model="editDraft.footer_template" rows="2" />
+                </label>
+              </div>
+              <div class="format-options edit-format-options">
+                <label class="checkbox-label">
+                  <input v-model="editDraft.send_flag" type="checkbox" />
+                  <span>Add region flag</span>
+                </label>
+                <label>
+                  <span>Flag position</span>
+                  <select v-model="editDraft.flag_position" :disabled="!editDraft.send_flag">
+                    <option value="prefix">Before product line</option>
+                    <option value="suffix">After product line</option>
+                  </select>
+                </label>
+                <label class="checkbox-label">
+                  <input v-model="editDraft.send_color" type="checkbox" />
+                  <span>Add color icon</span>
+                </label>
+                <label>
+                  <span>Color position</span>
+                  <select v-model="editDraft.color_position" :disabled="!editDraft.send_color">
+                    <option value="prefix">Before product line</option>
+                    <option value="suffix">After product line</option>
+                  </select>
                 </label>
               </div>
             </div>
@@ -357,6 +405,21 @@ import { contactsApi, tradingApi } from '@/api'
 const DEFAULT_HEADER = 'Hello, available stock offer:'
 const DEFAULT_LINE = '- {product_name} - Qty {qty} - {price}'
 const DEFAULT_FOOTER = 'Reply with required quantity. Subject to availability.'
+const DEFAULT_SEND_FLAG = false
+const DEFAULT_FLAG_POSITION = 'prefix'
+const DEFAULT_SEND_COLOR = false
+const DEFAULT_COLOR_POSITION = 'prefix'
+const COLOR_EMOJI = {
+  red: '\u{1F534}', pink: '\u{1F534}', rose: '\u{1F534}', magenta: '\u{1F534}',
+  orange: '\u{1F7E0}',
+  yellow: '\u{1F7E1}', gold: '\u{1F7E1}', citrus: '\u{1F7E1}',
+  green: '\u{1F7E2}', mint: '\u{1F7E2}',
+  blue: '\u{1F535}', sky: '\u{1F535}', navy: '\u{1F535}',
+  purple: '\u{1F7E3}', violet: '\u{1F7E3}', indigo: '\u{1F7E3}', lavender: '\u{1F7E3}',
+  brown: '\u{1F7E4}', bronze: '\u{1F7E4}', copper: '\u{1F7E4}', 'rose gold': '\u{1F7E4}',
+  black: '\u26AB', graphite: '\u26AB', midnight: '\u26AB', 'space gray': '\u26AB', 'space grey': '\u26AB',
+  white: '\u26AA', silver: '\u26AA', starlight: '\u26AA', pearl: '\u26AA', ivory: '\u26AA', grey: '\u26AA', gray: '\u26AA',
+}
 
 const offers = ref([])
 const productOptions = ref([])
@@ -382,6 +445,10 @@ const editDraft = reactive({
   header_template: DEFAULT_HEADER,
   product_line_template: DEFAULT_LINE,
   footer_template: DEFAULT_FOOTER,
+  send_flag: DEFAULT_SEND_FLAG,
+  flag_position: DEFAULT_FLAG_POSITION,
+  send_color: DEFAULT_SEND_COLOR,
+  color_position: DEFAULT_COLOR_POSITION,
 })
 
 const draft = reactive({
@@ -391,17 +458,26 @@ const draft = reactive({
   header_template: DEFAULT_HEADER,
   product_line_template: DEFAULT_LINE,
   footer_template: DEFAULT_FOOTER,
+  send_flag: DEFAULT_SEND_FLAG,
+  flag_position: DEFAULT_FLAG_POSITION,
+  send_color: DEFAULT_SEND_COLOR,
+  color_position: DEFAULT_COLOR_POSITION,
 })
 
 const draftPreview = computed(() => formatOfferMessage({
   header_template: draft.header_template,
   product_line_template: draft.product_line_template,
   footer_template: draft.footer_template,
+  send_flag: draft.send_flag,
+  flag_position: draft.flag_position,
+  send_color: draft.send_color,
+  color_position: draft.color_position,
   products: draft.products.map(product => ({
     product_name: productLabel(product),
     quantity: product.qty,
     price: product.sale_price,
     currency: product.currency,
+    attributes: product.attributes || [],
   })),
 }))
 
@@ -469,6 +545,10 @@ async function createOffer() {
       header_template: draft.header_template,
       product_line_template: draft.product_line_template,
       footer_template: draft.footer_template,
+      send_flag: draft.send_flag,
+      flag_position: draft.flag_position,
+      send_color: draft.send_color,
+      color_position: draft.color_position,
       product_ids: draft.products.map(product => product.id),
     }
     const { data } = await tradingApi.createSellingOffer(payload)
@@ -537,9 +617,13 @@ function startEditOffer(offer) {
   editingOfferId.value = offer.id
   editDraft.name = offer.name
   editDraft.status = offer.status
-  editDraft.header_template = offer.header_template || DEFAULT_HEADER
-  editDraft.product_line_template = offer.product_line_template || DEFAULT_LINE
-  editDraft.footer_template = offer.footer_template || DEFAULT_FOOTER
+  editDraft.header_template = valueOrDefault(offer.header_template, DEFAULT_HEADER)
+  editDraft.product_line_template = valueOrDefault(offer.product_line_template, DEFAULT_LINE)
+  editDraft.footer_template = valueOrDefault(offer.footer_template, DEFAULT_FOOTER)
+  editDraft.send_flag = offer.send_flag ?? DEFAULT_SEND_FLAG
+  editDraft.flag_position = offer.flag_position || DEFAULT_FLAG_POSITION
+  editDraft.send_color = offer.send_color ?? DEFAULT_SEND_COLOR
+  editDraft.color_position = offer.color_position || DEFAULT_COLOR_POSITION
 }
 
 function cancelEditOffer() {
@@ -561,6 +645,10 @@ async function saveEditOffer(offer) {
       header_template: editDraft.header_template,
       product_line_template: editDraft.product_line_template,
       footer_template: editDraft.footer_template,
+      send_flag: editDraft.send_flag,
+      flag_position: editDraft.flag_position,
+      send_color: editDraft.send_color,
+      color_position: editDraft.color_position,
     })
     replaceOffer(data)
     editingOfferId.value = null
@@ -674,6 +762,10 @@ function resetDraft() {
   draft.header_template = DEFAULT_HEADER
   draft.product_line_template = DEFAULT_LINE
   draft.footer_template = DEFAULT_FOOTER
+  draft.send_flag = DEFAULT_SEND_FLAG
+  draft.flag_position = DEFAULT_FLAG_POSITION
+  draft.send_color = DEFAULT_SEND_COLOR
+  draft.color_position = DEFAULT_COLOR_POSITION
   productOptions.value = []
   productSearch.value = ''
 }
@@ -723,15 +815,52 @@ function money(value, currency = '') {
   return `${currency || ''} ${amount}`.trim()
 }
 
+function valueOrDefault(value, fallback) {
+  return value === null || value === undefined ? fallback : value
+}
+
+function attributeValue(row, key) {
+  return row?.attributes?.find(attr => attr.key === key)?.value || ''
+}
+
+function colorEmoji(colorName) {
+  if (!colorName) return ''
+  return COLOR_EMOJI[colorName.trim().toLowerCase()] || ''
+}
+
+function affixLine(line, token, position = 'prefix') {
+  if (!token) return line
+  return position === 'suffix' ? `${line} ${token}`.trim() : `${token} ${line}`.trim()
+}
+
 function formatOfferMessage(offer) {
   const lines = (offer.products || []).map(row => {
-    const line = offer.product_line_template || DEFAULT_LINE
-    return line
+    const lineTemplate = valueOrDefault(offer.product_line_template, DEFAULT_LINE)
+    let line = lineTemplate
       .replaceAll('{product_name}', row.product_name || '')
       .replaceAll('{qty}', row.quantity ?? '-')
       .replaceAll('{price}', money(row.price, row.currency))
+    if (offer.send_flag) {
+      line = affixLine(line, attributeValue(row, 'Flag'), offer.flag_position)
+    }
+    if (offer.send_color) {
+      line = affixLine(line, colorEmoji(attributeValue(row, 'Color')), offer.color_position)
+    }
+    return line
   })
-  return [offer.header_template || DEFAULT_HEADER, '', ...lines, '', offer.footer_template || DEFAULT_FOOTER].join('\n')
+  const header = valueOrDefault(offer.header_template, DEFAULT_HEADER)
+  const footer = valueOrDefault(offer.footer_template, DEFAULT_FOOTER)
+  const parts = []
+  if (header) parts.push(header)
+  if (lines.length) {
+    if (parts.length) parts.push('')
+    parts.push(...lines)
+  }
+  if (footer) {
+    if (parts.length) parts.push('')
+    parts.push(footer)
+  }
+  return parts.join('\n')
 }
 
 function offerPreview(offer) {
@@ -935,6 +1064,37 @@ textarea {
   flex-direction: column;
   gap: 8px;
   margin-top: 12px;
+}
+.format-options {
+  display: grid;
+  grid-template-columns: minmax(160px, auto) 1fr minmax(160px, auto) 1fr;
+  gap: 10px;
+  align-items: end;
+  margin-top: 12px;
+}
+.edit-format-options {
+  margin-top: 10px;
+}
+.checkbox-label {
+  min-height: 40px;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 11px;
+  padding: 0 12px;
+  background: #fff;
+}
+.checkbox-label input {
+  width: auto;
+  height: auto;
+  margin: 0;
+}
+.checkbox-label span {
+  color: #334155;
+  font-size: 0.82rem;
+  text-transform: none;
+  letter-spacing: 0;
 }
 .option-row,
 .product-row,

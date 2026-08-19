@@ -480,17 +480,21 @@ class SellingOfferProductSerializer(serializers.ModelSerializer):
     brand = serializers.CharField(source='product.brand', read_only=True)
     product_qty = serializers.IntegerField(source='product.qty', read_only=True)
     product_sale_price = serializers.DecimalField(source='product.sale_price', max_digits=12, decimal_places=2, read_only=True)
+    attributes = serializers.SerializerMethodField()
 
     class Meta:
         model = SellingOfferProduct
         fields = [
             'id', 'product', 'product_name', 'brand', 'quantity', 'price',
-            'currency', 'product_qty', 'product_sale_price', 'created_at',
+            'currency', 'product_qty', 'product_sale_price', 'attributes', 'created_at',
         ]
         read_only_fields = fields
 
     def get_product_name(self, obj):
         return f'{obj.product.brand} {obj.product.name}'.strip()
+
+    def get_attributes(self, obj):
+        return ProductAttributeSerializer(obj.product.attribute_set.all(), many=True).data
 
 
 class SellingOfferCustomerSerializer(serializers.ModelSerializer):
@@ -532,7 +536,8 @@ class SellingOfferSerializer(serializers.ModelSerializer):
         model = SellingOffer
         fields = [
             'id', 'company', 'name', 'status', 'header_template',
-            'product_line_template', 'footer_template', 'products', 'customers',
+            'product_line_template', 'footer_template', 'send_flag', 'flag_position',
+            'send_color', 'color_position', 'products', 'customers',
             'customer_count', 'notified_count', 'closed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = [

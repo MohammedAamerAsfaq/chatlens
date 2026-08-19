@@ -27,6 +27,10 @@ class SellingOffer(models.Model):
     header_template = models.TextField(default='Hello, available stock offer:')
     product_line_template = models.TextField(default='- {product_name} - Qty {qty} - {price}')
     footer_template = models.TextField(default='Reply with required quantity. Subject to availability.')
+    send_flag = models.BooleanField(default=False)
+    flag_position = models.CharField(max_length=10, default='prefix')
+    send_color = models.BooleanField(default=False)
+    color_position = models.CharField(max_length=10, default='prefix')
     created_by = models.ForeignKey(
         'auth.User',
         null=True,
