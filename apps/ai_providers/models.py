@@ -9,6 +9,7 @@ class AIProviderConfig(models.Model):
     PROVIDER_DEEPSEEK    = 'deepseek'
     PROVIDER_QWEN        = 'qwen'
     PROVIDER_KIMI        = 'kimi'
+    PROVIDER_GLM         = 'glm'
     PROVIDER_GROQ        = 'groq'
     PROVIDER_MISTRAL     = 'mistral'
     PROVIDER_GROK        = 'grok'
@@ -27,6 +28,7 @@ class AIProviderConfig(models.Model):
         (PROVIDER_DEEPSEEK,   'DeepSeek'),
         (PROVIDER_QWEN,       'Qwen (Alibaba)'),
         (PROVIDER_KIMI,       'Kimi (Moonshot)'),
+        (PROVIDER_GLM,        'GLM (Zhipu AI)'),
         (PROVIDER_GROQ,       'Groq'),
         (PROVIDER_MISTRAL,    'Mistral AI'),
         (PROVIDER_GROK,       'Grok (xAI)'),
