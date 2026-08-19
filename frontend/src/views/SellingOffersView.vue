@@ -119,8 +119,11 @@
         </div>
 
         <div class="form-actions">
-          <button class="ghost-btn" @click="resetDraft">Reset</button>
-          <button class="primary-btn" :disabled="savingOffer" @click="createOffer">
+          <button class="ghost-btn" :disabled="savingOffer || savingFullPriceList" @click="resetDraft">Reset</button>
+          <button class="ghost-btn emphasis" :disabled="savingOffer || savingFullPriceList" @click="createFullPriceListOffer">
+            {{ savingFullPriceList ? 'Creating full list...' : 'Create From Current Price List' }}
+          </button>
+          <button class="primary-btn" :disabled="savingOffer || savingFullPriceList" @click="createOffer">
             {{ savingOffer ? 'Creating...' : 'Create Selling Inquiry' }}
           </button>
         </div>
@@ -436,6 +439,7 @@ const productSearch = ref('')
 const loadingOffers = ref(false)
 const searchingProducts = ref(false)
 const savingOffer = ref(false)
+const savingFullPriceList = ref(false)
 const busyAction = ref('')
 const error = ref('')
 const editingOfferId = ref(null)
@@ -561,6 +565,31 @@ async function createOffer() {
     error.value = apiError(exc, 'Create selling inquiry failed.')
   } finally {
     savingOffer.value = false
+  }
+}
+
+async function createFullPriceListOffer() {
+  if (!draft.name.trim()) {
+    error.value = 'Inquiry name is required.'
+    return
+  }
+  savingFullPriceList.value = true
+  error.value = ''
+  try {
+    const payload = {
+      name: draft.name.trim(),
+      status: draft.status,
+    }
+    const { data } = await tradingApi.createFullPriceListSellingOffer(payload)
+    offerSearch.value = ''
+    offerPage.value = 1
+    await loadOffers()
+    expandedOffers.add(data.offer.id)
+    resetDraft()
+  } catch (exc) {
+    error.value = apiError(exc, 'Create full price list inquiry failed.')
+  } finally {
+    savingFullPriceList.value = false
   }
 }
 
@@ -847,7 +876,7 @@ function formatOfferMessage(offer) {
       line = affixLine(line, colorEmoji(attributeValue(row, 'Color')), offer.color_position)
     }
     return line
-  })
+  }).filter(line => line.trim())
   const header = valueOrDefault(offer.header_template, DEFAULT_HEADER)
   const footer = valueOrDefault(offer.footer_template, DEFAULT_FOOTER)
   const parts = []
@@ -1227,6 +1256,11 @@ textarea {
   border-color: #cbd5e1;
   background: #fff;
   color: #334155;
+}
+.ghost-btn.emphasis {
+  border-color: #99f6e4;
+  background: #ecfeff;
+  color: #0f766e;
 }
 .link-btn {
   padding: 7px 10px;

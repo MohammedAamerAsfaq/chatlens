@@ -267,6 +267,7 @@ export const tradingApi = {
   // Selling Offers (manual offer-to-customers workflow)
   listSellingOffers:       (params) => http.get('/selling-offers/', { params }),
   createSellingOffer:      (data)   => http.post('/selling-offers/', data),
+  createFullPriceListSellingOffer: (data) => http.post('/selling-offers/create-full-price-list/', data),
   updateSellingOffer:      (id, data) => http.patch(`/selling-offers/${id}/`, data),
   closeSellingOffer:       (id)     => http.post(`/selling-offers/${id}/close/`),
   addSellingOfferProduct:  (id, product_id) => http.post(`/selling-offers/${id}/add-product/`, { product_id }),

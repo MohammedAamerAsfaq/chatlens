@@ -2766,6 +2766,7 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
             .select_related('company', 'created_by')
             .prefetch_related(
                 'products__product',
+                'products__product__attribute_set',
                 'customers__contact__account',
                 'customers__source_product',
             )
@@ -2821,40 +2822,121 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
         )
         return row
 
+    def _create_offer_from_request(self, request, company, product_ids=None):
+        name = (request.data.get('name') or '').strip()
+        if not name:
+            raise ValidationError({'name': 'Name is required.'})
+        requested_status = request.data.get('status') or SellingOfferStatus.OPEN
+        if requested_status not in SellingOfferStatus.values:
+            raise ValidationError({'status': 'Invalid selling offer status.'})
+        offer = SellingOffer.objects.create(
+            company=company,
+            name=name,
+            status=requested_status,
+            header_template=self._template_value(request.data, 'header_template', SellingOffer._meta.get_field('header_template').default),
+            product_line_template=self._template_value(request.data, 'product_line_template', SellingOffer._meta.get_field('product_line_template').default),
+            footer_template=self._template_value(request.data, 'footer_template', SellingOffer._meta.get_field('footer_template').default),
+            send_flag=bool(request.data.get('send_flag', False)),
+            flag_position=self._format_position(request.data.get('flag_position')),
+            send_color=bool(request.data.get('send_color', False)),
+            color_position=self._format_position(request.data.get('color_position')),
+            created_by=request.user,
+            closed_at=now() if requested_status == SellingOfferStatus.CLOSED else None,
+        )
+        if product_ids is not None:
+            for product_id in product_ids:
+                self._add_product_row(offer, self._visible_product(product_id))
+        return offer
+
     def create(self, request, *args, **kwargs):
         company = default_company_for_user(request.user)
         if not company:
             return Response({'detail': 'No active company selected.'}, status=status.HTTP_400_BAD_REQUEST)
-        name = (request.data.get('name') or '').strip()
-        if not name:
-            return Response({'name': 'Name is required.'}, status=status.HTTP_400_BAD_REQUEST)
         product_ids = request.data.get('product_ids') or []
         if not isinstance(product_ids, list):
             return Response({'product_ids': 'product_ids must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
-        requested_status = request.data.get('status') or SellingOfferStatus.OPEN
-        if requested_status not in SellingOfferStatus.values:
-            return Response({'status': 'Invalid selling offer status.'}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
-            offer = SellingOffer.objects.create(
-                company=company,
-                name=name,
-                status=requested_status,
-                header_template=self._template_value(request.data, 'header_template', SellingOffer._meta.get_field('header_template').default),
-                product_line_template=self._template_value(request.data, 'product_line_template', SellingOffer._meta.get_field('product_line_template').default),
-                footer_template=self._template_value(request.data, 'footer_template', SellingOffer._meta.get_field('footer_template').default),
-                send_flag=bool(request.data.get('send_flag', False)),
-                flag_position=self._format_position(request.data.get('flag_position')),
-                send_color=bool(request.data.get('send_color', False)),
-                color_position=self._format_position(request.data.get('color_position')),
-                created_by=request.user,
-                closed_at=now() if requested_status == SellingOfferStatus.CLOSED else None,
-            )
-            for product_id in product_ids:
-                self._add_product_row(offer, self._visible_product(product_id))
+            offer = self._create_offer_from_request(request, company, product_ids=product_ids)
 
         offer = self.get_queryset().get(pk=offer.pk)
         return Response(self.get_serializer(offer).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'], url_path='create-full-price-list')
+    def create_full_price_list(self, request):
+        company = default_company_for_user(request.user)
+        if not company:
+            return Response({'detail': 'No active company selected.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.trading.models import FormattedPriceList
+
+        price_list = FormattedPriceList.get_current(company=company)
+        price_list_body = (price_list.body if price_list else '').strip()
+        if not price_list_body:
+            return Response(
+                {'price_list': 'No formatted price list is available. Regenerate the price list first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        products = list(
+            Product.objects
+            .filter(company=company, is_active=True, qty__gt=0, sale_price__isnull=False)
+            .order_by('brand', 'category', 'name', 'id')
+        )
+        if not products:
+            return Response({'product_ids': 'No in-stock priced inventory products found.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        wtb_rows = (
+            InquiryProduct.objects
+            .filter(company=company, inquiry_type='buy', contact__isnull=False)
+            .select_related('contact', 'contact__account')
+            .order_by('-first_seen_at', '-id')
+        )
+
+        with transaction.atomic():
+            offer = self._create_offer_from_request(request, company)
+            offer.header_template = price_list_body
+            offer.product_line_template = ''
+            offer.footer_template = ''
+            offer.send_flag = False
+            offer.send_color = False
+            offer.save(update_fields=[
+                'header_template', 'product_line_template', 'footer_template',
+                'send_flag', 'send_color', 'updated_at',
+            ])
+            SellingOfferProduct.objects.bulk_create(
+                [
+                    SellingOfferProduct(
+                        offer=offer,
+                        product=product,
+                        quantity=product.qty,
+                        price=product.sale_price,
+                        currency=product.currency or '',
+                    )
+                    for product in products
+                ],
+                ignore_conflicts=True,
+            )
+            seen_contact_ids = set()
+            customer_rows = []
+            for row in wtb_rows:
+                if row.contact_id in seen_contact_ids:
+                    continue
+                seen_contact_ids.add(row.contact_id)
+                customer_rows.append(SellingOfferCustomer(
+                    offer=offer,
+                    contact=row.contact,
+                    source=SellingOfferCustomerSource.AUTO,
+                    source_inquiry_product=row,
+                ))
+            SellingOfferCustomer.objects.bulk_create(customer_rows, ignore_conflicts=True)
+
+        offer = self.get_queryset().get(pk=offer.pk)
+        return Response({
+            'product_count': len(products),
+            'customer_count': len(seen_contact_ids),
+            'offer': self.get_serializer(offer).data,
+        }, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, *args, **kwargs):
         offer = self.get_object()
