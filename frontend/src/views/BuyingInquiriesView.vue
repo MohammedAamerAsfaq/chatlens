@@ -181,7 +181,15 @@
 
           <div v-if="expandedInquiries.has(inquiry.id)" class="inquiry-detail">
             <div class="edit-toolbar">
-              <button v-if="editingInquiryId !== inquiry.id" class="ghost-btn" @click="startEditInquiry(inquiry)">Edit Inquiry</button>
+              <template v-if="editingInquiryId !== inquiry.id">
+                <button class="ghost-btn" @click="startEditInquiry(inquiry)">Edit Inquiry</button>
+                <button class="ghost-btn" :disabled="busyAction === `duplicate-${inquiry.id}`" @click="duplicateInquiry(inquiry)">
+                  {{ busyAction === `duplicate-${inquiry.id}` ? 'Duplicating...' : 'Duplicate' }}
+                </button>
+                <button class="ghost-btn danger" :disabled="busyAction === `delete-${inquiry.id}`" @click="deleteInquiry(inquiry)">
+                  {{ busyAction === `delete-${inquiry.id}` ? 'Deleting...' : 'Delete' }}
+                </button>
+              </template>
               <template v-else>
                 <button class="primary-btn" :disabled="busyAction === `save-${inquiry.id}`" @click="saveEditInquiry(inquiry)">
                   {{ busyAction === `save-${inquiry.id}` ? 'Saving...' : 'Save Changes' }}
@@ -280,6 +288,49 @@
                 <div class="section-title-row compact-title">
                   <h3>Manual Add Supplier</h3>
                 </div>
+                <div class="select-all-row">
+                  <span class="muted">Select all sellers:</span>
+                  <button
+                    class="link-btn"
+                    :disabled="!inquiry.products.length || busyAction === `auto-all-${inquiry.id}`"
+                    :title="!inquiry.products.length ? 'Add products first' : 'Exact product match against sell-side inquiries'"
+                    @click="autoAddAllSuppliers(inquiry)"
+                  >
+                    {{ busyAction === `auto-all-${inquiry.id}` ? 'Finding...' : 'Exact Match' }}
+                  </button>
+                  <button
+                    class="link-btn"
+                    :disabled="!inquiry.products.length || busyAction === `auto-all-embedding-${inquiry.id}`"
+                    :title="!inquiry.products.length ? 'Add products first' : 'Similarity match using product embeddings, catches near-variant wording exact match misses'"
+                    @click="autoAddAllSuppliersEmbedding(inquiry)"
+                  >
+                    {{ busyAction === `auto-all-embedding-${inquiry.id}` ? 'Finding...' : 'Embedded Search' }}
+                  </button>
+                  <button
+                    class="link-btn"
+                    :disabled="busyAction === `auto-all-tagged-${inquiry.id}`"
+                    title="Every contact tagged Supplier or Both, regardless of inquiry product history"
+                    @click="addAllTaggedSuppliers(inquiry)"
+                  >
+                    {{ busyAction === `auto-all-tagged-${inquiry.id}` ? 'Adding...' : 'Tagged Supplier / Both' }}
+                  </button>
+                  <button
+                    class="link-btn"
+                    :disabled="busyAction === `auto-all-tagged-strict-${inquiry.id}`"
+                    title="Every contact tagged Supplier only, excludes contacts also tagged Customer (Both)"
+                    @click="addAllTaggedSuppliersStrict(inquiry)"
+                  >
+                    {{ busyAction === `auto-all-tagged-strict-${inquiry.id}` ? 'Adding...' : 'Tagged Supplier' }}
+                  </button>
+                  <button
+                    class="link-btn"
+                    :disabled="busyAction === `auto-all-contacted-${inquiry.id}`"
+                    title="Every contact previously sent a buying inquiry with the WA button actually clicked, from any other inquiry"
+                    @click="addAllPreviouslyContactedSuppliers(inquiry)"
+                  >
+                    {{ busyAction === `auto-all-contacted-${inquiry.id}` ? 'Adding...' : 'Previously Contacted' }}
+                  </button>
+                </div>
                 <div class="supplier-tools">
                   <input v-model="supplierSearch[inquiry.id]" placeholder="Search supplier name or phone..." @keydown.enter.prevent="searchContacts(inquiry)" />
                   <button class="ghost-btn" @click="searchContacts(inquiry)">Search</button>
@@ -305,7 +356,16 @@
                 <h3>Suppliers to Ask</h3>
                 <p>Saved supplier list for this buying inquiry.</p>
               </div>
-              <span class="muted">{{ inquiry.suppliers.length }} suppliers</span>
+              <div class="supplier-list-title-right">
+                <span class="muted">{{ inquiry.suppliers.length }} suppliers</span>
+                <button
+                  class="link-btn danger"
+                  :disabled="!inquiry.suppliers.length || busyAction === `remove-all-${inquiry.id}`"
+                  @click="removeAllSuppliers(inquiry)"
+                >
+                  {{ busyAction === `remove-all-${inquiry.id}` ? 'Removing...' : 'Remove All Suppliers' }}
+                </button>
+              </div>
             </div>
             <div class="detail-supplier-list">
               <div v-if="inquiry.suppliers.length === 0" class="empty-note">No suppliers added yet.</div>
@@ -520,6 +580,85 @@ async function addSupplier(inquiry, contact) {
   }
 }
 
+async function autoAddAllSuppliers(inquiry) {
+  busyAction.value = `auto-all-${inquiry.id}`
+  error.value = ''
+  try {
+    const { data } = await tradingApi.autoAddAllBuyingInquirySuppliers(inquiry.id)
+    replaceInquiry(data.inquiry)
+  } catch (exc) {
+    error.value = apiError(exc, 'Auto supplier discovery failed.')
+  } finally {
+    busyAction.value = ''
+  }
+}
+
+async function autoAddAllSuppliersEmbedding(inquiry) {
+  busyAction.value = `auto-all-embedding-${inquiry.id}`
+  error.value = ''
+  try {
+    const { data } = await tradingApi.autoAddAllBuyingInquirySuppliersEmbedding(inquiry.id)
+    replaceInquiry(data.inquiry)
+  } catch (exc) {
+    error.value = apiError(exc, 'Embedded supplier discovery failed.')
+  } finally {
+    busyAction.value = ''
+  }
+}
+
+async function addAllTaggedSuppliers(inquiry) {
+  busyAction.value = `auto-all-tagged-${inquiry.id}`
+  error.value = ''
+  try {
+    const { data } = await tradingApi.addAllTaggedBuyingInquirySuppliers(inquiry.id)
+    replaceInquiry(data.inquiry)
+  } catch (exc) {
+    error.value = apiError(exc, 'Add tagged suppliers failed.')
+  } finally {
+    busyAction.value = ''
+  }
+}
+
+async function addAllTaggedSuppliersStrict(inquiry) {
+  busyAction.value = `auto-all-tagged-strict-${inquiry.id}`
+  error.value = ''
+  try {
+    const { data } = await tradingApi.addAllTaggedBuyingInquirySuppliersStrict(inquiry.id)
+    replaceInquiry(data.inquiry)
+  } catch (exc) {
+    error.value = apiError(exc, 'Add tagged suppliers failed.')
+  } finally {
+    busyAction.value = ''
+  }
+}
+
+async function addAllPreviouslyContactedSuppliers(inquiry) {
+  busyAction.value = `auto-all-contacted-${inquiry.id}`
+  error.value = ''
+  try {
+    const { data } = await tradingApi.addAllPreviouslyContactedBuyingInquirySuppliers(inquiry.id)
+    replaceInquiry(data.inquiry)
+  } catch (exc) {
+    error.value = apiError(exc, 'Add previously contacted suppliers failed.')
+  } finally {
+    busyAction.value = ''
+  }
+}
+
+async function removeAllSuppliers(inquiry) {
+  if (!window.confirm(`Remove all ${inquiry.suppliers.length} suppliers from "${inquiry.name}"? This cannot be undone.`)) return
+  busyAction.value = `remove-all-${inquiry.id}`
+  error.value = ''
+  try {
+    const { data } = await tradingApi.removeAllBuyingInquirySuppliers(inquiry.id)
+    replaceInquiry(data.inquiry)
+  } catch (exc) {
+    error.value = apiError(exc, 'Remove all suppliers failed.')
+  } finally {
+    busyAction.value = ''
+  }
+}
+
 async function removeSupplierFromInquiry(inquiry, supplier) {
   busyAction.value = `remove-supplier-${inquiry.id}-${supplier.id}`
   error.value = ''
@@ -528,6 +667,37 @@ async function removeSupplierFromInquiry(inquiry, supplier) {
     await refreshInquiry(inquiry.id)
   } catch (exc) {
     error.value = apiError(exc, 'Remove supplier failed.')
+  } finally {
+    busyAction.value = ''
+  }
+}
+
+async function duplicateInquiry(inquiry) {
+  busyAction.value = `duplicate-${inquiry.id}`
+  error.value = ''
+  try {
+    const { data } = await tradingApi.duplicateBuyingInquiry(inquiry.id)
+    inquiries.value.unshift(data)
+    inquiryTotal.value += 1
+    expandedInquiries.add(data.id)
+  } catch (exc) {
+    error.value = apiError(exc, 'Duplicate inquiry failed.')
+  } finally {
+    busyAction.value = ''
+  }
+}
+
+async function deleteInquiry(inquiry) {
+  if (!window.confirm(`Delete "${inquiry.name}"? This cannot be undone.`)) return
+  busyAction.value = `delete-${inquiry.id}`
+  error.value = ''
+  try {
+    await tradingApi.deleteBuyingInquiry(inquiry.id)
+    inquiries.value = inquiries.value.filter(row => row.id !== inquiry.id)
+    inquiryTotal.value = Math.max(0, inquiryTotal.value - 1)
+    expandedInquiries.delete(inquiry.id)
+  } catch (exc) {
+    error.value = apiError(exc, 'Delete inquiry failed.')
   } finally {
     busyAction.value = ''
   }
@@ -883,6 +1053,16 @@ textarea {
   padding-top: 14px;
   border-top: 1px solid #edf2f7;
 }
+.select-all-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.select-all-row .muted {
+  margin-top: 0;
+}
 .list-meta {
   display: flex;
   align-items: center;
@@ -1104,6 +1284,12 @@ pre {
   color: #64748b;
   font-size: 0.8rem;
 }
+.supplier-list-title-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
 .compact-row {
   border-radius: 12px;
 }
@@ -1154,9 +1340,11 @@ pre {
   color: #0e7490;
   font-size: 0.76rem;
 }
-.link-btn.danger {
+.link-btn.danger,
+.ghost-btn.danger {
   background: #fff1f2;
   color: #be123c;
+  border-color: #fecdd3;
 }
 .wa-btn {
   display: inline-flex;

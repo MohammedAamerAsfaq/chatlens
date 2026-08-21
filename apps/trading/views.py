@@ -2653,6 +2653,37 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
         deleted, _ = inquiry.products.filter(product=product).delete()
         return Response({'removed': deleted})
 
+    @action(detail=True, methods=['post'], url_path='duplicate')
+    def duplicate(self, request, pk=None):
+        """Copies name/status/templates/products onto a new inquiry. Suppliers are
+        deliberately left empty — re-run the Select All Sellers options fresh rather
+        than carry over stale sent_count/notification state from the original."""
+        source = self.get_object()
+        with transaction.atomic():
+            copy = BuyingInquiry.objects.create(
+                company=source.company,
+                account=source.account,
+                name=f'{source.name} (Copy)',
+                status=BuyingInquiryStatus.OPEN,
+                header_template=source.header_template,
+                product_line_template=source.product_line_template,
+                footer_template=source.footer_template,
+                created_by=request.user,
+            )
+            BuyingInquiryProduct.objects.bulk_create([
+                BuyingInquiryProduct(
+                    inquiry=copy,
+                    product_id=row.product_id,
+                    quantity=row.quantity,
+                    target_price=row.target_price,
+                    currency=row.currency,
+                )
+                for row in source.products.all()
+            ])
+
+        copy = self.get_queryset().get(pk=copy.pk)
+        return Response(self.get_serializer(copy).data, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=['post'], url_path='auto-add-suppliers')
     def auto_add_suppliers(self, request, pk=None):
         inquiry = self.get_object()
@@ -2689,6 +2720,217 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
 
         inquiry = self.get_queryset().get(pk=inquiry.pk)
         return Response({'added': added, 'skipped': skipped, 'inquiry': self.get_serializer(inquiry).data})
+
+    @action(detail=True, methods=['post'], url_path='auto-add-all-suppliers')
+    def auto_add_all_suppliers(self, request, pk=None):
+        inquiry = self.get_object()
+        product_ids = list(inquiry.products.values_list('product_id', flat=True))
+        if not product_ids:
+            return Response({'product_ids': 'Inquiry has no products to match suppliers against.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        rows = (
+            InquiryProduct.objects
+            .filter(company=inquiry.company, product_id__in=product_ids, inquiry_type='sell', contact__isnull=False)
+            .select_related('contact', 'contact__account')
+            .order_by('-first_seen_at', '-id')
+        )
+        seen_contact_ids = set()
+        added = 0
+        skipped = 0
+        for row in rows:
+            if row.contact_id in seen_contact_ids:
+                continue
+            seen_contact_ids.add(row.contact_id)
+            supplier, created = BuyingInquirySupplier.objects.get_or_create(
+                inquiry=inquiry,
+                contact=row.contact,
+                defaults={
+                    'source': BuyingInquirySupplierSource.AUTO,
+                    'source_product_id': row.product_id,
+                    'source_inquiry_product': row,
+                },
+            )
+            if created:
+                added += 1
+            else:
+                skipped += 1
+
+        inquiry = self.get_queryset().get(pk=inquiry.pk)
+        return Response({'added': added, 'skipped': skipped, 'inquiry': self.get_serializer(inquiry).data})
+
+    @action(detail=True, methods=['post'], url_path='auto-add-all-suppliers-embedding')
+    def auto_add_all_suppliers_embedding(self, request, pk=None):
+        """Same discovery as auto-add-all-suppliers, but instead of requiring an exact
+        product_id match, ranks 'sell' InquiryProduct rows by cosine distance against
+        each inquiry product's own stored embedding (product name + every alias, plus
+        raw text embeddings for rows the AI never mapped to an inventory product) —
+        same three-way UNION this app already uses for the Market Parties embedding
+        search (InquiryProductViewSet.market_parties), just anchored on a known
+        product's embedding instead of re-embedding free text."""
+        inquiry = self.get_object()
+        product_ids = list(inquiry.products.values_list('product_id', flat=True))
+        if not product_ids:
+            return Response({'product_ids': 'Inquiry has no products to match suppliers against.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        per_product_limit = 15
+        matched_row_ids = []
+        try:
+            with _db_conn.cursor() as cursor:
+                for anchor_id in product_ids:
+                    cursor.execute(
+                        """
+                        WITH scored AS (
+                            SELECT ip.id AS inquiry_product_id,
+                                   (pe.embedding <=> (SELECT embedding FROM product_embedding WHERE product_id = %(anchor_id)s)) AS distance
+                            FROM trading_inquiry_product ip
+                            JOIN product_embedding pe ON pe.product_id = ip.product_id
+                            WHERE ip.company_id = %(company_id)s
+                              AND ip.inquiry_type = 'sell'
+                              AND ip.contact_id IS NOT NULL
+                              AND ip.product_id IS NOT NULL
+                              AND pe.embedding IS NOT NULL
+
+                            UNION ALL
+
+                            SELECT ip.id AS inquiry_product_id,
+                                   (pae.embedding <=> (SELECT embedding FROM product_embedding WHERE product_id = %(anchor_id)s)) AS distance
+                            FROM trading_inquiry_product ip
+                            JOIN trading_product_alias pa ON pa.product_id = ip.product_id
+                            JOIN product_alias_embedding pae ON pae.alias_id = pa.id
+                            WHERE ip.company_id = %(company_id)s
+                              AND ip.inquiry_type = 'sell'
+                              AND ip.contact_id IS NOT NULL
+                              AND ip.product_id IS NOT NULL
+                              AND pae.embedding IS NOT NULL
+
+                            UNION ALL
+
+                            SELECT ip.id AS inquiry_product_id,
+                                   (ip.embedding <=> (SELECT embedding FROM product_embedding WHERE product_id = %(anchor_id)s)) AS distance
+                            FROM trading_inquiry_product ip
+                            WHERE ip.company_id = %(company_id)s
+                              AND ip.inquiry_type = 'sell'
+                              AND ip.contact_id IS NOT NULL
+                              AND ip.product_id IS NULL
+                              AND ip.embedding IS NOT NULL
+                        )
+                        SELECT inquiry_product_id, MIN(distance) AS best_distance
+                        FROM scored
+                        WHERE distance IS NOT NULL
+                        GROUP BY inquiry_product_id
+                        ORDER BY best_distance ASC
+                        LIMIT %(limit)s
+                        """,
+                        {'anchor_id': anchor_id, 'company_id': inquiry.company_id, 'limit': per_product_limit},
+                    )
+                    matched_row_ids.extend(row_id for row_id, _ in cursor.fetchall())
+        except Exception as exc:
+            logger.exception('auto_add_all_suppliers_embedding | inquiry_id=%s failed', inquiry.pk)
+            return Response({'detail': f'Embedding search unavailable: {exc}'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        rows_by_id = {
+            row.pk: row
+            for row in InquiryProduct.objects.filter(pk__in=matched_row_ids).select_related('contact')
+        }
+        seen_contact_ids = set()
+        added = 0
+        skipped = 0
+        for row_id in matched_row_ids:
+            row = rows_by_id.get(row_id)
+            if not row or not row.contact_id or row.contact_id in seen_contact_ids:
+                continue
+            seen_contact_ids.add(row.contact_id)
+            supplier, created = BuyingInquirySupplier.objects.get_or_create(
+                inquiry=inquiry,
+                contact=row.contact,
+                defaults={
+                    'source': BuyingInquirySupplierSource.AUTO,
+                    'source_product_id': row.product_id,
+                    'source_inquiry_product': row,
+                },
+            )
+            if created:
+                added += 1
+            else:
+                skipped += 1
+
+        inquiry = self.get_queryset().get(pk=inquiry.pk)
+        return Response({'added': added, 'skipped': skipped, 'inquiry': self.get_serializer(inquiry).data})
+
+    @action(detail=True, methods=['post'], url_path='add-all-tagged-suppliers')
+    def add_all_tagged_suppliers(self, request, pk=None):
+        """Adds every contact tagged 'supplier' on the inquiry's company — including
+        contacts also tagged 'customer' (i.e. 'both'), since a 'both' contact still
+        carries the 'supplier' role_tags row (see ContactRoleTag /
+        apps/whatsapp_bridge/migrations/0024). No inquiry-product matching at all —
+        pure role-tag membership, same source BuyingInquiryViewSet.perform_create
+        already draws from for the initial SupplierQuote auto-populate."""
+        inquiry = self.get_object()
+        added, skipped = self._add_tagged_suppliers(inquiry, strict=False)
+        inquiry = self.get_queryset().get(pk=inquiry.pk)
+        return Response({'added': added, 'skipped': skipped, 'inquiry': self.get_serializer(inquiry).data})
+
+    @action(detail=True, methods=['post'], url_path='add-all-tagged-suppliers-strict')
+    def add_all_tagged_suppliers_strict(self, request, pk=None):
+        """Same as add-all-tagged-suppliers, but excludes contacts also tagged
+        'customer' — supplier-only, not 'both'."""
+        inquiry = self.get_object()
+        added, skipped = self._add_tagged_suppliers(inquiry, strict=True)
+        inquiry = self.get_queryset().get(pk=inquiry.pk)
+        return Response({'added': added, 'skipped': skipped, 'inquiry': self.get_serializer(inquiry).data})
+
+    def _add_tagged_suppliers(self, inquiry, strict):
+        from apps.whatsapp_bridge.models import WhatsAppContact
+
+        contacts = WhatsAppContact.objects.filter(
+            account__communication_account__company=inquiry.company,
+            role_tags__role='supplier',
+        )
+        if strict:
+            contacts = contacts.exclude(role_tags__role='customer')
+        contact_ids = list(contacts.values_list('id', flat=True).distinct())
+        return self._bulk_add_suppliers(inquiry, contact_ids)
+
+    @action(detail=True, methods=['post'], url_path='add-all-previously-contacted-suppliers')
+    def add_all_previously_contacted_suppliers(self, request, pk=None):
+        """Adds every contact who was actually sent a previous buying inquiry — 'sent'
+        meaning the WA button was clicked (sent_count > 0, see mark_sent), not just
+        added to a list — from any other buying inquiry on this company. A track
+        record of suppliers who were genuinely reached before, independent of
+        product/tag matching."""
+        inquiry = self.get_object()
+        contact_ids = list(
+            BuyingInquirySupplier.objects
+            .filter(inquiry__company=inquiry.company, sent_count__gt=0)
+            .exclude(inquiry=inquiry)
+            .values_list('contact_id', flat=True)
+            .distinct()
+        )
+        added, skipped = self._bulk_add_suppliers(inquiry, contact_ids)
+        inquiry = self.get_queryset().get(pk=inquiry.pk)
+        return Response({'added': added, 'skipped': skipped, 'inquiry': self.get_serializer(inquiry).data})
+
+    def _bulk_add_suppliers(self, inquiry, contact_ids):
+        existing_contact_ids = set(inquiry.suppliers.values_list('contact_id', flat=True))
+        new_contact_ids = [cid for cid in contact_ids if cid not in existing_contact_ids]
+
+        BuyingInquirySupplier.objects.bulk_create(
+            [
+                BuyingInquirySupplier(inquiry=inquiry, contact_id=cid, source=BuyingInquirySupplierSource.AUTO)
+                for cid in new_contact_ids
+            ],
+            ignore_conflicts=True,
+        )
+        added = len(new_contact_ids)
+        skipped = len(contact_ids) - added
+        return added, skipped
+
+    @action(detail=True, methods=['post'], url_path='remove-all-suppliers')
+    def remove_all_suppliers(self, request, pk=None):
+        inquiry = self.get_object()
+        removed, _ = inquiry.suppliers.all().delete()
+        inquiry = self.get_queryset().get(pk=inquiry.pk)
+        return Response({'removed': removed, 'inquiry': self.get_serializer(inquiry).data})
 
     @action(detail=True, methods=['post'], url_path='add-supplier')
     def add_supplier(self, request, pk=None):
