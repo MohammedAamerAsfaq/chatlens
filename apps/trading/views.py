@@ -4031,6 +4031,45 @@ class TradingSettingsViewSet(viewsets.ViewSet):
         )
         return Response(payload)
 
+    CARD_ANIMATION_KEY = 'trading_card_animation_settings'
+    CARD_ANIMATION_DEFAULTS = {'slide_direction': 'left'}
+    _SLIDE_DIRECTIONS = {'left', 'right', 'none'}
+
+    @action(detail=False, methods=['get', 'put'], url_path='card-animation')
+    def card_animation(self, request):
+        """slide_direction: which way an inquiry card on the Trading board slides
+        (and fades) when its status is changed — 'left', 'right', or 'none' to
+        disable the animation entirely."""
+        import json
+        from apps.chatlens_core.models import SystemSettings
+
+        if request.method == 'GET':
+            obj = SystemSettings.objects.filter(
+                company=default_company_for_user(request.user),
+                key=self.CARD_ANIMATION_KEY,
+            ).first()
+            saved = {}
+            if obj and obj.value:
+                try:
+                    saved = json.loads(obj.value)
+                except (json.JSONDecodeError, TypeError):
+                    saved = {}
+            return Response({**self.CARD_ANIMATION_DEFAULTS, **saved})
+
+        direction = request.data.get('slide_direction')
+        if direction not in self._SLIDE_DIRECTIONS:
+            direction = self.CARD_ANIMATION_DEFAULTS['slide_direction']
+        payload = {'slide_direction': direction}
+        SystemSettings.objects.update_or_create(
+            company=default_company_for_user(request.user),
+            key=self.CARD_ANIMATION_KEY,
+            defaults={
+                'value': json.dumps(payload),
+                'description': 'Direction an inquiry card slides/fades when its status changes on the Trading board (left/right/none).',
+            },
+        )
+        return Response(payload)
+
     @action(detail=False, methods=['get', 'put'], url_path='inquiry-products')
     def inquiry_products(self, request):
         from apps.trading.services.trading_settings_service import (

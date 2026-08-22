@@ -248,6 +248,8 @@ export const tradingApi = {
   // Trading settings (hot-settable plain UI values, not AI prompts)
   getWtsReplySettings: () => http.get('/trading-settings/wts-reply/'),
   setWtsReplySettings: (data) => http.put('/trading-settings/wts-reply/', data),
+  getCardAnimationSettings: () => http.get('/trading-settings/card-animation/'),
+  setCardAnimationSettings: (data) => http.put('/trading-settings/card-animation/', data),
   getInquiryProductSaveSettings: () => http.get('/trading-settings/inquiry-products/'),
   setInquiryProductSaveSettings: (data) => http.put('/trading-settings/inquiry-products/', data),
   getV2MatchingSettings: () => http.get('/trading-settings/v2-matching/'),

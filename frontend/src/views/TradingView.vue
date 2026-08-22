@@ -26,6 +26,14 @@
             Close Older Than {{ closeStaleHours || 1 }}h
           </button>
         </div>
+        <label class="card-animation-control" title="Direction an inquiry card slides when its status is changed">
+          <span>Card animation</span>
+          <select v-model="cardAnimation.slide_direction" @change="saveCardAnimation" class="account-select">
+            <option value="left">Slide left</option>
+            <option value="right">Slide right</option>
+            <option value="none">Off</option>
+          </select>
+        </label>
         <button class="btn-ghost sm" @click="refresh">Refresh</button>
       </div>
     </div>
@@ -136,7 +144,7 @@
           <div
             v-for="inq in buyFeed" :key="inq.id"
             class="feed-card"
-            :class="{ urgent: inq.age_seconds < 60 }"
+            :class="{ urgent: inq.age_seconds < 60, 'sliding-left': slidingCards[inq.id] === 'left', 'sliding-right': slidingCards[inq.id] === 'right' }"
           >
             <div class="card-header">
               <div class="card-top">
@@ -374,7 +382,7 @@
           <div
             v-for="inq in sellFeed" :key="inq.id"
             class="feed-card"
-            :class="{ urgent: inq.age_seconds < 60 }"
+            :class="{ urgent: inq.age_seconds < 60, 'sliding-left': slidingCards[inq.id] === 'left', 'sliding-right': slidingCards[inq.id] === 'right' }"
           >
             <div class="card-header">
               <div class="card-top">
@@ -868,7 +876,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faXmark } from '@fortawesome/free-solid-svg-icons'
@@ -910,6 +918,41 @@ const wtsReply          = ref({
   sort_by: 'original',
   heading_blank_lines: 0,
 })
+
+// Card slide-out animation played on an inquiry card when its status is changed —
+// direction is a hot-settable board preference (left/right/none), same
+// load-on-mount pattern as wtsReply above. slidingCards maps inquiry id -> the
+// direction currently animating, read by the card's :class binding; the actual
+// status-changing API call is deliberately delayed by CARD_SLIDE_MS so the user
+// sees the slide before the list refresh potentially removes/updates the card.
+const CARD_SLIDE_MS = 320
+const cardAnimation = ref({ slide_direction: 'left' })
+const slidingCards = reactive({})
+
+function slideThenRun(inq, run) {
+  const direction = cardAnimation.value.slide_direction
+  if (direction === 'none') return run()
+  slidingCards[inq.id] = direction
+  return new Promise(resolve => {
+    setTimeout(async () => {
+      try {
+        await run()
+      } finally {
+        delete slidingCards[inq.id]
+        resolve()
+      }
+    }, CARD_SLIDE_MS)
+  })
+}
+
+async function saveCardAnimation() {
+  try {
+    const { data } = await tradingApi.setCardAnimationSettings(cardAnimation.value)
+    Object.assign(cardAnimation.value, data)
+  } catch {
+    // non-critical — the select just keeps its local value if the save fails
+  }
+}
 
 // WTB/WTS feeds are paginated independently (each column scrolls on its own) rather than
 // a single combined list silently capped at N — the open-feed endpoint returns a real
@@ -1928,8 +1971,10 @@ function changeFeedPage(type, page) {
 }
 
 async function act(inq, status) {
-  await tradingApi.updateInquiry(inq.id, { status })
-  await refresh()
+  await slideThenRun(inq, async () => {
+    await tradingApi.updateInquiry(inq.id, { status })
+    await refresh()
+  })
 }
 
 // Manual 1-5 rating of how well the AI classified/matched this inquiry — defaults to 5
@@ -2007,9 +2052,11 @@ function setStatus(inq, e) {
 async function submitIncorrectMatch(inq) {
   const form = incorrectMatchForms.value[inq.id]
   if (!form) return
-  await tradingApi.updateInquiry(inq.id, { status: 'incorrect_match', remarks: form.reason.trim() })
-  form.open = false
-  await refresh()
+  await slideThenRun(inq, async () => {
+    await tradingApi.updateInquiry(inq.id, { status: 'incorrect_match', remarks: form.reason.trim() })
+    form.open = false
+    await refresh()
+  })
 }
 
 function cancelIncorrectMatch(inq) {
@@ -2162,6 +2209,7 @@ onMounted(async () => {
   // on the Products page, not on the 15s live-feed cadence.
   tradingApi.getPriceList().then(({ data }) => { formattedPriceList.value = data.body }).catch(() => {})
   tradingApi.getWtsReplySettings().then(({ data }) => { Object.assign(wtsReply.value, data) }).catch(() => {})
+  tradingApi.getCardAnimationSettings().then(({ data }) => { Object.assign(cardAnimation.value, data) }).catch(() => {})
   document.addEventListener('pointerdown', closeContactPickersOnOutsideClick)
   pollTimer = setInterval(refresh, 15000)
   freshnessTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
@@ -2179,7 +2227,7 @@ onUnmounted(() => {
 
 <style scoped>
 .trading-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; background: #f9fafb; }
-.trading-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; background: #fff; border-bottom: 1px solid #e5e7eb; }
+.trading-header { display: flex; flex-wrap: wrap; row-gap: 8px; justify-content: space-between; align-items: center; padding: 14px 20px; background: #fff; border-bottom: 1px solid #e5e7eb; }
 .error-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 20px; background: #fee2e2; color: #991b1b; font-size: 0.85rem; border-bottom: 1px solid #fca5a5; }
 .error-dismiss { background: none; border: none; color: #991b1b; cursor: pointer; font-size: 0.9rem; padding: 0 4px; }
 .header-left { display: flex; align-items: center; gap: 10px; }
@@ -2188,7 +2236,8 @@ onUnmounted(() => {
 @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 .live-label { font-size: 0.8rem; color: #22c55e; font-weight: 600; }
 .last-update { font-size: 0.78rem; color: #9ca3af; }
-.header-right { display: flex; gap: 10px; align-items: center; }
+.header-right { display: flex; flex-wrap: wrap; row-gap: 8px; gap: 10px; align-items: center; }
+.card-animation-control { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: #4b5563; font-weight: 600; }
 .account-select { padding: 5px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.85rem; }
 .close-stale-control { display: flex; align-items: center; gap: 4px; }
 .close-stale-input { width: 52px; padding: 5px 6px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.85rem; }
@@ -2284,7 +2333,9 @@ onUnmounted(() => {
 .contact-option small { color: #9ca3af; font-size: 0.68rem; }
 .contact-loading { padding: 8px; color: #9ca3af; font-size: 0.74rem; text-align: center; }
 .feed-list { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
-.feed-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; height: 300px; }
+.feed-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; height: 300px; transition: transform 0.32s ease, opacity 0.32s ease; }
+.feed-card.sliding-left { transform: translateX(-120%); opacity: 0; }
+.feed-card.sliding-right { transform: translateX(120%); opacity: 0; }
 .feed-card.urgent { border-left: 3px solid #f59e0b; }
 .card-header { flex-shrink: 0; padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid #f3f4f6; }
 .card-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 3px; position: relative; }
