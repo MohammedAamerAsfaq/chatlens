@@ -157,6 +157,7 @@ export const tradingApi = {
   listProductAliases:  (productId)         => http.get(`/products/${productId}/aliases/`),
   addProductAlias:     (productId, alias)  => http.post(`/products/${productId}/aliases/`, { alias }),
   deleteProductAlias:  (productId, aliasId) => http.delete(`/products/${productId}/aliases/${aliasId}/`),
+  searchInquiryMentions: (productId, params) => http.get(`/products/${productId}/search-inquiry-mentions/`, { params }),
 
   // Product attributes — hot-addable key/value pairs, independent of the main product
   // create/update, same live-CRUD pattern as aliases above.

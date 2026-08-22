@@ -540,6 +540,36 @@
                 />
               </div>
               <div v-if="aliasError" class="alias-error">{{ aliasError }}</div>
+
+              <div v-if="modal.id" class="mention-search">
+                <button type="button" class="btn-sm" :disabled="mentionSearching" @click="searchInquiryMentions">
+                  {{ mentionSearching ? 'Searching…' : 'Search inquiries for similar mention by Embeddings' }}
+                </button>
+                <div v-if="mentionError" class="alias-error">{{ mentionError }}</div>
+
+                <div v-if="mentionResults" class="mention-results">
+                  <div class="mention-group">
+                    <div class="mention-group-title">Confirmed mentions of this product</div>
+                    <div v-if="!mentionResults.confirmed.length" class="mention-empty">No unaliased mentions found — every recorded phrasing is already covered.</div>
+                    <div v-for="entry in mentionResults.confirmed" :key="`confirmed-${entry.text}`" class="mention-row">
+                      <span class="mention-text">{{ entry.text }}</span>
+                      <span class="mention-badge" title="Times this exact phrasing was seen">×{{ entry.occurrences }}</span>
+                      <button type="button" class="btn-sm" @click="addMentionAsAlias(entry, 'confirmed')">+ Add</button>
+                    </div>
+                  </div>
+
+                  <div class="mention-group">
+                    <div class="mention-group-title">Similar unmapped mentions</div>
+                    <div v-if="!mentionResults.similar_available" class="mention-empty">This product has no embedding yet — backfill embeddings to enable this tier.</div>
+                    <div v-else-if="!mentionResults.similar.length" class="mention-empty">No unmapped inquiry mentions are similar to this product right now.</div>
+                    <div v-for="entry in mentionResults.similar" :key="`similar-${entry.text}`" class="mention-row">
+                      <span class="mention-text">{{ entry.text }}</span>
+                      <span class="mention-badge" title="Cosine distance — lower is closer">d={{ entry.distance }}</span>
+                      <button type="button" class="btn-sm" @click="addMentionAsAlias(entry, 'similar')">+ Add</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="form-section card-section attribute-section">
@@ -658,6 +688,10 @@ const pendingAliases = ref([])
 const aliasInput      = ref('')
 const aliasSaving     = ref(false)
 const aliasError      = ref('')
+
+const mentionResults   = ref(null)
+const mentionSearching = ref(false)
+const mentionError     = ref('')
 
 // Attributes — same live-CRUD-independent-of-product-save pattern as aliases above,
 // just key/value pairs instead of a single string.
@@ -866,6 +900,9 @@ function resetAliasState() {
   pendingAliases.value = []
   aliasInput.value = ''
   aliasError.value = ''
+  mentionResults.value = null
+  mentionSearching.value = false
+  mentionError.value = ''
 }
 
 function resetAttributeState() {
@@ -954,6 +991,12 @@ async function addAliasChip() {
   const text = aliasInput.value.trim().replace(/,+$/, '').trim()
   if (!text) return
   aliasInput.value = ''
+  await addAliasText(text)
+}
+
+async function addAliasText(text) {
+  text = (text || '').trim()
+  if (!text) return
   aliasError.value = ''
 
   if (!modal.value.id) {
@@ -971,6 +1014,27 @@ async function addAliasChip() {
     aliasError.value = e.response?.data?.detail || 'Failed to add alias'
   } finally {
     aliasSaving.value = false
+  }
+}
+
+async function searchInquiryMentions() {
+  if (!modal.value.id) return
+  mentionSearching.value = true
+  mentionError.value = ''
+  try {
+    const { data } = await tradingApi.searchInquiryMentions(modal.value.id)
+    mentionResults.value = data
+  } catch (e) {
+    mentionError.value = e.response?.data?.detail || 'Search failed'
+  } finally {
+    mentionSearching.value = false
+  }
+}
+
+async function addMentionAsAlias(entry, tier) {
+  await addAliasText(entry.text)
+  if (mentionResults.value) {
+    mentionResults.value[tier] = mentionResults.value[tier].filter(row => row !== entry)
   }
 }
 
@@ -1370,6 +1434,13 @@ onUnmounted(stopProductModalDrag)
 .alias-remove:hover { opacity: 1; }
 .alias-input { flex: 1; min-width: 140px; border: none; outline: none; font-size: 0.85rem; padding: 3px 2px; }
 .alias-error { color: #dc2626; font-size: 0.8rem; }
+.mention-search { margin-top: 10px; }
+.mention-results { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
+.mention-group-title { font-size: 0.76rem; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px; }
+.mention-empty { font-size: 0.8rem; color: #9ca3af; }
+.mention-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid #f3f4f6; }
+.mention-text { flex: 1; min-width: 0; font-size: 0.83rem; color: #111827; overflow-wrap: anywhere; }
+.mention-badge { font-size: 0.72rem; color: #6b7280; background: #f3f4f6; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
 .attribute-section { flex: 1; }
 .attribute-list { display: flex; flex-direction: column; gap: 6px; }
 .attribute-row { display: flex; align-items: center; gap: 6px; }

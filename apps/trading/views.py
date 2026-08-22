@@ -661,6 +661,92 @@ class ProductViewSet(viewsets.ModelViewSet):
 
         return Response({'products': product_result, 'aliases': alias_result})
 
+    @action(detail=True, methods=['get'], url_path='search-inquiry-mentions')
+    def search_inquiry_mentions(self, request, pk=None):
+        """Candidate alias text for this product, mined from inquiry mentions, split
+        into two tiers:
+
+        'confirmed' — distinct raw text from InquiryProduct rows already mapped
+        directly to this product (classification already resolved them here), ranked
+        by how often each phrasing recurred. No embedding needed; always available
+        as long as this product has inquiry history.
+
+        'similar' — InquiryProduct rows never mapped to any product at all, ranked by
+        cosine distance to this product's own embedding. InquiryProduct.embedding is
+        only ever populated for unmapped rows (mapped rows reuse the product/alias
+        embedding instead — see backfill-embeddings on InquiryProductViewSet), so
+        this tier is genuinely "text nobody has linked to a product yet, but reads
+        similar to this one" — it starts empty until unmapped mentions exist.
+
+        Neither tier is auto-added as an alias — a close phrase isn't always actually
+        this exact SKU, so a human reviews and picks."""
+        product = self.get_object()
+        limit = min(max(int(request.query_params.get('limit') or 20), 1), 50)
+        existing_aliases = {a.lower() for a in product.alias_set.values_list('alias', flat=True)}
+        product_name = (product.name or '').strip().lower()
+
+        def is_candidate(text):
+            text = (text or '').strip()
+            key = text.lower()
+            return text if text and key != product_name and key not in existing_aliases else None
+
+        confirmed_counts = {}
+        for canonical, original in InquiryProduct.objects.filter(product=product).values_list('canonical_name', 'original_text'):
+            text = is_candidate(canonical or original)
+            if not text:
+                continue
+            key = text.lower()
+            entry = confirmed_counts.setdefault(key, {'text': text, 'occurrences': 0})
+            entry['occurrences'] += 1
+        confirmed = sorted(confirmed_counts.values(), key=lambda r: -r['occurrences'])[:limit]
+
+        similar = []
+        similar_available = True
+        with _db_conn.cursor() as cursor:
+            cursor.execute(
+                'SELECT 1 FROM product_embedding WHERE product_id = %(product_id)s AND embedding IS NOT NULL',
+                {'product_id': product.pk},
+            )
+            if not cursor.fetchone():
+                similar_available = False
+            else:
+                try:
+                    cursor.execute(
+                        """
+                        SELECT COALESCE(NULLIF(ip.canonical_name, ''), ip.original_text) AS text,
+                               (ip.embedding <=> (SELECT embedding FROM product_embedding WHERE product_id = %(product_id)s)) AS distance
+                        FROM trading_inquiry_product ip
+                        WHERE ip.company_id = %(company_id)s
+                          AND ip.product_id IS NULL
+                          AND ip.embedding IS NOT NULL
+                        ORDER BY distance ASC
+                        LIMIT %(fetch_limit)s
+                        """,
+                        {'product_id': product.pk, 'company_id': product.company_id, 'fetch_limit': limit * 5},
+                    )
+                    rows = cursor.fetchall()
+                except Exception as exc:
+                    logger.exception('search_inquiry_mentions | product_id=%s failed', product.pk)
+                    return Response({'detail': f'Embedding search unavailable: {exc}'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+                by_text = {}
+                for text, distance in rows:
+                    text = is_candidate(text)
+                    if not text:
+                        continue
+                    key = text.lower()
+                    entry = by_text.get(key)
+                    if entry is None:
+                        by_text[key] = {'text': text, 'distance': float(distance), 'occurrences': 1}
+                    else:
+                        entry['occurrences'] += 1
+                        entry['distance'] = min(entry['distance'], float(distance))
+                similar = sorted(by_text.values(), key=lambda r: r['distance'])[:limit]
+                for r in similar:
+                    r['distance'] = round(r['distance'], 4)
+
+        return Response({'confirmed': confirmed, 'similar': similar, 'similar_available': similar_available})
+
     @action(detail=False, methods=['get'], url_path='stats')
     def stats(self, request):
         start, end = _resolve_date_range(request)
