@@ -2576,6 +2576,212 @@ class AiParseV2LogViewSet(viewsets.ReadOnlyModelViewSet):
         return qs
 
 
+class V2MatchTrainingViewSet(viewsets.ViewSet):
+    """Human-in-the-loop calibration tool for the V2 pass-2 distance thresholds
+    (pass2_candidate_max_distance / exact_auto_match_max_distance — see
+    trading_settings_service.get_v2_matching_settings). Samples past inquiry
+    lines, re-runs candidate retrieval fresh against today's product/alias
+    embeddings (not the stale distance stored on the original AiParseV2Log —
+    alias coverage changes over time, and calibration should reflect current
+    retrieval quality), and records a human verdict per line so the threshold
+    values can be checked against ground truth instead of the guessed defaults
+    they shipped with."""
+    permission_classes = [IsAuthenticated]
+
+    @staticmethod
+    def _historical_stock_by_product(log, line_index):
+        """Qty/stock_status as they were when this line was ORIGINALLY classified —
+        pulled from the JSON candidate_pool baked into the stored pass-2 prompt,
+        since live Product.qty has no history of its own and changes over time.
+        Only covers products that were actually retrieved back then; a product
+        that only shows up in today's fresh retrieval (e.g. because aliases have
+        since improved) has no historical record and is reported as such."""
+        import json
+
+        for batch in (log.pass2_request or {}).get('batches', []):
+            messages = batch.get('messages') or []
+            user_message = next((m for m in messages if m.get('role') == 'user'), None)
+            if not user_message:
+                continue
+            try:
+                parsed = json.loads(user_message.get('content') or '{}')
+            except (ValueError, TypeError):
+                continue
+            line = next((p for p in parsed.get('products', []) if p.get('line_index') == line_index), None)
+            if not line:
+                continue
+            return {
+                c['product_id']: {'qty': c.get('qty'), 'stock_status': c.get('stock_status')}
+                for c in parsed.get('candidate_pool', [])
+                if c.get('product_id') is not None
+            }
+        return {}
+
+    @action(detail=False, methods=['get'], url_path='next')
+    def next_sample(self, request):
+        import random
+        from apps.trading.models import AiParseV2Log, V2MatchTrainingSample
+        from apps.trading.services.classification_service import _find_v2_candidates
+
+        company = default_company_for_user(request.user)
+        if not company:
+            return Response({'detail': 'No active company selected.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        pool = request.query_params.get('pool') or 'random'
+        if pool not in {'random', 'rejected', 'passed'}:
+            return Response({'detail': "pool must be 'random', 'rejected', or 'passed'."}, status=status.HTTP_400_BAD_REQUEST)
+
+        reviewed_pairs = set(
+            V2MatchTrainingSample.objects.filter(company=company).values_list('message_id', 'line_index')
+        )
+
+        candidate_logs = list(
+            AiParseV2Log.objects
+            .filter(
+                account__communication_account__company=company,
+                status=AiParseV2Log.STATUS_COMPLETE,
+                classification__isnull=False,
+            )
+            .select_related('message', 'classification')
+            .order_by('?')[:300]
+        )
+        random.shuffle(candidate_logs)
+
+        def matches_pool(log):
+            if pool == 'random':
+                return True
+            req = log.pass2_request or {}
+            rejected = bool(req.get('rejected_by_threshold'))
+            if pool == 'rejected':
+                return rejected
+            return not rejected and not req.get('no_candidate_line_indexes')
+
+        for log in candidate_logs:
+            if not matches_pool(log):
+                continue
+            products = list(log.classification.products or [])
+            for line_index, product in enumerate(products):
+                if (log.message_id, line_index) in reviewed_pairs:
+                    continue
+                query_text = (product.get('canonical_name') or product.get('raw_text') or '').strip()
+                if not query_text:
+                    continue
+
+                candidates = _find_v2_candidates(
+                    query_text, company,
+                    top_k=8,
+                    brand=product.get('brand') or '',
+                    attributes=product.get('attributes') or {},
+                )
+                historical_stock = self._historical_stock_by_product(log, line_index)
+                return Response({
+                    'message_id': log.message_id,
+                    'line_index': line_index,
+                    'message_text': log.message.message_text,
+                    'query_text': query_text,
+                    'ai_product_id': product.get('product_id'),
+                    'ai_match_type': product.get('match_type'),
+                    'ai_match_reason': product.get('match_reason'),
+                    'candidates': [
+                        {
+                            'product_id': c['product_id'],
+                            'name': c['name'],
+                            'brand': c['brand'],
+                            'distance': c['distance'],
+                            'qty_at_review': historical_stock.get(c['product_id'], {}).get('qty'),
+                            'stock_status_at_review': historical_stock.get(c['product_id'], {}).get('stock_status'),
+                            'seen_in_original_candidates': c['product_id'] in historical_stock,
+                        }
+                        for c in candidates
+                    ],
+                })
+
+        return Response({'done': True, 'detail': 'No more unreviewed samples in this pool right now.'})
+
+    @action(detail=False, methods=['post'], url_path='submit')
+    def submit_sample(self, request):
+        from apps.trading.models import V2MatchTrainingSample
+        from apps.whatsapp_bridge.models import WhatsAppMessage
+
+        company = default_company_for_user(request.user)
+        if not company:
+            return Response({'detail': 'No active company selected.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        message_id = request.data.get('message_id')
+        line_index = request.data.get('line_index')
+        if message_id is None or line_index is None:
+            return Response({'detail': 'message_id and line_index are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        message = WhatsAppMessage.objects.filter(pk=message_id).first()
+        if not message:
+            return Response({'detail': 'Message not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        candidates = request.data.get('candidates') or []
+        correct_product_id = request.data.get('correct_product_id')
+
+        distances = [c['distance'] for c in candidates if c.get('distance') is not None]
+        best_distance = min(distances) if distances else None
+        correct_distance = next(
+            (c['distance'] for c in candidates if c.get('product_id') == correct_product_id),
+            None,
+        ) if correct_product_id is not None else None
+
+        sample, _created = V2MatchTrainingSample.objects.update_or_create(
+            message=message, line_index=line_index,
+            defaults={
+                'company': company,
+                'query_text': request.data.get('query_text') or '',
+                'candidates': candidates,
+                'ai_product_id': request.data.get('ai_product_id'),
+                'ai_match_type': request.data.get('ai_match_type') or '',
+                'correct_product_id': correct_product_id,
+                'best_distance': best_distance,
+                'correct_distance': correct_distance,
+                'reviewed_by': request.user,
+            },
+        )
+        return Response({'id': sample.pk}, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'], url_path='stats')
+    def stats(self, request):
+        from apps.trading.models import V2MatchTrainingSample
+        from apps.trading.services.trading_settings_service import get_v2_matching_settings
+
+        company = default_company_for_user(request.user)
+        if not company:
+            return Response({'detail': 'No active company selected.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        samples = V2MatchTrainingSample.objects.filter(company=company).order_by('created_at')
+        rows = []
+        for s in samples:
+            candidates = s.candidates or []
+            top_candidate = min(
+                (c for c in candidates if c.get('distance') is not None),
+                key=lambda c: c['distance'],
+                default=None,
+            )
+            rows.append({
+                'distance': s.best_distance,
+                'correct_distance': s.correct_distance,
+                # The calibration-relevant signal: was the single NEAREST candidate
+                # actually the correct one? (Not just "was a correct one somewhere
+                # in the list" — the thresholds gate on the nearest distance only.)
+                'top_candidate_correct': (
+                    top_candidate is not None
+                    and s.correct_product_id is not None
+                    and top_candidate.get('product_id') == s.correct_product_id
+                ),
+                'ai_product_id': s.ai_product_id,
+                'correct_product_id': s.correct_product_id,
+                'ai_was_right': s.ai_product_id == s.correct_product_id,
+            })
+        return Response({
+            'total': len(rows),
+            'settings': get_v2_matching_settings(company),
+            'samples': rows,
+        })
+
+
 class BuyingInquiryPagination(PageNumberPagination):
     page_size = 25
     page_size_query_param = 'page_size'

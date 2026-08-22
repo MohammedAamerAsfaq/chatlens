@@ -51,6 +51,7 @@ from .selling_offer import (
     SellingOfferProduct,
     SellingOfferStatus,
 )
+from .v2_match_training_sample import V2MatchTrainingSample
 
 __all__ = [
     'Product',
@@ -83,4 +84,5 @@ __all__ = [
     'AutomationRule', 'AutomationRuleSource', 'AutomatedPriceCapture',
     'SellingOffer', 'SellingOfferCustomer', 'SellingOfferCustomerSource',
     'SellingOfferProduct', 'SellingOfferStatus',
+    'V2MatchTrainingSample',
 ]

@@ -33,6 +33,7 @@ import AIInstructionsView   from '../views/AIInstructionsView.vue'
 import V2SettingsView        from '../views/V2SettingsView.vue'
 import BuyingInquiriesView  from '../views/BuyingInquiriesView.vue'
 import TenantAdminView from '../views/TenantAdminView.vue'
+import V2MatchTrainingView from '../views/V2MatchTrainingView.vue'
 
 const APP_TITLE = 'ChatLens'
 
@@ -72,6 +73,7 @@ const router = createRouter({
     { path: '/ai-instructions', name: 'ai-instructions', component: AIInstructionsView, meta: { title: 'AI Instructions' } },
     { path: '/v2-settings', name: 'v2-settings', component: V2SettingsView, meta: { title: 'V2 Settings' } },
     { path: '/tenant-admin', name: 'tenant-admin', component: TenantAdminView, meta: { title: 'Tenant Admin' } },
+    { path: '/v2-match-training', name: 'v2-match-training', component: V2MatchTrainingView, meta: { title: 'V2 Match Training' } },
   ],
 })
 
