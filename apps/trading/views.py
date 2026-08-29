@@ -4343,4 +4343,10 @@ class AutomatedPriceCaptureViewSet(viewsets.GenericViewSet, mixins.ListModelMixi
             'watched_sources':    AutomationRuleSource.objects.filter(rule__in=visible_rule_ids).count(),
             'captured_this_week': visible_captures.filter(created_at__gte=week_ago).count(),
             'queued':             visible_captures.filter(status=AutomatedPriceCapture.STATUS_QUEUED).count(),
+            'failed':             visible_captures.filter(
+                status__in=[
+                    AutomatedPriceCapture.STATUS_PARSE_FAILED,
+                    AutomatedPriceCapture.STATUS_APPLY_FAILED,
+                ]
+            ).count(),
         })

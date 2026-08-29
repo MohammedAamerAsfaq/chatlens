@@ -190,6 +190,7 @@
           <div class="summary-cell"><div class="summary-num">{{ automationSummary.watched_sources }}</div><div class="summary-label">Watched sources</div></div>
           <div class="summary-cell"><div class="summary-num">{{ automationSummary.captured_this_week }}</div><div class="summary-label">Captured this week</div></div>
           <div class="summary-cell"><div class="summary-num">{{ automationSummary.queued }}</div><div class="summary-label">Waiting for review</div></div>
+          <div class="summary-cell"><div class="summary-num">{{ automationSummary.failed }}</div><div class="summary-label">Failures</div></div>
         </div>
 
         <div v-if="!automationRules.length && !ruleForm" class="empty-msg">No automation rules yet.</div>
@@ -395,6 +396,9 @@
           <button :class="['filter-chip', captureFilter === 'queued' && 'sel']" @click="filterCaptures('queued')">Awaiting review</button>
           <button :class="['filter-chip', captureFilter === 'applied' && 'sel']" @click="filterCaptures('applied')">Applied</button>
           <button :class="['filter-chip', captureFilter === 'ignored' && 'sel']" @click="filterCaptures('ignored')">Ignored</button>
+          <button :class="['filter-chip', captureFilter === 'parse_failed' && 'sel']" @click="filterCaptures('parse_failed')">Parse failed</button>
+          <button :class="['filter-chip', captureFilter === 'apply_failed' && 'sel']" @click="filterCaptures('apply_failed')">Apply failed</button>
+          <button :class="['filter-chip', captureFilter === 'no_priced_items' && 'sel']" @click="filterCaptures('no_priced_items')">No priced items</button>
           <button :class="['filter-chip', captureFilter === 'test' && 'sel']" @click="filterCaptures('test')">🧪 Test matches</button>
         </div>
 
@@ -428,6 +432,7 @@
                 <span class="feed-dim">· matched "{{ cap.rule_name || 'deleted rule' }}"</span>
               </div>
               <div class="feed-snippet">{{ cap.message_text }}</div>
+              <div v-if="cap.error" class="feed-error">{{ cap.error }}</div>
             </div>
             <div class="feed-meta">{{ formatDate(cap.message_time) }}</div>
             <div class="feed-actions">
@@ -489,7 +494,7 @@ function debounce(fn, delay = 300) {
 }
 
 // ── Automated Price Updates ─────────────────────────────────────────────────
-const automationSummary = ref({ active_rules: 0, watched_sources: 0, captured_this_week: 0, queued: 0 })
+const automationSummary = ref({ active_rules: 0, watched_sources: 0, captured_this_week: 0, queued: 0, failed: 0 })
 const automationRules   = ref([])
 const captures          = ref([])
 const captureFilter     = ref('')
@@ -1015,12 +1020,25 @@ onMounted(() => {
 .feed-source { font-size: 0.8rem; font-weight: 650; color: #1f2937; }
 .feed-dim { color: #9ca3af; font-weight: 400; margin-left: 4px; }
 .feed-snippet { font-size: 0.76rem; color: #6b7280; margin-top: 2px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed-error { font-size: 0.72rem; color: #b91c1c; margin-top: 4px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .feed-meta { font-size: 0.72rem; color: #9ca3af; white-space: nowrap; }
 .feed-actions { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
 .feed-outcome { font-size: 0.7rem; font-weight: 700; padding: 4px 9px; border-radius: 20px; white-space: nowrap; }
 .feed-outcome.applied { background: #eafaf0; color: #16a34a; }
 .feed-outcome.ignored { background: #f3f4f6; color: #9ca3af; }
 .feed-outcome.test { background: #e3f5f2; color: #0d7a70; }
+.feed-outcome.parse_failed,
+.feed-outcome.no_priced_items,
+.feed-outcome.apply_failed { font-size: 0; }
+.feed-outcome.parse_failed::after,
+.feed-outcome.no_priced_items::after,
+.feed-outcome.apply_failed::after { font-size: 0.7rem; }
+.feed-outcome.parse_failed { background: #fef2f2; color: #b91c1c; }
+.feed-outcome.parse_failed::after { content: 'Parse failed'; }
+.feed-outcome.no_priced_items { background: #fff7ed; color: #c2410c; }
+.feed-outcome.no_priced_items::after { content: 'No priced items found'; }
+.feed-outcome.apply_failed { background: #fef2f2; color: #b91c1c; }
+.feed-outcome.apply_failed::after { content: 'Apply failed'; }
 
 .segmented { display: inline-flex; border: 1px solid #d1d5db; border-radius: 7px; overflow: hidden; }
 .segmented button { padding: 7px 14px; border: none; background: #f9fafb; color: #6b7280; font-size: 0.78rem; font-weight: 600; cursor: pointer; border-right: 1px solid #d1d5db; }

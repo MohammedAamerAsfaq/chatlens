@@ -634,7 +634,7 @@ class AutomatedPriceCaptureSerializer(serializers.ModelSerializer):
         model = AutomatedPriceCapture
         fields = [
             'id', 'rule', 'rule_name', 'message', 'source_name', 'source_kind', 'group_name',
-            'message_text', 'message_time', 'items', 'status', 'created_at', 'applied_at',
+            'message_text', 'message_time', 'items', 'status', 'error', 'created_at', 'applied_at',
         ]
         read_only_fields = fields
 

@@ -115,6 +115,10 @@ def _process_match(rule, message) -> None:
     from apps.trading.models import AutomationRule, AutomatedPriceCapture, PromptConfig, SALE_PRICE_UPDATE_DEFAULT
     from apps.trading.services.price_update_service import parse_against_inventory
 
+    AutomationRule.objects.filter(pk=rule.pk).update(
+        last_triggered_at=now(), trigger_count=F('trigger_count') + 1,
+    )
+
     try:
         items = parse_against_inventory(
             message.message_text,
@@ -122,14 +126,32 @@ def _process_match(rule, message) -> None:
             SALE_PRICE_UPDATE_DEFAULT,
             company=_company_for_rule_message(message),
         )
-    except Exception:
+    except Exception as exc:
+        AutomatedPriceCapture.objects.update_or_create(
+            message=message,
+            defaults={
+                'rule': rule,
+                'items': [],
+                'status': AutomatedPriceCapture.STATUS_PARSE_FAILED,
+                'error': str(exc),
+                'applied_at': None,
+            },
+        )
         logger.exception('check_automation_rules | parse failed | rule_id=%s | message_id=%s', rule.pk, message.pk)
         return
 
     priced_items = [item for item in items if item.get('sale_price') is not None]
     if not priced_items:
-        # Matched on source + a soft trigger (AI-detect / any-message), but the AI
-        # itself found nothing price-list-shaped here — not a false "queued" entry.
+        AutomatedPriceCapture.objects.update_or_create(
+            message=message,
+            defaults={
+                'rule': rule,
+                'items': items,
+                'status': AutomatedPriceCapture.STATUS_NO_PRICED_ITEMS,
+                'error': '',
+                'applied_at': None,
+            },
+        )
         return
 
     # Test mode still runs the real match + parse (so an AI-detect-gated rule is
@@ -140,17 +162,30 @@ def _process_match(rule, message) -> None:
         AutomatedPriceCapture.STATUS_TEST if rule.action_mode == rule.ACTION_TEST
         else AutomatedPriceCapture.STATUS_QUEUED
     )
-    capture = AutomatedPriceCapture.objects.create(
-        rule=rule, message=message, items=priced_items,
-        status=initial_status,
-    )
-
-    AutomationRule.objects.filter(pk=rule.pk).update(
-        last_triggered_at=now(), trigger_count=F('trigger_count') + 1,
+    capture, _ = AutomatedPriceCapture.objects.update_or_create(
+        message=message,
+        defaults={
+            'rule': rule,
+            'items': priced_items,
+            'status': initial_status,
+            'error': '',
+            'applied_at': None,
+        },
     )
 
     if rule.action_mode == rule.ACTION_AUTO:
-        apply_capture(capture)
+        try:
+            apply_capture(capture)
+        except Exception as exc:
+            capture.status = AutomatedPriceCapture.STATUS_APPLY_FAILED
+            capture.error = str(exc)
+            capture.applied_at = None
+            capture.save(update_fields=['status', 'error', 'applied_at'])
+            logger.exception(
+                'check_automation_rules | apply failed | rule_id=%s | message_id=%s',
+                rule.pk, message.pk,
+            )
+            return
 
     logger.info(
         'check_automation_rules | matched | rule_id=%s | message_id=%s | items=%d | action=%s',
@@ -172,5 +207,6 @@ def apply_capture(capture) -> None:
         company=_company_for_rule_message(capture.message),
     )
     capture.status = AutomatedPriceCapture.STATUS_APPLIED
+    capture.error = ''
     capture.applied_at = now()
-    capture.save(update_fields=['status', 'applied_at'])
+    capture.save(update_fields=['status', 'error', 'applied_at'])

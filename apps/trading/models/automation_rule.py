@@ -88,17 +88,24 @@ class AutomatedPriceCapture(models.Model):
     One row per inbound message that matched an AutomationRule — the "Recent
     detections" feed and review queue. `items` is the same shape the manual Sale
     Price parse returns: [{product_id, canonical_name, sale_price, currency}].
+    `error` records why a matched attempt failed before it could queue/apply.
     One capture per message (a message triggers at most the first rule it matches).
     """
     STATUS_QUEUED  = 'queued'
     STATUS_APPLIED = 'applied'
     STATUS_IGNORED = 'ignored'
     STATUS_TEST    = 'test'
+    STATUS_PARSE_FAILED = 'parse_failed'
+    STATUS_NO_PRICED_ITEMS = 'no_priced_items'
+    STATUS_APPLY_FAILED = 'apply_failed'
     STATUS_CHOICES = [
         (STATUS_QUEUED,  'Queued'),
         (STATUS_APPLIED, 'Applied'),
         (STATUS_IGNORED, 'Ignored'),
         (STATUS_TEST,    'Test match'),
+        (STATUS_PARSE_FAILED, 'Parse failed'),
+        (STATUS_NO_PRICED_ITEMS, 'No priced items'),
+        (STATUS_APPLY_FAILED, 'Apply failed'),
     ]
 
     rule = models.ForeignKey(
@@ -109,7 +116,8 @@ class AutomatedPriceCapture(models.Model):
         'whatsapp_bridge.WhatsAppMessage', on_delete=models.CASCADE, related_name='price_capture',
     )
     items  = models.JSONField(default=list)
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_QUEUED)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_QUEUED)
+    error = models.TextField(blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     applied_at = models.DateTimeField(null=True, blank=True)
