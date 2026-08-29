@@ -286,6 +286,7 @@
             <div class="card-footer">
               <div class="card-actions">
                 <button v-if="inq.products?.length" class="act-btn products" @click="openInquiryProducts(inq)">Inquiry Products</button>
+                <button v-if="hasManualMatchTargets(inq)" class="act-btn products" @click="openManualMatch(inq)">Manual Match</button>
                 <button v-if="inq.products?.length" class="act-btn market" @click="openMarketParties(inq)">
                   {{ inq.inquiry_type === 'sell' ? 'Potential Buyers' : 'Available Sellers' }}
                 </button>
@@ -524,6 +525,7 @@
             <div class="card-footer">
               <div class="card-actions">
                 <button v-if="inq.products?.length" class="act-btn products" @click="openInquiryProducts(inq)">Inquiry Products</button>
+                <button v-if="hasManualMatchTargets(inq)" class="act-btn products" @click="openManualMatch(inq)">Manual Match</button>
                 <button v-if="inq.products?.length" class="act-btn market" @click="openMarketParties(inq)">
                   {{ inq.inquiry_type === 'sell' ? 'Potential Buyers' : 'Available Sellers' }}
                 </button>
@@ -580,10 +582,24 @@
       >
         <div class="match-fix-header" @mousedown="startMatchFixDrag">
           <span class="match-fix-dialog-title">
-            Pick the correct product for "{{ matchFixTarget.hint.name }}"
+            Pick the correct product for "{{ activeMatchFixLine?.name || '' }}"
           </span>
           <button class="match-fix-close" @mousedown.stop @click="closeMatchFix" title="Close">×</button>
         </div>
+
+        <template v-if="matchFixTarget?.lines?.length > 1">
+          <div class="match-fix-section-label">Inquiry lines</div>
+          <div class="match-fix-line-tabs">
+            <button
+              v-for="line in matchFixTarget.lines"
+              :key="`line-${line.index}`"
+              :class="['match-fix-line-tab', activeMatchFixLine?.index === line.index && 'active']"
+              @click="selectMatchFixLine(line.index)"
+            >
+              {{ line.name }}
+            </button>
+          </div>
+        </template>
 
         <div v-if="autoSearchLoading" class="match-fix-status">Searching embeddings…</div>
         <div v-if="autoSearchError" class="match-fix-error">{{ autoSearchError }}</div>
@@ -605,12 +621,17 @@
         </div>
 
         <div class="match-fix-section-label">Search manually</div>
-        <input
-          v-model="matchFixQuery"
-          class="match-fix-search"
-          placeholder="Search products…"
-          autofocus
-        />
+        <div class="match-fix-search-row">
+          <input
+            v-model="matchFixQuery"
+            class="match-fix-search"
+            placeholder="Search products…"
+            autofocus
+          />
+          <button class="match-fix-search-btn" :disabled="autoSearchLoading" @click="runManualEmbeddingSearch()">
+            {{ autoSearchLoading ? 'Searching' : 'Search embeddings' }}
+          </button>
+        </div>
         <div class="match-fix-list">
           <label v-for="prod in filteredMatchProducts" :key="prod.id" class="match-fix-row">
             <input type="checkbox" @change="selectMatchFix(prod)" />
@@ -1091,7 +1112,7 @@ function rowLabel(row) {
 // which promotes that line to match_type 'exact' server-side (the pill then renders green
 // on its own, same as any other confirmed exact match — no separate "confirmed" styling
 // needed).
-const matchFixTarget = ref(null) // { inq, hint } | null
+const matchFixTarget = ref(null) // { inq, lines, selectedIndex } | null
 const matchFixQuery  = ref('')
 
 // Auto-search results (from the "Auto" button below) — null means no auto-search has
@@ -1124,6 +1145,12 @@ const marketModalTitle = computed(() => {
   return 'Available Sellers'
 })
 
+const activeMatchFixLine = computed(() => {
+  const target = matchFixTarget.value
+  if (!target?.lines?.length) return null
+  return target.lines.find(line => line.index === target.selectedIndex) || target.lines[0]
+})
+
 function matchVerificationKey(inq, hint) {
   return `${inq?.id || 'unknown'}:${hint?.index ?? 'unknown'}`
 }
@@ -1145,6 +1172,23 @@ function stockInquiryCreateLabel(inq, hint) {
   if (state?.loading) return 'Saving'
   if (state?.saved) return 'Saved'
   return 'Create Inquiry'
+}
+
+function manualMatchLines(inq) {
+  return (inq?.products || []).map((product, index) => {
+    const match = matchInventory(product)
+    const name = product?.canonical_name || product?.raw_text || match?.name || `Product ${index + 1}`
+    return {
+      index,
+      name,
+      mismatch: !!(match && !isReliableMatch(product, match)),
+      unmatched: !product?.product_id,
+    }
+  })
+}
+
+function hasManualMatchTargets(inq) {
+  return manualMatchLines(inq).length > 0
 }
 
 function matchVerificationLabel(result) {
@@ -1379,24 +1423,65 @@ async function verifyStockMatch(inq, hint) {
 }
 
 function openMatchFix(inq, hint) {
-  matchFixTarget.value = { inq, hint }
-  matchFixQuery.value = ''
+  matchFixTarget.value = {
+    inq,
+    lines: [{
+      index: hint.index,
+      name: hint.name,
+      mismatch: !!hint.mismatch,
+      unmatched: false,
+    }],
+    selectedIndex: hint.index,
+  }
+  matchFixQuery.value = hint.name || ''
   autoSearchResults.value = null
   autoSearchError.value = ''
+  autoSearchLoading.value = false
   // Always reopen centered — a drag offset from a previous popup shouldn't carry over.
   matchFixDrag.value = { x: 0, y: 0 }
 }
 
+function openManualMatch(inq) {
+  const lines = manualMatchLines(inq)
+  if (!lines.length) return
+  const preferred = lines.find(line => line.unmatched || line.mismatch) || lines[0]
+  matchFixTarget.value = {
+    inq,
+    lines,
+    selectedIndex: preferred.index,
+  }
+  matchFixQuery.value = preferred.name || ''
+  autoSearchResults.value = null
+  autoSearchError.value = ''
+  autoSearchLoading.value = false
+  matchFixDrag.value = { x: 0, y: 0 }
+}
+
 function toggleMatchFix(inq, hint) {
-  const isOpen = matchFixTarget.value?.inq === inq && matchFixTarget.value?.hint === hint
+  const isOpen = matchFixTarget.value?.inq === inq
+    && matchFixTarget.value?.lines?.length === 1
+    && matchFixTarget.value?.selectedIndex === hint.index
   if (isOpen) { closeMatchFix(); return }
   openMatchFix(inq, hint)
 }
 
-function closeMatchFix() {
-  matchFixTarget.value = null
+function selectMatchFixLine(index) {
+  if (!matchFixTarget.value) return
+  const next = matchFixTarget.value.lines.find(line => line.index === index)
+  if (!next) return
+  matchFixTarget.value = { ...matchFixTarget.value, selectedIndex: index }
+  matchFixQuery.value = next.name || ''
   autoSearchResults.value = null
   autoSearchError.value = ''
+  autoSearchLoading.value = false
+}
+
+function closeMatchFix() {
+  matchFixTarget.value = null
+  matchFixQuery.value = ''
+  autoSearchResults.value = null
+  autoSearchError.value = ''
+  autoSearchLoading.value = false
 }
 
 // Dragging for the "Fix match" popup — same cumulative-translate-offset technique as the
@@ -1470,6 +1555,25 @@ async function runAutoMatch(inq, hint) {
   }
 }
 
+async function runManualEmbeddingSearch() {
+  const target = activeMatchFixLine.value
+  if (!target) return
+  const query = matchFixQuery.value.trim() || target.name
+  if (!query) return
+  autoSearchLoading.value = true
+  autoSearchError.value = ''
+  autoSearchResults.value = null
+  try {
+    const { data } = await tradingApi.searchProductEmbeddings({ q: query })
+    autoSearchResults.value = (data.results || []).map(r => ({ product: r.product, source: 'embedding', distance: r.distance }))
+  } catch (e) {
+    autoSearchError.value = 'Search failed: ' + (e.response?.data?.detail || e.message)
+    autoSearchResults.value = []
+  } finally {
+    autoSearchLoading.value = false
+  }
+}
+
 const filteredMatchProducts = computed(() => {
   const q = matchFixQuery.value.trim().toLowerCase()
   const list = allProducts.value || []
@@ -1481,8 +1585,9 @@ const filteredMatchProducts = computed(() => {
 
 async function selectMatchFix(product) {
   const target = matchFixTarget.value
-  if (!target) return
-  const { data } = await tradingApi.correctMatch(target.inq.id, { index: target.hint.index, product_id: product.id })
+  const line = activeMatchFixLine.value
+  if (!target || !line) return
+  const { data } = await tradingApi.correctMatch(target.inq.id, { index: line.index, product_id: product.id })
   target.inq.products = data.products
   matchFixTarget.value = null
 }
@@ -2550,15 +2655,39 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 .match-fix-close:hover { background: #f3f4f6; color: #374151; }
+.match-fix-line-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.match-fix-line-tab {
+  padding: 5px 9px;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #fff;
+  color: #4b5563;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.match-fix-line-tab.active { background: #eff6ff; border-color: #60a5fa; color: #1d4ed8; font-weight: 600; }
+.match-fix-search-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
 .match-fix-search {
   width: 100%;
+  min-width: 0;
   box-sizing: border-box;
   padding: 5px 8px;
   border: 1px solid #d1d5db;
   border-radius: 5px;
   font-size: 0.78rem;
-  margin-bottom: 6px;
 }
+.match-fix-search-btn {
+  border: 1px solid #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.match-fix-search-btn:disabled { opacity: 0.65; cursor: wait; }
 .match-fix-list { max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
 .match-fix-row {
   display: flex;
