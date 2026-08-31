@@ -191,6 +191,7 @@ def _log_ai_parsing_and_classify(message) -> None:
     )
     if not reason:
         classify_message(message)
+    return
 
     # Automated Price Update rules (Product Price Update > Sale Price) — gated
     # independently of AI classification (see _automation_skip_reason) so a rule
@@ -239,6 +240,41 @@ def _embed_in_background(message_ids: list, sync_log_id: int = None):
                     log.save(update_fields=['metadata'])
                 except Exception:
                     logger.debug('Could not update SyncLog %s with embedding result', sync_log_id)
+            _db_conn.close()
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _run_automation_rules(message) -> None:
+    """Run automation-rule matching independently of inquiry classification."""
+    if _automation_skip_reason(message):
+        return
+    try:
+        from apps.trading.services.price_update_automation import check_automation_rules
+        check_automation_rules(message)
+    except Exception:
+        logger.exception('check_automation_rules failed | message_id=%s', message.pk)
+
+
+def _process_automation_in_background(message_id: int):
+    """Run automation rules in their own background thread."""
+    def _run():
+        try:
+            from apps.whatsapp_bridge.models import WhatsAppMessage
+
+            message = (
+                WhatsAppMessage.objects
+                .select_related('account', 'chat', 'contact')
+                .get(pk=message_id)
+            )
+            _run_automation_rules(message)
+        except Exception:
+            logger.warning(
+                'Background automation processing failed for message_id=%s',
+                message_id,
+                exc_info=True,
+            )
+        finally:
             _db_conn.close()
 
     threading.Thread(target=_run, daemon=True).start()
@@ -349,6 +385,7 @@ class IngestionService:
             # thread. History batch messages use _embed_in_background (no classification,
             # no AiParsingLog — they'd all read as skipped:too_old and just add noise).
             _process_message_in_background(message.pk, sync_log_id=sync_log.pk)
+            _process_automation_in_background(message.pk)
 
         return message
 
@@ -422,6 +459,7 @@ class IngestionService:
                                 },
                             )
                             _process_message_in_background(message.pk, sync_log_id=sync_log.pk)
+                            _process_automation_in_background(message.pk)
 
                 row.resolution_status = ResolutionStatus.RESOLVED
                 row.resolved_contact = message.contact

@@ -26,10 +26,13 @@ Message text: "{message_text}\""""
 VALID_CATEGORY_SUGGESTIONS = {'supplier', 'customer', 'both'}
 CLASSIFICATION_V1 = 'v1'
 CLASSIFICATION_V2 = 'v2'
+PASS1_AI_TIMEOUT_SECONDS = 180
+PASS1_STALE_AFTER_SECONDS = 600
+MAX_DURATION_MS = 2_147_483_647
 
 
 def _elapsed_ms(start) -> int:
-    return max(0, int((time.perf_counter() - start) * 1000))
+    return min(MAX_DURATION_MS, max(0, int((time.perf_counter() - start) * 1000)))
 
 
 def contact_role_category(contact) -> str:
@@ -564,6 +567,38 @@ def _call_agent_with_timeout(callable_func, timeout_seconds: int):
         executor.shutdown(wait=False, cancel_futures=True)
 
 
+def _reconcile_stale_pass1_logs(account_id: int | None = None, stale_after_seconds: int = PASS1_STALE_AFTER_SECONDS) -> int:
+    from django.utils import timezone
+    from datetime import timedelta
+    from apps.trading.models import AiParseV2Log
+
+    cutoff = timezone.now() - timedelta(seconds=stale_after_seconds)
+    queryset = AiParseV2Log.objects.filter(
+        status=AiParseV2Log.STATUS_PASS1_STARTED,
+        classification__isnull=True,
+        updated_at__lt=cutoff,
+    )
+    if account_id is not None:
+        queryset = queryset.filter(account_id=account_id)
+
+    stale_logs = list(queryset.only('id', 'created_at', 'pass1_total_ms'))
+    now = timezone.now()
+    for log in stale_logs:
+        if log.pass1_total_ms is None and log.created_at:
+            log.pass1_total_ms = min(
+                MAX_DURATION_MS,
+                max(0, int((now - log.created_at).total_seconds() * 1000)),
+            )
+        log.total_ms = log.pass1_total_ms
+        log.status = AiParseV2Log.STATUS_ERROR
+        log.error = (
+            f'Pass 1 remained in started state for more than {stale_after_seconds} seconds. '
+            'The worker likely died or the provider call never completed cleanly.'
+        )
+        log.save(update_fields=['pass1_total_ms', 'total_ms', 'status', 'error', 'updated_at'])
+    return len(stale_logs)
+
+
 def _build_v2_match_prompts(message, products: list[dict], candidates_by_index: dict[int, list[dict]]) -> tuple[str, str]:
     from apps.tenancy.services.access import company_for_message
     from apps.trading.models import PromptConfig, INQUIRY_MATCH_DECISION_V2_DEFAULT
@@ -797,6 +832,7 @@ def classify_message_v2(message) -> None:
     from apps.trading.services.agent_logger import call_agent
     from apps.trading.services.inquiry_service import process_inquiry
 
+    _reconcile_stale_pass1_logs(account_id=message.account_id)
     total_start = time.perf_counter()
     pass1_start = time.perf_counter()
     system_prompt, user_prompt = _build_v2_extraction_prompts(message)
@@ -818,19 +854,22 @@ def classify_message_v2(message) -> None:
     )
     try:
         pass1_ai_start = time.perf_counter()
-        raw_response = call_agent(
-            AgentCallLog.PURPOSE_INQUIRY_EXTRACTION_V2,
-            [
-                {'role': 'system', 'content': system_prompt},
-                {'role': 'user', 'content': user_prompt},
-            ],
-            wa_message_id=message.pk,
-            classification_version=CLASSIFICATION_V2,
-            agent_config=PromptConfig.get_agent_config(
-                PromptConfig.KEY_INQUIRY_EXTRACTION_V2,
-                company=company_for_message(message),
+        raw_response = _call_agent_with_timeout(
+            lambda: call_agent(
+                AgentCallLog.PURPOSE_INQUIRY_EXTRACTION_V2,
+                [
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user', 'content': user_prompt},
+                ],
+                wa_message_id=message.pk,
+                classification_version=CLASSIFICATION_V2,
+                agent_config=PromptConfig.get_agent_config(
+                    PromptConfig.KEY_INQUIRY_EXTRACTION_V2,
+                    company=company_for_message(message),
+                ),
+                temperature=0,
             ),
-            temperature=0,
+            PASS1_AI_TIMEOUT_SECONDS,
         )
         log.pass1_ai_ms = _elapsed_ms(pass1_ai_start)
         log.pass1_response = raw_response

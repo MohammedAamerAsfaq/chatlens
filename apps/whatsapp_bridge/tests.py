@@ -115,10 +115,13 @@ class RecoverUnresolvedForLidTests(TestCase):
         # what these tests verify (that a WhatsAppMessage gets created + linked) and
         # must not make live network calls during a test run.
         self._proc_patch = patch('apps.whatsapp_bridge.services.ingestion_service._process_message_in_background')
+        self._automation_patch = patch('apps.whatsapp_bridge.services.ingestion_service._process_automation_in_background')
         self._embed_patch = patch('apps.whatsapp_bridge.services.ingestion_service._embed_in_background')
         self._proc_patch.start()
+        self._automation_patch.start()
         self._embed_patch.start()
         self.addCleanup(self._proc_patch.stop)
+        self.addCleanup(self._automation_patch.stop)
         self.addCleanup(self._embed_patch.stop)
 
     def test_recover_with_no_pending_rows_is_a_safe_noop(self):
@@ -197,12 +200,41 @@ class RecoverUnresolvedForLidTests(TestCase):
         IngestionService().preserve_unresolved_message(self.account, payload)
 
         with patch('apps.whatsapp_bridge.services.ingestion_service._process_message_in_background') as live_proc, \
+             patch('apps.whatsapp_bridge.services.ingestion_service._process_automation_in_background') as live_auto, \
              patch('apps.whatsapp_bridge.services.ingestion_service._embed_in_background') as embed_only:
             IngestionService().recover_unresolved_for_lid(
                 self.account, '16011805913098@lid', '971544732206@s.whatsapp.net',
             )
             live_proc.assert_not_called()
+            live_auto.assert_not_called()
             embed_only.assert_called_once()
+
+
+class LiveIngestionAutomationTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.account = _make_account(phone_number='971500000003', worker_session_id='test-session-4')
+
+    def test_live_ingest_starts_classification_and_automation_background_paths(self):
+        payload = {
+            'worker_session_id': self.account.pk,
+            'provider_message_id': 'LIVE-AUTO-1',
+            'chat_id': '971544732207@s.whatsapp.net',
+            'chat_type': 'individual',
+            'direction': 'inbound',
+            'message_text': 'Fresh price list',
+            'message_type': 'text',
+            'message_time': timezone.now().isoformat(),
+            'sender_number': '971544732207',
+            'push_name': 'Supplier',
+        }
+
+        with patch('apps.whatsapp_bridge.services.ingestion_service._process_message_in_background') as live_proc, \
+             patch('apps.whatsapp_bridge.services.ingestion_service._process_automation_in_background') as live_auto:
+            message = IngestionService().ingest_message(payload)
+
+        live_proc.assert_called_once()
+        live_auto.assert_called_once_with(message.pk)
 
 
 class UnresolvedMessageEndpointTests(TestCase):
