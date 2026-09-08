@@ -36,14 +36,14 @@ def check_automation_rules(message) -> None:
     if hasattr(message, 'price_capture'):
         return  # already processed (defensive — re-delivery, re-run, etc.)
 
-    rule = _find_matching_rule(message)
+    rule = find_matching_automation_rule(message)
     if rule is None:
         return
 
-    _process_match(rule, message)
+    process_automation_rule(message, rule.pk)
 
 
-def _find_matching_rule(message):
+def find_matching_automation_rule(message):
     from apps.trading.models import AutomationRule
 
     rules = (
@@ -56,6 +56,26 @@ def _find_matching_rule(message):
         if _source_matches(rule, message) and _content_matches(rule, message):
             return rule
     return None
+
+
+def process_automation_rule(message, rule_id: int) -> bool:
+    """Run only the rule selected at enqueue time if it is still eligible."""
+    from apps.trading.models import AutomationRule
+
+    if hasattr(message, 'price_capture'):
+        return False  # Defensive idempotency for re-delivery or a retry.
+
+    rule = (
+        AutomationRule.objects
+        .filter(pk=rule_id, is_active=True)
+        .prefetch_related('sources__contact', 'sources__group')
+        .first()
+    )
+    if rule is None or not _source_matches(rule, message) or not _content_matches(rule, message):
+        return False
+
+    _process_match(rule, message)
+    return True
 
 
 def _source_matches(rule, message) -> bool:

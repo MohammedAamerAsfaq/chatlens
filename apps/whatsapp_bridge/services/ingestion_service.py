@@ -259,16 +259,31 @@ def _run_automation_rules(message) -> None:
 
 def _process_automation_in_background(message_id: int):
     """Dispatch automation according to the explicitly selected execution mode."""
+    from apps.trading.services.price_update_automation import find_matching_automation_rule
+    from apps.whatsapp_bridge.models import WhatsAppMessage
+
+    message = (
+        WhatsAppMessage.objects
+        .select_related('account__communication_account__company', 'chat', 'contact')
+        .get(pk=message_id)
+    )
+    if _automation_skip_reason(message):
+        return
+
+    # Filter by watched source and deterministic heading conditions before a task
+    # is produced. AI-detect rules still need a task, but only for their sources.
+    rule = find_matching_automation_rule(message)
+    if rule is None:
+        return
+
     if getattr(settings, 'BACKGROUND_AUTOMATION_MODE', 'thread') == 'db_queue':
         try:
             from apps.queue_management.services import enqueue_task
-            from apps.whatsapp_bridge.models import WhatsAppMessage
             from apps.tenancy.services.access import company_for_message
 
-            message = WhatsAppMessage.objects.select_related('account__communication_account__company').get(pk=message_id)
             enqueue_task(
                 task_key='whatsapp.process_automation_rules',
-                payload={'version': 1, 'message_id': message_id},
+                payload={'version': 1, 'message_id': message_id, 'rule_id': rule.pk},
                 idempotency_key=f'automation-message:{message_id}',
                 correlation_id=f'whatsapp-message:{message_id}',
                 company=company_for_message(message),
@@ -293,14 +308,8 @@ def _process_automation_in_background(message_id: int):
     """Run automation rules in their own legacy background thread."""
     def _run():
         try:
-            from apps.whatsapp_bridge.models import WhatsAppMessage
-
-            message = (
-                WhatsAppMessage.objects
-                .select_related('account', 'chat', 'contact')
-                .get(pk=message_id)
-            )
-            _run_automation_rules(message)
+            from apps.trading.services.price_update_automation import process_automation_rule
+            process_automation_rule(message, rule.pk)
         except Exception:
             logger.warning(
                 'Background automation processing failed for message_id=%s',

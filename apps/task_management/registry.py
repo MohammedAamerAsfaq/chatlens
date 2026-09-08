@@ -59,6 +59,16 @@ def validate_versioned_message_payload(payload):
         raise UnsupportedTaskPayload('message_id must be a positive integer.')
 
 
+def validate_automation_payload(payload):
+    validate_versioned_message_payload(payload)
+    # Tasks produced before rule-aware enqueueing have no rule_id. Keep them
+    # executable during rollout; all newly produced tasks include one.
+    if payload.get('rule_id') is not None and (
+        not isinstance(payload['rule_id'], int) or payload['rule_id'] <= 0
+    ):
+        raise UnsupportedTaskPayload('rule_id must be a positive integer.')
+
+
 def validate_recovery_payload(payload):
     if not isinstance(payload, dict) or payload.get('version') != 1:
         raise UnsupportedTaskPayload('Payload version 1 is required.')

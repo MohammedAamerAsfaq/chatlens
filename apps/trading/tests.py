@@ -6,7 +6,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.tenancy.models import CommunicationAccount, Company, ConnectionProvider
-from apps.trading.models import AiParseV2Log, AutomatedPriceCapture, AutomationRule
+from apps.trading.models import AiParseV2Log, AutomatedPriceCapture, AutomationRule, AutomationRuleSource
 from apps.trading.services.classification_service import (
     _reconcile_stale_pass1_logs,
     classify_message_v2,
@@ -130,12 +130,27 @@ class AutomatedPriceCapturePersistenceTests(TestCase):
         from apps.whatsapp_bridge.services.ingestion_service import _process_automation_in_background
 
         message = self._message(provider_message_id='queue-automation')
+        AutomationRuleSource.objects.create(
+            rule=self.rule,
+            source_type=AutomationRuleSource.SOURCE_CONTACT,
+            contact=self.contact,
+        )
         _process_automation_in_background(message.pk)
 
         enqueue.assert_called_once()
         self.assertEqual(enqueue.call_args.kwargs['task_key'], 'whatsapp.process_automation_rules')
-        self.assertEqual(enqueue.call_args.kwargs['payload'], {'version': 1, 'message_id': message.pk})
+        self.assertEqual(enqueue.call_args.kwargs['payload'], {'version': 1, 'message_id': message.pk, 'rule_id': self.rule.pk})
         thread.assert_not_called()
+
+    @override_settings(BACKGROUND_AUTOMATION_MODE='db_queue')
+    @patch('apps.queue_management.services.enqueue_task')
+    def test_db_queue_mode_does_not_enqueue_unmatched_message(self, enqueue):
+        from apps.whatsapp_bridge.services.ingestion_service import _process_automation_in_background
+
+        message = self._message(provider_message_id='unmatched-automation')
+        _process_automation_in_background(message.pk)
+
+        enqueue.assert_not_called()
 
 
 class V2ClassificationRecoveryTests(TestCase):

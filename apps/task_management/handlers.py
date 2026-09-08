@@ -1,7 +1,7 @@
 """Registered task handlers. Only automation is enabled for live queue execution now."""
 from .registry import (
     task_handler, validate_any_v1_payload, validate_recovery_payload,
-    validate_versioned_message_payload,
+    validate_automation_payload, validate_versioned_message_payload,
 )
 
 
@@ -9,14 +9,20 @@ def _not_migrated(payload, context):
     raise RuntimeError('This task is registered but has not been migrated to durable execution yet.')
 
 
-@task_handler(key='whatsapp.process_automation_rules', default_queue='automation', payload_validator=validate_versioned_message_payload)
+@task_handler(key='whatsapp.process_automation_rules', default_queue='automation', payload_validator=validate_automation_payload)
 def process_automation_rules(payload, context):
     from apps.whatsapp_bridge.models import WhatsAppMessage
-    from apps.whatsapp_bridge.services.ingestion_service import _run_automation_rules
+    from apps.trading.services.price_update_automation import check_automation_rules, process_automation_rule
 
     message = WhatsAppMessage.objects.select_related('account', 'chat', 'contact').get(pk=payload['message_id'])
-    _run_automation_rules(message)
-    return {'message_id': message.pk, 'automation_processed': True}
+    rule_id = payload.get('rule_id')
+    if rule_id is None:
+        # Compatibility for tasks already stored before the rule-aware payload.
+        check_automation_rules(message)
+        processed = True
+    else:
+        processed = process_automation_rule(message, rule_id)
+    return {'message_id': message.pk, 'rule_id': rule_id, 'automation_processed': processed}
 
 
 @task_handler(key='whatsapp.embed_message', default_queue='embeddings', payload_validator=validate_versioned_message_payload)
