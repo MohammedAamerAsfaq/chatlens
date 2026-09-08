@@ -35,6 +35,12 @@ export const authApi = {
   updateCurrentCompanySettings: (data) => http.patch('/auth/current-company-settings/', data),
 }
 
+export const taskQueueApi = {
+  overview: () => http.get('/task-queue/overview/'),
+  tasks: (params = {}) => http.get('/task-queue/tasks/', { params }),
+  task: (id) => http.get(`/task-queue/tasks/${id}/`),
+}
+
 export const accountsApi = {
   list: () => http.get('/accounts/'),
   create: (data) => http.post('/accounts/', data),

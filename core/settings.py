@@ -36,6 +36,8 @@ INSTALLED_APPS = [
     'apps.api',
     'apps.ai_providers',
     'apps.trading',
+    'apps.task_management',
+    'apps.queue_management',
 ]
 
 MIDDLEWARE = [
@@ -163,6 +165,16 @@ INTERNAL_API_TOKEN = os.getenv('INTERNAL_API_TOKEN', 'change-me-internal-token')
 # --- Embeddings ---
 EMBEDDING_DIMENSIONS = 512  # voyage-3-lite fixed output size
 EMBEDDING_BATCH_SIZE = int(os.getenv('EMBEDDING_BATCH_SIZE', '128'))  # max texts per Voyage request
+
+# --- Durable background work ---
+# Feature flags keep the existing execution paths active until each workload is
+# deliberately migrated. Queue and scheduler operational values live in the DB.
+BACKGROUND_AUTOMATION_MODE = os.getenv('BACKGROUND_AUTOMATION_MODE', 'thread')
+BACKGROUND_EMBEDDING_MODE = os.getenv('BACKGROUND_EMBEDDING_MODE', 'thread')
+BACKGROUND_CLASSIFICATION_MODE = os.getenv('BACKGROUND_CLASSIFICATION_MODE', 'thread')
+BACKGROUND_RECOVERY_MODE = os.getenv('BACKGROUND_RECOVERY_MODE', 'thread')
+BACKGROUND_TASK_WORKER_HEARTBEAT_SECONDS = int(os.getenv('BACKGROUND_TASK_WORKER_HEARTBEAT_SECONDS', '15'))
+BACKGROUND_TASK_SCHEDULER_INTERVAL_SECONDS = int(os.getenv('BACKGROUND_TASK_SCHEDULER_INTERVAL_SECONDS', '5'))
 
 # --- Read-first controls (Phase 1: no sending) ---
 SEND_MESSAGE_ENABLED = False

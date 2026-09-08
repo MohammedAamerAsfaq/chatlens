@@ -35,10 +35,19 @@ function makeSessionManager({ djangoClient } = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chatlens-worker-test-'));
   const messageLogger = { write: test.mock.fn(), logsDir: tmpDir };
   const logger = makeLogger();
+  const ingestionBuffer = {
+    enqueue: test.mock.fn(() => ({ id: 1, duplicate: false })),
+    markBuildFailed: test.mock.fn(),
+    replacePayload: test.mock.fn(),
+    db: { prepare: test.mock.fn(() => ({ get: () => ({ status: 'delivered' }) })) },
+  };
+  const ingestionDispatcher = { dispatchOnce: test.mock.fn(async () => 1) };
   const sm = new SessionManager({
     sessionStorePath: tmpDir,
     djangoClient: djangoClient || makeDjangoClient(),
     messageLogger,
+    ingestionBuffer,
+    ingestionDispatcher,
     logger,
   });
   const session = {
@@ -52,7 +61,7 @@ function makeSessionManager({ djangoClient } = {}) {
     connectionUnhealthy: false,
   };
   sm.sessions.set(SESSION_ID, session);
-  return { sm, session, logger, messageLogger, djangoClient: sm.djangoClient };
+  return { sm, session, logger, messageLogger, djangoClient: sm.djangoClient, ingestionBuffer };
 }
 
 let msgCounter = 0;
@@ -229,17 +238,16 @@ test('K. a sendUnresolvedMessage failure raises a WorkerAlert, not a silent succ
 });
 
 // --- L. malformed / unexpected _buildPayload failure is explicitly recorded ---
-test('L. an unexpected _buildPayload failure is caught and recorded, never silently dropped', async () => {
-  const { sm, djangoClient } = makeSessionManager();
+test('L. an unexpected _buildPayload failure is retained in the Ingestion Buffer', async () => {
+  const { sm, djangoClient, ingestionBuffer } = makeSessionManager();
   sm._buildPayload = test.mock.fn(async () => { throw new Error('jidNormalizedUser exploded'); });
   const msg = makeMsg({ key: { id: 'MSG_L' } });
 
   await sm._forwardMessage(SESSION_ID, msg);
 
-  assert.equal(djangoClient.sendDroppedMessage.mock.callCount(), 1);
-  const [, dropped] = djangoClient.sendDroppedMessage.mock.calls[0].arguments;
-  assert.equal(dropped.reason, 'build_error');
-  assert.equal(dropped.msg_id, 'MSG_L');
+  assert.equal(djangoClient.sendDroppedMessage.mock.callCount(), 0);
+  assert.equal(ingestionBuffer.markBuildFailed.mock.callCount(), 1);
+  assert.match(ingestionBuffer.markBuildFailed.mock.calls[0].arguments[1].message, /jidNormalizedUser exploded/);
 });
 
 // --- M. history-sync unresolved LID preserves original timestamp/source ------

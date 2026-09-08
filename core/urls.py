@@ -9,6 +9,7 @@ urlpatterns = [
     path('api/', include('apps.ai_providers.urls')),
     path('api/', include('apps.message_intelligence.urls')),
     path('api/', include('apps.trading.urls')),
+    path('api/', include('apps.queue_management.urls')),
     path('', include('apps.whatsapp_bridge.urls')),
     path('', frontend_spa, name='frontend-root'),
     re_path(

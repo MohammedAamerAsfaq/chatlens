@@ -93,11 +93,13 @@ const MIME_TO_EXT = {
 };
 
 class SessionManager {
-  constructor({ sessionStorePath, djangoClient, messageLogger, logger }) {
+  constructor({ sessionStorePath, djangoClient, messageLogger, ingestionBuffer, ingestionDispatcher, logger }) {
     this.sessionStorePath = sessionStorePath;
     this.mediaStorePath = path.join(path.dirname(sessionStorePath), 'media');
     this.djangoClient = djangoClient;
     this.messageLogger = messageLogger;
+    this.ingestionBuffer = ingestionBuffer;
+    this.ingestionDispatcher = ingestionDispatcher;
     this.logger = logger;
     // Map<sessionId, { sock, status, qrDataUrl, phoneNumber, displayName }>
     this.sessions = new Map();
@@ -1503,30 +1505,71 @@ class SessionManager {
   }
 
   async _forwardMessage(sessionId, msg) {
+    let ingestionEvent;
+    try {
+      ingestionEvent = this.ingestionBuffer.enqueue({
+        sessionId,
+        providerMessageId: msg.key?.id || null,
+        eventType: 'message_ingest',
+        rawJid: msg.key?.remoteJid || null,
+        participantJid: msg.key?.participant || null,
+        fromMe: msg.key?.fromMe ?? null,
+        messageTime: msg.messageTimestamp ? new Date(Number(msg.messageTimestamp) * 1000).toISOString() : null,
+        rawPayload: { _pending_normalization: true, raw_baileys_event: msg },
+      });
+    } catch (bufferError) {
+      this.logger.error({ sessionId, msgId: msg.key?.id, err: bufferError.message }, 'Ingestion Buffer write failed');
+      this._reportDropped(sessionId, msg, 'ingestion_buffer_write_failed');
+      return;
+    }
+
+    if (ingestionEvent.duplicate) {
+      const existing = this.ingestionBuffer.db.prepare('SELECT status FROM ingestion_event WHERE id = ?').get(ingestionEvent.id);
+      if (existing?.status === 'delivered') {
+        this.logger.debug({ sessionId, msgId: msg.key?.id, ingestionEventId: ingestionEvent.id }, 'Duplicate Baileys message already delivered');
+        return;
+      }
+    }
+
     // Phase 1: build payload — _skip() already calls _reportDropped for filtered messages
     let built;
     try {
       built = await this._buildPayload(sessionId, msg);
     } catch (err) {
       this.logger.error({ sessionId, msgId: msg.key?.id, err: err.message }, '_buildPayload threw unexpectedly');
-      this._reportDropped(sessionId, msg, 'build_error');
+      this.ingestionBuffer.markBuildFailed(ingestionEvent.id, err);
       return;
     }
-    if (!built) return;
+    if (!built) {
+      this.ingestionBuffer.markBuildFailed(ingestionEvent.id, 'Payload was intentionally filtered before Django delivery.');
+      return;
+    }
 
-    // Phase 2: forward to Django
+    // Phase 2: persist an Ingestion Event before any Django delivery attempt.
+    // The Ingestion Dispatcher is the only component allowed to mark it delivered.
     const { payload, logEntry } = built;
     try {
-      const result = await this.djangoClient.sendMessageIngest(payload);
+      this.ingestionBuffer.replacePayload(ingestionEvent.id, {
+        eventType: 'message_ingest',
+        rawPayload: payload,
+        rawJid: payload.chat_id || null,
+        messageTime: payload.message_time || null,
+      });
+      await this.ingestionDispatcher.dispatchOnce();
+      const delivered = this.ingestionBuffer.db.prepare("SELECT status FROM ingestion_event WHERE id = ?").get(ingestionEvent.id);
+      if (!delivered || delivered.status !== 'delivered') {
+        throw new Error(`Ingestion Event ${ingestionEvent.id} is buffered for retry.`);
+      }
       this._recordHealthySignal(sessionId);
       this._recordBaileysEvent(sessionId, msg, {
         event_type: 'message_forwarded',
         event_stage: 'forwarded',
         status: 'success',
-        django_message_id: result?.message_id || null,
+        django_message_id: null,
         metadata: {
           chat_id: payload.chat_id,
           sender_number: payload.sender_number,
+          ingestion_event_id: ingestionEvent.id,
         },
       });
     } catch (fwdErr) {
@@ -1540,7 +1583,8 @@ class SessionManager {
         reason: 'forward_failed',
         error_message: fwdErr.message,
       });
-      this._reportDropped(sessionId, msg, 'forward_failed');
+      // The Ingestion Event remains durable in SQLite for dispatcher retries.
+      // This is a delivery failure, not a dropped WhatsApp message.
     } finally {
       this.messageLogger.write(sessionId, logEntry);
     }
@@ -1589,7 +1633,17 @@ class SessionManager {
       let forwardError = null;
 
       try {
-        const result = await this.djangoClient.sendMessageIngestBatch(sessionId, payloads, { isLatest, received });
+        const ingestionEvent = this.ingestionBuffer.enqueue({
+          sessionId,
+          eventType: 'message_ingest_batch',
+          rawPayload: { worker_session_id: sessionId, messages: payloads, is_latest: isLatest, received },
+        });
+        await this.ingestionDispatcher.dispatchOnce();
+        const buffered = this.ingestionBuffer.db.prepare('SELECT status, last_error FROM ingestion_event WHERE id = ?').get(ingestionEvent.id);
+        if (!buffered || buffered.status !== 'delivered') {
+          throw new Error(buffered?.last_error || `Ingestion Event ${ingestionEvent.id} is buffered for retry.`);
+        }
+        const result = { errors: 0 };
         this._recordHealthySignal(sessionId);
         // A non-throwing response can still report per-message failures (result.errors)
         // — Django returns 200 for the batch call itself even when some items inside it

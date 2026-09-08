@@ -1,5 +1,6 @@
 import logging
 import threading
+from django.conf import settings
 from django.db import IntegrityError, connection as _db_conn
 from django.db.models import F, Q
 from django.utils import timezone
@@ -257,7 +258,39 @@ def _run_automation_rules(message) -> None:
 
 
 def _process_automation_in_background(message_id: int):
-    """Run automation rules in their own background thread."""
+    """Dispatch automation according to the explicitly selected execution mode."""
+    if getattr(settings, 'BACKGROUND_AUTOMATION_MODE', 'thread') == 'db_queue':
+        try:
+            from apps.queue_management.services import enqueue_task
+            from apps.whatsapp_bridge.models import WhatsAppMessage
+            from apps.tenancy.services.access import company_for_message
+
+            message = WhatsAppMessage.objects.select_related('account__communication_account__company').get(pk=message_id)
+            enqueue_task(
+                task_key='whatsapp.process_automation_rules',
+                payload={'version': 1, 'message_id': message_id},
+                idempotency_key=f'automation-message:{message_id}',
+                correlation_id=f'whatsapp-message:{message_id}',
+                company=company_for_message(message),
+            )
+        except Exception as exc:
+            # There is deliberately no thread fallback in db_queue mode. The source
+            # message is already durable; this records the failed task production.
+            logger.exception('Automation task enqueue failed | message_id=%s', message_id)
+            try:
+                message = WhatsAppMessage.objects.get(pk=message_id)
+                WorkerAlert.objects.create(
+                    account=message.account,
+                    alert_type='background_task_enqueue_failed',
+                    severity='error',
+                    message=f'Automation task enqueue failed for message {message_id}: {exc}',
+                    context={'task_key': 'whatsapp.process_automation_rules', 'message_id': message_id},
+                )
+            except Exception:
+                logger.exception('Could not persist automation enqueue failure | message_id=%s', message_id)
+        return
+
+    """Run automation rules in their own legacy background thread."""
     def _run():
         try:
             from apps.whatsapp_bridge.models import WhatsAppMessage

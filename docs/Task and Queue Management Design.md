@@ -1,8 +1,44 @@
 # Task and Queue Management Design
 
-> **Status:** Future design proposal only. Do not implement as part of the current remediation patch.
-> **Prepared:** 2026-07-25
-> **Purpose:** Define a mature, reusable background execution architecture for ChatLens that preserves current behavior until explicitly migrated.
+> **Status:** Implemented core infrastructure, staged workload migration.
+> **Updated:** 2026-09-07
+> **Purpose:** Define and document durable background execution while preserving unmigrated business behavior.
+
+## Implemented State
+
+ChatLens now has two independent reliability layers:
+
+```text
+Baileys Event Receiver -> SQLite Ingestion Buffer -> Ingestion Dispatcher -> Django ingest API
+Django source data -> Task Producer -> PostgreSQL Task Queue -> Task Worker -> Task Executor -> Task Handler
+```
+
+- The Node worker persists an `Ingestion Event` in local SQLite before Django delivery. The `Ingestion Dispatcher` records each `Delivery Attempt`, retains retryable failures, and marks delivery complete only after Django returns `{ success: true }`. This protects events that reached the Node process; it cannot preserve an event Baileys never emitted.
+- `task_management` owns `BackgroundTask`, append-only `BackgroundTaskEvent`, `BackgroundTaskSchedule`, the Task Registry, and handler contracts.
+- `queue_management` owns `QueueDefinition`, `BackgroundWorker`, atomic PostgreSQL `SKIP LOCKED` claims, the Task Executor, retry/backoff, lock recovery, worker heartbeats, and scheduler production.
+- Initial queues are `default`, `automation`, `ai`, `embeddings`, `recovery`, `metadata`, and `reports`. Unknown, disabled, or paused queues fail explicitly.
+- A task moves through `pending -> claimed -> running -> succeeded`, `retrying`, `failed`, or `cancelled`. `available_at` is the only retry timing field. Events retain attempt errors and tracebacks.
+- `run_background_tasks` and `run_task_scheduler` are management commands intended to run outside IIS. The scheduler only enqueues work; it never calls business handlers.
+- The database uniqueness rule is `(task_key, idempotency_key)` across active tasks only. This prevents concurrent duplicate execution while allowing a later deliberate rerun after a terminal state.
+- The first live workload is `whatsapp.process_automation_rules`, controlled by `BACKGROUND_AUTOMATION_MODE=thread|db_queue`. The default remains `thread`; when `db_queue` is selected, enqueue failure is explicit and there is no daemon-thread fallback.
+- Embedding, classification, V2 pass 1/pass 2, recovery, metadata, maintenance, and report task keys are registered. Only automation is enabled for the first migration. Registered but unmigrated task keys reject execution explicitly.
+- Admin pages and `GET /api/task-queue/overview/` expose queue configuration, workers, task statuses, schedules, pending age, and completed-task runtime summaries.
+
+Production first rollout services:
+
+```text
+chatlens-whatsapp-worker
+chatlens-task-worker-automation
+chatlens-task-scheduler
+```
+
+For local development the dispatcher runs inside the WhatsApp worker by default. Production can run it as the dedicated `npm run start:dispatcher` service by setting `INGESTION_DISPATCHER_ENABLED=false` on the WhatsApp worker; both processes safely share the SQLite buffer.
+
+## Local Operations Monitor
+
+`python manage.py run_task_operations_ui` opens a local Python/Tkinter Task Operations Monitor outside IIS. It reads PostgreSQL directly and shows queue counts, worker heartbeats, schedules, task feedback, errors, tracebacks, and chronological task events.
+
+Interactive `run_background_tasks` and `run_task_scheduler` commands launch one shared monitor automatically. Pass `--no-ui` when those commands are installed as Windows Services because Windows Service sessions cannot display a desktop window.
 
 ---
 
@@ -481,4 +517,3 @@ Recommended answer:
 - initial backend: database
 - default dev mode: current raw threads until explicitly switched
 - production host: Windows Service via NSSM or WinSW
-

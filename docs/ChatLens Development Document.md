@@ -1335,6 +1335,12 @@ Root cause and proposed fix (not yet implemented, pending review) for all of the
 - ERP product master integration / two-way sync
 - Cross-account analytics rollups
 
+### Phase 23 - Durable Task Queue, Scheduler, and Ingestion Buffer (implemented core, staged migration)
+- Added independent durability layers: Node/Baileys now persists `IngestionEvent` records in a local SQLite Ingestion Buffer before Django delivery; Django owns business work through PostgreSQL `BackgroundTask` records. The buffer protects only events that reach the Node process, not WhatsApp/Baileys events never emitted locally.
+- Added Task Registry, Queue Router, Task Worker, Task Executor, Task Scheduler, append-only Task Event Log, queue definitions, worker registry, retries/backoff, task/worker heartbeats, `FOR UPDATE SKIP LOCKED` claiming, and retry-safe stale-lock recovery. IIS remains HTTP-only; management commands run workers and the scheduler outside IIS.
+- Implemented first staged migration: `whatsapp.process_automation_rules` can use `BACKGROUND_AUTOMATION_MODE=db_queue` with no daemon-thread fallback. Existing automation rule selection, AI parsing, capture, review/test/auto behavior, and sale-price updates are unchanged.
+- Registered future durable task contracts for embeddings, V1/V2 classification, V2 pass 2, LID recovery, metadata work, maintenance, and reports. Those workloads remain on their existing execution modes until migrated deliberately.
+
 ### Phase 22 — Message Preservation & Outbound LID Hardening (complete)
 - New `whatsapp_unresolved_message` table (§6.7.3, migration `0022_unresolved_message`) — a chat-level LID that can't be resolved no longer means the message is discarded; it's preserved with full content and automatically recovered once the mapping becomes known.
 - Third LID resolution source: a persisted single-LID Django lookup (§13, §10) closes the gap that used to leave outbound self-echoes dependent solely on a volatile in-memory cache.

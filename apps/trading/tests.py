@@ -2,7 +2,7 @@ from unittest.mock import patch
 from datetime import timedelta
 
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.tenancy.models import CommunicationAccount, Company, ConnectionProvider
@@ -122,6 +122,20 @@ class AutomatedPriceCapturePersistenceTests(TestCase):
         self.assertIn('inventory write failed', capture.error)
         self.assertIsNone(capture.applied_at)
         self.assertEqual(self.rule.trigger_count, 1)
+
+    @override_settings(BACKGROUND_AUTOMATION_MODE='db_queue')
+    @patch('apps.queue_management.services.enqueue_task')
+    @patch('apps.whatsapp_bridge.services.ingestion_service.threading.Thread')
+    def test_db_queue_mode_enqueues_automation_without_thread_fallback(self, thread, enqueue):
+        from apps.whatsapp_bridge.services.ingestion_service import _process_automation_in_background
+
+        message = self._message(provider_message_id='queue-automation')
+        _process_automation_in_background(message.pk)
+
+        enqueue.assert_called_once()
+        self.assertEqual(enqueue.call_args.kwargs['task_key'], 'whatsapp.process_automation_rules')
+        self.assertEqual(enqueue.call_args.kwargs['payload'], {'version': 1, 'message_id': message.pk})
+        thread.assert_not_called()
 
 
 class V2ClassificationRecoveryTests(TestCase):
