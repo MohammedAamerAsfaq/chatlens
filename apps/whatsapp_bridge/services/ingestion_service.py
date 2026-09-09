@@ -191,6 +191,9 @@ def _log_ai_parsing_and_classify(message) -> None:
         },
     )
     if not reason:
+        from apps.trading.services.classification_dispatch import enqueue_classification
+        if enqueue_classification(message):
+            return
         classify_message(message)
     return
 

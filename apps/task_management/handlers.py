@@ -34,6 +34,17 @@ def classify_message_v1(payload, context):
     return {'message_id': message.pk, 'classified': True}
 
 
+@task_handler(key='trading.classify_message', default_queue='ai', payload_validator=validate_versioned_message_payload)
+def classify_message_task(payload, context):
+    """Run the existing classification flow unchanged in a durable worker."""
+    from apps.whatsapp_bridge.models import WhatsAppMessage
+    from apps.trading.services.classification_service import classify_message
+
+    message = WhatsAppMessage.objects.select_related('account', 'chat', 'contact').get(pk=payload['message_id'])
+    classify_message(message)
+    return {'message_id': message.pk, 'classified': True}
+
+
 @task_handler(key='trading.classify_message_v2_pass1', default_queue='ai', payload_validator=validate_versioned_message_payload)
 def classify_message_v2_pass1(payload, context):
     return _not_migrated(payload, context)
