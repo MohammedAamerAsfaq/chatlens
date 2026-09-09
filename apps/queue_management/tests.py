@@ -89,6 +89,17 @@ class DurableTaskQueueTests(TestCase):
             worker.stop()
         self.assertEqual(len(task_ids), 2)
 
+    def test_start_supersedes_prior_worker_for_same_queue(self):
+        first = TaskWorker(['default'], worker_id='first-worker')
+        first.start()
+        second = TaskWorker(['default'], worker_id='second-worker')
+        second.start()
+        first._worker.refresh_from_db()
+        self.assertEqual(first._worker.status, 'stopped')
+        with self.assertRaises(Exception):
+            first.run_once()
+        second.stop()
+
     def test_handler_failure_schedules_retry_then_final_failure(self):
         task = enqueue_task(task_key='tests.failure', payload={'version': 1}, idempotency_key='failure', max_attempts=2)
         worker = TaskWorker(['default'], worker_id='failing-worker')

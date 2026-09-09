@@ -27,6 +27,10 @@ class TaskDeadlineExceeded(TimeoutError):
     pass
 
 
+class WorkerSuperseded(RuntimeError):
+    pass
+
+
 def run_ai_call_with_deadline(callable_func):
     """Limit AI waiting without allowing a timed-out handler to apply late data."""
     deadline = task_deadline.get()
@@ -303,6 +307,16 @@ class TaskWorker:
             thread_name_prefix='chatlens-task',
         )
         now = timezone.now()
+        # One worker owns a queue set at a time. Older registrations are retired
+        # before this worker announces itself, so the operations monitor is not
+        # left showing abandoned worker instances as running.
+        for prior in BackgroundWorker.objects.filter(status=BackgroundWorker.STATUS_RUNNING).exclude(worker_id=self.worker_id):
+            if set(prior.queue_names or ()) & set(self.queue_names):
+                BackgroundWorker.objects.filter(pk=prior.pk).update(
+                    status=BackgroundWorker.STATUS_STOPPED,
+                    stopped_at=now,
+                    last_heartbeat_at=now,
+                )
         self._worker, _ = BackgroundWorker.objects.update_or_create(
             worker_id=self.worker_id,
             defaults={'hostname': socket.gethostname(), 'process_id': __import__('os').getpid(), 'queue_names': self.queue_names,
@@ -312,7 +326,12 @@ class TaskWorker:
         )
 
     def heartbeat(self):
-        BackgroundWorker.objects.filter(worker_id=self.worker_id).update(last_heartbeat_at=timezone.now(), status=BackgroundWorker.STATUS_RUNNING)
+        updated = BackgroundWorker.objects.filter(
+            worker_id=self.worker_id,
+            status=BackgroundWorker.STATUS_RUNNING,
+        ).update(last_heartbeat_at=timezone.now())
+        if not updated:
+            raise WorkerSuperseded(f'Worker {self.worker_id} was superseded by a newer worker.')
 
     def stop(self, wait=True):
         if self._executor is not None:
