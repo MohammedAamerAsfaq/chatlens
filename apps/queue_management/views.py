@@ -83,7 +83,7 @@ def queue_settings(request):
             {
                 'name': queue.name, 'display_name': queue.display_name,
                 'max_concurrency': queue.max_concurrency,
-                'task_timeout_minutes': queue.task_timeout_seconds / 60,
+                'task_timeout_seconds': queue.task_timeout_seconds,
             }
             for queue in QueueDefinition.objects.all()
         ], 'runtime': {
@@ -103,13 +103,13 @@ def queue_settings(request):
         try:
             queue = QueueDefinition.objects.get(name=item['name'])
             concurrency = int(item['max_concurrency'])
-            timeout_minutes = int(item['task_timeout_minutes'])
+            timeout_seconds = int(item['task_timeout_seconds'])
         except (KeyError, TypeError, ValueError, QueueDefinition.DoesNotExist):
             return Response({'detail': 'Each queue needs a valid name, concurrency, and timeout.'}, status=400)
-        if not 1 <= concurrency <= 64 or not 1 <= timeout_minutes <= 120:
-            return Response({'detail': 'Concurrency must be 1-64 and timeout must be 1-120 minutes.'}, status=400)
+        if not 1 <= concurrency <= 64 or not 30 <= timeout_seconds <= 7200:
+            return Response({'detail': 'Concurrency must be 1-64 and timeout must be 30-7200 seconds.'}, status=400)
         queue.max_concurrency = concurrency
-        queue.task_timeout_seconds = timeout_minutes * 60
+        queue.task_timeout_seconds = timeout_seconds
         queue.save(update_fields=['max_concurrency', 'task_timeout_seconds', 'updated_at'])
     runtime_data = request.data.get('runtime')
     if runtime_data is not None:

@@ -22,6 +22,16 @@ def _failing_handler(payload, context):
     raise RuntimeError('planned failure')
 
 
+_blocking_started = threading.Event()
+_blocking_release = threading.Event()
+
+
+def _blocking_handler(payload, context):
+    _blocking_started.set()
+    _blocking_release.wait(timeout=5)
+    return {'completed': True}
+
+
 def _register_test_handler(key, handler, retry_safe=True):
     try:
         return task_registry.get(key)
@@ -38,6 +48,7 @@ class DurableTaskQueueTests(TestCase):
     def setUp(self):
         _register_test_handler('tests.success', _test_handler)
         _register_test_handler('tests.failure', _failing_handler)
+        _register_test_handler('tests.timeout', _blocking_handler)
         _register_test_handler('tests.unsafe', _test_handler, retry_safe=False)
         QueueDefinition.objects.filter(name='default').update(retry_backoff_base_seconds=1, retry_backoff_max_seconds=1)
 
@@ -113,6 +124,33 @@ class DurableTaskQueueTests(TestCase):
         self.assertEqual(task.status, BackgroundTask.STATUS_FAILED)
         self.assertEqual(task.attempts, 2)
         self.assertEqual(task.events.filter(event_type=BackgroundTaskEvent.EVENT_RETRY_SCHEDULED).count(), 1)
+
+    def test_queue_timeout_retries_and_releases_worker_slot(self):
+        QueueDefinition.objects.filter(name='default').update(
+            task_timeout_seconds=1,
+            retry_backoff_base_seconds=1,
+            retry_backoff_max_seconds=1,
+        )
+        _blocking_started.clear()
+        _blocking_release.clear()
+        task = enqueue_task(
+            task_key='tests.timeout',
+            payload={'version': 1},
+            idempotency_key='timeout',
+            max_attempts=2,
+        )
+        worker = TaskWorker(['default'], worker_id='timeout-worker')
+        worker.start()
+        try:
+            self.assertEqual(worker.run_once(), 1)
+        finally:
+            _blocking_release.set()
+            worker.stop()
+
+        self.assertTrue(_blocking_started.is_set())
+        task.refresh_from_db()
+        self.assertEqual(task.status, BackgroundTask.STATUS_RETRYING)
+        self.assertIn('TaskDeadlineExceeded', task.last_error)
 
     def test_stale_retry_safe_lock_is_released(self):
         task = enqueue_task(task_key='tests.success', payload={'version': 1, 'value': 'x'}, idempotency_key='stale')

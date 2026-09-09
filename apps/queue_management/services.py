@@ -4,7 +4,7 @@ import time
 import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from contextvars import ContextVar
+from contextvars import ContextVar, copy_context
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -55,6 +55,32 @@ def run_ai_call_with_deadline(callable_func):
     if 'error' in result:
         raise result['error']
     return result['value']
+
+
+def run_task_handler_with_deadline(callable_func, timeout_seconds):
+    """Return a handler result or fail the task when its queue deadline expires.
+
+    Python cannot forcefully stop a thread. A timed-out handler is therefore left as
+    a daemon while the durable task is failed/retried and its worker slot is released.
+    Handlers must remain idempotent because late external work can still finish.
+    """
+    done, result = threading.Event(), {}
+    context = copy_context()
+
+    def run():
+        try:
+            result['value'] = context.run(callable_func)
+        except BaseException as exc:
+            result['error'] = exc
+        finally:
+            done.set()
+
+    threading.Thread(target=run, daemon=True, name='chatlens-task-handler').start()
+    if not done.wait(timeout_seconds):
+        raise TaskDeadlineExceeded(f'Task handler exceeded {timeout_seconds} seconds.')
+    if 'error' in result:
+        raise result['error']
+    return result.get('value')
 
 
 def _ensure_task_handlers_registered():
@@ -239,7 +265,11 @@ class TaskExecutor:
         try:
             definition = task_registry.get(task.task_key, task.handler_version)
             definition.payload_validator(task.payload)
-            result = definition.handler(task.payload, TaskExecutionContext(task.pk, self.worker_id, task.correlation_id))
+            context = TaskExecutionContext(task.pk, self.worker_id, task.correlation_id)
+            result = run_task_handler_with_deadline(
+                lambda: definition.handler(task.payload, context),
+                queue.task_timeout_seconds,
+            )
             if result is None:
                 result = {}
             if not isinstance(result, dict):

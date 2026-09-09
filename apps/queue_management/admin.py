@@ -5,8 +5,8 @@ from .models import BackgroundWorker, QueueDefinition
 
 @admin.register(QueueDefinition)
 class QueueDefinitionAdmin(admin.ModelAdmin):
-    list_display = ['name', 'is_enabled', 'is_paused', 'max_concurrency', 'poll_interval_seconds', 'lock_timeout_seconds']
-    list_editable = ['is_enabled', 'is_paused', 'max_concurrency', 'poll_interval_seconds', 'lock_timeout_seconds']
+    list_display = ['name', 'is_enabled', 'is_paused', 'max_concurrency', 'task_timeout_seconds', 'poll_interval_seconds', 'lock_timeout_seconds']
+    list_editable = ['is_enabled', 'is_paused', 'max_concurrency', 'task_timeout_seconds', 'poll_interval_seconds', 'lock_timeout_seconds']
 
 
 @admin.register(BackgroundWorker)
