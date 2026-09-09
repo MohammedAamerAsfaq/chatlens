@@ -207,12 +207,21 @@ def _log_ai_parsing_and_classify(message) -> None:
 
 
 def _embed_in_background(message_ids: list, sync_log_id: int = None):
-    """Fire-and-forget embedding in a daemon thread — never blocks the HTTP response.
+    """Dispatch embedding without blocking ingestion.
 
-    After embedding completes, patches the SyncLog entry (if sync_log_id provided)
-    with { embedded: N, embed_errors: N } so the activity log reflects the result.
+    DB queue mode creates one durable task per message. Thread mode retains the
+    legacy batch execution and SyncLog feedback behavior.
     """
     if not message_ids:
+        return
+
+    try:
+        from apps.message_intelligence.services.embedding_dispatch import enqueue_embeddings
+        if enqueue_embeddings('message', message_ids):
+            # Each message has its own task so a transient provider error retries only it.
+            return
+    except Exception:
+        logger.exception('Embedding task enqueue failed | message_ids=%s', message_ids)
         return
 
     def _run():
@@ -324,10 +333,10 @@ def _process_automation_in_background(message_id: int):
 
 
 def _process_message_in_background(message_id: int, sync_log_id: int = None):
-    """Embed then classify a single live message in one background thread.
+    """Classify a live message while dispatching embedding independently.
 
-    Keeps embed + classify in the same thread so classification runs immediately
-    after the embedding is stored (needed for Layer-2 similarity dedup).
+    Thread mode retains embed-then-classify ordering. DB queue mode delegates
+    embedding to the durable worker so it cannot delay classification or ingestion.
     """
     def _run():
         embedded = errors = 0
@@ -344,10 +353,15 @@ def _process_message_in_background(message_id: int, sync_log_id: int = None):
 
             if message.message_text:
                 stage = 'embedding'
-                from apps.message_intelligence.services.embedding_service import embed_message
                 try:
-                    ok = embed_message(message_id)
-                    embedded, errors = (1, 0) if ok else (0, 1)
+                    from apps.message_intelligence.services.embedding_dispatch import enqueue_embedding
+                    if enqueue_embedding('message', message_id):
+                        # Classification remains independent while the embedding worker runs.
+                        embedded = 0
+                    else:
+                        from apps.message_intelligence.services.embedding_service import embed_message
+                        ok = embed_message(message_id)
+                        embedded, errors = (1, 0) if ok else (0, 1)
                 except Exception:
                     # A transient embedding-provider failure (rate limit, timeout, network
                     # blip) must never take classification down with it — they're

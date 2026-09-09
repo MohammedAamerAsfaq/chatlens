@@ -116,6 +116,14 @@ def _embed_product_in_background(product_id: int):
     here (provider hiccup) is logged and otherwise invisible, never surfaced to the user
     editing the product, since the classification prompt still works off plain text
     regardless of whether this embedding exists yet."""
+    try:
+        from apps.message_intelligence.services.embedding_dispatch import enqueue_embedding
+        if enqueue_embedding('product', product_id):
+            return
+    except Exception:
+        logger.exception('Product embedding task enqueue failed | product_id=%s', product_id)
+        return
+
     def _run():
         try:
             from apps.message_intelligence.services.embedding_service import embed_product
@@ -134,6 +142,14 @@ def _embed_products_batch_in_background(product_ids: list):
     if not product_ids:
         return
 
+    try:
+        from apps.message_intelligence.services.embedding_dispatch import enqueue_embeddings
+        if enqueue_embeddings('product', product_ids):
+            return
+    except Exception:
+        logger.exception('Product embedding tasks enqueue failed | product_ids=%s', product_ids)
+        return
+
     def _run():
         try:
             from apps.message_intelligence.services.embedding_service import embed_products_batch
@@ -148,6 +164,14 @@ def _embed_products_batch_in_background(product_ids: list):
 
 def _embed_alias_in_background(alias_id: int):
     """Same pattern as _embed_product_in_background, for a single new/edited alias."""
+    try:
+        from apps.message_intelligence.services.embedding_dispatch import enqueue_embedding
+        if enqueue_embedding('product_alias', alias_id):
+            return
+    except Exception:
+        logger.exception('Alias embedding task enqueue failed | alias_id=%s', alias_id)
+        return
+
     def _run():
         try:
             from apps.message_intelligence.services.embedding_service import embed_product_alias
@@ -163,6 +187,14 @@ def _embed_alias_in_background(alias_id: int):
 def _embed_aliases_batch_in_background(alias_ids: list):
     """Same as _embed_alias_in_background but for a batch (bulk import)."""
     if not alias_ids:
+        return
+
+    try:
+        from apps.message_intelligence.services.embedding_dispatch import enqueue_embeddings
+        if enqueue_embeddings('product_alias', alias_ids):
+            return
+    except Exception:
+        logger.exception('Alias embedding tasks enqueue failed | alias_ids=%s', alias_ids)
         return
 
     def _run():

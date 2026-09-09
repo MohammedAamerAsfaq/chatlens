@@ -59,6 +59,14 @@ def validate_versioned_message_payload(payload):
         raise UnsupportedTaskPayload('message_id must be a positive integer.')
 
 
+def validate_embedding_payload(payload):
+    """Validate a versioned payload that identifies one embedding source record."""
+    if not isinstance(payload, dict) or payload.get('version') != 1:
+        raise UnsupportedTaskPayload('Payload version 1 is required.')
+    if not isinstance(payload.get('object_id'), int) or payload['object_id'] <= 0:
+        raise UnsupportedTaskPayload('object_id must be a positive integer.')
+
+
 def validate_automation_payload(payload):
     validate_versioned_message_payload(payload)
     # Tasks produced before rule-aware enqueueing have no rule_id. Keep them

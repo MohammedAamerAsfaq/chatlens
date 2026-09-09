@@ -52,6 +52,17 @@ def _embed_unmapped_inquiry_products_in_background(inquiry_product_ids: list[int
     if not inquiry_product_ids:
         return
 
+    try:
+        from apps.message_intelligence.services.embedding_dispatch import enqueue_embeddings
+        if enqueue_embeddings('inquiry_product', inquiry_product_ids):
+            return
+    except Exception:
+        logger.exception(
+            'inquiry_product_service | embedding task enqueue failed | inquiry_product_ids=%s',
+            inquiry_product_ids,
+        )
+        return
+
     def _run():
         from django.db import connection
         try:

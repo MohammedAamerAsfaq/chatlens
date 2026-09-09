@@ -29,9 +29,11 @@ class NonInventoryResolutionError(Exception):
 
 
 def _embed_non_inventory_product_after_commit(non_inventory_product_id: int) -> None:
-    from apps.message_intelligence.services.embedding_service import embed_non_inventory_product
-
     try:
+        from apps.message_intelligence.services.embedding_dispatch import enqueue_embedding
+        if enqueue_embedding('non_inventory_product', non_inventory_product_id):
+            return
+        from apps.message_intelligence.services.embedding_service import embed_non_inventory_product
         embed_non_inventory_product(non_inventory_product_id)
     except Exception:
         logger.exception(

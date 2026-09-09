@@ -1,4 +1,4 @@
-"""Registered task handlers. Only automation is enabled for live queue execution now."""
+"""Registered task handlers for non-embedding background domains."""
 from .registry import (
     task_handler, validate_any_v1_payload, validate_recovery_payload,
     validate_automation_payload, validate_versioned_message_payload,
@@ -23,12 +23,6 @@ def process_automation_rules(payload, context):
     else:
         processed = process_automation_rule(message, rule_id)
     return {'message_id': message.pk, 'rule_id': rule_id, 'automation_processed': processed}
-
-
-@task_handler(key='whatsapp.embed_message', default_queue='embeddings', payload_validator=validate_versioned_message_payload)
-def embed_message(payload, context):
-    from apps.message_intelligence.services.embedding_service import embed_message as execute_embedding
-    return {'message_id': payload['message_id'], 'embedded': bool(execute_embedding(payload['message_id']))}
 
 
 @task_handler(key='trading.classify_message_v1', default_queue='ai', payload_validator=validate_versioned_message_payload)
