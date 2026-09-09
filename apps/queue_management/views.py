@@ -2,11 +2,12 @@ from django.db.models import Count, Min, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
 from apps.task_management.models import BackgroundTask, BackgroundTaskSchedule
 from .models import BackgroundWorker, QueueDefinition
+from .runtime_settings import get_task_runtime_settings
 
 
 def _visible_tasks(user):
@@ -71,6 +72,60 @@ def queue_overview(request):
         'workers': list(BackgroundWorker.objects.values('worker_id', 'status', 'hostname', 'process_id', 'queue_names', 'started_at', 'last_heartbeat_at')),
         'schedules': list(visible_schedules.values('id', 'name', 'task_key', 'queue_name', 'is_active', 'next_run_at', 'last_enqueued_at', 'last_error')),
     })
+
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAdminUser])
+def queue_settings(request):
+    def data():
+        runtime = get_task_runtime_settings()
+        return {'queues': [
+            {
+                'name': queue.name, 'display_name': queue.display_name,
+                'max_concurrency': queue.max_concurrency,
+                'task_timeout_minutes': queue.task_timeout_seconds / 60,
+            }
+            for queue in QueueDefinition.objects.all()
+        ], 'runtime': {
+            'automation_mode': runtime.automation_mode, 'embedding_mode': runtime.embedding_mode,
+            'classification_mode': runtime.classification_mode, 'recovery_mode': runtime.recovery_mode,
+            'worker_heartbeat_seconds': runtime.worker_heartbeat_seconds,
+            'scheduler_interval_seconds': runtime.scheduler_interval_seconds,
+        }}
+
+    if request.method == 'GET':
+        return Response(data())
+
+    updates = request.data.get('queues')
+    if not isinstance(updates, list):
+        return Response({'detail': 'queues must be a list.'}, status=400)
+    for item in updates:
+        try:
+            queue = QueueDefinition.objects.get(name=item['name'])
+            concurrency = int(item['max_concurrency'])
+            timeout_minutes = int(item['task_timeout_minutes'])
+        except (KeyError, TypeError, ValueError, QueueDefinition.DoesNotExist):
+            return Response({'detail': 'Each queue needs a valid name, concurrency, and timeout.'}, status=400)
+        if not 1 <= concurrency <= 64 or not 1 <= timeout_minutes <= 120:
+            return Response({'detail': 'Concurrency must be 1-64 and timeout must be 1-120 minutes.'}, status=400)
+        queue.max_concurrency = concurrency
+        queue.task_timeout_seconds = timeout_minutes * 60
+        queue.save(update_fields=['max_concurrency', 'task_timeout_seconds', 'updated_at'])
+    runtime_data = request.data.get('runtime')
+    if runtime_data is not None:
+        runtime = get_task_runtime_settings()
+        for field in ('automation_mode', 'embedding_mode', 'classification_mode', 'recovery_mode'):
+            value = runtime_data.get(field)
+            if value not in {'thread', 'db_queue'}:
+                return Response({'detail': f'{field} must be thread or db_queue.'}, status=400)
+            setattr(runtime, field, value)
+        for field in ('worker_heartbeat_seconds', 'scheduler_interval_seconds'):
+            value = int(runtime_data.get(field, 0))
+            if not 1 <= value <= 300:
+                return Response({'detail': f'{field} must be 1-300 seconds.'}, status=400)
+            setattr(runtime, field, value)
+        runtime.save()
+    return Response(data())
 
 
 @api_view(['GET'])

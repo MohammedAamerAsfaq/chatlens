@@ -1,4 +1,6 @@
 from datetime import timedelta
+import threading
+from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 from django.contrib.auth.models import User
@@ -57,6 +59,35 @@ class DurableTaskQueueTests(TestCase):
             list(task.events.values_list('event_type', flat=True)),
             [BackgroundTaskEvent.EVENT_ENQUEUED, BackgroundTaskEvent.EVENT_CLAIMED, BackgroundTaskEvent.EVENT_STARTED, BackgroundTaskEvent.EVENT_SUCCEEDED],
         )
+
+    def test_async_worker_starts_multiple_tasks_without_waiting_for_predecessor(self):
+        QueueDefinition.objects.filter(name='default').update(max_concurrency=2)
+        enqueue_task(task_key='tests.success', payload={'version': 1, 'value': 'first'}, idempotency_key='parallel-first')
+        enqueue_task(task_key='tests.success', payload={'version': 1, 'value': 'second'}, idempotency_key='parallel-second')
+        started = threading.Event()
+        release = threading.Event()
+        task_ids = []
+
+        def slow_execute(*args):
+            task_id = args[-1]
+            task_ids.append(task_id)
+            if len(task_ids) == 2:
+                started.set()
+            release.wait(timeout=2)
+            return True
+
+        worker = TaskWorker(['default'], worker_id='parallel-worker')
+        worker.start()
+        try:
+            with patch('apps.queue_management.services.TaskExecutor.execute', side_effect=slow_execute):
+                self.assertEqual(worker.run_once(asynchronous=True), 2)
+                self.assertTrue(started.wait(timeout=1), 'second task did not start while first task was active')
+                release.set()
+                worker.wait_for_tasks()
+        finally:
+            release.set()
+            worker.stop()
+        self.assertEqual(len(task_ids), 2)
 
     def test_handler_failure_schedules_retry_then_final_failure(self):
         task = enqueue_task(task_key='tests.failure', payload={'version': 1}, idempotency_key='failure', max_attempts=2)

@@ -130,6 +130,10 @@ class AutomatedPriceCapturePersistenceTests(TestCase):
         from apps.whatsapp_bridge.services.ingestion_service import _process_automation_in_background
 
         message = self._message(provider_message_id='queue-automation')
+        from apps.queue_management.runtime_settings import get_task_runtime_settings
+        runtime = get_task_runtime_settings()
+        runtime.automation_mode = 'db_queue'
+        runtime.save(update_fields=['automation_mode', 'updated_at'])
         AutomationRuleSource.objects.create(
             rule=self.rule,
             source_type=AutomationRuleSource.SOURCE_CONTACT,

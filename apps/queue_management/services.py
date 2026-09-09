@@ -3,10 +3,12 @@ import threading
 import time
 import traceback
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import timedelta
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, close_old_connections, transaction
 from django.utils import timezone
 
 from apps.task_management.models import BackgroundTask, BackgroundTaskEvent, BackgroundTaskSchedule
@@ -16,6 +18,39 @@ from .models import BackgroundWorker, QueueDefinition
 
 class QueueConfigurationError(RuntimeError):
     pass
+
+
+task_deadline = ContextVar('task_deadline', default=None)
+
+
+class TaskDeadlineExceeded(TimeoutError):
+    pass
+
+
+def run_ai_call_with_deadline(callable_func):
+    """Limit AI waiting without allowing a timed-out handler to apply late data."""
+    deadline = task_deadline.get()
+    if deadline is None:
+        return callable_func()
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TaskDeadlineExceeded('Task AI deadline exceeded.')
+    done, result = threading.Event(), {}
+
+    def run():
+        try:
+            result['value'] = callable_func()
+        except BaseException as exc:
+            result['error'] = exc
+        finally:
+            done.set()
+
+    threading.Thread(target=run, daemon=True, name='chatlens-ai-call').start()
+    if not done.wait(remaining):
+        raise TaskDeadlineExceeded('Task AI deadline exceeded.')
+    if 'error' in result:
+        raise result['error']
+    return result['value']
 
 
 def _ensure_task_handlers_registered():
@@ -195,6 +230,7 @@ class TaskExecutor:
             args=(task.pk, heartbeat_stop, max(1, queue.lock_timeout_seconds // 3)), daemon=True,
         )
         heartbeat_thread.start()
+        deadline_token = task_deadline.set(time.monotonic() + queue.task_timeout_seconds)
         try:
             definition = task_registry.get(task.task_key, task.handler_version)
             definition.payload_validator(task.payload)
@@ -207,6 +243,7 @@ class TaskExecutor:
             self._fail(task.pk, exc)
             return False
         finally:
+            task_deadline.reset(deadline_token)
             heartbeat_stop.set()
             heartbeat_thread.join(timeout=1)
 
@@ -246,36 +283,87 @@ class TaskExecutor:
 
 
 class TaskWorker:
-    def __init__(self, queue_names, worker_id=None, version='1'):
+    def __init__(self, queue_names, worker_id=None, version='1', concurrency=None):
         self.queue_names = queue_names
         self.worker_id = worker_id or f'{socket.gethostname()}:{uuid.uuid4().hex}'
         self.version = version
+        self.concurrency = concurrency
         self._worker = None
+        self._executor = None
+        self._futures = {}
 
     def start(self):
+        configured_concurrency = sum(
+            QueueDefinition.objects.filter(name__in=self.queue_names, is_enabled=True)
+            .values_list('max_concurrency', flat=True)
+        )
+        self.concurrency = max(1, self.concurrency or configured_concurrency)
+        self._executor = ThreadPoolExecutor(
+            max_workers=self.concurrency,
+            thread_name_prefix='chatlens-task',
+        )
         now = timezone.now()
         self._worker, _ = BackgroundWorker.objects.update_or_create(
             worker_id=self.worker_id,
             defaults={'hostname': socket.gethostname(), 'process_id': __import__('os').getpid(), 'queue_names': self.queue_names,
                       'status': BackgroundWorker.STATUS_RUNNING, 'version': self.version, 'started_at': now,
+                      'metadata': {'concurrency': self.concurrency},
                       'last_heartbeat_at': now, 'stopped_at': None},
         )
 
     def heartbeat(self):
         BackgroundWorker.objects.filter(worker_id=self.worker_id).update(last_heartbeat_at=timezone.now(), status=BackgroundWorker.STATUS_RUNNING)
 
-    def stop(self):
+    def stop(self, wait=True):
+        if self._executor is not None:
+            self._executor.shutdown(wait=wait)
+            self._executor = None
         BackgroundWorker.objects.filter(worker_id=self.worker_id).update(status=BackgroundWorker.STATUS_STOPPED, stopped_at=timezone.now(), last_heartbeat_at=timezone.now())
 
-    def run_once(self, limit=1):
+    def _reap_completed_futures(self):
+        for future in list(self._futures):
+            if future.done():
+                # Re-raise unexpected executor errors in the worker process instead
+                # of silently losing a task outside TaskExecutor's failure handling.
+                future.result()
+                del self._futures[future]
+
+    def _active_for_queue(self, queue_name):
+        return sum(1 for queue in self._futures.values() if queue == queue_name)
+
+    def wait_for_tasks(self):
+        for future in list(self._futures):
+            future.result()
+        self._reap_completed_futures()
+
+    def _execute_in_thread(self, task_id):
+        close_old_connections()
+        try:
+            return TaskExecutor(self.worker_id).execute(task_id)
+        finally:
+            close_old_connections()
+
+    def run_once(self, limit=None, asynchronous=False):
         self.heartbeat()
+        self._reap_completed_futures()
         total = 0
         executor = TaskExecutor(self.worker_id)
         for queue_name in self.queue_names:
             release_stale_locks(queue_name)
-            tasks = claim_tasks(queue_name, self.worker_id, limit=limit)
+            queue = get_queue(queue_name)
+            available = queue.max_concurrency - self._active_for_queue(queue_name)
+            if asynchronous:
+                available = min(available, self.concurrency - len(self._futures))
+            if available <= 0:
+                continue
+            claim_limit = min(limit or queue.max_concurrency, available)
+            tasks = claim_tasks(queue_name, self.worker_id, limit=claim_limit)
             for task in tasks:
-                executor.execute(task.pk)
+                if asynchronous:
+                    future = self._executor.submit(self._execute_in_thread, task.pk)
+                    self._futures[future] = queue_name
+                else:
+                    executor.execute(task.pk)
                 total += 1
         return total
 

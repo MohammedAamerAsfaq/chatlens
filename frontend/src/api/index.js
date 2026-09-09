@@ -37,6 +37,8 @@ export const authApi = {
 
 export const taskQueueApi = {
   overview: () => http.get('/task-queue/overview/'),
+  settings: () => http.get('/task-queue/settings/'),
+  saveSettings: (data) => http.patch('/task-queue/settings/', data),
   tasks: (params = {}) => http.get('/task-queue/tasks/', { params }),
   task: (id) => http.get(`/task-queue/tasks/${id}/`),
 }

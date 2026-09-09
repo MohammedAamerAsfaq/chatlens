@@ -1,7 +1,6 @@
 import signal
 import time
 
-from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from apps.queue_management.services import enqueue_due_schedules
@@ -11,7 +10,7 @@ class Command(BaseCommand):
     help = 'Enqueue due durable task schedules. This command never executes task handlers.'
 
     def add_arguments(self, parser):
-        parser.add_argument('--interval', type=float, default=getattr(settings, 'BACKGROUND_TASK_SCHEDULER_INTERVAL_SECONDS', 5))
+        parser.add_argument('--interval', type=float, default=None)
         parser.add_argument('--once', action='store_true')
         parser.add_argument('--no-ui', action='store_true', help='Do not launch the local desktop Task Operations Monitor.')
 
@@ -33,4 +32,6 @@ class Command(BaseCommand):
                 self.stdout.write(str(result))
             if options['once']:
                 break
-            time.sleep(max(0.1, options['interval']))
+            from apps.queue_management.runtime_settings import get_task_runtime_settings
+            interval = options['interval'] or get_task_runtime_settings().scheduler_interval_seconds
+            time.sleep(max(0.1, interval))

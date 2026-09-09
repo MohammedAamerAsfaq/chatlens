@@ -276,7 +276,8 @@ def _process_automation_in_background(message_id: int):
     if rule is None:
         return
 
-    if getattr(settings, 'BACKGROUND_AUTOMATION_MODE', 'thread') == 'db_queue':
+    from apps.queue_management.runtime_settings import get_task_runtime_settings
+    if get_task_runtime_settings().automation_mode == 'db_queue':
         try:
             from apps.queue_management.services import enqueue_task
             from apps.tenancy.services.access import company_for_message

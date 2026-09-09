@@ -31,7 +31,10 @@ def call_agent(purpose: str, messages: list, wa_message_id=None, **kwargs) -> st
     error    = ''
 
     try:
-        response = ai_manager.agent(messages, config=agent_config, **kwargs)
+        from apps.queue_management.services import run_ai_call_with_deadline
+        response = run_ai_call_with_deadline(
+            lambda: ai_manager.agent(messages, config=agent_config, **kwargs)
+        )
         success  = True
         return response
     except Exception as exc:

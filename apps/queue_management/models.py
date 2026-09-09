@@ -7,6 +7,7 @@ class QueueDefinition(models.Model):
     is_enabled = models.BooleanField(default=True)
     is_paused = models.BooleanField(default=False)
     max_concurrency = models.PositiveIntegerField(default=1)
+    task_timeout_seconds = models.PositiveIntegerField(default=300)
     poll_interval_seconds = models.PositiveIntegerField(default=2)
     lock_timeout_seconds = models.PositiveIntegerField(default=300)
     default_max_attempts = models.PositiveIntegerField(default=3)
@@ -18,6 +19,20 @@ class QueueDefinition(models.Model):
     class Meta:
         db_table = 'queue_management_queue_definition'
         ordering = ['name']
+
+
+class TaskRuntimeSettings(models.Model):
+    """Single database-backed control plane for background execution modes."""
+    automation_mode = models.CharField(max_length=20, default='thread')
+    embedding_mode = models.CharField(max_length=20, default='thread')
+    classification_mode = models.CharField(max_length=20, default='thread')
+    recovery_mode = models.CharField(max_length=20, default='thread')
+    worker_heartbeat_seconds = models.PositiveIntegerField(default=15)
+    scheduler_interval_seconds = models.PositiveIntegerField(default=5)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'queue_management_task_runtime_settings'
 
 
 class BackgroundWorker(models.Model):
