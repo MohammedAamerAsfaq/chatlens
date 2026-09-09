@@ -24,6 +24,16 @@ class EmbeddingQueueDispatchTests(TestCase):
         self.assertEqual(enqueue.call_args.kwargs['payload'], {'version': 1, 'object_id': 42})
         self.assertEqual(enqueue.call_args.kwargs['idempotency_key'], 'embedding:message:42')
 
+    def test_message_lineage_overrides_default_embedding_correlation(self):
+        self.runtime.embedding_mode = 'db_queue'
+        self.runtime.save(update_fields=['embedding_mode', 'updated_at'])
+
+        with patch('apps.queue_management.services.enqueue_task') as enqueue:
+            from apps.message_intelligence.services.embedding_dispatch import enqueue_embedding
+            enqueue_embedding('message', 42, correlation_id='whatsapp-message:42')
+
+        self.assertEqual(enqueue.call_args.kwargs['correlation_id'], 'whatsapp-message:42')
+
     def test_thread_mode_does_not_create_task(self):
         self.runtime.embedding_mode = 'thread'
         self.runtime.save(update_fields=['embedding_mode', 'updated_at'])

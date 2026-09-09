@@ -20,7 +20,7 @@ def uses_embedding_queue() -> bool:
     return get_task_runtime_settings().embedding_mode == 'db_queue'
 
 
-def enqueue_embedding(kind: str, object_id: int, *, company=None) -> bool:
+def enqueue_embedding(kind: str, object_id: int, *, company=None, correlation_id=None) -> bool:
     """Create one idempotent embedding task when database queue mode is enabled.
 
     Returns False in thread mode so callers can retain their legacy in-process path.
@@ -39,17 +39,17 @@ def enqueue_embedding(kind: str, object_id: int, *, company=None) -> bool:
         task_key=task_key,
         payload={'version': 1, 'object_id': object_id},
         idempotency_key=f'embedding:{kind}:{object_id}',
-        correlation_id=f'embedding:{kind}:{object_id}',
+        correlation_id=correlation_id or f'embedding:{kind}:{object_id}',
         company=company,
     )
     logger.info('embedding task enqueued | kind=%s object_id=%s', kind, object_id)
     return True
 
 
-def enqueue_embeddings(kind: str, object_ids, *, company=None) -> bool:
+def enqueue_embeddings(kind: str, object_ids, *, company=None, correlation_id=None) -> bool:
     """Queue each record independently, allowing retries without replaying a batch."""
     if not uses_embedding_queue():
         return False
     for object_id in set(object_ids):
-        enqueue_embedding(kind, object_id, company=company)
+        enqueue_embedding(kind, object_id, company=company, correlation_id=correlation_id)
     return True

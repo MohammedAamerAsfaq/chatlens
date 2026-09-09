@@ -1864,13 +1864,6 @@ function clearFeedContact(type) {
   }
 }
 
-function isoDate(date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
 function isoDateTime(date) {
   return date.toISOString()
 }
@@ -1883,9 +1876,12 @@ function startOfWeek(date) {
 }
 
 function feedDateRangeParams(value) {
-  const today = new Date()
-  const start = new Date(today)
-  const end = new Date(today)
+  const now = new Date()
+  const todayStart = new Date(now)
+  todayStart.setHours(0, 0, 0, 0)
+  const start = new Date(todayStart)
+  const end = new Date(todayStart)
+  end.setDate(end.getDate() + 1)
   const rollingMinutes = {
     last_30_minutes: 30,
     last_hour: 60,
@@ -1894,30 +1890,32 @@ function feedDateRangeParams(value) {
   }
 
   if (rollingMinutes[value]) {
-    start.setTime(today.getTime() - rollingMinutes[value] * 60 * 1000)
-    return { date_from: isoDateTime(start), date_to: isoDateTime(end) }
+    start.setTime(now.getTime() - rollingMinutes[value] * 60 * 1000)
+    return { date_from: isoDateTime(start), date_to: isoDateTime(now) }
   }
 
   if (value === 'yesterday') {
-    start.setDate(today.getDate() - 1)
-    end.setDate(today.getDate() - 1)
+    start.setDate(start.getDate() - 1)
+    end.setTime(todayStart.getTime())
   } else if (value === 'this_week') {
-    const weekStart = startOfWeek(today)
+    const weekStart = startOfWeek(todayStart)
     start.setTime(weekStart.getTime())
   } else if (value === 'last_week') {
-    const weekStart = startOfWeek(today)
+    const weekStart = startOfWeek(todayStart)
     start.setTime(weekStart.getTime())
     start.setDate(start.getDate() - 7)
     end.setTime(start.getTime())
-    end.setDate(start.getDate() + 6)
   } else if (value === 'this_month') {
     start.setDate(1)
   } else if (value === 'last_month') {
-    start.setMonth(today.getMonth() - 1, 1)
-    end.setFullYear(start.getFullYear(), start.getMonth() + 1, 0)
+    start.setMonth(todayStart.getMonth() - 1, 1)
+    end.setTime(todayStart.getTime())
+    end.setDate(1)
   }
 
-  return { date_from: isoDate(start), date_to: isoDate(end) }
+  // ISO timestamps preserve the browser's local-day boundaries. Date-only values
+  // are interpreted as UTC by the API and hide inquiries created after Dubai midnight.
+  return { date_from: isoDateTime(start), date_to: isoDateTime(end) }
 }
 
 function feedParams(type) {

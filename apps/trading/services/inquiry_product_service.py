@@ -48,13 +48,18 @@ def _resolve_product(company, product_id):
     return Product.objects.filter(pk=product_id, company=company).first()
 
 
-def _embed_unmapped_inquiry_products_in_background(inquiry_product_ids: list[int]) -> None:
+def _embed_unmapped_inquiry_products_in_background(
+    inquiry_product_ids: list[int], *, source_message_id: int | None = None,
+) -> None:
     if not inquiry_product_ids:
         return
 
     try:
         from apps.message_intelligence.services.embedding_dispatch import enqueue_embeddings
-        if enqueue_embeddings('inquiry_product', inquiry_product_ids):
+        correlation_id = f'whatsapp-message:{source_message_id}' if source_message_id else None
+        if enqueue_embeddings(
+            'inquiry_product', inquiry_product_ids, correlation_id=correlation_id,
+        ):
             return
     except Exception:
         logger.exception(
@@ -243,7 +248,9 @@ def create_inquiry_products_for_message(inquiry, message, products, *, exact_mat
             message_id,
             created_or_updated,
         )
-    _embed_unmapped_inquiry_products_in_background(unmapped_embedding_ids)
+    _embed_unmapped_inquiry_products_in_background(
+        unmapped_embedding_ids, source_message_id=message_id,
+    )
     return created_or_updated
 
 

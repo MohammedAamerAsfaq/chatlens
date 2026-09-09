@@ -219,8 +219,15 @@ def _embed_in_background(message_ids: list, sync_log_id: int = None):
         return
 
     try:
-        from apps.message_intelligence.services.embedding_dispatch import enqueue_embeddings
-        if enqueue_embeddings('message', message_ids):
+        from apps.message_intelligence.services.embedding_dispatch import (
+            enqueue_embedding, uses_embedding_queue,
+        )
+        if uses_embedding_queue():
+            for message_id in set(message_ids):
+                enqueue_embedding(
+                    'message', message_id,
+                    correlation_id=f'whatsapp-message:{message_id}',
+                )
             # Each message has its own task so a transient provider error retries only it.
             return
     except Exception:
@@ -358,7 +365,10 @@ def _process_message_in_background(message_id: int, sync_log_id: int = None):
                 stage = 'embedding'
                 try:
                     from apps.message_intelligence.services.embedding_dispatch import enqueue_embedding
-                    if enqueue_embedding('message', message_id):
+                    if enqueue_embedding(
+                        'message', message_id,
+                        correlation_id=f'whatsapp-message:{message_id}',
+                    ):
                         # Classification remains independent while the embedding worker runs.
                         embedded = 0
                     else:

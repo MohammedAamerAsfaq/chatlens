@@ -69,7 +69,9 @@ def queue_overview(request):
         })
     return Response({
         'queues': queues,
-        'workers': list(BackgroundWorker.objects.values('worker_id', 'status', 'hostname', 'process_id', 'queue_names', 'started_at', 'last_heartbeat_at')),
+        'workers': list(BackgroundWorker.objects.filter(
+            status=BackgroundWorker.STATUS_RUNNING,
+        ).values('worker_id', 'status', 'hostname', 'process_id', 'queue_names', 'started_at', 'last_heartbeat_at')),
         'schedules': list(visible_schedules.values('id', 'name', 'task_key', 'queue_name', 'is_active', 'next_run_at', 'last_enqueued_at', 'last_error')),
     })
 
@@ -148,11 +150,24 @@ def task_list(request):
     if date_to := parse_datetime(params.get('date_to', '')):
         tasks = tasks.filter(created_at__lte=date_to)
     try:
-        limit = max(1, min(int(params.get('limit', 100)), 500))
-    except ValueError:
-        limit = 100
-    rows = list(tasks.order_by('-created_at')[:limit])
-    return Response({'count': tasks.count(), 'results': [_task_data(task) for task in rows]})
+        page = max(1, int(params.get('page', 1)))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = max(1, min(int(params.get('page_size', params.get('limit', 50))), 500))
+    except (TypeError, ValueError):
+        page_size = 50
+
+    count = tasks.count()
+    start = (page - 1) * page_size
+    rows = list(tasks.order_by('-created_at')[start:start + page_size])
+    return Response({
+        'count': count,
+        'page': page,
+        'page_size': page_size,
+        'total_pages': max(1, (count + page_size - 1) // page_size),
+        'results': [_task_data(task) for task in rows],
+    })
 
 
 @api_view(['GET'])

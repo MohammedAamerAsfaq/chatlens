@@ -28,10 +28,16 @@ class NonInventoryResolutionError(Exception):
     """Raised when an unmatched inquiry line cannot be tracked safely."""
 
 
-def _embed_non_inventory_product_after_commit(non_inventory_product_id: int) -> None:
+def _embed_non_inventory_product_after_commit(
+    non_inventory_product_id: int, *, source_message_id: int | None = None,
+) -> None:
     try:
         from apps.message_intelligence.services.embedding_dispatch import enqueue_embedding
-        if enqueue_embedding('non_inventory_product', non_inventory_product_id):
+        correlation_id = f'whatsapp-message:{source_message_id}' if source_message_id else None
+        if enqueue_embedding(
+            'non_inventory_product', non_inventory_product_id,
+            correlation_id=correlation_id,
+        ):
             return
         from apps.message_intelligence.services.embedding_service import embed_non_inventory_product
         embed_non_inventory_product(non_inventory_product_id)
@@ -247,7 +253,12 @@ def resolve_unmatched_inquiry_product(
             product.refresh_from_db()
 
         if created or product.embedding_status != 'embedded':
-            transaction.on_commit(lambda product_id=product.pk: _embed_non_inventory_product_after_commit(product_id))
+            transaction.on_commit(
+                lambda product_id=product.pk, message_id=getattr(source_message, 'pk', None):
+                _embed_non_inventory_product_after_commit(
+                    product_id, source_message_id=message_id,
+                )
+            )
 
     logger.info(
         'resolve_unmatched_inquiry_product | done | inquiry_id=%s | inquiry_product_id=%s '
