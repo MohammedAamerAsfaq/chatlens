@@ -92,12 +92,37 @@ def run_task_operations_ui(refresh_seconds=3):
 
     queues_tree = tree(queues_frame, ('queue', 'state', 'pending', 'claimed', 'running', 'retrying', 'failed', 'oldest_pending'), (170, 100, 85, 85, 85, 85, 85, 150))
     workers_tree = tree(workers_frame, ('worker_id', 'state', 'hostname', 'pid', 'queues', 'last_heartbeat'), (310, 100, 180, 75, 230, 220))
-    tasks_tree = tree(tasks_frame, ('id', 'task_key', 'queue', 'state', 'attempts', 'worker', 'created', 'feedback'), (65, 270, 110, 100, 85, 170, 170, 340))
+    tasks_frame.rowconfigure(1, weight=1)
+    tasks_frame.columnconfigure(0, weight=1)
+    task_toolbar = ttk.Frame(tasks_frame)
+    task_toolbar.grid(row=0, column=0, sticky='ew', pady=(0, 8))
+    ttk.Label(task_toolbar, text='Execution Ledger', font=('Segoe UI', 10, 'bold')).pack(side='left')
+    task_page_label = ttk.Label(task_toolbar, text='Loading tasks...')
+    task_page_label.pack(side='left', padx=14)
+    task_page_size = tk.StringVar(value='50')
+    ttk.Label(task_toolbar, text='Rows').pack(side='right', padx=(8, 4))
+    task_page_size_box = ttk.Combobox(task_toolbar, textvariable=task_page_size, values=('25', '50', '100', '200'), width=5, state='readonly')
+    task_page_size_box.pack(side='right')
+    task_next = ttk.Button(task_toolbar, text='Next')
+    task_previous = ttk.Button(task_toolbar, text='Previous')
+    task_next.pack(side='right', padx=(4, 0))
+    task_previous.pack(side='right')
+
+    task_grid = ttk.Frame(tasks_frame)
+    task_grid.grid(row=1, column=0, sticky='nsew')
+    tasks_tree = tree(task_grid, ('id', 'task_key', 'queue', 'state', 'attempts', 'correlation_id', 'worker', 'created', 'feedback'), (60, 220, 90, 90, 75, 220, 150, 145, 270))
     schedules_tree = tree(schedules_frame, ('name', 'task_key', 'queue', 'active', 'next_run', 'last_enqueued', 'last_error'), (220, 260, 100, 75, 180, 180, 290))
 
-    detail = tk.Text(tasks_frame, height=9, wrap='word', font=('Consolas', 9), state='disabled')
-    detail.pack(side='bottom', fill='x', pady=(10, 0))
+    detail_frame = ttk.LabelFrame(tasks_frame, text='Selected Task Detail', padding=8)
+    detail_frame.grid(row=2, column=0, sticky='ew', pady=(10, 0))
+    detail = tk.Text(detail_frame, height=10, wrap='word', font=('Consolas', 9), state='disabled')
+    detail_scroll = ttk.Scrollbar(detail_frame, orient='vertical', command=detail.yview)
+    detail.configure(yscrollcommand=detail_scroll.set)
+    detail.pack(side='left', fill='both', expand=True)
+    detail_scroll.pack(side='right', fill='y')
     task_rows = {}
+    task_page = 1
+    task_total = 0
 
     def stamp(value):
         if not value:
@@ -136,6 +161,41 @@ def run_task_operations_ui(refresh_seconds=3):
 
     tasks_tree.bind('<<TreeviewSelect>>', show_task_detail)
 
+    def load_tasks():
+        nonlocal task_total
+        page_size = int(task_page_size.get())
+        task_total = BackgroundTask.objects.count()
+        start = (task_page - 1) * page_size
+        rows = BackgroundTask.objects.prefetch_related('events').order_by('-created_at')[start:start + page_size]
+        task_rows.clear()
+        tasks_tree.delete(*tasks_tree.get_children())
+        for task in rows:
+            feedback = task.last_error or ('Completed successfully.' if task.status == 'succeeded' else 'Waiting for worker.')
+            item = tasks_tree.insert('', 'end', values=(task.pk, task.task_key, task.queue_name, task.status, f'{task.attempts}/{task.max_attempts}', task.correlation_id or '-', task.locked_by or '-', stamp(task.created_at), feedback))
+            task_rows[item] = task
+        total_pages = max(1, (task_total + page_size - 1) // page_size)
+        first = start + 1 if task_total else 0
+        last = min(start + page_size, task_total)
+        task_page_label.configure(text=f'Showing {first}-{last} of {task_total} | Page {task_page} of {total_pages}')
+        task_previous.configure(state='normal' if task_page > 1 else 'disabled')
+        task_next.configure(state='normal' if task_page < total_pages else 'disabled')
+
+    def change_task_page(delta=0):
+        nonlocal task_page
+        page_size = int(task_page_size.get())
+        total_pages = max(1, (task_total + page_size - 1) // page_size)
+        task_page = min(max(1, task_page + delta), total_pages)
+        load_tasks()
+
+    def reset_task_page(_event=None):
+        nonlocal task_page
+        task_page = 1
+        load_tasks()
+
+    task_previous.configure(command=lambda: change_task_page(-1))
+    task_next.configure(command=lambda: change_task_page(1))
+    task_page_size_box.bind('<<ComboboxSelected>>', reset_task_page)
+
     def refresh():
         try:
             now = timezone.now()
@@ -152,15 +212,10 @@ def run_task_operations_ui(refresh_seconds=3):
 
             replace_rows(workers_tree, [
                 (worker.worker_id, worker.status, worker.hostname, worker.process_id, ', '.join(worker.queue_names), stamp(worker.last_heartbeat_at))
-                for worker in BackgroundWorker.objects.all()
+                for worker in BackgroundWorker.objects.filter(status=BackgroundWorker.STATUS_RUNNING)
             ])
 
-            task_rows.clear()
-            tasks_tree.delete(*tasks_tree.get_children())
-            for task in BackgroundTask.objects.prefetch_related('events').order_by('-created_at')[:200]:
-                feedback = task.last_error or ('Completed successfully.' if task.status == 'succeeded' else 'Waiting for worker.')
-                item = tasks_tree.insert('', 'end', values=(task.pk, task.task_key, task.queue_name, task.status, f'{task.attempts}/{task.max_attempts}', task.locked_by or '-', stamp(task.created_at), feedback))
-                task_rows[item] = task
+            load_tasks()
 
             replace_rows(schedules_tree, [
                 (schedule.name, schedule.task_key, schedule.queue_name, 'yes' if schedule.is_active else 'no', stamp(schedule.next_run_at), stamp(schedule.last_enqueued_at), schedule.last_error or '-')
