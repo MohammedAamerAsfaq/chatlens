@@ -55,10 +55,11 @@ class OpenAIChatProvider(ChatProvider):
         self.base_url = (base_url or CHAT_BASE_URL).rstrip('/')
 
     def chat(self, messages: list, **kwargs) -> str:
+        request_timeout = kwargs.pop('request_timeout', 60)
         resp = self.session.post(
             f'{self.base_url}/chat/completions',
             json={'model': self.model, 'messages': messages, **kwargs},
-            timeout=60,
+            timeout=request_timeout,
         )
         resp.raise_for_status()
         return resp.json()['choices'][0]['message']['content']

@@ -31,7 +31,12 @@ def call_agent(purpose: str, messages: list, wa_message_id=None, **kwargs) -> st
     error    = ''
 
     try:
-        from apps.queue_management.services import run_ai_call_with_deadline
+        from apps.queue_management.services import run_ai_call_with_deadline, task_deadline
+        deadline = task_deadline.get()
+        if deadline is not None:
+            # Pass the remaining durable-task budget to the HTTP provider rather
+            # than timing out in a nested thread that continues executing.
+            kwargs['request_timeout'] = max(1, int(deadline - time.monotonic()))
         response = run_ai_call_with_deadline(
             lambda: ai_manager.agent(messages, config=agent_config, **kwargs)
         )

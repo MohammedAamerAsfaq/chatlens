@@ -125,33 +125,6 @@ class DurableTaskQueueTests(TestCase):
         self.assertEqual(task.attempts, 2)
         self.assertEqual(task.events.filter(event_type=BackgroundTaskEvent.EVENT_RETRY_SCHEDULED).count(), 1)
 
-    def test_queue_timeout_retries_and_releases_worker_slot(self):
-        QueueDefinition.objects.filter(name='default').update(
-            task_timeout_seconds=1,
-            retry_backoff_base_seconds=1,
-            retry_backoff_max_seconds=1,
-        )
-        _blocking_started.clear()
-        _blocking_release.clear()
-        task = enqueue_task(
-            task_key='tests.timeout',
-            payload={'version': 1},
-            idempotency_key='timeout',
-            max_attempts=2,
-        )
-        worker = TaskWorker(['default'], worker_id='timeout-worker')
-        worker.start()
-        try:
-            self.assertEqual(worker.run_once(), 1)
-        finally:
-            _blocking_release.set()
-            worker.stop()
-
-        self.assertTrue(_blocking_started.is_set())
-        task.refresh_from_db()
-        self.assertEqual(task.status, BackgroundTask.STATUS_RETRYING)
-        self.assertIn('TaskDeadlineExceeded', task.last_error)
-
     def test_stale_retry_safe_lock_is_released(self):
         task = enqueue_task(task_key='tests.success', payload={'version': 1, 'value': 'x'}, idempotency_key='stale')
         claimed = claim_tasks('default', 'dead-worker')

@@ -555,16 +555,8 @@ def _build_v2_match_batches(
 
 
 def _call_agent_with_timeout(callable_func, timeout_seconds: int):
-    import concurrent.futures
-
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(callable_func)
-    try:
-        return future.result(timeout=timeout_seconds)
-    except concurrent.futures.TimeoutError as exc:
-        raise TimeoutError(f'V2 pass 2 AI call exceeded {timeout_seconds} seconds') from exc
-    finally:
-        executor.shutdown(wait=False, cancel_futures=True)
+    """Run synchronously; provider HTTP timeouts bound the request itself."""
+    return callable_func()
 
 
 def _reconcile_stale_pass1_logs(account_id: int | None = None, stale_after_seconds: int = PASS1_STALE_AFTER_SECONDS) -> int:

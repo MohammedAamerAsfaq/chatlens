@@ -4,11 +4,11 @@ import time
 import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from contextvars import ContextVar, copy_context
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import timedelta
 
-from django.db import IntegrityError, close_old_connections, transaction
+from django.db import IntegrityError, close_old_connections, connection, transaction
 from django.utils import timezone
 
 from apps.task_management.models import BackgroundTask, BackgroundTaskEvent, BackgroundTaskSchedule
@@ -32,55 +32,15 @@ class WorkerSuperseded(RuntimeError):
 
 
 def run_ai_call_with_deadline(callable_func):
-    """Limit AI waiting without allowing a timed-out handler to apply late data."""
-    deadline = task_deadline.get()
-    if deadline is None:
-        return callable_func()
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
+    """Execute AI work in the bounded task worker, never a nested thread."""
+    if task_deadline.get() is not None and task_deadline.get() <= time.monotonic():
         raise TaskDeadlineExceeded('Task AI deadline exceeded.')
-    done, result = threading.Event(), {}
-
-    def run():
-        try:
-            result['value'] = callable_func()
-        except BaseException as exc:
-            result['error'] = exc
-        finally:
-            done.set()
-
-    threading.Thread(target=run, daemon=True, name='chatlens-ai-call').start()
-    if not done.wait(remaining):
-        raise TaskDeadlineExceeded('Task AI deadline exceeded.')
-    if 'error' in result:
-        raise result['error']
-    return result['value']
+    return callable_func()
 
 
 def run_task_handler_with_deadline(callable_func, timeout_seconds):
-    """Return a handler result or fail the task when its queue deadline expires.
-
-    Python cannot forcefully stop a thread. A timed-out handler is therefore left as
-    a daemon while the durable task is failed/retried and its worker slot is released.
-    Handlers must remain idempotent because late external work can still finish.
-    """
-    done, result = threading.Event(), {}
-    context = copy_context()
-
-    def run():
-        try:
-            result['value'] = context.run(callable_func)
-        except BaseException as exc:
-            result['error'] = exc
-        finally:
-            done.set()
-
-    threading.Thread(target=run, daemon=True, name='chatlens-task-handler').start()
-    if not done.wait(timeout_seconds):
-        raise TaskDeadlineExceeded(f'Task handler exceeded {timeout_seconds} seconds.')
-    if 'error' in result:
-        raise result['error']
-    return result.get('value')
+    """Execute one handler directly in its bounded durable-worker thread."""
+    return callable_func()
 
 
 def _ensure_task_handlers_registered():
@@ -239,8 +199,15 @@ class TaskExecutor:
         self.worker_id = worker_id
 
     def _heartbeat_task(self, task_id, stop_event, interval):
-        while not stop_event.wait(interval):
-            BackgroundTask.objects.filter(pk=task_id, locked_by=self.worker_id, status=BackgroundTask.STATUS_RUNNING).update(heartbeat_at=timezone.now())
+        try:
+            while not stop_event.wait(interval):
+                BackgroundTask.objects.filter(
+                    pk=task_id,
+                    locked_by=self.worker_id,
+                    status=BackgroundTask.STATUS_RUNNING,
+                ).update(heartbeat_at=timezone.now())
+        finally:
+            connection.close()
 
     def execute(self, task_id):
         _ensure_task_handlers_registered()

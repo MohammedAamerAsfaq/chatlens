@@ -17,6 +17,7 @@ class AnthropicChatProvider(ChatProvider):
         self.base_url = (base_url or DEFAULT_BASE_URL).rstrip('/')
 
     def chat(self, messages: list, **kwargs) -> str:
+        request_timeout = kwargs.pop('request_timeout', 60)
         # Anthropic separates system from conversation messages
         system = None
         conv = []
@@ -38,7 +39,7 @@ class AnthropicChatProvider(ChatProvider):
         resp = self.session.post(
             f'{self.base_url}/messages',
             json=body,
-            timeout=60,
+            timeout=request_timeout,
         )
         resp.raise_for_status()
         return resp.json()['content'][0]['text']
