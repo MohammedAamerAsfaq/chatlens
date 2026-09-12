@@ -487,3 +487,13 @@ class PromptConfig(models.Model):
             ).agent_config
         except cls.DoesNotExist:
             return None
+
+    @classmethod
+    def get_kiwi_router(cls, key: str, company=None):
+        try:
+            return cls.objects.select_related('kiwi_router').get(
+                company=company,
+                key=key,
+            ).kiwi_router
+        except cls.DoesNotExist:
+            return None

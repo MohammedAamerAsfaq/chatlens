@@ -276,6 +276,8 @@ class ProductViewSet(viewsets.ModelViewSet):
                 PromptConfig.KEY_PRODUCT_EXTRACTION,
                 messages,
                 agent_config=PromptConfig.get_agent_config(PromptConfig.KEY_PRODUCT_EXTRACTION, company=company),
+                prompt_key=PromptConfig.KEY_PRODUCT_EXTRACTION,
+                company=company,
                 temperature=0,
             )
             cleaned = raw.strip()
@@ -441,6 +443,8 @@ class ProductViewSet(viewsets.ModelViewSet):
                     {'role': 'user',   'content': user_text},
                 ],
                 agent_config=PromptConfig.get_agent_config(PromptConfig.KEY_INVENTORY_UPDATE, company=company),
+                prompt_key=PromptConfig.KEY_INVENTORY_UPDATE,
+                company=company,
                 temperature=0,
             )
             cleaned = raw.strip()

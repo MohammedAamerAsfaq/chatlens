@@ -98,6 +98,17 @@ def _get_v1_prompt_agent_config(company):
     )
 
 
+def _get_v1_prompt_key(company):
+    from apps.trading.models import PromptConfig
+
+    if PromptConfig.objects.filter(
+        company=company,
+        key=PromptConfig.KEY_INQUIRY_CLASSIFICATION_V1,
+    ).exists():
+        return PromptConfig.KEY_INQUIRY_CLASSIFICATION_V1
+    return PromptConfig.KEY_INQUIRY_CLASSIFICATION
+
+
 def _build_prompts(message, product_block: str) -> tuple[str, str]:
     from apps.whatsapp_bridge.models import ChatType
     from apps.tenancy.services.access import company_for_message
@@ -753,6 +764,8 @@ def classify_message(message) -> None:
         product_block = get_product_prompt_block(company=company_for_message(message))
         system_prompt, user_prompt = _build_prompts(message, product_block)
 
+        company = company_for_message(message)
+        prompt_key = _get_v1_prompt_key(company)
         raw_response = call_agent(
             AgentCallLog.PURPOSE_CLASSIFICATION,
             [
@@ -761,7 +774,9 @@ def classify_message(message) -> None:
             ],
             wa_message_id=msg_id,
             classification_version=CLASSIFICATION_V1,
-            agent_config=_get_v1_prompt_agent_config(company_for_message(message)),
+            agent_config=_get_v1_prompt_agent_config(company),
+            prompt_key=prompt_key,
+            company=company,
             temperature=0,
         )
     except Exception:
@@ -859,6 +874,8 @@ def classify_message_v2(message) -> None:
                     PromptConfig.KEY_INQUIRY_EXTRACTION_V2,
                     company=company_for_message(message),
                 ),
+                prompt_key=PromptConfig.KEY_INQUIRY_EXTRACTION_V2,
+                company=company_for_message(message),
                 temperature=0,
             ),
             PASS1_AI_TIMEOUT_SECONDS,
@@ -1269,6 +1286,8 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
                     PromptConfig.KEY_INQUIRY_MATCH_DECISION_V2,
                     company=company_for_message(message),
                 ),
+                prompt_key=PromptConfig.KEY_INQUIRY_MATCH_DECISION_V2,
+                company=company_for_message(message),
                 temperature=0,
             ),
             pass2_ai_timeout_seconds,

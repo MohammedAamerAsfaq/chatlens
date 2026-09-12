@@ -28,6 +28,8 @@ def parse_against_inventory(text: str, prompt_key: str, prompt_default: str, com
             {'role': 'user',   'content': text},
         ],
         agent_config=PromptConfig.get_agent_config(prompt_key, company=company),
+        prompt_key=prompt_key,
+        company=company,
         temperature=0,
     )
     cleaned = raw.strip()

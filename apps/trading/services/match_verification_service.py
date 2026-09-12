@@ -114,6 +114,8 @@ def verify_inquiry_match(inquiry, line: dict, product) -> dict:
             ],
             wa_message_id=first_message,
             agent_config=PromptConfig.get_agent_config(PromptConfig.KEY_MATCH_VERIFICATION, company=inquiry.company),
+            prompt_key=PromptConfig.KEY_MATCH_VERIFICATION,
+            company=inquiry.company,
             temperature=0,
         )
         parsed = _parse_verdict(raw_response)

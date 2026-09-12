@@ -13,12 +13,22 @@ def call_agent(purpose: str, messages: list, wa_message_id=None, **kwargs) -> st
     from apps.trading.models import AgentCallLog
 
     agent_config = kwargs.pop('agent_config', None)
+    prompt_key = kwargs.pop('prompt_key', '')
+    company = kwargs.pop('company', None)
+    kiwi_router = kwargs.pop('kiwi_router', None)
+    if kiwi_router is None and prompt_key:
+        from apps.trading.models import PromptConfig
+        kiwi_router = PromptConfig.get_kiwi_router(prompt_key, company=company)
     provider = model = ''
     try:
-        config = agent_config or ai_manager.active_config('agent')
-        if config:
-            provider = config.provider
-            model    = config.model
+        if kiwi_router:
+            provider = 'kiwi_router'
+            model = kiwi_router.name
+        else:
+            config = agent_config or ai_manager.active_config('agent')
+            if config:
+                provider = config.provider
+                model = config.model
     except Exception:
         pass
 
@@ -37,9 +47,28 @@ def call_agent(purpose: str, messages: list, wa_message_id=None, **kwargs) -> st
             # Pass the remaining durable-task budget to the HTTP provider rather
             # than timing out in a nested thread that continues executing.
             kwargs['request_timeout'] = max(1, int(deadline - time.monotonic()))
-        response = run_ai_call_with_deadline(
-            lambda: ai_manager.agent(messages, config=agent_config, **kwargs)
-        )
+        if kiwi_router:
+            from apps.ai_providers.kiwi_router_service import execute_agent
+            correlation_id = (
+                f'whatsapp-message:{wa_message_id}'
+                if wa_message_id is not None
+                else f'agent-call:{purpose}:{time.monotonic_ns()}'
+            )
+            response, member = run_ai_call_with_deadline(
+                lambda: execute_agent(
+                    kiwi_router.pk,
+                    messages=messages,
+                    workflow_key=prompt_key or purpose,
+                    correlation_id=correlation_id,
+                    **kwargs,
+                )
+            )
+            provider = member.provider_config.provider
+            model = member.provider_config.model
+        else:
+            response = run_ai_call_with_deadline(
+                lambda: ai_manager.agent(messages, config=agent_config, **kwargs)
+            )
         success  = True
         return response
     except Exception as exc:
