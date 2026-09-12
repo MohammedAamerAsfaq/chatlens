@@ -101,6 +101,12 @@ def complete_reservation(reservation, *, succeeded):
     reservation.save(update_fields=['status', 'released_at'])
 
 
+def mark_reservation_dispatched(reservation):
+    """Record that the provider call is about to leave this process."""
+    reservation.status = KiwiRouterReservation.STATUS_DISPATCHED
+    reservation.save(update_fields=['status'])
+
+
 def execute_agent(router_id, *, messages, workflow_key, correlation_id, task_id=None, **kwargs):
     """Route one agent request without the legacy blocking provider limiter."""
     input_tokens = estimate_tokens(messages)
@@ -111,8 +117,14 @@ def execute_agent(router_id, *, messages, workflow_key, correlation_id, task_id=
     if selection.member is None:
         raise KiwiRouterCapacityError(selection.available_at)
     reservation = selection.reservation
-    timeout = selection.member.request_timeout_seconds or selection.member.router.default_request_timeout_seconds
+    configured_timeout = (
+        selection.member.request_timeout_seconds
+        or selection.member.router.default_request_timeout_seconds
+    )
+    caller_timeout = kwargs.pop('request_timeout', None)
+    timeout = min(configured_timeout, caller_timeout) if caller_timeout else configured_timeout
     try:
+        mark_reservation_dispatched(reservation)
         response = build_provider(selection.member.provider_config).chat(
             messages, request_timeout=timeout, **kwargs,
         )

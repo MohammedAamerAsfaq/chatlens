@@ -1,6 +1,8 @@
+from unittest.mock import Mock, patch
+
 from django.test import TestCase
 
-from .kiwi_router_service import reserve_agent
+from .kiwi_router_service import execute_agent, reserve_agent
 from .models import AIProviderConfig, KiwiRouter, KiwiRouterMember, KiwiRouterReservation
 
 
@@ -46,3 +48,25 @@ class KiwiRouterReservationTests(TestCase):
 
         self.assertIsNone(selection.member)
         self.assertIsNotNone(selection.available_at)
+
+    @patch('apps.ai_providers.kiwi_router_service.build_provider')
+    def test_execution_uses_the_shorter_caller_timeout_once(self, build_provider):
+        provider = Mock()
+        provider.chat.return_value = {'content': 'ok'}
+        build_provider.return_value = provider
+
+        response, member = execute_agent(
+            self.router.pk,
+            messages=[{'role': 'user', 'content': 'test'}],
+            workflow_key='inquiry_pass1',
+            correlation_id='message:timeout',
+            request_timeout=20,
+        )
+
+        self.assertEqual(response, {'content': 'ok'})
+        self.assertEqual(member, self.first)
+        provider.chat.assert_called_once_with(
+            [{'role': 'user', 'content': 'test'}], request_timeout=20,
+        )
+        reservation = KiwiRouterReservation.objects.get(correlation_id='message:timeout')
+        self.assertEqual(reservation.status, KiwiRouterReservation.STATUS_SUCCEEDED)
