@@ -154,6 +154,8 @@ function setActiveTab(log, panel, tab) {
 
 function panels(log) {
   return [
+    { key: 'gate_request', title: `GatePass Request · ${log.gate_mode || 'not run'}`, type: 'request', value: log.gate_request, timings: [] },
+    { key: 'gate_response', title: `GatePass Result · ${log.gate_decision || 'pending'}`, type: 'response', value: log.gate_response, timings: [['AI response', log.gate_ai_ms]] },
     { key: 'pass1_request', title: 'Pass 1 Request', type: 'request', value: log.pass1_request, timings: [] },
     { key: 'pass1_response', title: 'Pass 1 Response', type: 'response', value: log.pass1_response, timings: [['AI response', log.pass1_ai_ms]] },
     { key: 'pass1_parsed', title: 'Pass 1 Parsed', type: 'response', value: log.pass1_parsed, timings: [['Parse/save', remainingDuration(log.pass1_total_ms, log.pass1_ai_ms)], ['Pass 1 total', log.pass1_total_ms]] },
@@ -272,7 +274,7 @@ function candidatesForProduct(product, panelValue) {
     <div class="page-head">
       <div>
         <h1>AI Parse V2 Logs</h1>
-        <p>Pass 1 and batched pass 2 request/response audit trail.</p>
+        <p>GatePass, Pass 1 extraction, and batched Pass 2 matching audit trail.</p>
       </div>
       <button class="refresh-btn" @click="fetchLogs(true)">Refresh</button>
     </div>

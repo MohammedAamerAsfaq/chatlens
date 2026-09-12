@@ -30,7 +30,7 @@ def classify_message_v1(payload, context):
     from apps.whatsapp_bridge.models import WhatsAppMessage
     from apps.trading.services.classification_service import classify_message
     message = WhatsAppMessage.objects.select_related('account', 'chat', 'contact').get(pk=payload['message_id'])
-    classify_message(message)
+    classify_message(message, propagate_errors=True)
     return {'message_id': message.pk, 'classified': True}
 
 
@@ -41,7 +41,7 @@ def classify_message_task(payload, context):
     from apps.trading.services.classification_service import classify_message
 
     message = WhatsAppMessage.objects.select_related('account', 'chat', 'contact').get(pk=payload['message_id'])
-    classify_message(message)
+    classify_message(message, propagate_errors=True)
     return {'message_id': message.pk, 'classified': True}
 
 

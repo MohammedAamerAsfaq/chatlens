@@ -208,6 +208,8 @@ def _parse_response(raw: str) -> dict:
 
     is_inquiry   = bool(data.get('is_inquiry', False))
     inquiry_type = data.get('inquiry_type') or ''
+    if inquiry_type == 'both':
+        raise ValueError('Message inquiry_type cannot be both; buy and sell are mutually exclusive.')
     if inquiry_type not in ('buy', 'sell'):
         inquiry_type = ''
     if not is_inquiry:
@@ -278,6 +280,8 @@ def _parse_v2_extraction_response(raw: str) -> dict:
 
     is_inquiry = bool(data.get('is_inquiry', False))
     inquiry_type = data.get('inquiry_type') or ''
+    if inquiry_type == 'both':
+        raise ValueError('Message inquiry_type cannot be both; buy and sell are mutually exclusive.')
     if inquiry_type not in ('buy', 'sell'):
         inquiry_type = ''
     if not is_inquiry:
@@ -735,11 +739,11 @@ def validate_category_suggestion(suggestion: str, contact) -> str:
     return suggestion
 
 
-def classify_message(message) -> None:
+def classify_message(message, *, propagate_errors=False) -> bool:
     """
     Classify a single WhatsAppMessage and persist a MessageClassification record.
     Triggers inquiry creation/update when is_inquiry=True.
-    Designed to run inside a background thread — never raises, always logs on failure.
+    Fail softly for legacy thread callers; durable workers request propagated errors.
     """
     from apps.trading.models import MessageClassification
     from apps.trading.services.product_cache import get_product_prompt_block
@@ -750,7 +754,7 @@ def classify_message(message) -> None:
 
     # Skip if already classified (idempotent — safe to call twice)
     if MessageClassification.objects.filter(message_id=msg_id).exists():
-        return
+        return True
 
     try:
         from apps.trading.services.agent_logger import call_agent
@@ -759,7 +763,7 @@ def classify_message(message) -> None:
         version = effective_classification_version(message.account)
         if version == CLASSIFICATION_V2:
             classify_message_v2(message)
-            return
+            return True
 
         product_block = get_product_prompt_block(company=company_for_message(message))
         system_prompt, user_prompt = _build_prompts(message, product_block)
@@ -781,7 +785,9 @@ def classify_message(message) -> None:
         )
     except Exception:
         logger.exception('classify_message | agent call failed | message_id=%s', msg_id)
-        return
+        if propagate_errors:
+            raise
+        return False
 
     try:
         parsed = _parse_response(raw_response)
@@ -790,7 +796,9 @@ def classify_message(message) -> None:
             'classify_message | response parse failed | message_id=%s | raw=%r',
             msg_id, raw_response[:500],
         )
-        return
+        if propagate_errors:
+            raise
+        return False
 
     parsed['contact_category_suggestion'] = validate_category_suggestion(
         parsed['contact_category_suggestion'], message.contact,
@@ -824,6 +832,7 @@ def classify_message(message) -> None:
         except Exception:
             logger.exception('classify_message | inquiry processing failed | message_id=%s', msg_id)
             raise
+    return True
 
 
 def classify_message_v2(message) -> None:
@@ -840,6 +849,7 @@ def classify_message_v2(message) -> None:
     from apps.trading.services.inquiry_service import process_inquiry
 
     _reconcile_stale_pass1_logs(account_id=message.account_id)
+    company = company_for_message(message)
     total_start = time.perf_counter()
     pass1_start = time.perf_counter()
     system_prompt, user_prompt = _build_v2_extraction_prompts(message)
@@ -859,6 +869,14 @@ def classify_message_v2(message) -> None:
             'error': '',
         },
     )
+    from apps.trading.services.v2_gatepass_service import run_v2_gatepass
+    gate_classification = run_v2_gatepass(message, log, company)
+    if gate_classification is not None:
+        log.classification = gate_classification
+        log.status = AiParseV2Log.STATUS_COMPLETE
+        log.total_ms = _elapsed_ms(total_start)
+        log.save(update_fields=['classification', 'status', 'total_ms', 'updated_at'])
+        return
     try:
         pass1_ai_start = time.perf_counter()
         raw_response = _call_agent_with_timeout(
@@ -872,10 +890,10 @@ def classify_message_v2(message) -> None:
                 classification_version=CLASSIFICATION_V2,
                 agent_config=PromptConfig.get_agent_config(
                     PromptConfig.KEY_INQUIRY_EXTRACTION_V2,
-                    company=company_for_message(message),
+                    company=company,
                 ),
                 prompt_key=PromptConfig.KEY_INQUIRY_EXTRACTION_V2,
-                company=company_for_message(message),
+                company=company,
                 temperature=0,
             ),
             PASS1_AI_TIMEOUT_SECONDS,

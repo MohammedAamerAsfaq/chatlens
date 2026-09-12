@@ -110,6 +110,7 @@ class AiParseV2LogSerializer(serializers.ModelSerializer):
             'id', 'message', 'message_text', 'message_time', 'direction',
             'account', 'account_name', 'chat', 'chat_name', 'classification',
             'inquiry_ids', 'status', 'pass1_request', 'pass1_response',
+            'gate_mode', 'gate_decision', 'gate_request', 'gate_response', 'gate_ai_ms',
             'pass1_parsed', 'pass2_request', 'pass2_response', 'pass2_parsed',
             'pass1_ai_ms', 'pass1_total_ms', 'candidate_search_ms',
             'pass2_ai_ms', 'pass2_total_ms', 'total_ms', 'error',

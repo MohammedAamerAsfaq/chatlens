@@ -37,5 +37,17 @@ class ClassificationQueueTests(TestCase):
             select.return_value.get.return_value = message
             result = definition.handler(payload, None)
 
-        classify.assert_called_once_with(message)
+        classify.assert_called_once_with(message, propagate_errors=True)
         self.assertEqual(result, {'message_id': 3, 'classified': True})
+
+    def test_handler_propagates_classifier_failure(self):
+        from apps.task_management import handlers  # noqa: F401
+
+        definition = task_registry.get('trading.classify_message')
+        with patch('apps.whatsapp_bridge.models.WhatsAppMessage.objects.select_related') as select, patch(
+            'apps.trading.services.classification_service.classify_message',
+            side_effect=RuntimeError('classification failed'),
+        ):
+            select.return_value.get.return_value = SimpleNamespace(pk=9)
+            with self.assertRaisesMessage(RuntimeError, 'classification failed'):
+                definition.handler({'version': 1, 'message_id': 9}, None)

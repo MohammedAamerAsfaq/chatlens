@@ -8,6 +8,7 @@ const saved = ref(false)
 const error = ref('')
 
 const settings = ref({
+  gatepass_mode: 'observational',
   pass2_candidate_max_distance: 0.55,
   exact_auto_match_max_distance: 0.45,
   pass2_candidates_per_line: 3,
@@ -52,7 +53,7 @@ onMounted(loadSettings)
     <header class="page-header">
       <div>
         <h1>V2 Settings</h1>
-        <p>Controls for V2 inquiry extraction, candidate matching, batching, and timeout behavior.</p>
+        <p>Controls for V2 GatePass, inquiry extraction, candidate matching, batching, and timeout behavior.</p>
       </div>
       <button class="primary-btn" :disabled="saving || loading" @click="saveSettings">
         {{ saving ? 'Saving...' : 'Save Settings' }}
@@ -63,6 +64,21 @@ onMounted(loadSettings)
     <div v-if="saved" class="alert success">Saved.</div>
 
     <section class="settings-grid">
+      <article class="settings-card gatepass-card">
+        <div>
+          <h2>V2 GatePass</h2>
+          <p>Classifies each message as buy, sell, or not inquiry before the existing V2 extraction pass.</p>
+        </div>
+        <label class="field">
+          <span>Operating mode</span>
+          <select v-model="settings.gatepass_mode">
+            <option value="observational">Observational</option>
+            <option value="enforced">Enforced</option>
+          </select>
+          <small v-if="settings.gatepass_mode === 'observational'">Records the GatePass decision but always continues the existing V2 pipeline.</small>
+          <small v-else>Stops before extraction only when GatePass returns not_inquiry. Gate errors continue processing.</small>
+        </label>
+      </article>
       <article class="settings-card">
         <div>
           <h2>Distance Gates</h2>
@@ -123,7 +139,8 @@ onMounted(loadSettings)
 .settings-card p { margin: 0; color: #64748b; font-size: 0.88rem; line-height: 1.45; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field span { font-size: 0.82rem; font-weight: 600; color: #334155; }
-.field input { width: 180px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font-size: 0.9rem; }
+.field input, .field select { width: 220px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font-size: 0.9rem; background: #fff; }
+.gatepass-card { border-top: 4px solid #0f766e; }
 .field small { color: #64748b; font-size: 0.78rem; line-height: 1.35; }
 .primary-btn { border: 0; background: #16a34a; color: #fff; border-radius: 8px; padding: 9px 14px; font-weight: 700; cursor: pointer; }
 .primary-btn:disabled { opacity: 0.6; cursor: not-allowed; }

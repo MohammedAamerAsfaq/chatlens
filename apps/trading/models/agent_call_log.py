@@ -7,6 +7,7 @@ class AgentCallLog(models.Model):
     PURPOSE_MATCH_VERIFICATION = 'match_verification'
     PURPOSE_INQUIRY_EXTRACTION_V2 = 'inquiry_extraction_v2'
     PURPOSE_INQUIRY_MATCH_V2 = 'inquiry_match_v2'
+    PURPOSE_INQUIRY_GATE_V2 = 'inquiry_gate_v2'
 
     PURPOSE_CHOICES = [
         (PURPOSE_CLASSIFICATION,     'Inquiry Classification'),
@@ -14,6 +15,7 @@ class AgentCallLog(models.Model):
         (PURPOSE_MATCH_VERIFICATION, 'Inquiry Match Verification'),
         (PURPOSE_INQUIRY_EXTRACTION_V2, 'Inquiry Extraction V2'),
         (PURPOSE_INQUIRY_MATCH_V2, 'Inquiry Match Decision V2'),
+        (PURPOSE_INQUIRY_GATE_V2, 'Inquiry GatePass V2'),
     ]
 
     purpose      = models.CharField(max_length=50, choices=PURPOSE_CHOICES, db_index=True)

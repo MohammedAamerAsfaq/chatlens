@@ -18,7 +18,6 @@ class MessageClassification(models.Model):
     INQUIRY_TYPE_CHOICES = [
         ('buy',  'Buy'),
         ('sell', 'Sell'),
-        ('both', 'Both'),
     ]
 
     message = models.OneToOneField(

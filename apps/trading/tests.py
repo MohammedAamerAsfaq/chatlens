@@ -8,6 +8,7 @@ from django.utils import timezone
 from apps.tenancy.models import CommunicationAccount, Company, ConnectionProvider
 from apps.trading.models import AiParseV2Log, AutomatedPriceCapture, AutomationRule, AutomationRuleSource
 from apps.trading.services.classification_service import (
+    _parse_v2_extraction_response,
     _reconcile_stale_pass1_logs,
     classify_message_v2,
 )
@@ -210,6 +211,12 @@ class V2ClassificationRecoveryTests(TestCase):
             message_time=timezone.now(),
         )
 
+    def test_v2_parser_rejects_message_direction_both(self):
+        response = '{"tags":["wtb","wts"],"products":[],"is_inquiry":true,"inquiry_type":"both"}'
+
+        with self.assertRaisesRegex(ValueError, 'cannot be both'):
+            _parse_v2_extraction_response(response)
+
     @patch('apps.trading.services.classification_service._call_agent_with_timeout')
     def test_pass1_timeout_marks_v2_log_error(self, call_with_timeout):
         call_with_timeout.side_effect = TimeoutError('V2 pass 1 AI call exceeded 180 seconds')
@@ -247,3 +254,77 @@ class V2ClassificationRecoveryTests(TestCase):
         self.assertIn('remained in started state', log.error)
         self.assertIsNotNone(log.pass1_total_ms)
         self.assertEqual(log.total_ms, log.pass1_total_ms)
+
+    @patch('apps.trading.services.agent_logger.call_agent')
+    def test_observational_gate_records_not_inquiry_and_continues(self, gate_call):
+        from apps.trading.services.v2_gatepass_service import run_v2_gatepass
+        gate_call.return_value = '{"decision":"not_inquiry"}'
+        message = self._message(provider_message_id='gate-observe')
+        log = AiParseV2Log.objects.create(message=message, account=self.account, chat=self.chat)
+
+        result = run_v2_gatepass(message, log, self.company)
+
+        log.refresh_from_db()
+        self.assertIsNone(result)
+        self.assertEqual(log.gate_mode, 'observational')
+        self.assertEqual(log.gate_decision, 'not_inquiry')
+
+    @patch('apps.trading.services.agent_logger.call_agent')
+    def test_enforced_gate_stops_valid_not_inquiry(self, gate_call):
+        from apps.trading.services.trading_settings_service import save_v2_matching_settings
+        from apps.trading.services.v2_gatepass_service import run_v2_gatepass
+        current = {
+            'gatepass_mode': 'enforced', 'pass2_candidate_max_distance': 0.55,
+            'exact_auto_match_max_distance': 0.45, 'pass2_candidates_per_line': 3,
+            'pass2_batch_max_items': 15, 'pass2_ai_timeout_seconds': 300,
+        }
+        save_v2_matching_settings(self.company, current)
+        gate_call.return_value = '{"decision":"not_inquiry"}'
+        message = self._message(provider_message_id='gate-enforced', text='Hello')
+        log = AiParseV2Log.objects.create(message=message, account=self.account, chat=self.chat)
+
+        classification = run_v2_gatepass(message, log, self.company)
+
+        self.assertIsNotNone(classification)
+        self.assertFalse(classification.is_inquiry)
+        self.assertEqual(classification.inquiry_type, '')
+
+    @patch('apps.trading.services.agent_logger.call_agent')
+    def test_enforced_gate_failure_continues_processing(self, gate_call):
+        from apps.trading.services.trading_settings_service import save_v2_matching_settings
+        from apps.trading.services.v2_gatepass_service import run_v2_gatepass
+        save_v2_matching_settings(self.company, {
+            'gatepass_mode': 'enforced', 'pass2_candidate_max_distance': 0.55,
+            'exact_auto_match_max_distance': 0.45, 'pass2_candidates_per_line': 3,
+            'pass2_batch_max_items': 15, 'pass2_ai_timeout_seconds': 300,
+        })
+        gate_call.side_effect = RuntimeError('provider unavailable')
+        message = self._message(provider_message_id='gate-error')
+        log = AiParseV2Log.objects.create(message=message, account=self.account, chat=self.chat)
+
+        result = run_v2_gatepass(message, log, self.company)
+
+        log.refresh_from_db()
+        self.assertIsNone(result)
+        self.assertEqual(log.gate_decision, 'error')
+
+    @patch('apps.trading.services.agent_logger.call_agent')
+    def test_enforced_not_inquiry_short_circuits_v2_extraction(self, agent_call):
+        from apps.trading.models import Inquiry
+        from apps.trading.services.trading_settings_service import save_v2_matching_settings
+        save_v2_matching_settings(self.company, {
+            'gatepass_mode': 'enforced', 'pass2_candidate_max_distance': 0.55,
+            'exact_auto_match_max_distance': 0.45, 'pass2_candidates_per_line': 3,
+            'pass2_batch_max_items': 15, 'pass2_ai_timeout_seconds': 300,
+        })
+        agent_call.return_value = '{"decision":"not_inquiry"}'
+        message = self._message(provider_message_id='gate-short-circuit', text='Hello everyone')
+
+        classify_message_v2(message)
+
+        log = AiParseV2Log.objects.get(message=message)
+        self.assertEqual(agent_call.call_count, 1)
+        self.assertEqual(log.status, AiParseV2Log.STATUS_COMPLETE)
+        self.assertEqual(log.gate_decision, 'not_inquiry')
+        self.assertFalse(log.classification.is_inquiry)
+        self.assertFalse(Inquiry.objects.filter(inquiry_messages__message=message).exists())

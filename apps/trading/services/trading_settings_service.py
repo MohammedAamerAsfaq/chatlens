@@ -12,6 +12,7 @@ INQUIRY_PRODUCT_SAVE_DEFAULTS = {
 }
 
 V2_MATCHING_SETTINGS_DEFAULTS = {
+    'gatepass_mode': 'observational',
     'pass2_candidate_max_distance': 0.55,
     'exact_auto_match_max_distance': 0.45,
     'pass2_candidates_per_line': 3,
@@ -122,7 +123,11 @@ def get_v2_matching_settings(company):
 
 
 def get_v2_matching_settings_from_payload(saved: dict) -> dict:
+    gatepass_mode = saved.get('gatepass_mode', 'observational')
+    if gatepass_mode not in {'observational', 'enforced'}:
+        gatepass_mode = 'observational'
     return {
+        'gatepass_mode': gatepass_mode,
         'pass2_candidate_max_distance': _float_setting(
             saved.get('pass2_candidate_max_distance'),
             V2_MATCHING_SETTINGS_DEFAULTS['pass2_candidate_max_distance'],
@@ -153,11 +158,13 @@ def save_v2_matching_thresholds(
     pass2_candidates_per_line=None,
     pass2_batch_max_items=None,
     pass2_ai_timeout_seconds=None,
+    gatepass_mode=None,
 ):
     from apps.chatlens_core.models import SystemSettings
 
     current = get_v2_matching_thresholds(company)
     payload = {
+        'gatepass_mode': gatepass_mode or current['gatepass_mode'],
         'pass2_candidate_max_distance': _required_threshold(
             pass2_candidate_max_distance,
             'pass2_candidate_max_distance',
@@ -179,6 +186,8 @@ def save_v2_matching_thresholds(
             'pass2_ai_timeout_seconds',
         ),
     }
+    if payload['gatepass_mode'] not in {'observational', 'enforced'}:
+        raise ValueError('gatepass_mode must be observational or enforced')
     SystemSettings.objects.update_or_create(
         company=company,
         key=V2_MATCHING_SETTINGS_KEY,
@@ -198,4 +207,5 @@ def save_v2_matching_settings(company, payload: dict):
         payload.get('pass2_candidates_per_line'),
         payload.get('pass2_batch_max_items'),
         payload.get('pass2_ai_timeout_seconds'),
+        payload.get('gatepass_mode'),
     )
