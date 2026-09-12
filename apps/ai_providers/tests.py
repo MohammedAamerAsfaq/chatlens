@@ -1,11 +1,12 @@
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import TestCase
 from django.utils import timezone
 
 from .kiwi_router_service import execute_agent, reserve_agent
 from .models import AIProviderConfig, KiwiRouter, KiwiRouterMember, KiwiRouterReservation
+from .provider_deadline import _run_provider_call
 from .serializers import KiwiRouterSerializer
 
 
@@ -122,3 +123,30 @@ class KiwiRouterReservationTests(TestCase):
         )
         reservation = KiwiRouterReservation.objects.get(correlation_id='message:timeout')
         self.assertEqual(reservation.status, KiwiRouterReservation.STATUS_SUCCEEDED)
+
+    @patch('django.setup')
+    @patch('apps.ai_providers.provider_deadline.traceback.format_exc')
+    @patch('apps.ai_providers.manager.build_provider')
+    @patch('django.db.close_old_connections')
+    def test_spawned_provider_process_initializes_django(
+        self, close_connections, build_provider, format_exc, setup,
+    ):
+        connection = Mock()
+        provider = build_provider.return_value
+        provider.chat.return_value = {'content': 'ok'}
+
+        _run_provider_call(
+            connection,
+            self.first.provider_config_id,
+            [{'role': 'user', 'content': 'test'}],
+            {'request_timeout': 10},
+        )
+
+        setup.assert_called_once_with()
+        provider.chat.assert_called_once_with(
+            [{'role': 'user', 'content': 'test'}], request_timeout=10,
+        )
+        connection.send.assert_called_once_with(('ok', {'content': 'ok'}))
+        connection.close.assert_called_once_with()
+        self.assertEqual(close_connections.call_count, 2)
+        format_exc.assert_not_called()

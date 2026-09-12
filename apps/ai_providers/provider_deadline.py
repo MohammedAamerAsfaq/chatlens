@@ -14,6 +14,10 @@ class ProviderCallFailed(RuntimeError):
 def _run_provider_call(connection, config_id, messages, kwargs):
     """Child-process target. Keep Django imports inside the spawned process."""
     try:
+        import django
+
+        # Windows spawn starts a clean interpreter without the parent's app registry.
+        django.setup()
         from django.db import close_old_connections
 
         from .manager import build_provider
@@ -63,4 +67,5 @@ def call_provider_with_deadline(config_id, messages, *, timeout_seconds, **kwarg
     receiver.close()
     if outcome[0] == 'ok':
         return outcome[1]
-    raise ProviderCallFailed(outcome[1])
+    detail = outcome[2] if len(outcome) > 2 else ''
+    raise ProviderCallFailed(f'{outcome[1]}\n{detail}'.strip())
