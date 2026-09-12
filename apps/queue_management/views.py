@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models import Count, Min, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -70,7 +71,7 @@ def queue_overview(request):
     return Response({
         'queues': queues,
         'workers': list(BackgroundWorker.objects.filter(
-            status=BackgroundWorker.STATUS_RUNNING,
+            status__in=[BackgroundWorker.STATUS_RUNNING, BackgroundWorker.STATUS_STOPPING],
         ).values('worker_id', 'status', 'hostname', 'process_id', 'queue_names', 'started_at', 'last_heartbeat_at')),
         'schedules': list(visible_schedules.values('id', 'name', 'task_key', 'queue_name', 'is_active', 'next_run_at', 'last_enqueued_at', 'last_error')),
     })
@@ -128,6 +129,22 @@ def queue_settings(request):
             setattr(runtime, field, value)
         runtime.save()
     return Response(data())
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def request_worker_stop(request, worker_id):
+    """Ask a worker to drain its active futures and stop claiming new tasks."""
+    with transaction.atomic():
+        worker = BackgroundWorker.objects.select_for_update().filter(worker_id=worker_id).first()
+        if not worker:
+            return Response({'detail': 'Worker not found.'}, status=404)
+        if worker.status == BackgroundWorker.STATUS_STOPPED:
+            return Response({'detail': 'Worker is already stopped.'}, status=409)
+        if worker.status != BackgroundWorker.STATUS_STOPPING:
+            worker.status = BackgroundWorker.STATUS_STOPPING
+            worker.save(update_fields=['status', 'updated_at'])
+    return Response({'worker_id': worker_id, 'status': BackgroundWorker.STATUS_STOPPING})
 
 
 @api_view(['GET'])

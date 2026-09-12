@@ -41,6 +41,7 @@ export const taskQueueApi = {
   saveSettings: (data) => http.patch('/task-queue/settings/', data),
   tasks: (params = {}) => http.get('/task-queue/tasks/', { params }),
   task: (id) => http.get(`/task-queue/tasks/${id}/`),
+  stopWorker: (workerId) => http.post(`/task-queue/workers/${encodeURIComponent(workerId)}/stop/`),
 }
 
 export const accountsApi = {

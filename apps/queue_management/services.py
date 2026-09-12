@@ -31,6 +31,10 @@ class WorkerSuperseded(RuntimeError):
     pass
 
 
+class WorkerStopRequested(RuntimeError):
+    pass
+
+
 def run_ai_call_with_deadline(callable_func):
     """Execute AI work in the bounded task worker, never a nested thread."""
     if task_deadline.get() is not None and task_deadline.get() <= time.monotonic():
@@ -119,6 +123,11 @@ def claim_tasks(queue_name, worker_id, limit=1):
         return []
     now = timezone.now()
     with transaction.atomic():
+        # Lock the registry row with task claiming. A graceful-stop request then
+        # cannot race this worker into claiming more work after it starts draining.
+        worker = BackgroundWorker.objects.select_for_update().filter(worker_id=worker_id).first()
+        if not worker or worker.status != BackgroundWorker.STATUS_RUNNING:
+            return []
         tasks = list(
             BackgroundTask.objects.select_for_update(skip_locked=True)
             .filter(queue_name=queue_name, status__in=[BackgroundTask.STATUS_PENDING, BackgroundTask.STATUS_RETRYING], available_at__lte=now)
@@ -324,12 +333,12 @@ class TaskWorker:
         )
 
     def heartbeat(self):
-        updated = BackgroundWorker.objects.filter(
-            worker_id=self.worker_id,
-            status=BackgroundWorker.STATUS_RUNNING,
-        ).update(last_heartbeat_at=timezone.now())
-        if not updated:
+        worker = BackgroundWorker.objects.filter(worker_id=self.worker_id).values('status').first()
+        if worker and worker['status'] == BackgroundWorker.STATUS_STOPPING:
+            raise WorkerStopRequested(f'Worker {self.worker_id} is draining.')
+        if not worker or worker['status'] != BackgroundWorker.STATUS_RUNNING:
             raise WorkerSuperseded(f'Worker {self.worker_id} was superseded by a newer worker.')
+        BackgroundWorker.objects.filter(worker_id=self.worker_id).update(last_heartbeat_at=timezone.now())
 
     def stop(self, wait=True):
         if self._executor is not None:

@@ -4,7 +4,7 @@ import time
 from django.core.management.base import BaseCommand
 
 from apps.queue_management.models import QueueDefinition
-from apps.queue_management.services import TaskWorker
+from apps.queue_management.services import TaskWorker, WorkerStopRequested
 
 
 class Command(BaseCommand):
@@ -45,7 +45,11 @@ class Command(BaseCommand):
         )
         try:
             while not stopping:
-                worker.run_once(limit=options['limit'], asynchronous=True)
+                try:
+                    worker.run_once(limit=options['limit'], asynchronous=True)
+                except WorkerStopRequested:
+                    self.stdout.write('Graceful stop requested. Draining active tasks.')
+                    break
                 if options['once']:
                     worker.wait_for_tasks()
                     break
