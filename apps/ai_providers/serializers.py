@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import serializers
 from .models import AIProviderConfig, KiwiRouter, KiwiRouterMember, KiwiRoutingDecision
 
@@ -113,6 +114,7 @@ class ProviderMetaSerializer(serializers.Serializer):
 
 
 class KiwiRouterMemberSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False)
     provider_name = serializers.CharField(source='provider_config.display_name', read_only=True)
     provider_model = serializers.CharField(source='provider_config.model', read_only=True)
 
@@ -154,15 +156,45 @@ class KiwiRouterSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         members = validated_data.pop('members', None)
-        for field, value in validated_data.items():
-            setattr(instance, field, value)
-        instance.save()
-        if members is not None:
-            if instance.members.filter(reservations__isnull=False).exists():
-                raise serializers.ValidationError({'members': 'Cannot replace members after routing activity exists.'})
-            instance.members.all().delete()
-            KiwiRouterMember.objects.bulk_create([KiwiRouterMember(router=instance, **member) for member in members])
+        with transaction.atomic():
+            for field, value in validated_data.items():
+                setattr(instance, field, value)
+            instance.save()
+            if members is not None:
+                self._update_members(instance, members)
         return instance
+
+    @staticmethod
+    def _update_members(router, members):
+        existing = {member.pk: member for member in router.members.select_for_update()}
+        submitted_ids = {member['id'] for member in members if member.get('id')}
+        unknown_ids = submitted_ids - existing.keys()
+        if unknown_ids:
+            raise serializers.ValidationError({'members': 'A router member no longer exists. Reload the page and try again.'})
+
+        removed = [member for member_id, member in existing.items() if member_id not in submitted_ids]
+        if any(member.reservations.exists() for member in removed):
+            raise serializers.ValidationError({'members': 'Used router members cannot be removed. Disable them instead.'})
+        for member in removed:
+            member.delete()
+
+        retained = [existing[member_id] for member_id in submitted_ids]
+        # Move existing rows out of the requested priority range before reordering.
+        for member in retained:
+            member.priority += 1_000_000
+            member.save(update_fields=['priority'])
+
+        for payload in members:
+            member_id = payload.pop('id', None)
+            if member_id is None:
+                KiwiRouterMember.objects.create(router=router, **payload)
+                continue
+            member = existing[member_id]
+            if member.reservations.exists() and member.provider_config_id != payload['provider_config'].pk:
+                raise serializers.ValidationError({'members': 'A used router member cannot be changed to another provider. Add a new member instead.'})
+            for field, value in payload.items():
+                setattr(member, field, value)
+            member.save()
 
 
 class KiwiRoutingDecisionSerializer(serializers.ModelSerializer):

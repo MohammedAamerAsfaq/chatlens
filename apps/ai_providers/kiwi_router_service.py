@@ -7,7 +7,7 @@ from django.db.models import Sum
 from django.utils import timezone
 
 from .router_models import KiwiRouter, KiwiRouterReservation, KiwiRoutingDecision
-from .manager import build_provider
+from .provider_deadline import call_provider_with_deadline
 
 
 @dataclass
@@ -37,7 +37,6 @@ def reserve_agent(router_id, *, workflow_key, correlation_id, task_id=None,
     deferral time; callers must retry the task rather than wait in-process.
     """
     now = timezone.now()
-    expiry = now + timedelta(minutes=2)
     with transaction.atomic():
         router = KiwiRouter.objects.select_for_update().get(pk=router_id, is_active=True)
         members = list(router.members.select_for_update().select_related('provider_config').filter(
@@ -45,16 +44,27 @@ def reserve_agent(router_id, *, workflow_key, correlation_id, task_id=None,
             provider_config__capability=router.capability,
         ))
         for member in members:
+            timeout_seconds = (
+                member.request_timeout_seconds
+                or member.router.default_request_timeout_seconds
+            )
+            member.reservations.filter(
+                status__in=[
+                    KiwiRouterReservation.STATUS_RESERVED,
+                    KiwiRouterReservation.STATUS_DISPATCHED,
+                ],
+                expires_at__lte=now,
+            ).update(status=KiwiRouterReservation.STATUS_EXPIRED, released_at=now)
             window = now - timedelta(minutes=1)
             recent = member.reservations.filter(reserved_at__gte=window).exclude(
                 status=KiwiRouterReservation.STATUS_EXPIRED,
             )
             request_count = recent.count()
             token_count = recent.aggregate(value=Sum('estimated_input_tokens'))['value'] or 0
-            active_count = recent.filter(status__in=[
+            active_count = member.reservations.filter(status__in=[
                 KiwiRouterReservation.STATUS_RESERVED,
                 KiwiRouterReservation.STATUS_DISPATCHED,
-            ]).count()
+            ], expires_at__gt=now).count()
             needed_tokens = estimated_input_tokens + estimated_output_tokens
             if member.rpm_limit is not None and request_count >= member.rpm_limit:
                 continue
@@ -68,7 +78,7 @@ def reserve_agent(router_id, *, workflow_key, correlation_id, task_id=None,
                 task_id=task_id,
                 estimated_input_tokens=estimated_input_tokens,
                 estimated_output_tokens=estimated_output_tokens,
-                expires_at=expiry,
+                expires_at=now + timedelta(seconds=timeout_seconds),
             )
             KiwiRoutingDecision.objects.create(
                 router=router, member=member, provider_config=member.provider_config,
@@ -125,8 +135,12 @@ def execute_agent(router_id, *, messages, workflow_key, correlation_id, task_id=
     timeout = min(configured_timeout, caller_timeout) if caller_timeout else configured_timeout
     try:
         mark_reservation_dispatched(reservation)
-        response = build_provider(selection.member.provider_config).chat(
-            messages, request_timeout=timeout, **kwargs,
+        response = call_provider_with_deadline(
+            selection.member.provider_config_id,
+            messages,
+            timeout_seconds=timeout,
+            request_timeout=timeout,
+            **kwargs,
         )
     except Exception:
         complete_reservation(reservation, succeeded=False)

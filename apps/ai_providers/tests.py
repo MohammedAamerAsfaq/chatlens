@@ -1,9 +1,12 @@
-from unittest.mock import Mock, patch
+from datetime import timedelta
+from unittest.mock import patch
 
 from django.test import TestCase
+from django.utils import timezone
 
 from .kiwi_router_service import execute_agent, reserve_agent
 from .models import AIProviderConfig, KiwiRouter, KiwiRouterMember, KiwiRouterReservation
+from .serializers import KiwiRouterSerializer
 
 
 class KiwiRouterReservationTests(TestCase):
@@ -49,11 +52,58 @@ class KiwiRouterReservationTests(TestCase):
         self.assertIsNone(selection.member)
         self.assertIsNotNone(selection.available_at)
 
-    @patch('apps.ai_providers.kiwi_router_service.build_provider')
-    def test_execution_uses_the_shorter_caller_timeout_once(self, build_provider):
-        provider = Mock()
-        provider.chat.return_value = {'content': 'ok'}
-        build_provider.return_value = provider
+    def test_expired_dispatch_no_longer_uses_concurrency_capacity(self):
+        self.first.max_concurrency = 1
+        self.first.save(update_fields=['max_concurrency'])
+        first_selection = reserve_agent(
+            self.router.pk, workflow_key='inquiry_pass1', correlation_id='message:active',
+        )
+        first_selection.reservation.expires_at = timezone.now() - timedelta(seconds=1)
+        first_selection.reservation.save(update_fields=['expires_at'])
+
+        replacement = reserve_agent(
+            self.router.pk, workflow_key='inquiry_pass1', correlation_id='message:replacement',
+        )
+
+        first_selection.reservation.refresh_from_db()
+        self.assertEqual(first_selection.reservation.status, KiwiRouterReservation.STATUS_EXPIRED)
+        self.assertEqual(replacement.member, self.first)
+
+    def test_used_member_can_be_updated_without_replacing_history(self):
+        reserve_agent(self.router.pk, workflow_key='inquiry_pass1', correlation_id='message:history')
+        data = {
+            'name': self.router.name,
+            'description': self.router.description,
+            'capability': self.router.capability,
+            'strategy': self.router.strategy,
+            'default_request_timeout_seconds': self.router.default_request_timeout_seconds,
+            'is_active': self.router.is_active,
+            'members': [{
+                'id': member.pk,
+                'provider_config': member.provider_config_id,
+                'priority': member.priority,
+                'is_enabled': member.is_enabled,
+                'rpm_limit': 8 if member == self.first else member.rpm_limit,
+                'tpm_limit': member.tpm_limit,
+                'max_concurrency': member.max_concurrency,
+                'input_cost_per_million': member.input_cost_per_million,
+                'output_cost_per_million': member.output_cost_per_million,
+                'metadata_source': member.metadata_source,
+                'request_timeout_seconds': member.request_timeout_seconds,
+            } for member in (self.first, self.second, self.third)],
+        }
+
+        serializer = KiwiRouterSerializer(instance=self.router, data=data)
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+        self.first.refresh_from_db()
+        self.assertEqual(self.first.rpm_limit, 8)
+        self.assertEqual(self.first.reservations.count(), 1)
+
+    @patch('apps.ai_providers.kiwi_router_service.call_provider_with_deadline')
+    def test_execution_uses_the_shorter_caller_timeout_once(self, call_provider):
+        call_provider.return_value = {'content': 'ok'}
 
         response, member = execute_agent(
             self.router.pk,
@@ -65,8 +115,10 @@ class KiwiRouterReservationTests(TestCase):
 
         self.assertEqual(response, {'content': 'ok'})
         self.assertEqual(member, self.first)
-        provider.chat.assert_called_once_with(
+        call_provider.assert_called_once_with(
+            self.first.provider_config_id,
             [{'role': 'user', 'content': 'test'}], request_timeout=20,
+            timeout_seconds=20,
         )
         reservation = KiwiRouterReservation.objects.get(correlation_id='message:timeout')
         self.assertEqual(reservation.status, KiwiRouterReservation.STATUS_SUCCEEDED)
