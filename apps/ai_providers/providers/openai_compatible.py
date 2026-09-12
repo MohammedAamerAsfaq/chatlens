@@ -37,6 +37,69 @@ class OpenRouterChatProvider(OpenAIChatProvider):
     def __init__(self, api_key, model='openrouter/auto', base_url=''):
         super().__init__(api_key, model, base_url or 'https://openrouter.ai/api/v1')
 
+    def list_models_with_metadata(self) -> list:
+        """Return model IDs with the pricing published by OpenRouter."""
+        response = self.session.get(f'{self.base_url}/models', timeout=10)
+        response.raise_for_status()
+        rows = []
+        for model in response.json().get('data', []):
+            model_id = model.get('id')
+            if not model_id:
+                continue
+            pricing = model.get('pricing') or {}
+            try:
+                input_cost = float(pricing['prompt']) * 1_000_000
+                output_cost = float(pricing['completion']) * 1_000_000
+            except (KeyError, TypeError, ValueError):
+                input_cost = output_cost = None
+            rows.append({
+                'id': model_id,
+                'input_cost_per_million': input_cost,
+                'output_cost_per_million': output_cost,
+            })
+        return sorted(rows, key=lambda row: row['id'])
+
+    def fetch_metadata(self) -> dict:
+        """Fetch OpenRouter-published model pricing and current key usage.
+
+        OpenRouter's key endpoint exposes spending/credit data, not reliable model
+        RPM, TPM, or concurrency limits. Its documented rate-limit field is
+        deprecated, so it is returned as account feedback rather than capacity.
+        """
+        model = next((row for row in self.list_models_with_metadata() if row['id'] == self.model), None)
+        metadata = {}
+        if model:
+            if model['input_cost_per_million'] is not None:
+                metadata['input_cost_per_million'] = model['input_cost_per_million']
+            if model['output_cost_per_million'] is not None:
+                metadata['output_cost_per_million'] = model['output_cost_per_million']
+
+        account_metadata = {}
+        try:
+            key_response = self.session.get(f'{self.base_url}/key', timeout=10)
+            key_response.raise_for_status()
+            key = key_response.json().get('data') or {}
+            account_metadata = {
+                'limit': key.get('limit'),
+                'limit_remaining': key.get('limit_remaining'),
+                'limit_reset': key.get('limit_reset'),
+                'usage_daily': key.get('usage_daily'),
+                'usage_monthly': key.get('usage_monthly'),
+                'rate_limit_requests': (key.get('rate_limit') or {}).get('requests'),
+            }
+        except Exception as exc:
+            account_metadata = {'fetch_error': friendly_error(exc)}
+
+        return {
+            'metadata': metadata,
+            'account_metadata': account_metadata,
+            'detail': (
+                'OpenRouter model pricing was fetched. Key credit and usage are shown below. '
+                'OpenRouter does not publish usable model RPM, TPM, or concurrency values here; '
+                'its key rate-limit field is deprecated and is not used for routing capacity.'
+            ),
+        }
+
 
 class GroqChatProvider(OpenAIChatProvider):
     def __init__(self, api_key, model='llama-3.3-70b-versatile', base_url=''):

@@ -36,6 +36,7 @@ import TenantAdminView from '../views/TenantAdminView.vue'
 import V2MatchTrainingView from '../views/V2MatchTrainingView.vue'
 import TaskOperationsView from '../views/TaskOperationsView.vue'
 import TaskQueueSettingsView from '../views/TaskQueueSettingsView.vue'
+import KiwiRouterView from '../views/KiwiRouterView.vue'
 
 const APP_TITLE = 'ChatLens'
 
@@ -78,6 +79,7 @@ const router = createRouter({
     { path: '/v2-match-training', name: 'v2-match-training', component: V2MatchTrainingView, meta: { title: 'V2 Match Training' } },
     { path: '/task-operations', name: 'task-operations', component: TaskOperationsView, meta: { title: 'Task Operations' } },
     { path: '/task-queues', name: 'task-queues', component: TaskQueueSettingsView, meta: { title: 'Task & Queues' } },
+    { path: '/kiwi-router', name: 'kiwi-router', component: KiwiRouterView, meta: { title: 'KiwiRouter' } },
   ],
 })
 

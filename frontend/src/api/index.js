@@ -205,11 +205,12 @@ export const tradingApi = {
 
   // AI Prompts
   listPrompts:      ()            => http.get('/prompts/'),
-  savePrompt:       (key, body, agent_config) => http.patch(`/prompts/${key}/`, { body, agent_config }),
-  savePromptAgent:  (key, agent_config) => http.patch(`/prompts/${key}/`, { agent_config }),
+  savePrompt:       (key, body, agent_config, kiwi_router) => http.patch(`/prompts/${key}/`, { body, agent_config, kiwi_router }),
+  savePromptAgent:  (key, agent_config, kiwi_router) => http.patch(`/prompts/${key}/`, { agent_config, kiwi_router }),
   resetPrompt:      (key)         => http.delete(`/prompts/${key}/`),
   getActiveAgent:   ()            => http.get('/prompts/active-agent/'),
   listPromptAgentOptions: ()      => http.get('/prompts/agent-options/'),
+  listPromptKiwiRouterOptions: () => http.get('/prompts/kiwi-router-options/'),
   saveAgentPricing: (data)        => http.patch('/prompts/active-agent/', data),
   listAgentLogs:    (params)      => http.get('/agent-logs/', { params }),
   listAiParsingLogs: (params)     => http.get('/ai-parsing-logs/', { params }),
@@ -314,6 +315,17 @@ export const aiProvidersApi = {
   test:        (id)            => http.post(`/ai-providers/${id}/test/`),
   meta:        ()              => http.get('/ai-providers/meta/'),
   fetchModels: (data)          => http.post('/ai-providers/fetch-models/', data),
+  fetchMetadata: (id)          => http.post(`/ai-providers/${id}/fetch-metadata/`),
+  agentTarget: ()              => http.get('/ai-providers/agent-target/'),
+  setAgentTarget: (data)       => http.patch('/ai-providers/agent-target/', data),
+}
+
+export const kiwiRoutersApi = {
+  list: () => http.get('/kiwi-routers/'),
+  create: (data) => http.post('/kiwi-routers/', data),
+  update: (id, data) => http.put(`/kiwi-routers/${id}/`, data),
+  delete: (id) => http.delete(`/kiwi-routers/${id}/`),
+  decisions: (id) => http.get(`/kiwi-routers/${id}/decisions/`),
 }
 
 export const tenantAdminApi = {

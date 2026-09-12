@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import AIProviderConfig
+from .models import AIProviderConfig, KiwiRouter, KiwiRouterMember, KiwiRoutingDecision
 
 
 # Default model options surfaced to the UI for each provider+capability combination.
@@ -110,3 +110,65 @@ class ProviderMetaSerializer(serializers.Serializer):
     providers = serializers.DictField()
     capabilities = serializers.DictField()
     models = serializers.DictField()
+
+
+class KiwiRouterMemberSerializer(serializers.ModelSerializer):
+    provider_name = serializers.CharField(source='provider_config.display_name', read_only=True)
+    provider_model = serializers.CharField(source='provider_config.model', read_only=True)
+
+    class Meta:
+        model = KiwiRouterMember
+        fields = ['id', 'provider_config', 'provider_name', 'provider_model', 'priority', 'is_enabled',
+                  'rpm_limit', 'tpm_limit', 'max_concurrency', 'input_cost_per_million',
+                  'output_cost_per_million', 'metadata_source', 'metadata_verified_at',
+                  'metadata_review_due_at', 'request_timeout_seconds']
+
+
+class KiwiRouterSerializer(serializers.ModelSerializer):
+    members = KiwiRouterMemberSerializer(many=True)
+
+    class Meta:
+        model = KiwiRouter
+        fields = ['id', 'name', 'description', 'capability', 'strategy', 'default_request_timeout_seconds',
+                  'is_active', 'members', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate_members(self, members):
+        priorities = [member['priority'] for member in members]
+        if len(priorities) != len(set(priorities)):
+            raise serializers.ValidationError('Each router member needs a unique priority.')
+        return members
+
+    def validate(self, attrs):
+        capability = attrs.get('capability', getattr(self.instance, 'capability', ''))
+        for member in attrs.get('members', []):
+            if member['provider_config'].capability != capability:
+                raise serializers.ValidationError({'members': 'Every member must match the router capability.'})
+        return attrs
+
+    def create(self, validated_data):
+        members = validated_data.pop('members', [])
+        router = KiwiRouter.objects.create(**validated_data)
+        KiwiRouterMember.objects.bulk_create([KiwiRouterMember(router=router, **member) for member in members])
+        return router
+
+    def update(self, instance, validated_data):
+        members = validated_data.pop('members', None)
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        instance.save()
+        if members is not None:
+            if instance.members.filter(reservations__isnull=False).exists():
+                raise serializers.ValidationError({'members': 'Cannot replace members after routing activity exists.'})
+            instance.members.all().delete()
+            KiwiRouterMember.objects.bulk_create([KiwiRouterMember(router=instance, **member) for member in members])
+        return instance
+
+
+class KiwiRoutingDecisionSerializer(serializers.ModelSerializer):
+    member_name = serializers.CharField(source='member.provider_config.display_name', read_only=True)
+
+    class Meta:
+        model = KiwiRoutingDecision
+        fields = ['id', 'workflow_key', 'decision', 'reason', 'correlation_id', 'task_id',
+                  'strategy', 'member_name', 'estimated_input_tokens', 'estimated_output_tokens', 'created_at']

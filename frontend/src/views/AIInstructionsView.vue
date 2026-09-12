@@ -173,6 +173,15 @@
               <span v-else class="saved-badge">saved {{ formatDate(p.updated_at) }}</span>
             </div>
             <div class="card-actions">
+              <label class="router-toggle">
+                <input type="checkbox" v-model="p.uses_kiwi_router" :disabled="savingAgent[p.key] || !kiwiRouterOptions.length" @change="togglePromptTarget(p)">
+                Select KiwiRouter
+              </label>
+              <select v-if="p.uses_kiwi_router" v-model="p.kiwi_router" class="agent-select" :disabled="savingAgent[p.key]" @change="savePromptAgent(p)">
+                <option :value="null" disabled>Select KiwiRouter</option>
+                <option v-for="router in kiwiRouterOptions" :key="router.id" :value="router.id">{{ router.name }} - {{ router.member_count }} agents</option>
+              </select>
+              <template v-else>
               <select
                 v-model="p.agent_config"
                 class="agent-select"
@@ -184,6 +193,7 @@
                   {{ option.display_name }} · {{ option.model }}{{ option.is_active ? ' · active' : '' }}
                 </option>
               </select>
+              </template>
               <button class="btn-ghost btn-sm" @click="togglePromptPanel(p.key)">
                 {{ isPromptCollapsed(p.key) ? 'Expand' : 'Collapse' }}
               </button>
@@ -314,6 +324,7 @@ const errors       = ref({})
 const pricingSaved = ref(false)
 const collapsedPrompts = ref(new Set())
 const agentOptions = ref([])
+const kiwiRouterOptions = ref([])
 
 const agent = ref({ display_name: '', provider: '', model: '', input_price_per_1m: null, output_price_per_1m: null })
 
@@ -360,16 +371,18 @@ function expandAllPrompts() {
 async function loadPrompts() {
   promptsLoading.value = true
   try {
-    const [pr, ar, ao, wr, ips] = await Promise.all([
+    const [pr, ar, ao, kro, wr, ips] = await Promise.all([
       tradingApi.listPrompts(),
       tradingApi.getActiveAgent().catch(() => ({ data: {} })),
       tradingApi.listPromptAgentOptions().catch(() => ({ data: [] })),
+      tradingApi.listPromptKiwiRouterOptions().catch(() => ({ data: [] })),
       tradingApi.getWtsReplySettings().catch(() => ({ data: {} })),
       tradingApi.getInquiryProductSaveSettings().catch(() => ({ data: {} })),
     ])
     prompts.value = pr.data
     Object.assign(agent.value, ar.data)
     agentOptions.value = ao.data
+    kiwiRouterOptions.value = kro.data
     if (wr.data.heading !== undefined) Object.assign(wtsReply.value, wr.data)
     if (ips.data.mode !== undefined) Object.assign(inquiryProductSave.value, ips.data)
   } finally {
@@ -382,7 +395,12 @@ async function save(p) {
   saved.value[p.key]  = false
   errors.value[p.key] = ''
   try {
-    const { data } = await tradingApi.savePrompt(p.key, p.body, p.agent_config || null)
+    const { data } = await tradingApi.savePrompt(
+      p.key,
+      p.body,
+      p.uses_kiwi_router ? null : p.agent_config || null,
+      p.uses_kiwi_router ? p.kiwi_router || null : null,
+    )
     const idx = prompts.value.findIndex(x => x.key === p.key)
     if (idx !== -1) prompts.value[idx] = data
     saved.value[p.key] = true
@@ -399,7 +417,11 @@ async function savePromptAgent(p) {
   saved.value[p.key] = false
   errors.value[p.key] = ''
   try {
-    const { data } = await tradingApi.savePromptAgent(p.key, p.agent_config || null)
+    const { data } = await tradingApi.savePromptAgent(
+      p.key,
+      p.uses_kiwi_router ? null : p.agent_config || null,
+      p.uses_kiwi_router ? p.kiwi_router || null : null,
+    )
     const idx = prompts.value.findIndex(x => x.key === p.key)
     if (idx !== -1) prompts.value[idx] = data
     saved.value[p.key] = true
@@ -409,6 +431,16 @@ async function savePromptAgent(p) {
   } finally {
     savingAgent.value[p.key] = false
   }
+}
+
+async function togglePromptTarget(p) {
+  if (p.uses_kiwi_router) {
+    p.agent_config = null
+    p.kiwi_router = kiwiRouterOptions.value[0]?.id || null
+  } else {
+    p.kiwi_router = null
+  }
+  await savePromptAgent(p)
 }
 
 async function reset(p) {
@@ -537,6 +569,7 @@ onMounted(loadPrompts)
 .default-badge { background: #fef9c3; color: #854d0e; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; }
 .saved-badge { background: #dcfce7; color: #166534; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; }
 .card-actions { display: flex; gap: 8px; }
+.router-toggle { display: flex; align-items: center; gap: 5px; font-size: 0.78rem; color: #374151; white-space: nowrap; cursor: pointer; }
 .agent-select { max-width: 260px; height: 30px; padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #374151; font-size: 0.8rem; }
 .meta-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .meta-note { font-size: 0.8rem; color: #6b7280; }

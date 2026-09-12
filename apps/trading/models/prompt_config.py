@@ -453,6 +453,13 @@ class PromptConfig(models.Model):
         related_name='prompt_configs',
         limit_choices_to={'capability': 'agent'},
     )
+    kiwi_router = models.ForeignKey(
+        'ai_providers.KiwiRouter',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='prompt_configs',
+        limit_choices_to={'capability': 'agent'},
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

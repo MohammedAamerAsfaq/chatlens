@@ -91,3 +91,12 @@ class AIProviderRequestLog(models.Model):
     config = models.ForeignKey(AIProviderConfig, on_delete=models.CASCADE, related_name='request_log')
     tokens = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+
+from .router_models import (  # noqa: E402,F401
+    DefaultAgentTarget,
+    KiwiRouter,
+    KiwiRouterMember,
+    KiwiRouterReservation,
+    KiwiRoutingDecision,
+)

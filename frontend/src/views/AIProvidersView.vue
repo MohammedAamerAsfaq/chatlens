@@ -1,11 +1,14 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { aiProvidersApi } from '@/api/index.js'
+import { aiProvidersApi, kiwiRoutersApi } from '@/api/index.js'
 import ProviderCard from '@/components/ProviderCard.vue'
 
 // ── State ────────────────────────────────────────────────────────────────────
 
 const providers = ref([])
+const kiwiRouters = ref([])
+const agentTarget = ref({ mode: 'direct', kiwi_router_id: null, kiwi_router_name: '' })
+const selectingRouter = ref(null)
 const meta      = ref({ providers: {}, capabilities: {}, models: {} })
 const loading   = ref(false)
 const error     = ref('')
@@ -19,6 +22,7 @@ const testing    = ref({})         // { [id]: 'idle' | 'running' | { ok, ... } }
 const deleting   = ref({})
 
 const liveModels      = ref([])    // fetched from provider API
+const liveModelMetadata = ref({})  // optional pricing/details by model ID
 const liveModelSource = ref('')    // 'api' | 'fallback' | ''
 const fetchModelError = ref('')
 const fetchingModels  = ref(false)
@@ -53,6 +57,17 @@ const availableModels = computed(() => {
   return meta.value.models[key] || []
 })
 
+const availableModelOptions = computed(() => availableModels.value.map(id => ({
+  id,
+  metadata: liveModelMetadata.value[id] || null,
+})))
+
+function modelOptionLabel(option) {
+  const metadata = option.metadata
+  if (metadata?.input_cost_per_million == null || metadata?.output_cost_per_million == null) return option.id
+  return `${option.id} - input ($${Number(metadata.input_cost_per_million).toFixed(4)}/1M) - output ($${Number(metadata.output_cost_per_million).toFixed(4)}/1M)`
+}
+
 const providerOptions = computed(() =>
   Object.entries(meta.value.providers).map(([v, l]) => ({ value: v, label: l }))
 )
@@ -71,9 +86,16 @@ async function load() {
   loading.value = true
   error.value   = ''
   try {
-    const [pRes, mRes] = await Promise.all([aiProvidersApi.list(), aiProvidersApi.meta()])
+    const [pRes, mRes, rRes, targetRes] = await Promise.all([
+      aiProvidersApi.list(),
+      aiProvidersApi.meta(),
+      kiwiRoutersApi.list(),
+      aiProvidersApi.agentTarget(),
+    ])
     providers.value = pRes.data
     meta.value      = mRes.data
+    kiwiRouters.value = rRes.data.filter(router => router.capability === 'agent')
+    agentTarget.value = targetRes.data
   } catch (e) {
     error.value = e.message
   } finally {
@@ -88,6 +110,7 @@ onMounted(load)
 function openCreate() {
   form.value = emptyForm()
   liveModels.value = []
+  liveModelMetadata.value = {}
   liveModelSource.value = ''
   fetchModelError.value = ''
   modalMode.value = 'create'
@@ -111,6 +134,7 @@ function openEdit(p) {
     _existingExtraConfig: extra,
   }
   liveModels.value = []
+  liveModelMetadata.value = {}
   liveModelSource.value = ''
   fetchModelError.value = ''
   modalMode.value = 'edit'
@@ -127,6 +151,7 @@ function closeModal() {
 function onProviderChange() {
   // Clear live models and reset model selection when provider/capability changes
   liveModels.value = []
+  liveModelMetadata.value = {}
   liveModelSource.value = ''
   fetchModelError.value = ''
   if (form.value.provider === 'lm_studio' && !form.value.base_url) {
@@ -159,6 +184,7 @@ async function doFetchModels() {
     }
     const res = await aiProvidersApi.fetchModels(payload)
     liveModels.value      = res.data.models || []
+    liveModelMetadata.value = res.data.model_metadata || {}
     liveModelSource.value = res.data.source || ''
     fetchModelError.value = res.data.warning || ''
     // Keep current model if it's in the list; otherwise default to first
@@ -244,6 +270,30 @@ async function deleteProvider(p) {
   }
 }
 
+async function selectRouter(router) {
+  selectingRouter.value = router.id
+  try {
+    const { data } = await aiProvidersApi.setAgentTarget({ kiwi_router_id: router.id })
+    agentTarget.value = data
+  } catch (e) {
+    error.value = e.response?.data?.error || e.message || 'Unable to select KiwiRouter.'
+  } finally {
+    selectingRouter.value = null
+  }
+}
+
+async function selectDirectAgent() {
+  selectingRouter.value = 'direct'
+  try {
+    const { data } = await aiProvidersApi.setAgentTarget({ kiwi_router_id: null })
+    agentTarget.value = data
+  } catch (e) {
+    error.value = e.response?.data?.error || e.message || 'Unable to select the direct agent.'
+  } finally {
+    selectingRouter.value = null
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function testResult(id) {
@@ -324,7 +374,7 @@ function capabilityBadge(cap) {
       <!-- General AI Agent section -->
       <section>
         <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">General AI Agent</h2>
-        <p class="text-xs text-gray-400 mb-3">Used for background tasks — enrichment, tagging, summarisation. Assign a faster or cheaper model independently of the user-facing chat provider.</p>
+        <p class="text-xs text-gray-400 mb-3">Direct provider fallback for background tasks. Select a KiwiRouter below when a router-aware workflow should distribute requests across multiple agents.</p>
         <div v-if="!agentProviders.length" class="text-sm text-gray-400 border border-dashed border-gray-200 rounded-lg px-4 py-8 text-center">
           No agent providers configured yet
         </div>
@@ -339,6 +389,47 @@ function capabilityBadge(cap) {
             @test="testProvider(p)"
             @delete="deleteProvider(p)"
           />
+        </div>
+      </section>
+
+      <!-- Kiwi Router section -->
+      <section>
+        <div class="flex items-center justify-between gap-4 mb-1">
+          <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Kiwi Router</h2>
+          <RouterLink to="/kiwi-router" class="text-xs text-green-700 hover:text-green-800 font-medium">Manage routers</RouterLink>
+        </div>
+        <p class="text-xs text-gray-400 mb-3">Select one router as the default agent target. Its member order and limits control the provider choice.</p>
+        <div v-if="!kiwiRouters.length" class="text-sm text-gray-400 border border-dashed border-gray-200 rounded-lg px-4 py-8 text-center">
+          No General AI Agent KiwiRouter configured yet.
+          <RouterLink to="/kiwi-router" class="text-green-700 hover:text-green-800">Create a router</RouterLink>
+          first.
+        </div>
+        <div v-else class="space-y-3">
+          <div v-for="router in kiwiRouters" :key="router.id" class="border rounded-lg bg-white p-4 flex items-start gap-4">
+            <button
+              :disabled="!router.is_active || selectingRouter !== null"
+              :title="router.is_active ? 'Select as the default agent target' : 'Enable this router before selecting it'"
+              @click="selectRouter(router)"
+              :class="[
+                'mt-0.5 w-4 h-4 rounded-full border-2 transition-colors',
+                agentTarget.kiwi_router_id === router.id ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300 hover:border-green-400',
+              ]"
+            />
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-medium text-gray-900 text-sm">{{ router.name }}</span>
+                <span :class="['text-xs px-2 py-0.5 rounded-full font-medium', router.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500']">{{ router.is_active ? 'active' : 'inactive' }}</span>
+                <span v-if="agentTarget.kiwi_router_id === router.id" class="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700">selected agent</span>
+              </div>
+              <p class="text-xs text-gray-500 mt-1">{{ router.members.length }} provider agents · Ordered capacity fill</p>
+            </div>
+            <button
+              @click="selectRouter(router)"
+              :disabled="!router.is_active || selectingRouter !== null || agentTarget.kiwi_router_id === router.id"
+              class="text-xs px-3 py-1.5 border border-gray-200 rounded hover:bg-gray-50 text-gray-600 transition-colors disabled:opacity-40"
+            >{{ selectingRouter === router.id ? 'Selecting...' : agentTarget.kiwi_router_id === router.id ? 'Selected' : 'Select as agent' }}</button>
+          </div>
+          <button v-if="agentTarget.mode === 'kiwi_router'" @click="selectDirectAgent" :disabled="selectingRouter !== null" class="text-xs px-3 py-1.5 border border-gray-200 rounded hover:bg-gray-50 text-gray-600 transition-colors disabled:opacity-40">{{ selectingRouter === 'direct' ? 'Switching...' : 'Use direct active agent instead' }}</button>
         </div>
       </section>
     </div>
@@ -413,9 +504,9 @@ function capabilityBadge(cap) {
               <p v-if="fetchModelError" class="text-xs text-red-600 mb-2">
                 Model fetch warning: {{ fetchModelError }}
               </p>
-              <select v-if="availableModels.length" v-model="form.model" required
+              <select v-if="availableModelOptions.length" v-model="form.model" required
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
-                <option v-for="m in availableModels" :key="m" :value="m">{{ m }}</option>
+                <option v-for="option in availableModelOptions" :key="option.id" :value="option.id">{{ modelOptionLabel(option) }}</option>
               </select>
               <input v-else v-model="form.model" required
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
