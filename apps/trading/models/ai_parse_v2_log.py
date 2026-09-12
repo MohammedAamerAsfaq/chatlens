@@ -41,6 +41,11 @@ class AiParseV2Log(models.Model):
         blank=True,
     )
     inquiry_ids = models.JSONField(default=list, blank=True)
+    gate_mode = models.CharField(max_length=20, blank=True)
+    gate_decision = models.CharField(max_length=20, blank=True)
+    gate_request = models.JSONField(null=True, blank=True)
+    gate_response = models.TextField(blank=True)
+    gate_ai_ms = models.PositiveIntegerField(null=True, blank=True)
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default=STATUS_PASS1_STARTED)
     pass1_request = models.JSONField(null=True, blank=True)
     pass1_response = models.TextField(blank=True)

@@ -127,7 +127,7 @@ contact_category_suggestion to null — never repeat the existing category as a 
 Rules:
 - is_inquiry must be true ONLY for genuine buy or sell business opportunities \
 (not greetings, jokes, or casual messages).
-- When is_inquiry is true, inquiry_type MUST be "buy", "sell", or "both" — never null.
+- When is_inquiry is true, inquiry_type MUST be exactly "buy" or "sell" — never both or null.
 - tags must contain at least one value.
 - products: extract ONLY what is explicitly stated in the message. \
 Do NOT infer, add, or upgrade specs (e.g. do not add "Pro" if the message says "iPhone 17 256GB"). \
@@ -151,7 +151,7 @@ Respond ONLY with valid JSON — no markdown, no explanation — matching this s
     }
   ],
   "is_inquiry": <bool>,
-  "inquiry_type": "buy" | "sell" | "both" | null,
+  "inquiry_type": "buy" | "sell" | null,
   "summary": "<one sentence>",
   "dedup_key": "<string>",
   "contact_category_suggestion": "supplier" | "customer" | "both" | null
@@ -303,7 +303,7 @@ Do not match products to inventory. Do not invent product_id values.
 
 Rules:
 - is_inquiry must be true only for genuine buy or sell business opportunities.
-- Classify direction as "buy", "sell", or "both".
+- Classify direction as exactly "buy" or "sell".
 - Explicit WTB means buy. Explicit WTS means sell.
 - Do not classify a message as sell just because it lists products.
 - If the message contains price-seeking language such as "PRICE", "price?", "rate", "best price",
@@ -363,11 +363,18 @@ Respond ONLY with valid JSON matching this schema:
     }
   ],
   "is_inquiry": <bool>,
-  "inquiry_type": "buy" | "sell" | "both" | null,
+  "inquiry_type": "buy" | "sell" | null,
   "summary": "<one sentence>",
   "dedup_key": "<string>",
   "contact_category_suggestion": "supplier" | "customer" | "both" | null
 }\
+"""
+
+INQUIRY_GATE_V2_DEFAULT = """\
+Classify this WhatsApp message for a wholesale trading desk. Return ONLY JSON:
+{"decision":"buy"|"sell"|"not_inquiry"}.
+Use business intent, not merely literal WTB/WTS tokens. Greetings, links, logistics,
+and unrelated messages are not_inquiry. Do not extract products or explain reasoning.\
 """
 
 
@@ -414,6 +421,7 @@ class PromptConfig(models.Model):
     KEY_PRODUCT_EXTRACTION      = 'product_extraction'
     KEY_INQUIRY_CLASSIFICATION  = 'inquiry_classification'
     KEY_INQUIRY_CLASSIFICATION_V1 = 'inquiry_classification_v1'
+    KEY_INQUIRY_GATE_V2         = 'inquiry_gate_v2'
     KEY_INQUIRY_EXTRACTION_V2   = 'inquiry_extraction_v2'
     KEY_INQUIRY_MATCH_DECISION_V2 = 'inquiry_match_decision_v2'
     KEY_INVENTORY_UPDATE        = 'inventory_update'
@@ -428,6 +436,7 @@ class PromptConfig(models.Model):
         (KEY_PRODUCT_EXTRACTION,     'Product Extraction (bulk import)'),
         (KEY_INQUIRY_CLASSIFICATION, 'Inquiry Classification (live messages)'),
         (KEY_INQUIRY_CLASSIFICATION_V1, 'Inquiry Classification V1 (live messages)'),
+        (KEY_INQUIRY_GATE_V2, 'Inquiry GatePass V2'),
         (KEY_INQUIRY_EXTRACTION_V2, 'Inquiry Extraction V2 (pass 1)'),
         (KEY_INQUIRY_MATCH_DECISION_V2, 'Inquiry Match Decision V2 (pass 2)'),
         (KEY_INVENTORY_UPDATE,       'Inventory Update (bulk qty + price)'),

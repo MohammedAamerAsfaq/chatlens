@@ -208,7 +208,7 @@ def _parse_response(raw: str) -> dict:
 
     is_inquiry   = bool(data.get('is_inquiry', False))
     inquiry_type = data.get('inquiry_type') or ''
-    if inquiry_type not in ('buy', 'sell', 'both'):
+    if inquiry_type not in ('buy', 'sell'):
         inquiry_type = ''
     if not is_inquiry:
         inquiry_type = ''
@@ -278,7 +278,7 @@ def _parse_v2_extraction_response(raw: str) -> dict:
 
     is_inquiry = bool(data.get('is_inquiry', False))
     inquiry_type = data.get('inquiry_type') or ''
-    if inquiry_type not in ('buy', 'sell', 'both'):
+    if inquiry_type not in ('buy', 'sell'):
         inquiry_type = ''
     if not is_inquiry:
         inquiry_type = ''

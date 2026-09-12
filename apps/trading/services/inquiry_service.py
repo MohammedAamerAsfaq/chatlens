@@ -126,7 +126,7 @@ def process_inquiry(message, classification) -> None:
         contact = _resolve_contact(message)
         dedup_key = classification.dedup_key or ''
         inquiry_type = classification.inquiry_type
-        match_inquiry_type = 'buy' if inquiry_type == 'both' else inquiry_type
+        match_inquiry_type = inquiry_type
 
         existing = _layer1_match(account, contact, dedup_key, match_inquiry_type)
         if not existing:
@@ -159,9 +159,6 @@ def process_inquiry(message, classification) -> None:
             )
             return [existing]
 
-        if inquiry_type == 'both':
-            inquiry_type = 'buy'
-
         inquiry = Inquiry.objects.create(
             company=company,
             account=account,
@@ -188,32 +185,5 @@ def process_inquiry(message, classification) -> None:
             inquiry_type,
             message.pk,
         )
-
-        if classification.inquiry_type == 'both':
-            sell_inquiry = Inquiry.objects.create(
-                company=company,
-                account=account,
-                contact=contact,
-                inquiry_type='sell',
-                products=classification.products,
-                summary=classification.ai_summary,
-                dedup_key=dedup_key.replace('buy:', 'sell:', 1),
-                source_type=inquiry.source_type,
-                first_seen_at=message.message_time,
-                suggested_contact_category=suggested_category,
-                classification_version=classification.classification_version or 'v1',
-                product_match_status=(
-                    Inquiry.CLASSIFICATION_MATCH_PENDING
-                    if classification.classification_version == 'v2'
-                    else Inquiry.CLASSIFICATION_MATCH_NOT_REQUIRED
-                ),
-            )
-            _link_message(sell_inquiry, message)
-            logger.info(
-                'inquiry_service | created sell-side | inquiry_id=%s | message_id=%s',
-                sell_inquiry.pk,
-                message.pk,
-            )
-            return [inquiry, sell_inquiry]
 
         return [inquiry]
