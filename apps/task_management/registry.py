@@ -59,6 +59,17 @@ def validate_versioned_message_payload(payload):
         raise UnsupportedTaskPayload('message_id must be a positive integer.')
 
 
+def validate_v2_pass2_payload(payload):
+    validate_versioned_message_payload(payload)
+    if not isinstance(payload.get('classification_id'), int) or payload['classification_id'] <= 0:
+        raise UnsupportedTaskPayload('classification_id must be a positive integer.')
+    inquiry_ids = payload.get('inquiry_ids')
+    if not isinstance(inquiry_ids, list) or not inquiry_ids:
+        raise UnsupportedTaskPayload('inquiry_ids must be a non-empty list.')
+    if any(not isinstance(value, int) or value <= 0 for value in inquiry_ids):
+        raise UnsupportedTaskPayload('inquiry_ids must contain positive integers.')
+
+
 def validate_embedding_payload(payload):
     """Validate a versioned payload that identifies one embedding source record."""
     if not isinstance(payload, dict) or payload.get('version') != 1:

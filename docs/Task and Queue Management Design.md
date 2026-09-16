@@ -368,6 +368,8 @@ WhatsApp ingestion uses explicit history and live stages:
 - `history_ingestion` / `whatsapp.persist_history_batch` persists history batches.
 - `history_embedding_dispatch` / `whatsapp.dispatch_history_embeddings` creates history embedding tasks only.
 - `live_ingestion` / `whatsapp.persist_live_message` persists live messages before downstream routing.
+- `v2_pass1` / `trading.classify_message_v2_pass1` runs GatePass, extraction, and inquiry creation.
+- `v2_pass2` / `trading.classify_message_v2_pass2` performs candidate matching without daemon threads.
 
 See `docs/WhatsApp Ingestion Queue Architecture.md` for queue boundaries,
 idempotency, and deployment details.

@@ -1,7 +1,6 @@
 import json
 import logging
 import re
-import threading
 import time
 
 logger = logging.getLogger(__name__)
@@ -33,6 +32,15 @@ MAX_DURATION_MS = 2_147_483_647
 
 def _elapsed_ms(start) -> int:
     return min(MAX_DURATION_MS, max(0, int((time.perf_counter() - start) * 1000)))
+
+
+def _elapsed_since(created_at) -> int:
+    from django.utils import timezone
+
+    return min(
+        MAX_DURATION_MS,
+        max(0, int((timezone.now() - created_at).total_seconds() * 1000)),
+    )
 
 
 def contact_role_category(contact) -> str:
@@ -570,8 +578,17 @@ def _build_v2_match_batches(
 
 
 def _call_agent_with_timeout(callable_func, timeout_seconds: int):
-    """Run synchronously; provider HTTP timeouts bound the request itself."""
-    return callable_func()
+    """Bound the synchronous provider request without creating a nested thread."""
+    from apps.queue_management.services import task_deadline
+
+    requested_deadline = time.monotonic() + max(1, timeout_seconds)
+    current_deadline = task_deadline.get()
+    effective_deadline = min(current_deadline, requested_deadline) if current_deadline else requested_deadline
+    token = task_deadline.set(effective_deadline)
+    try:
+        return callable_func()
+    finally:
+        task_deadline.reset(token)
 
 
 def _reconcile_stale_pass1_logs(account_id: int | None = None, stale_after_seconds: int = PASS1_STALE_AFTER_SECONDS) -> int:
@@ -752,8 +769,12 @@ def classify_message(message, *, propagate_errors=False) -> bool:
 
     msg_id = message.pk
 
-    # Skip if already classified (idempotent — safe to call twice)
-    if MessageClassification.objects.filter(message_id=msg_id).exists():
+    # Resume V2 task production if Pass 1 committed before its Pass 2 enqueue.
+    existing = MessageClassification.objects.filter(message_id=msg_id).first()
+    if existing and existing.classification_version == CLASSIFICATION_V2:
+        classify_message_v2(message)
+        return True
+    if existing:
         return True
 
     try:
@@ -840,8 +861,7 @@ def classify_message_v2(message) -> None:
     V2 two-pass path:
     1. AI extracts/classifies the inquiry without inventory matching.
     2. The inquiry is persisted immediately with product_match_status=pending.
-    3. A background thread retrieves candidates and sends all product lines to AI in
-       one batched match-decision request.
+    3. A durable Pass 2 task retrieves candidates and performs match decisions.
     """
     from apps.tenancy.services.access import company_for_message
     from apps.trading.models import AgentCallLog, AiParseV2Log, MessageClassification, PromptConfig
@@ -849,6 +869,12 @@ def classify_message_v2(message) -> None:
     from apps.trading.services.inquiry_service import process_inquiry
 
     _reconcile_stale_pass1_logs(account_id=message.account_id)
+    existing = MessageClassification.objects.filter(message=message).first()
+    if existing:
+        existing_log = AiParseV2Log.objects.filter(message=message).first()
+        if existing_log and existing_log.inquiry_ids and existing_log.status != AiParseV2Log.STATUS_COMPLETE:
+            _enqueue_v2_pass2(message, existing.pk, existing_log.inquiry_ids)
+        return
     company = company_for_message(message)
     total_start = time.perf_counter()
     pass1_start = time.perf_counter()
@@ -947,41 +973,59 @@ def classify_message_v2(message) -> None:
     if inquiry_ids:
         log.inquiry_ids = inquiry_ids
         log.save(update_fields=['inquiry_ids', 'updated_at'])
-        _start_v2_match_thread(message.pk, classification.pk, inquiry_ids, total_start)
+        _enqueue_v2_pass2(message, classification.pk, inquiry_ids)
     else:
         log.total_ms = _elapsed_ms(total_start)
         log.save(update_fields=['total_ms', 'updated_at'])
 
 
-def _start_v2_match_thread(message_id: int, classification_id: int, inquiry_ids: list[int], total_start) -> None:
-    from django.db import connection as db_connection
+def _enqueue_v2_pass2(message, classification_id: int, inquiry_ids: list[int]):
+    from apps.queue_management.services import enqueue_task
+    from apps.task_management.models import BackgroundTask
+    from apps.tenancy.services.access import company_for_message
 
-    def _run():
-        try:
-            _run_v2_batched_match(message_id, classification_id, inquiry_ids, total_start)
-        except Exception as exc:
-            logger.exception(
-                'classify_message_v2 | pass2 failed | message_id=%s | classification_id=%s',
-                message_id,
-                classification_id,
-            )
-            try:
-                from apps.trading.models import AiParseV2Log, Inquiry
-                Inquiry.objects.filter(pk__in=inquiry_ids).update(
-                    product_match_status=Inquiry.CLASSIFICATION_MATCH_ERROR,
-                    product_match_error=str(exc),
-                )
-                AiParseV2Log.objects.filter(message_id=message_id).update(
-                    status=AiParseV2Log.STATUS_ERROR,
-                    total_ms=_elapsed_ms(total_start),
-                    error=str(exc),
-                )
-            except Exception:
-                logger.exception('classify_message_v2 | failed to mark pass2 error | inquiry_ids=%s', inquiry_ids)
-        finally:
-            db_connection.close()
+    idempotency_key = f'classification-v2-pass2:{message.pk}'
+    existing = BackgroundTask.objects.filter(
+        task_key='trading.classify_message_v2_pass2',
+        idempotency_key=idempotency_key,
+    ).exclude(
+        status__in=[BackgroundTask.STATUS_FAILED, BackgroundTask.STATUS_CANCELLED],
+    ).order_by('-created_at').first()
+    if existing:
+        return existing
+    return enqueue_task(
+        task_key='trading.classify_message_v2_pass2',
+        payload={
+            'version': 1,
+            'message_id': message.pk,
+            'classification_id': classification_id,
+            'inquiry_ids': list(inquiry_ids),
+        },
+        idempotency_key=idempotency_key,
+        correlation_id=f'whatsapp-message:{message.pk}',
+        company=company_for_message(message),
+    )
 
-    threading.Thread(target=_run, daemon=True).start()
+
+def run_v2_pass2(message_id: int, classification_id: int, inquiry_ids: list[int]) -> None:
+    from apps.trading.models import AiParseV2Log, Inquiry
+
+    log = AiParseV2Log.objects.get(message_id=message_id)
+    if log.status == AiParseV2Log.STATUS_COMPLETE:
+        return
+    try:
+        _run_v2_batched_match(message_id, classification_id, inquiry_ids)
+    except Exception as exc:
+        Inquiry.objects.filter(pk__in=inquiry_ids).update(
+            product_match_status=Inquiry.CLASSIFICATION_MATCH_ERROR,
+            product_match_error=str(exc),
+        )
+        AiParseV2Log.objects.filter(pk=log.pk).update(
+            status=AiParseV2Log.STATUS_ERROR,
+            total_ms=_elapsed_since(log.created_at),
+            error=str(exc),
+        )
+        raise
 
 
 def _auto_save_matched_inquiry_products(message, inquiry_ids: list[int], products: list[dict]) -> int:
@@ -1078,7 +1122,7 @@ def _auto_track_non_inventory_products(message, inquiry_ids: list[int], products
     return tracked
 
 
-def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: list[int], total_start) -> None:
+def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: list[int]) -> None:
     from apps.trading.models import AgentCallLog, AiParseV2Log, Inquiry, MessageClassification, PromptConfig
     from apps.trading.services.agent_logger import call_agent
     from apps.trading.services.trading_settings_service import get_v2_matching_settings
@@ -1087,6 +1131,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
 
     message = WhatsAppMessage.objects.select_related('account', 'chat', 'contact').get(pk=message_id)
     classification = MessageClassification.objects.get(pk=classification_id)
+    v2_log = AiParseV2Log.objects.get(message_id=message_id)
     products = list(classification.products or [])
     pass2_start = time.perf_counter()
 
@@ -1098,7 +1143,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
         AiParseV2Log.objects.filter(message_id=message_id).update(
             status=AiParseV2Log.STATUS_COMPLETE,
             pass2_total_ms=_elapsed_ms(pass2_start),
-            total_ms=_elapsed_ms(total_start),
+            total_ms=_elapsed_since(v2_log.created_at),
             pass2_request={'skipped': True, 'reason': 'no extracted products'},
             pass2_response='',
             pass2_parsed={'results': []},
@@ -1198,7 +1243,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
             status=AiParseV2Log.STATUS_COMPLETE,
             candidate_search_ms=candidate_search_ms,
             pass2_total_ms=_elapsed_ms(pass2_start),
-            total_ms=_elapsed_ms(total_start),
+            total_ms=_elapsed_since(v2_log.created_at),
             pass2_request={
                 'skipped': True,
                 'reason': 'no active inventory candidates matched extracted brand/attributes',
@@ -1398,7 +1443,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
         status=AiParseV2Log.STATUS_COMPLETE,
         pass2_ai_ms=pass2_ai_ms,
         pass2_total_ms=_elapsed_ms(pass2_start),
-        total_ms=_elapsed_ms(total_start),
+        total_ms=_elapsed_since(v2_log.created_at),
         pass2_response=json.dumps(pass2_responses, ensure_ascii=False, default=str),
         pass2_parsed={
             'raw_batches': [

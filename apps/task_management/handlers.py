@@ -1,7 +1,8 @@
 """Registered task handlers for non-embedding background domains."""
 from .registry import (
     task_handler, validate_any_v1_payload, validate_recovery_payload,
-    validate_automation_payload, validate_versioned_message_payload,
+    validate_automation_payload, validate_v2_pass2_payload,
+    validate_versioned_message_payload,
 )
 
 
@@ -45,14 +46,31 @@ def classify_message_task(payload, context):
     return {'message_id': message.pk, 'classified': True}
 
 
-@task_handler(key='trading.classify_message_v2_pass1', default_queue='ai', payload_validator=validate_versioned_message_payload)
+@task_handler(key='trading.classify_message_v2_pass1', default_queue='v2_pass1', payload_validator=validate_versioned_message_payload)
 def classify_message_v2_pass1(payload, context):
-    return _not_migrated(payload, context)
+    from apps.whatsapp_bridge.models import WhatsAppMessage
+    from apps.trading.services.classification_service import classify_message_v2
+
+    message = WhatsAppMessage.objects.select_related('account', 'chat', 'contact').get(pk=payload['message_id'])
+    classify_message_v2(message)
+    return {'message_id': message.pk, 'pass1_complete': True}
 
 
-@task_handler(key='trading.classify_message_v2_pass2', default_queue='ai', payload_validator=validate_versioned_message_payload)
+@task_handler(key='trading.classify_message_v2_pass2', default_queue='v2_pass2', payload_validator=validate_v2_pass2_payload)
 def classify_message_v2_pass2(payload, context):
-    return _not_migrated(payload, context)
+    from apps.trading.services.classification_service import run_v2_pass2
+
+    run_v2_pass2(
+        payload['message_id'],
+        payload['classification_id'],
+        payload['inquiry_ids'],
+    )
+    return {
+        'message_id': payload['message_id'],
+        'classification_id': payload['classification_id'],
+        'inquiry_ids': payload['inquiry_ids'],
+        'pass2_complete': True,
+    }
 
 
 @task_handler(key='whatsapp.recover_unresolved_lid', default_queue='recovery', payload_validator=validate_recovery_payload)

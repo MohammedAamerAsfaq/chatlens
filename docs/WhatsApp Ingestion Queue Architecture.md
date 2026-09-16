@@ -76,7 +76,7 @@ constraint on `(account, provider_message_id)` remains the final protection.
 
 ```powershell
 python.exe manage.py migrate
-python.exe manage.py run_background_tasks --queue history_ingestion --queue history_embedding_dispatch --queue live_ingestion --queue ai --queue embeddings --queue automation
+python.exe manage.py run_background_tasks --queue history_ingestion --queue history_embedding_dispatch --queue live_ingestion --queue ai --queue v2_pass1 --queue v2_pass2 --queue embeddings --queue automation
 ```
 
 The embedded SQLite dispatcher may remain enabled. A standalone dispatcher is
