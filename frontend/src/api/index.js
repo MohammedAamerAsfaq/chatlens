@@ -54,6 +54,11 @@ export const accountsApi = {
   softDisconnect: (id) => http.post(`/accounts/${id}/soft-disconnect/`),
   delete: (id) => http.delete(`/accounts/${id}/`),
   updateSettings: (id, data) => http.patch(`/accounts/${id}/update-settings/`, data),
+  preflightMessage: (id, destinationJid) => http.post(`/accounts/${id}/message-preflight/`, {
+    destination_jid: destinationJid,
+  }),
+  getMessageCapacity: (id) => http.get(`/accounts/${id}/message-capacity/`),
+  refreshMessageCapacity: (id) => http.post(`/accounts/${id}/message-capacity/refresh/`),
   export: (id) => http.get(`/accounts/${id}/export/`, { responseType: 'blob' }),
   storage: (id) => http.get(`/accounts/${id}/storage/`),
   deleteMessages: (id) => http.post(`/accounts/${id}/delete-messages/`),

@@ -127,7 +127,12 @@ app.get('/ingestion-buffer/diagnostics', (_req, res) => res.json(ingestionBuffer
 app.use('/media', express.static(path.resolve(MEDIA_STORE_PATH)));
 
 // Sessions API
-app.use('/sessions', sessionsRouter(sessionManager, MEDIA_STORE_PATH, messageLogger));
+app.use('/sessions', sessionsRouter(
+  sessionManager,
+  MEDIA_STORE_PATH,
+  messageLogger,
+  INTERNAL_API_TOKEN,
+));
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));

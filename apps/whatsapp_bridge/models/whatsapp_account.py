@@ -12,6 +12,13 @@ class SessionStatus(models.TextChoices):
 
 
 class WhatsAppAccount(models.Model):
+    UNKNOWN_NEW_CHAT_BLOCK = 'block'
+    UNKNOWN_NEW_CHAT_ALLOW = 'allow'
+    UNKNOWN_NEW_CHAT_POLICY_CHOICES = [
+        (UNKNOWN_NEW_CHAT_BLOCK, 'Block sending'),
+        (UNKNOWN_NEW_CHAT_ALLOW, 'Allow after confirmation'),
+    ]
+
     CLASSIFICATION_INHERIT = 'inherit'
     CLASSIFICATION_V1 = 'v1'
     CLASSIFICATION_V2 = 'v2'
@@ -53,6 +60,18 @@ class WhatsAppAccount(models.Model):
     idle_disconnect_minutes = models.IntegerField(default=0)   # 0 = disabled
     auto_download_media = models.BooleanField(default=True)
     ai_parsing_enabled = models.BooleanField(default=False)
+    outbound_sending_enabled = models.BooleanField(default=False)
+    direct_sending_enabled = models.BooleanField(default=False)
+    group_sending_enabled = models.BooleanField(default=False)
+    recipient_interval_ms = models.PositiveIntegerField(default=5000)
+    account_interval_ms = models.PositiveIntegerField(default=5000)
+    allow_concurrent_sends = models.BooleanField(default=False)
+    max_concurrent_sends = models.PositiveSmallIntegerField(default=1)
+    unknown_new_chat_policy = models.CharField(
+        max_length=10,
+        choices=UNKNOWN_NEW_CHAT_POLICY_CHOICES,
+        default=UNKNOWN_NEW_CHAT_BLOCK,
+    )
     classification_version_override = models.CharField(
         max_length=10,
         choices=CLASSIFICATION_VERSION_CHOICES,

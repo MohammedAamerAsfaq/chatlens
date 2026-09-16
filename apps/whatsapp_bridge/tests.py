@@ -8,8 +8,10 @@ from django.utils import timezone
 from apps.tenancy.models import CommunicationAccount, Company, ConnectionProvider
 from .models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppContact, WhatsAppMessage,
-    WhatsAppUnresolvedMessage, ResolutionStatus,
+    WhatsAppAccountCapacity, WhatsAppGroup, WhatsAppUnresolvedMessage, ResolutionStatus,
 )
+from .services.destination_policy import classify_destination, evaluate_destination
+from .services.group_metadata_service import upsert_group_metadata
 from .services.ingestion_service import IngestionService, _classify_skip_reason
 
 INTERNAL_HEADERS = {'HTTP_X_INTERNAL_TOKEN': 'test-token'}
@@ -235,6 +237,225 @@ class LiveIngestionAutomationTests(TestCase):
 
         live_proc.assert_called_once()
         live_auto.assert_called_once_with(message.pk)
+
+
+class AccountSettingsEndpointTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.account = _make_account(
+            phone_number='971500000020',
+            worker_session_id='settings-session',
+            outbound_sending_enabled=True,
+            direct_sending_enabled=True,
+            recipient_interval_ms=7000,
+            account_interval_ms=2000,
+            allow_concurrent_sends=True,
+            max_concurrent_sends=3,
+        )
+
+    def setUp(self):
+        self.client = Client()
+        from django.conf import settings
+        settings.INTERNAL_API_TOKEN = 'test-token'
+
+    def test_worker_receives_outbound_safety_settings(self):
+        resp = self.client.get(
+            f'/api/internal/whatsapp/account-settings/{self.account.pk}/',
+            **INTERNAL_HEADERS,
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {
+            'sync_history': True,
+            'history_days': None,
+            'idle_disconnect_minutes': 0,
+            'auto_download_media': True,
+            'outbound_sending_enabled': True,
+            'direct_sending_enabled': True,
+            'group_sending_enabled': False,
+            'recipient_interval_ms': 7000,
+            'account_interval_ms': 2000,
+            'allow_concurrent_sends': True,
+            'max_concurrent_sends': 3,
+            'unknown_new_chat_policy': 'block',
+        })
+
+    def test_worker_settings_reject_missing_token(self):
+        resp = self.client.get(
+            f'/api/internal/whatsapp/account-settings/{self.account.pk}/',
+        )
+
+        self.assertEqual(resp.status_code, 401)
+
+
+class CapacityTelemetryEndpointTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.account = _make_account(
+            phone_number='971500000022',
+            worker_session_id='capacity-session',
+        )
+
+    def setUp(self):
+        self.client = Client()
+        from django.conf import settings
+        settings.INTERNAL_API_TOKEN = 'test-token'
+
+    def _post(self, payload):
+        return self.client.post(
+            '/api/internal/whatsapp/account-capacity/',
+            data=json.dumps({'worker_session_id': self.account.pk, **payload}),
+            content_type='application/json',
+            **INTERNAL_HEADERS,
+        )
+
+    def test_available_telemetry_is_persisted(self):
+        resp = self._post({
+            'source': 'baileys_v7',
+            'cap': {
+                'status': 'available',
+                'checked_at': '2026-09-16T10:00:00Z',
+                'data': {
+                    'total_quota': 10,
+                    'used_quota': 3,
+                    'cycle_end_timestamp': '2026-09-17T00:00:00Z',
+                    'capping_status': 'FIRST_WARNING',
+                },
+            },
+            'reachout': {
+                'status': 'available',
+                'data': {
+                    'is_active': True,
+                    'time_enforcement_ends': '2026-09-16T12:00:00Z',
+                    'enforcement_type': 'BIZ_QUALITY',
+                },
+            },
+        })
+
+        self.assertEqual(resp.status_code, 200)
+        capacity = WhatsAppAccountCapacity.objects.get(account=self.account)
+        self.assertEqual(capacity.remaining_quota, 7)
+        self.assertEqual(capacity.capping_status, 'FIRST_WARNING')
+        self.assertTrue(capacity.reachout_lock_active)
+        self.assertEqual(capacity.reachout_enforcement_type, 'BIZ_QUALITY')
+
+    def test_failed_refresh_preserves_last_valid_cap_sample(self):
+        self._post({
+            'cap': {
+                'status': 'available',
+                'data': {'total_quota': 10, 'used_quota': 3},
+            },
+        })
+        resp = self._post({
+            'cap': {
+                'status': 'unavailable',
+                'error': 'Provider returned 500',
+            },
+        })
+
+        self.assertEqual(resp.status_code, 200)
+        capacity = WhatsAppAccountCapacity.objects.get(account=self.account)
+        self.assertEqual(capacity.cap_fetch_status, 'unavailable')
+        self.assertEqual(capacity.total_quota, 10)
+        self.assertEqual(capacity.used_quota, 3)
+        self.assertEqual(capacity.cap_error, 'Provider returned 500')
+
+    def test_endpoint_requires_internal_token(self):
+        resp = self.client.post(
+            '/api/internal/whatsapp/account-capacity/',
+            data=json.dumps({'worker_session_id': self.account.pk, 'cap': {}}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(resp.status_code, 401)
+
+
+class DestinationPolicyTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.account = _make_account(
+            phone_number='971500000021',
+            outbound_sending_enabled=True,
+            direct_sending_enabled=True,
+            group_sending_enabled=True,
+        )
+
+    def test_destination_types_are_mutually_exclusive(self):
+        community = WhatsAppGroup.objects.create(
+            account=self.account,
+            wa_group_id='120001@g.us',
+            is_community=True,
+        )
+        announcement = WhatsAppGroup.objects.create(
+            account=self.account,
+            wa_group_id='120002@g.us',
+            is_community_announcement=True,
+        )
+
+        self.assertEqual(classify_destination('971500000001@s.whatsapp.net'), 'direct_contact')
+        self.assertEqual(classify_destination('120001@g.us', community), 'community')
+        self.assertEqual(
+            classify_destination('120002@g.us', announcement),
+            'community_announcement',
+        )
+        self.assertEqual(classify_destination('123@newsletter'), 'channel')
+        self.assertEqual(classify_destination('status@broadcast'), 'status')
+
+    def test_full_group_metadata_calculates_admin_send_permission(self):
+        group = upsert_group_metadata(self.account, {
+            'group_id': '120003@g.us',
+            'name': 'Admin announcements',
+            'announce': True,
+            'restrict': True,
+            'account_is_participant': True,
+            'account_participant_role': 'admin',
+            'metadata_complete': True,
+            'participants': [],
+        })
+
+        self.assertTrue(group.can_send)
+        self.assertEqual(group.send_block_reason, '')
+        self.assertTrue(group.announce)
+        self.assertTrue(group.restrict)
+        self.assertIsNotNone(group.metadata_refreshed_at)
+        self.assertTrue(evaluate_destination(self.account, group.wa_group_id, group)['allowed'])
+
+    def test_announcement_group_blocks_non_admin_member(self):
+        group = upsert_group_metadata(self.account, {
+            'group_id': '120004@g.us',
+            'is_community': True,
+            'is_community_announcement': True,
+            'announce': True,
+            'account_is_participant': True,
+            'account_participant_role': 'member',
+            'metadata_complete': True,
+        })
+
+        result = evaluate_destination(self.account, group.wa_group_id, group)
+        self.assertFalse(result['allowed'])
+        self.assertEqual(result['reason'], 'group_admin_required')
+
+    def test_partial_metadata_does_not_erase_permission_state(self):
+        group = upsert_group_metadata(self.account, {
+            'group_id': '120005@g.us',
+            'name': 'Original',
+            'announce': True,
+            'account_is_participant': True,
+            'account_participant_role': 'admin',
+            'metadata_complete': True,
+        })
+        refreshed_at = group.metadata_refreshed_at
+
+        group = upsert_group_metadata(self.account, {
+            'group_id': group.wa_group_id,
+            'name': 'Renamed',
+            'metadata_complete': False,
+        })
+
+        self.assertEqual(group.name, 'Renamed')
+        self.assertTrue(group.announce)
+        self.assertTrue(group.can_send)
+        self.assertEqual(group.metadata_refreshed_at, refreshed_at)
 
 
 class UnresolvedMessageEndpointTests(TestCase):

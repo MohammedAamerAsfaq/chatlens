@@ -24,6 +24,9 @@ class WhatsAppAccountSerializer(serializers.ModelSerializer):
             'is_active', 'created_at', 'total_unread',
             'sync_history', 'history_days', 'idle_disconnect_minutes',
             'auto_download_media', 'ai_parsing_enabled',
+            'outbound_sending_enabled', 'direct_sending_enabled', 'group_sending_enabled',
+            'recipient_interval_ms', 'account_interval_ms',
+            'allow_concurrent_sends', 'max_concurrent_sends', 'unknown_new_chat_policy',
             'classification_version_override', 'effective_classification_version',
             'connection_unhealthy', 'connection_unhealthy_reason', 'connection_unhealthy_since',
         ]
@@ -46,6 +49,22 @@ class WhatsAppAccountSerializer(serializers.ModelSerializer):
         if obj.session_status == SessionStatus.CONNECTED and _worker_liveness_status(obj) != 'online':
             return 'stale'
         return obj.session_status
+
+
+class WhatsAppAccountSettingsSerializer(serializers.ModelSerializer):
+    recipient_interval_ms = serializers.IntegerField(min_value=1000, max_value=300000)
+    account_interval_ms = serializers.IntegerField(min_value=1000, max_value=300000)
+    max_concurrent_sends = serializers.IntegerField(min_value=1, max_value=20)
+
+    class Meta:
+        model = WhatsAppAccount
+        fields = [
+            'sync_history', 'history_days', 'idle_disconnect_minutes', 'display_name',
+            'ai_parsing_enabled', 'auto_download_media', 'classification_version_override',
+            'outbound_sending_enabled', 'direct_sending_enabled', 'group_sending_enabled',
+            'recipient_interval_ms', 'account_interval_ms',
+            'allow_concurrent_sends', 'max_concurrent_sends', 'unknown_new_chat_policy',
+        ]
 
 
 def _worker_liveness_status(obj):
@@ -317,7 +336,10 @@ class GroupSerializer(serializers.ModelSerializer):
         model = WhatsAppGroup
         fields = [
             'id', 'account_id', 'wa_group_id', 'name', 'description',
-            'owner_jid', 'is_community', 'participant_count',
+            'owner_jid', 'is_community', 'is_community_announcement',
+            'announce', 'restrict', 'account_participant_role',
+            'account_is_participant', 'can_send', 'send_block_reason',
+            'metadata_refreshed_at', 'participant_count',
             'community_id', 'community_name', 'sub_group_count',
             'chat_db_id', 'ai_parsing',
             'created_at', 'updated_at',

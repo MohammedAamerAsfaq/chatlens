@@ -44,7 +44,7 @@ from apps.tenancy.services.enrollment_service import CompanyEnrollmentService
 from apps.tenancy.services.provider_service import ProviderService
 from apps.whatsapp_bridge.services.ingestion_service import IngestionService
 from .serializers import (
-    WhatsAppAccountSerializer, ChatSerializer, MessageSerializer,
+    WhatsAppAccountSerializer, WhatsAppAccountSettingsSerializer, ChatSerializer, MessageSerializer,
     SyncLogSerializer, DroppedMessageSerializer, ContactDetailSerializer,
     GroupSerializer, GroupDetailSerializer, WorkerAlertSerializer,
     StuckReceiptSerializer, UnresolvedMessageSerializer, BaileysEventSerializer,
@@ -195,27 +195,106 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'], url_path='update-settings')
     def update_settings(self, request, pk=None):
         account = self.get_object()
-        allowed = [
-            'sync_history', 'history_days', 'idle_disconnect_minutes', 'display_name',
-            'ai_parsing_enabled', 'auto_download_media', 'classification_version_override',
-        ]
-        update_fields = []
-        for field in allowed:
-            if field in request.data:
-                val = request.data[field]
-                # history_days: accept null/None to mean all-time
-                if field == 'history_days' and val == '':
-                    val = None
-                if field == 'classification_version_override' and val not in ('inherit', 'v1', 'v2'):
-                    return Response(
-                        {'detail': 'classification_version_override must be inherit, v1, or v2'},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                setattr(account, field, val)
-                update_fields.append(field)
-        if update_fields:
-            account.save(update_fields=update_fields)
+        data = request.data.copy()
+        if data.get('history_days') == '':
+            data['history_days'] = None
+        settings_serializer = WhatsAppAccountSettingsSerializer(account, data=data, partial=True)
+        settings_serializer.is_valid(raise_exception=True)
+        settings_serializer.save()
         return Response(WhatsAppAccountSerializer(account).data)
+
+    @action(detail=True, methods=['post'], url_path='message-preflight')
+    def message_preflight(self, request, pk=None):
+        from apps.whatsapp_bridge.services.destination_policy import evaluate_destination
+        from apps.whatsapp_bridge.services.group_metadata_service import upsert_group_metadata
+
+        account = self.get_object()
+        destination_jid = str(request.data.get('destination_jid') or '').strip()
+        if not destination_jid or len(destination_jid) > 255 or '@' not in destination_jid:
+            return Response(
+                {'destination_jid': ['Enter a valid WhatsApp destination JID.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        live_check = 'unavailable'
+        live_error = ''
+        live_result = {}
+        try:
+            worker_response = requests.post(
+                f'{WORKER_BASE_URL}/sessions/{account.pk}/destinations/preflight',
+                json={'destination_jid': destination_jid},
+                headers={'X-Internal-Token': settings.INTERNAL_API_TOKEN},
+                timeout=15,
+            )
+            live_result = worker_response.json()
+            if worker_response.status_code == 200:
+                live_check = 'checked'
+                if live_result.get('group_metadata'):
+                    upsert_group_metadata(account, live_result['group_metadata'])
+            elif worker_response.status_code == 404:
+                live_check = 'session_disconnected'
+            else:
+                live_check = 'failed'
+                live_error = live_result.get('error') or f'Worker returned HTTP {worker_response.status_code}'
+        except (requests.RequestException, ValueError) as exc:
+            live_error = str(exc)
+
+        group = WhatsAppGroup.objects.filter(
+            account=account,
+            wa_group_id=destination_jid,
+        ).first()
+        result = evaluate_destination(account, destination_jid, group)
+        if live_check != 'checked' and result['allowed']:
+            reason = 'session_disconnected' if live_check == 'session_disconnected' else 'live_preflight_unavailable'
+            result.update(allowed=False, reason=reason)
+        elif live_result.get('recipient_registered') is False:
+            result.update(allowed=False, reason='recipient_not_registered')
+
+        result.update({
+            'live_check': live_check,
+            'live_check_error': live_error,
+            'recipient_registered': live_result.get('recipient_registered'),
+        })
+        return Response(result)
+
+    @action(detail=True, methods=['get'], url_path='message-capacity')
+    def message_capacity(self, request, pk=None):
+        from apps.whatsapp_bridge.services.capacity_service import capacity_snapshot
+
+        return Response(capacity_snapshot(self.get_object()))
+
+    @action(detail=True, methods=['post'], url_path='message-capacity/refresh')
+    def refresh_message_capacity(self, request, pk=None):
+        from apps.whatsapp_bridge.services.capacity_service import (
+            apply_capacity_telemetry,
+            capacity_snapshot,
+        )
+
+        account = self.get_object()
+        try:
+            worker_response = requests.post(
+                f'{WORKER_BASE_URL}/sessions/{account.pk}/capacity/refresh',
+                headers={'X-Internal-Token': settings.INTERNAL_API_TOKEN},
+                timeout=20,
+            )
+            payload = worker_response.json()
+        except (requests.RequestException, ValueError) as exc:
+            return Response(
+                {'detail': f'Capacity refresh unavailable: {exc}'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        if worker_response.status_code != 200:
+            response_status = (
+                status.HTTP_409_CONFLICT
+                if worker_response.status_code == 404
+                else status.HTTP_502_BAD_GATEWAY
+            )
+            return Response(
+                {'detail': payload.get('error') or 'Capacity refresh failed.'},
+                status=response_status,
+            )
+        apply_capacity_telemetry(account, payload)
+        return Response(capacity_snapshot(account))
 
     @action(detail=True, methods=['get'], url_path='sync-progress')
     def sync_progress(self, request, pk=None):

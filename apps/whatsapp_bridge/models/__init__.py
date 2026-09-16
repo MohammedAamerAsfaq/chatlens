@@ -1,4 +1,5 @@
 from .whatsapp_account import WhatsAppAccount, SessionStatus
+from .whatsapp_account_capacity import TelemetryFetchStatus, WhatsAppAccountCapacity
 from .whatsapp_contact import WhatsAppContact, ContactCategory
 from .contact_role_tag import ContactRoleTag
 from .whatsapp_chat import WhatsAppChat, ChatType
@@ -14,6 +15,8 @@ from .baileys_event import BaileysEvent, BaileysEventStage, BaileysEventStatus
 __all__ = [
     'WhatsAppAccount',
     'SessionStatus',
+    'TelemetryFetchStatus',
+    'WhatsAppAccountCapacity',
     'WhatsAppContact',
     'ContactCategory',
     'ContactRoleTag',

@@ -35,6 +35,11 @@ urlpatterns = [
         name='internal-account-settings',
     ),
     path(
+        'api/internal/whatsapp/account-capacity/',
+        views.internal_account_capacity,
+        name='internal-account-capacity',
+    ),
+    path(
         'api/internal/whatsapp/lid-mappings/<str:session_id>/',
         views.internal_lid_mappings,
         name='internal-lid-mappings',

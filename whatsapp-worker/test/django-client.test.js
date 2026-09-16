@@ -44,16 +44,19 @@ test('metadata update failures are written to local fallback reports', async () 
   await client.sendContactsUpdate('session-1', [{ wa_contact_id: '971500000000@s.whatsapp.net', push_name: 'Buyer' }]);
   await client.sendGroupUpdate('session-1', { group_id: '120363@g.us', name: 'Desk' });
   await client.sendGroupParticipantsUpdate('session-1', '120363@g.us', 'add', ['971500000000@s.whatsapp.net']);
+  await client.sendAccountCapacity('session-1', { cap: { status: 'unavailable' } });
 
   const records = readFallbackRecords(logsDir);
   assert.deepEqual(records.map(record => record.kind), [
     'contacts_update',
     'group_update',
     'group_participants_update',
+    'account_capacity_update',
   ]);
   assert.equal(records[0].payload.worker_session_id, 'session-1');
   assert.equal(records[1].payload.group_id, '120363@g.us');
   assert.equal(records[2].payload.action, 'add');
+  assert.equal(records[3].payload.cap.status, 'unavailable');
 });
 
 test('fallback replay posts replay-safe metadata records and removes the file on success', async () => {
@@ -66,13 +69,17 @@ test('fallback replay posts replay-safe metadata records and removes the file on
       kind: 'group_participants_update',
       payload: { worker_session_id: 'session-1', group_id: '120363@g.us', action: 'add', participants: [] },
     }),
+    JSON.stringify({
+      kind: 'account_capacity_update',
+      payload: { worker_session_id: 'session-1', cap: { status: 'available' } },
+    }),
   ].join('\n') + '\n', 'utf8');
   client.http.post = test.mock.fn(async () => ({ data: { success: true } }));
 
   const result = await client.replayFallbackReports();
 
-  assert.deepEqual(result, { attempted: 3, replayed: 3, retained: 0, discarded: 0 });
-  assert.equal(client.http.post.mock.callCount(), 3);
+  assert.deepEqual(result, { attempted: 4, replayed: 4, retained: 0, discarded: 0 });
+  assert.equal(client.http.post.mock.callCount(), 4);
   assert.equal(fs.existsSync(filePath), false);
 });
 

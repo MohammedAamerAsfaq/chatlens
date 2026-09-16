@@ -161,6 +161,7 @@ WORKER_MEDIA_PATH = os.getenv('WORKER_MEDIA_PATH', str(BASE_DIR / 'whatsapp-work
 
 # --- Internal API Token (Node.js worker authentication) ---
 INTERNAL_API_TOKEN = os.getenv('INTERNAL_API_TOKEN', 'change-me-internal-token')
+WHATSAPP_CAPACITY_MAX_AGE_SECONDS = int(os.getenv('WHATSAPP_CAPACITY_MAX_AGE_SECONDS', '300'))
 
 # --- Embeddings ---
 EMBEDDING_DIMENSIONS = 512  # voyage-3-lite fixed output size

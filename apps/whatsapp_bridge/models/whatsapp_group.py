@@ -35,6 +35,18 @@ class WhatsAppGroup(models.Model):
     )
     # True when this group row represents a community umbrella (not a regular group)
     is_community = models.BooleanField(default=False)
+    is_community_announcement = models.BooleanField(default=False)
+    announce = models.BooleanField(default=False)
+    restrict = models.BooleanField(default=False)
+    account_participant_role = models.CharField(
+        max_length=20,
+        choices=ParticipantRole.choices,
+        blank=True,
+    )
+    account_is_participant = models.BooleanField(default=False)
+    can_send = models.BooleanField(default=False)
+    send_block_reason = models.CharField(max_length=100, default='group_metadata_unavailable')
+    metadata_refreshed_at = models.DateTimeField(null=True, blank=True)
     participant_count = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

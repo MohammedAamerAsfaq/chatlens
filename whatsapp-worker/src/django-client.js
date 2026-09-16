@@ -67,6 +67,10 @@ class DjangoClient {
       await this.http.post('/api/internal/whatsapp/group-participants-update/', payload);
       return { status: 'replayed' };
     }
+    if (record.kind === 'account_capacity_update') {
+      await this.http.post('/api/internal/whatsapp/account-capacity/', payload);
+      return { status: 'replayed' };
+    }
     if (record.kind === 'dropped_message') {
       await this.http.post('/api/internal/whatsapp/dropped-message/', payload);
       return { status: 'replayed' };
@@ -399,6 +403,19 @@ class DjangoClient {
         'Failed to send group participants update to Django - falling back to local file',
       );
       this._writeFallback('group_participants_update', payload);
+    }
+  }
+
+  async sendAccountCapacity(sessionId, telemetry) {
+    const payload = { worker_session_id: sessionId, ...telemetry };
+    try {
+      await this.http.post('/api/internal/whatsapp/account-capacity/', payload);
+    } catch (err) {
+      this.logger.warn(
+        { sessionId, ...this._httpErrorLogFields(err) },
+        'Failed to send account capacity telemetry to Django - falling back to local file',
+      );
+      this._writeFallback('account_capacity_update', payload);
     }
   }
 }

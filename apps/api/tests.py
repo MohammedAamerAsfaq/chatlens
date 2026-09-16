@@ -11,7 +11,14 @@ from apps.chatlens_core.models import SystemSettings
 from apps.tenancy.models import CommunicationAccount, Company, CompanyMembership, ConnectionProvider
 from apps.trading.models import FormattedPriceList, Inquiry, MessageClassification, Product, PromptConfig
 from apps.trading.services.inquiry_service import process_inquiry
-from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppChat, WhatsAppContact, WhatsAppMessage
+from apps.whatsapp_bridge.models import (
+    WhatsAppAccount,
+    WhatsAppAccountCapacity,
+    WhatsAppChat,
+    WhatsAppContact,
+    WhatsAppGroup,
+    WhatsAppMessage,
+)
 
 
 class TenantScopedApiTests(TestCase):
@@ -186,6 +193,192 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(account.communication_account.provider.key, 'baileys')
         self.assertIsNotNone(account.primary_endpoint_id)
         self.assertEqual(account.primary_endpoint.value, '971500000010')
+        self.assertFalse(account.outbound_sending_enabled)
+        self.assertFalse(account.direct_sending_enabled)
+        self.assertFalse(account.group_sending_enabled)
+        self.assertFalse(account.allow_concurrent_sends)
+        self.assertEqual(account.recipient_interval_ms, 5000)
+        self.assertEqual(account.account_interval_ms, 5000)
+        self.assertEqual(account.max_concurrent_sends, 1)
+        self.assertEqual(account.unknown_new_chat_policy, 'block')
+
+    def test_account_outbound_settings_can_be_updated(self):
+        self.client.force_authenticate(self.user_a)
+
+        resp = self.client.patch(
+            f'/api/accounts/{self.account_a.pk}/update-settings/',
+            {
+                'outbound_sending_enabled': True,
+                'direct_sending_enabled': True,
+                'group_sending_enabled': False,
+                'recipient_interval_ms': 7000,
+                'account_interval_ms': 2000,
+                'allow_concurrent_sends': True,
+                'max_concurrent_sends': 4,
+                'unknown_new_chat_policy': 'allow',
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.account_a.refresh_from_db()
+        self.assertTrue(self.account_a.outbound_sending_enabled)
+        self.assertTrue(self.account_a.direct_sending_enabled)
+        self.assertFalse(self.account_a.group_sending_enabled)
+        self.assertEqual(self.account_a.recipient_interval_ms, 7000)
+        self.assertEqual(self.account_a.account_interval_ms, 2000)
+        self.assertTrue(self.account_a.allow_concurrent_sends)
+        self.assertEqual(self.account_a.max_concurrent_sends, 4)
+        self.assertEqual(self.account_a.unknown_new_chat_policy, 'allow')
+
+    def test_account_outbound_settings_reject_unsafe_limits(self):
+        self.client.force_authenticate(self.user_a)
+
+        resp = self.client.patch(
+            f'/api/accounts/{self.account_a.pk}/update-settings/',
+            {
+                'outbound_sending_enabled': True,
+                'recipient_interval_ms': 999,
+                'max_concurrent_sends': 21,
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        self.account_a.refresh_from_db()
+        self.assertFalse(self.account_a.outbound_sending_enabled)
+        self.assertEqual(self.account_a.recipient_interval_ms, 5000)
+        self.assertEqual(self.account_a.max_concurrent_sends, 1)
+
+    def test_message_preflight_checks_direct_recipient_without_sending(self):
+        self.account_a.outbound_sending_enabled = True
+        self.account_a.direct_sending_enabled = True
+        self.account_a.save(update_fields=['outbound_sending_enabled', 'direct_sending_enabled'])
+
+        class _WorkerResponse:
+            status_code = 200
+
+            def json(self):
+                return {
+                    'destination_type': 'direct_contact',
+                    'recipient_registered': True,
+                }
+
+        self.client.force_authenticate(self.user_a)
+        with patch('apps.api.views.requests.post', return_value=_WorkerResponse()) as post_mock:
+            resp = self.client.post(
+                f'/api/accounts/{self.account_a.pk}/message-preflight/',
+                {'destination_jid': '971500000099@s.whatsapp.net'},
+                format='json',
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['allowed'])
+        self.assertEqual(resp.json()['destination_type'], 'direct_contact')
+        self.assertTrue(resp.json()['recipient_registered'])
+        self.assertEqual(post_mock.call_count, 1)
+        self.assertIn('/destinations/preflight', post_mock.call_args.args[0])
+
+    def test_message_preflight_rejects_unregistered_direct_recipient(self):
+        self.account_a.outbound_sending_enabled = True
+        self.account_a.direct_sending_enabled = True
+        self.account_a.save(update_fields=['outbound_sending_enabled', 'direct_sending_enabled'])
+
+        class _WorkerResponse:
+            status_code = 200
+
+            def json(self):
+                return {
+                    'destination_type': 'direct_contact',
+                    'recipient_registered': False,
+                }
+
+        self.client.force_authenticate(self.user_a)
+        with patch('apps.api.views.requests.post', return_value=_WorkerResponse()):
+            resp = self.client.post(
+                f'/api/accounts/{self.account_a.pk}/message-preflight/',
+                {'destination_jid': '971500000098@s.whatsapp.net'},
+                format='json',
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.json()['allowed'])
+        self.assertEqual(resp.json()['reason'], 'recipient_not_registered')
+
+    def test_message_preflight_persists_live_group_permission_metadata(self):
+        self.account_a.outbound_sending_enabled = True
+        self.account_a.group_sending_enabled = True
+        self.account_a.save(update_fields=['outbound_sending_enabled', 'group_sending_enabled'])
+
+        class _WorkerResponse:
+            status_code = 200
+
+            def json(self):
+                return {
+                    'destination_type': 'standard_group',
+                    'group_metadata': {
+                        'group_id': '120099@g.us',
+                        'name': 'Operations',
+                        'announce': True,
+                        'restrict': True,
+                        'account_is_participant': True,
+                        'account_participant_role': 'admin',
+                        'metadata_complete': True,
+                        'participants': [],
+                    },
+                }
+
+        self.client.force_authenticate(self.user_a)
+        with patch('apps.api.views.requests.post', return_value=_WorkerResponse()):
+            resp = self.client.post(
+                f'/api/accounts/{self.account_a.pk}/message-preflight/',
+                {'destination_jid': '120099@g.us'},
+                format='json',
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['allowed'])
+        self.assertEqual(resp.json()['destination_type'], 'standard_group')
+        group = WhatsAppGroup.objects.get(account=self.account_a, wa_group_id='120099@g.us')
+        self.assertTrue(group.can_send)
+        self.assertEqual(group.account_participant_role, 'admin')
+        self.assertIsNotNone(group.metadata_refreshed_at)
+
+    def test_message_capacity_refresh_persists_worker_telemetry(self):
+        class _WorkerResponse:
+            status_code = 200
+
+            def json(self):
+                return {
+                    'source': 'baileys_v7',
+                    'cap': {
+                        'status': 'available',
+                        'data': {
+                            'total_quota': 25,
+                            'used_quota': 4,
+                            'capping_status': 'NONE',
+                        },
+                    },
+                    'reachout': {
+                        'status': 'available',
+                        'data': {'is_active': False, 'enforcement_type': 'DEFAULT'},
+                    },
+                }
+
+        self.client.force_authenticate(self.user_a)
+        with patch('apps.api.views.requests.post', return_value=_WorkerResponse()) as post_mock:
+            resp = self.client.post(
+                f'/api/accounts/{self.account_a.pk}/message-capacity/refresh/',
+                format='json',
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['cap']['remaining_quota'], 21)
+        self.assertEqual(resp.json()['cap']['sample_state'], 'fresh')
+        capacity = WhatsAppAccountCapacity.objects.get(account=self.account_a)
+        self.assertEqual(capacity.total_quota, 25)
+        self.assertEqual(capacity.used_quota, 4)
+        self.assertIn('X-Internal-Token', post_mock.call_args.kwargs['headers'])
 
     def test_start_session_sends_persisted_account_settings_to_worker(self):
         self.account_a.sync_history = False

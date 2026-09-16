@@ -19,7 +19,7 @@ function dirSizeSync(dir) {
   return { fileCount, totalBytes };
 }
 
-module.exports = function sessionsRouter(sessionManager, mediaStorePath, messageLogger) {
+module.exports = function sessionsRouter(sessionManager, mediaStorePath, messageLogger, internalApiToken = '') {
   const router = Router();
 
   // POST /sessions
@@ -139,6 +139,40 @@ module.exports = function sessionsRouter(sessionManager, mediaStorePath, message
       return res.json({ success: true, synced: count });
     } catch (err) {
       return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Dry-run only: validates destination type, registration, and live group metadata.
+  router.post('/:id/destinations/preflight', async (req, res) => {
+    const suppliedToken = req.get?.('x-internal-token') || req.headers?.['x-internal-token'] || '';
+    if (!internalApiToken || suppliedToken !== internalApiToken) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const destinationJid = String(req.body?.destination_jid || '').trim();
+    if (!destinationJid || !destinationJid.includes('@')) {
+      return res.status(400).json({ error: 'destination_jid is required' });
+    }
+    try {
+      const result = await sessionManager.preflightDestination(req.params.id, destinationJid);
+      if (!result) return res.status(404).json({ error: 'Session not connected' });
+      return res.json(result);
+    } catch (err) {
+      return res.status(502).json({ error: err.message });
+    }
+  });
+
+  // Fetches server telemetry only. It does not submit or prepare a message.
+  router.post('/:id/capacity/refresh', async (req, res) => {
+    const suppliedToken = req.get?.('x-internal-token') || req.headers?.['x-internal-token'] || '';
+    if (!internalApiToken || suppliedToken !== internalApiToken) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    try {
+      const telemetry = await sessionManager.getCapacityTelemetry(req.params.id);
+      if (!telemetry) return res.status(404).json({ error: 'Session not connected' });
+      return res.json(telemetry);
+    } catch (err) {
+      return res.status(502).json({ error: err.message });
     }
   });
 

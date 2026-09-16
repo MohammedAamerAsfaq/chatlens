@@ -2,18 +2,19 @@
 
 const path = require('path');
 const fs = require('fs');
-const {
-  makeWASocket,
-  useMultiFileAuthState,
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  makeCacheableSignalKeyStore,
-  isJidBroadcast,
-  jidNormalizedUser,
-  downloadMediaMessage,
-} = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const QRCode = require('qrcode');
+const { loadBaileys } = require('./baileys-loader');
+const {
+  DESTINATION,
+  classifyDestination,
+  normalizeGroupMetadata,
+} = require('./outbound/destination-classifier');
+const {
+  capEvent,
+  fetchCapacityTelemetry,
+  reachoutEvent,
+} = require('./outbound/capacity-telemetry');
 
 const SESSION_STATUS = {
   STARTING:      'starting',
@@ -462,6 +463,53 @@ class SessionManager {
     return await s.sock.groupMetadata(groupJid);
   }
 
+  async _refreshCapacityTelemetry(sessionId, sock) {
+    const telemetry = await this._fetchCapacityTelemetry(sock);
+    await this.djangoClient.sendAccountCapacity(sessionId, telemetry);
+    return telemetry;
+  }
+
+  async _fetchCapacityTelemetry(sock) {
+    const timeoutMs = Math.max(1000, Number.parseInt(
+      process.env.WHATSAPP_CAPACITY_FETCH_TIMEOUT_MS || '15000',
+      10,
+    ));
+    return await fetchCapacityTelemetry(sock, timeoutMs);
+  }
+
+  async getCapacityTelemetry(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session?.sock || session.status !== SESSION_STATUS.CONNECTED) return null;
+    return await this._fetchCapacityTelemetry(session.sock);
+  }
+
+  async preflightDestination(sessionId, destinationJid) {
+    const session = this.sessions.get(sessionId);
+    if (!session?.sock || session.status !== SESSION_STATUS.CONNECTED) return null;
+
+    const normalizedJid = String(destinationJid || '').trim().toLowerCase();
+    const initialType = classifyDestination(normalizedJid);
+    if ([DESTINATION.GROUP].includes(initialType)) {
+      const metadata = await session.sock.groupMetadata(normalizedJid);
+      const normalized = normalizeGroupMetadata(metadata, session.sock.user?.id);
+      return {
+        destination_type: classifyDestination(normalizedJid, metadata),
+        group_metadata: normalized,
+      };
+    }
+    if (initialType === DESTINATION.DIRECT && normalizedJid.endsWith('@s.whatsapp.net')) {
+      const matches = await session.sock.onWhatsApp(normalizedJid);
+      return {
+        destination_type: initialType,
+        recipient_registered: Boolean(matches?.some(item => item.exists)),
+      };
+    }
+    return {
+      destination_type: initialType,
+      recipient_registered: initialType === DESTINATION.DIRECT ? null : undefined,
+    };
+  }
+
   // Fetch all groups the account participates in and push metadata to Django.
   // Returns the number of groups synced, or null if the session is not connected.
   async syncAllGroups(sessionId) {
@@ -474,19 +522,10 @@ class SessionManager {
 
     for (const meta of groupList) {
       if (!meta?.id) continue;
-      const participants = (meta.participants || []).map(p => ({
-        jid:  p.id,
-        role: p.superAdmin ? 'superadmin' : p.admin ? 'admin' : 'member',
-      }));
-      await this.djangoClient.sendGroupUpdate(sessionId, {
-        group_id:     meta.id,
-        name:         meta.subject || '',
-        description:  meta.desc    || '',
-        owner_jid:    meta.owner   || '',
-        is_community: !!(meta.isCommunity),
-        community_id: meta.linkedParent || null,
-        participants,
-      });
+      await this.djangoClient.sendGroupUpdate(
+        sessionId,
+        normalizeGroupMetadata(meta, s.sock.user?.id),
+      );
       if (meta.id && meta.subject) this.groupNameCache.set(meta.id, meta.subject);
     }
     return groupList.length;
@@ -557,6 +596,18 @@ class SessionManager {
   }
 
   async _connect(sessionId) {
+    const {
+      default: makeWASocket,
+      useMultiFileAuthState,
+      DisconnectReason,
+      fetchLatestBaileysVersion,
+      makeCacheableSignalKeyStore,
+      isJidBroadcast,
+      jidNormalizedUser,
+      downloadMediaMessage,
+    } = await loadBaileys();
+    this.baileys = { jidNormalizedUser, downloadMediaMessage };
+
     const session = this.sessions.get(sessionId);
     if (!session || session.connecting) return;
     session.connecting = true;
@@ -658,6 +709,13 @@ class SessionManager {
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
 
+      if (update.reachoutTimeLock) {
+        await this.djangoClient.sendAccountCapacity(
+          sessionId,
+          reachoutEvent(update.reachoutTimeLock),
+        );
+      }
+
       if (qr) {
         session.qrDataUrl = await QRCode.toDataURL(qr);
         session.qrEverGenerated = true;
@@ -699,6 +757,9 @@ class SessionManager {
           display_name: session.displayName,
           connection_unhealthy: false,
           connection_unhealthy_reason: '',
+        });
+        this._refreshCapacityTelemetry(sessionId, sock).catch((error) => {
+          this.logger.warn({ sessionId, error: error.message }, 'Capacity telemetry refresh failed');
         });
 
         // Start idle disconnect timer if configured
@@ -814,6 +875,10 @@ class SessionManager {
           }
         }
       }
+    });
+
+    sock.ev.on('message-capping.update', async (update) => {
+      await this.djangoClient.sendAccountCapacity(sessionId, capEvent(update));
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
@@ -997,19 +1062,10 @@ class SessionManager {
     // Build a normalized group payload from Baileys GroupMetadata and send to Django.
     const _sendGroupMetadata = async (meta) => {
       if (!meta?.id) return;
-      const participants = (meta.participants || []).map(p => ({
-        jid:  p.id,
-        role: p.superAdmin ? 'superadmin' : p.admin ? 'admin' : 'member',
-      }));
-      await this.djangoClient.sendGroupUpdate(sessionId, {
-        group_id:     meta.id,
-        name:         meta.subject || '',
-        description:  meta.desc    || '',
-        owner_jid:    meta.owner   || '',
-        is_community: !!(meta.isCommunity),
-        community_id: meta.linkedParent || null,
-        participants,
-      });
+      await this.djangoClient.sendGroupUpdate(
+        sessionId,
+        normalizeGroupMetadata(meta, sock.user?.id),
+      );
     };
 
     // On initial connect: fetch all groups the account participates in and sync them all.
@@ -1047,8 +1103,12 @@ class SessionManager {
               name:        update.subject        || undefined,
               description: update.desc           || undefined,
               owner_jid:   update.owner          || undefined,
-              is_community: update.isCommunity   || undefined,
-              community_id: update.linkedParent  || undefined,
+              is_community: update.isCommunity,
+              is_community_announcement: update.isCommunityAnnounce,
+              community_id: update.linkedParent,
+              announce: update.announce,
+              restrict: update.restrict,
+              metadata_complete: false,
             });
           }
         } catch (err) {
@@ -1062,6 +1122,8 @@ class SessionManager {
       if (!id || !participants?.length) return;
       try {
         await this.djangoClient.sendGroupParticipantsUpdate(sessionId, id, action, participants);
+        const meta = await sock.groupMetadata(id).catch(() => null);
+        if (meta) await _sendGroupMetadata(meta);
       } catch (err) {
         this.logger.warn({ sessionId, groupId: id, action, error: err.message }, 'group-participants.update failed');
       }
@@ -1084,6 +1146,7 @@ class SessionManager {
   // Returns null if the message should be filtered (protocol/system messages).
   // Pass isHistory:true to skip media download and mark the payload for the batch endpoint.
   async _buildPayload(sessionId, msg, { isHistory = false } = {}) {
+    const { jidNormalizedUser, downloadMediaMessage } = this.baileys || await loadBaileys();
     const _skip = (reason) => {
       this.logger.info({ sessionId, msgId: msg.key?.id, jid: msg.key?.remoteJid, reason }, '_buildPayload filtered');
       this._reportDropped(sessionId, msg, reason);
@@ -1488,6 +1551,7 @@ class SessionManager {
       raw_payload: this._safeAlertContext(msg),
       metadata: { has_message: !!msg.message },
     });
+
     // Fire-and-forget — don't await so the upsert loop is never blocked by HTTP
     this.djangoClient.sendDroppedMessage(sessionId, {
       msg_id: msg.key?.id || null,

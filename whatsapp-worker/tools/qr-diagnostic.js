@@ -6,12 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const pino = require('pino');
 const QRCode = require('qrcode');
-const {
-  makeWASocket,
-  useMultiFileAuthState,
-  fetchLatestBaileysVersion,
-  Browsers,
-} = require('@whiskeysockets/baileys');
+const { loadBaileys } = require('../src/baileys-loader');
 
 function parseVersion(value) {
   if (!value) return null;
@@ -22,7 +17,7 @@ function parseVersion(value) {
   return parts;
 }
 
-async function resolveVersion() {
+async function resolveVersion(fetchLatestBaileysVersion) {
   const configured = parseVersion(process.env.WHATSAPP_WEB_VERSION);
   if (configured) {
     return { version: configured, source: 'env', isLatest: null };
@@ -38,6 +33,12 @@ async function resolveVersion() {
 }
 
 async function main() {
+  const {
+    default: makeWASocket,
+    useMultiFileAuthState,
+    fetchLatestBaileysVersion,
+    Browsers,
+  } = await loadBaileys();
   const authDir = path.resolve(process.env.DIAGNOSTIC_SESSION_PATH || './diagnostic-qr-session');
   const clean = process.env.DIAGNOSTIC_CLEAN !== '0';
   if (clean && fs.existsSync(authDir)) {
@@ -47,7 +48,7 @@ async function main() {
 
   const logger = pino({ level: process.env.LOG_LEVEL || 'debug' });
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
-  const versionInfo = await resolveVersion();
+  const versionInfo = await resolveVersion(fetchLatestBaileysVersion);
 
   logger.info({
     authDir,

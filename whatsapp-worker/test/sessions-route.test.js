@@ -28,7 +28,12 @@ test('POST /sessions forwards auto_download_media to createSession', async () =>
   const sessionManager = {
     createSession: test.mock.fn(async () => ({ status: 'pending_qr' })),
   };
-  const router = sessionsRouter(sessionManager, '.', { read: () => ({}), clear: () => {} });
+  const router = sessionsRouter(
+    sessionManager,
+    '.',
+    { read: () => ({}), clear: () => {} },
+    'test-token',
+  );
   const route = findRoute(router, 'post', '/');
   assert.ok(route, 'expected POST / route to exist');
 
@@ -56,4 +61,83 @@ test('POST /sessions forwards auto_download_media to createSession', async () =>
       auto_download_media: false,
     },
   ]);
+});
+
+test('POST destination preflight is dry-run delegated to session manager', async () => {
+  const sessionManager = {
+    preflightDestination: test.mock.fn(async () => ({
+      destination_type: 'direct_contact',
+      recipient_registered: true,
+    })),
+  };
+  const router = sessionsRouter(
+    sessionManager,
+    '.',
+    { read: () => ({}), clear: () => {} },
+    'test-token',
+  );
+  const route = findRoute(router, 'post', '/:id/destinations/preflight');
+  assert.ok(route, 'expected destination preflight route to exist');
+
+  const req = {
+    params: { id: 'account-1' },
+    body: { destination_jid: '971500000001@s.whatsapp.net' },
+    headers: { 'x-internal-token': 'test-token' },
+  };
+  const res = makeResponse();
+
+  await route.route.stack[0].handle(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(sessionManager.preflightDestination.mock.callCount(), 1);
+  assert.deepEqual(sessionManager.preflightDestination.mock.calls[0].arguments, [
+    'account-1',
+    '971500000001@s.whatsapp.net',
+  ]);
+});
+
+test('POST destination preflight rejects an invalid internal token', async () => {
+  const sessionManager = {
+    preflightDestination: test.mock.fn(async () => ({})),
+  };
+  const router = sessionsRouter(
+    sessionManager,
+    '.',
+    { read: () => ({}), clear: () => {} },
+    'test-token',
+  );
+  const route = findRoute(router, 'post', '/:id/destinations/preflight');
+  const res = makeResponse();
+
+  await route.route.stack[0].handle({ params: { id: 'account-1' }, body: {}, headers: {} }, res);
+
+  assert.equal(res.statusCode, 401);
+  assert.equal(sessionManager.preflightDestination.mock.callCount(), 0);
+});
+
+test('POST capacity refresh returns telemetry without sending a message', async () => {
+  const sessionManager = {
+    getCapacityTelemetry: test.mock.fn(async () => ({
+      source: 'baileys_v7',
+      cap: { status: 'available', data: { total_quota: 10, used_quota: 2 } },
+    })),
+  };
+  const router = sessionsRouter(
+    sessionManager,
+    '.',
+    { read: () => ({}), clear: () => {} },
+    'test-token',
+  );
+  const route = findRoute(router, 'post', '/:id/capacity/refresh');
+  const res = makeResponse();
+
+  await route.route.stack[0].handle({
+    params: { id: 'account-1' },
+    body: {},
+    headers: { 'x-internal-token': 'test-token' },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.cap.data.total_quota, 10);
+  assert.equal(sessionManager.getCapacityTelemetry.mock.callCount(), 1);
 });

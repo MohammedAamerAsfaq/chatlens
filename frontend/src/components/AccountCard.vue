@@ -13,6 +13,10 @@ const exportBeforeDelete = ref(true)
 const deleting          = ref(false)
 const savingSettings    = ref(false)
 const connecting        = ref(false)
+const capacity          = ref(null)
+const capacityLoading   = ref(false)
+const capacityRefreshing = ref(false)
+const capacityError     = ref('')
 
 // Local copy of settings for editing
 const localSettings = ref({
@@ -21,6 +25,14 @@ const localSettings = ref({
   idle_disconnect_minutes: props.account.idle_disconnect_minutes ?? 0,
   auto_download_media:     props.account.auto_download_media ?? true,
   ai_parsing_enabled:      props.account.ai_parsing_enabled ?? false,
+  outbound_sending_enabled: props.account.outbound_sending_enabled ?? false,
+  direct_sending_enabled:  props.account.direct_sending_enabled ?? false,
+  group_sending_enabled:   props.account.group_sending_enabled ?? false,
+  recipient_interval_ms:   props.account.recipient_interval_ms ?? 5000,
+  account_interval_ms:     props.account.account_interval_ms ?? 5000,
+  allow_concurrent_sends:  props.account.allow_concurrent_sends ?? false,
+  max_concurrent_sends:    props.account.max_concurrent_sends ?? 1,
+  unknown_new_chat_policy: props.account.unknown_new_chat_policy ?? 'block',
   classification_version_override: props.account.classification_version_override ?? 'inherit',
 })
 
@@ -87,12 +99,53 @@ async function saveSettings() {
       idle_disconnect_minutes: Number(localSettings.value.idle_disconnect_minutes) || 0,
       auto_download_media:     localSettings.value.auto_download_media,
       ai_parsing_enabled:      localSettings.value.ai_parsing_enabled,
+      outbound_sending_enabled: localSettings.value.outbound_sending_enabled,
+      direct_sending_enabled:  localSettings.value.direct_sending_enabled,
+      group_sending_enabled:   localSettings.value.group_sending_enabled,
+      recipient_interval_ms:   Number(localSettings.value.recipient_interval_ms),
+      account_interval_ms:     Number(localSettings.value.account_interval_ms),
+      allow_concurrent_sends:  localSettings.value.allow_concurrent_sends,
+      max_concurrent_sends:    Number(localSettings.value.max_concurrent_sends),
+      unknown_new_chat_policy: localSettings.value.unknown_new_chat_policy,
       classification_version_override: localSettings.value.classification_version_override,
     })
     showSettings.value = false
   } finally {
     savingSettings.value = false
   }
+}
+
+async function loadCapacity(refresh = false) {
+  if (capacityLoading.value || capacityRefreshing.value) return
+  capacityError.value = ''
+  if (refresh) capacityRefreshing.value = true
+  else capacityLoading.value = true
+  try {
+    const { data } = refresh
+      ? await accountsApi.refreshMessageCapacity(props.account.id)
+      : await accountsApi.getMessageCapacity(props.account.id)
+    capacity.value = data
+  } catch (error) {
+    capacityError.value = error.response?.data?.detail || 'Capacity telemetry is unavailable.'
+  } finally {
+    capacityLoading.value = false
+    capacityRefreshing.value = false
+  }
+}
+
+function telemetryLabel(section) {
+  if (!section) return 'Unknown'
+  if (section.state === 'available') {
+    return section.sample_state === 'fresh' ? 'Current' : 'Stale'
+  }
+  return section.state ? section.state.charAt(0).toUpperCase() + section.state.slice(1) : 'Unknown'
+}
+
+function telemetryClass(section) {
+  if (section?.state === 'available' && section.sample_state === 'fresh') return 'bg-green-100 text-green-700'
+  if (section?.state === 'unavailable') return 'bg-red-100 text-red-700'
+  if (section?.state === 'unsupported') return 'bg-gray-200 text-gray-600'
+  return 'bg-amber-100 text-amber-700'
 }
 
 async function confirmDelete() {
@@ -196,6 +249,10 @@ watch(
   },
   { immediate: true },
 )
+
+watch(showSettings, (isOpen) => {
+  if (isOpen && !capacity.value) loadCapacity()
+})
 
 onUnmounted(() => {
   clearInterval(syncPollTimer)
@@ -437,6 +494,119 @@ onUnmounted(() => {
           <p class="text-xs text-gray-400 mt-1">
             V2 is selectable per account for staged rollout. Keep inherited/V1 unless testing V2.
           </p>
+        </div>
+      </div>
+
+      <!-- Message sending -->
+      <div class="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p class="text-xs text-amber-700 uppercase tracking-wide font-semibold">Message Sending</p>
+            <p class="text-xs text-amber-700/80 mt-1">Outbound messaging is blocked unless this master switch is enabled.</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            :aria-checked="localSettings.outbound_sending_enabled"
+            @click="localSettings.outbound_sending_enabled = !localSettings.outbound_sending_enabled"
+            :class="['relative w-10 h-5 rounded-full transition-colors shrink-0', localSettings.outbound_sending_enabled ? 'bg-green-600' : 'bg-gray-300']"
+          >
+            <span :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform', localSettings.outbound_sending_enabled ? 'translate-x-5' : 'translate-x-0.5']" />
+          </button>
+        </div>
+
+        <div class="rounded-lg border border-amber-100 bg-white p-3">
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Account Capacity</p>
+            <button
+              type="button"
+              :disabled="capacityLoading || capacityRefreshing"
+              class="text-xs font-medium text-green-700 hover:text-green-800 disabled:opacity-50"
+              @click="loadCapacity(true)"
+            >
+              {{ capacityRefreshing ? 'Checking...' : 'Refresh' }}
+            </button>
+          </div>
+          <p v-if="capacityLoading" class="mt-2 text-xs text-gray-400">Loading capacity telemetry...</p>
+          <p v-else-if="capacityError" class="mt-2 text-xs text-red-600 break-words">{{ capacityError }}</p>
+          <div v-else-if="capacity" class="mt-2 grid grid-cols-1 gap-2 text-xs">
+            <div class="rounded-md bg-gray-50 p-2">
+              <div class="flex items-center justify-between gap-2">
+                <span class="font-medium text-gray-700">New-chat limit</span>
+                <span :class="['rounded-full px-2 py-0.5 font-semibold', telemetryClass(capacity.cap)]">
+                  {{ telemetryLabel(capacity.cap) }}
+                </span>
+              </div>
+              <p v-if="capacity.cap?.total_quota !== null && capacity.cap?.total_quota !== undefined" class="mt-1 text-gray-600">
+                {{ capacity.cap.used_quota ?? 0 }} used of {{ capacity.cap.total_quota }}
+                · {{ capacity.cap.remaining_quota ?? 0 }} remaining
+              </p>
+              <p v-else class="mt-1 text-gray-400">The provider has not supplied a quota value.</p>
+              <p v-if="capacity.cap?.capping_status" class="mt-1 text-gray-500">Status: {{ capacity.cap.capping_status }}</p>
+              <p v-if="capacity.cap?.updated_at" class="mt-1 text-gray-400">Sample: {{ formatDate(capacity.cap.updated_at) }}</p>
+              <p v-if="capacity.cap?.error" class="mt-1 text-red-600 break-words">Latest check: {{ capacity.cap.error }}</p>
+            </div>
+            <div :class="['rounded-md p-2', capacity.reachout?.is_active ? 'bg-red-50' : 'bg-gray-50']">
+              <div class="flex items-center justify-between gap-2">
+                <span class="font-medium text-gray-700">Reach-out restriction</span>
+                <span :class="['rounded-full px-2 py-0.5 font-semibold', capacity.reachout?.is_active ? 'bg-red-100 text-red-700' : telemetryClass(capacity.reachout)]">
+                  {{ capacity.reachout?.is_active ? 'ACTIVE' : telemetryLabel(capacity.reachout) }}
+                </span>
+              </div>
+              <p v-if="capacity.reachout?.is_active" class="mt-1 text-red-700">
+                Outgoing messages and calls are restricted<span v-if="capacity.reachout.ends_at"> until {{ formatDate(capacity.reachout.ends_at) }}</span>.
+              </p>
+              <p v-else-if="capacity.reachout?.state === 'available'" class="mt-1 text-gray-500">No active restriction reported by the latest valid sample.</p>
+              <p v-else class="mt-1 text-gray-400">No valid reach-out restriction sample is available.</p>
+              <p v-if="capacity.reachout?.error" class="mt-1 text-red-600 break-words">Latest check: {{ capacity.reachout.error }}</p>
+            </div>
+          </div>
+        </div>
+
+        <div :class="['grid grid-cols-1 sm:grid-cols-2 gap-2', !localSettings.outbound_sending_enabled && 'opacity-60']">
+          <label class="flex items-center justify-between rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm text-gray-700">
+            Direct contacts
+            <input v-model="localSettings.direct_sending_enabled" type="checkbox" :disabled="!localSettings.outbound_sending_enabled" class="accent-green-600" />
+          </label>
+          <label class="flex items-center justify-between rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm text-gray-700">
+            Eligible groups
+            <input v-model="localSettings.group_sending_enabled" type="checkbox" :disabled="!localSettings.outbound_sending_enabled" class="accent-green-600" />
+          </label>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label class="text-xs text-gray-600">
+            Same-contact interval (ms)
+            <input v-model.number="localSettings.recipient_interval_ms" type="number" min="1000" max="300000" step="1000" class="mt-1 w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-green-500" />
+            <span class="block text-gray-400 mt-1">Default 5000 ms (5 seconds).</span>
+          </label>
+          <label class="text-xs text-gray-600">
+            Account-wide interval (ms)
+            <input v-model.number="localSettings.account_interval_ms" type="number" min="1000" max="300000" step="1000" class="mt-1 w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-green-500" />
+            <span class="block text-gray-400 mt-1">Applies across all recipients.</span>
+          </label>
+        </div>
+
+        <label class="flex items-start justify-between gap-3 rounded-lg border border-amber-100 bg-white px-3 py-2">
+          <span>
+            <span class="block text-sm text-gray-700">Allow concurrent sends</span>
+            <span class="block text-xs text-gray-400 mt-0.5">Off means only one message can be in flight for this account.</span>
+          </span>
+          <input v-model="localSettings.allow_concurrent_sends" type="checkbox" class="mt-1 accent-green-600" />
+        </label>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label v-if="localSettings.allow_concurrent_sends" class="text-xs text-gray-600">
+            Maximum concurrent sends
+            <input v-model.number="localSettings.max_concurrent_sends" type="number" min="1" max="20" class="mt-1 w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-green-500" />
+          </label>
+          <label class="text-xs text-gray-600">
+            Unknown new-chat state
+            <select v-model="localSettings.unknown_new_chat_policy" class="mt-1 w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-green-500">
+              <option value="block">Block sending</option>
+              <option value="allow">Allow after confirmation</option>
+            </select>
+          </label>
         </div>
       </div>
 
