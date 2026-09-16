@@ -214,9 +214,12 @@ class DjangoClient {
     }
   }
 
-  async sendMessageIngest(payload) {
+  async sendMessageIngest(payload, { transportKey = '' } = {}) {
     try {
-      const resp = await this.http.post('/api/internal/whatsapp/message-ingest/', payload);
+      const resp = await this.http.post('/api/internal/whatsapp/message-ingest/', {
+        ...payload,
+        transport_key: transportKey,
+      });
       return resp.data;
     } catch (err) {
       this.logger.error(
@@ -227,12 +230,17 @@ class DjangoClient {
     }
   }
 
-  async sendMessageIngestBatch(sessionId, payloads, { isLatest = false, received = payloads.length } = {}) {
+  async sendMessageIngestBatch(
+    sessionId,
+    payloads,
+    { isLatest = false, received = payloads.length, transportKey = '' } = {},
+  ) {
     const resp = await this.http.post('/api/internal/whatsapp/message-ingest-batch/', {
       worker_session_id: sessionId,
       messages: payloads,
       is_latest: isLatest,
       received,
+      transport_key: transportKey,
     });
     return resp.data;
   }

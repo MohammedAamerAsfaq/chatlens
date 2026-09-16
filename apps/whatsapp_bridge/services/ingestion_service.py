@@ -418,9 +418,49 @@ def _process_message_in_background(message_id: int, sync_log_id: int = None):
     threading.Thread(target=_run, daemon=True).start()
 
 
+def dispatch_queued_live_message(message_id: int):
+    """Create downstream work from a durable live-ingestion task."""
+    from apps.whatsapp_bridge.models import WhatsAppMessage
+
+    failures = []
+    message = (
+        WhatsAppMessage.objects
+        .select_related('account', 'chat', 'contact')
+        .get(pk=message_id)
+    )
+    if message.message_text:
+        try:
+            from apps.message_intelligence.services.embedding_dispatch import enqueue_embedding
+            if not enqueue_embedding(
+                'message', message_id,
+                correlation_id=f'whatsapp-message:{message_id}',
+            ):
+                from apps.message_intelligence.services.embedding_service import embed_message
+                embed_message(message_id)
+        except Exception:
+            logger.warning(
+                'Embedding dispatch failed for live message_id=%s; continuing',
+                message_id,
+                exc_info=True,
+            )
+            failures.append('embedding')
+    try:
+        _log_ai_parsing_and_classify(message)
+    except Exception:
+        logger.warning(
+            'Classification dispatch failed for live message_id=%s; continuing',
+            message_id,
+            exc_info=True,
+        )
+        failures.append('classification')
+    _process_automation_in_background(message_id)
+    if failures:
+        raise RuntimeError(f'Live downstream dispatch failed: {", ".join(failures)}')
+
+
 class IngestionService:
 
-    def ingest_message(self, payload: dict) -> WhatsAppMessage:
+    def ingest_message(self, payload: dict, dispatch_downstream: bool = True) -> WhatsAppMessage:
         worker_session_id = payload['worker_session_id']
         account = WhatsAppAccount.objects.get(pk=worker_session_id)
 
@@ -454,8 +494,9 @@ class IngestionService:
             # Live messages: embed + classify (or log why not) in the same background
             # thread. History batch messages use _embed_in_background (no classification,
             # no AiParsingLog — they'd all read as skipped:too_old and just add noise).
-            _process_message_in_background(message.pk, sync_log_id=sync_log.pk)
-            _process_automation_in_background(message.pk)
+            if dispatch_downstream:
+                _process_message_in_background(message.pk, sync_log_id=sync_log.pk)
+                _process_automation_in_background(message.pk)
 
         return message
 
@@ -597,7 +638,10 @@ class IngestionService:
             )
         return obj
 
-    def ingest_batch(self, worker_session_id, payloads: list, is_latest: bool = False, received: int = None) -> dict:
+    def ingest_batch(
+        self, worker_session_id, payloads: list, is_latest: bool = False,
+        received: int = None, dispatch_downstream: bool = True,
+    ) -> dict:
         """Process a list of messages (from history sync) in one call.
 
         Skips per-message SyncLog and unread_count updates — history messages are
@@ -613,12 +657,15 @@ class IngestionService:
         error_count = 0
 
         new_message_ids = []
+        persisted_message_ids = []
         for payload in payloads:
             try:
                 contact = self._upsert_contact(account, payload)
                 chat = self._upsert_chat(account, contact, payload)
                 message, created = self._insert_message(account, chat, contact, payload)
                 _resolve_dropped_message(account, payload.get('provider_message_id'))
+                if message.message_text:
+                    persisted_message_ids.append(message.pk)
                 if created:
                     created_count += 1
                     if message.message_text:
@@ -683,7 +730,7 @@ class IngestionService:
             except Exception:
                 logger.exception('Failed to record batch_partial_failure WorkerAlert')
 
-        if new_message_ids:
+        if dispatch_downstream and new_message_ids:
             _embed_in_background(new_message_ids, sync_log_id=sync_log.pk)
 
         return {
@@ -691,6 +738,8 @@ class IngestionService:
             'created': created_count,
             'skipped': skipped_count,
             'errors': error_count,
+            'message_ids': list(dict.fromkeys(persisted_message_ids)),
+            'sync_log_id': sync_log.pk,
         }
 
     def _upsert_contact(self, account: WhatsAppAccount, payload: dict) -> WhatsAppContact:

@@ -272,3 +272,49 @@ test('M. an unresolvable history-sync LID message is preserved unresolved with i
   assert.equal(sentPayload.raw_payload.is_history, true);
   assert.equal(sentPayload.message_time, new Date(originalTs * 1000).toISOString());
 });
+
+test('N. history callbacks are processed serially per session', async () => {
+  const { sm } = makeSessionManager();
+  let releaseFirst;
+  const firstBlocked = new Promise(resolve => { releaseFirst = resolve; });
+  let active = 0;
+  let maxActive = 0;
+  const order = [];
+
+  sm._forwardHistoryBatch = test.mock.fn(async (_sessionId, messages) => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    order.push(messages[0].key.id);
+    if (messages[0].key.id === 'FIRST') await firstBlocked;
+    active -= 1;
+  });
+
+  const first = sm._enqueueHistoryBatch(SESSION_ID, [makeMsg({ key: { id: 'FIRST' } })]);
+  await new Promise(resolve => setImmediate(resolve));
+  const second = sm._enqueueHistoryBatch(SESSION_ID, [makeMsg({ key: { id: 'SECOND' } })]);
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(maxActive, 1);
+  assert.deepEqual(order, ['FIRST']);
+  releaseFirst();
+  await Promise.all([first, second]);
+  assert.deepEqual(order, ['FIRST', 'SECOND']);
+  assert.equal(maxActive, 1);
+});
+
+test('O. a history chunk emits summaries instead of one event per message', async () => {
+  const { sm, djangoClient, messageLogger } = makeSessionManager();
+  const messages = [makeMsg(), makeMsg(), makeMsg()];
+
+  await sm._forwardHistoryBatch(SESSION_ID, messages, {
+    sourceEvent: 'messaging-history.set',
+    received: 50,
+  });
+
+  assert.equal(djangoClient.sendBaileysEvent.mock.callCount(), 2);
+  assert.equal(djangoClient.sendBaileysEvent.mock.calls[0].arguments[1].event_type, 'messaging-history.set');
+  assert.equal(djangoClient.sendBaileysEvent.mock.calls[0].arguments[1].metadata.processing, 3);
+  assert.equal(djangoClient.sendBaileysEvent.mock.calls[1].arguments[1].event_type, 'history_batch_queued');
+  assert.equal(djangoClient.sendBaileysEvent.mock.calls[1].arguments[1].metadata.chunk_size, 3);
+  assert.equal(messageLogger.write.mock.callCount(), 3);
+});

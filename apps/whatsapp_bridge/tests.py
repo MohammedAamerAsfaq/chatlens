@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
@@ -6,6 +7,7 @@ from django.test import TestCase, Client
 from django.utils import timezone
 
 from apps.tenancy.models import CommunicationAccount, Company, ConnectionProvider
+from apps.task_management.models import BackgroundTask
 from .models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppContact, WhatsAppMessage,
     WhatsAppAccountCapacity, WhatsAppGroup, WhatsAppUnresolvedMessage, ResolutionStatus,
@@ -237,6 +239,181 @@ class LiveIngestionAutomationTests(TestCase):
 
         live_proc.assert_called_once()
         live_auto.assert_called_once_with(message.pk)
+
+
+class HistoryIngestionQueueTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.account = _make_account(
+            phone_number='971500000019',
+            worker_session_id='ingestion-queue-session',
+        )
+
+    def setUp(self):
+        self.client = Client()
+        from django.conf import settings
+        settings.INTERNAL_API_TOKEN = 'test-token'
+
+    def _post_batch(self, transport_key='event-44:2026-09-16T12:00:00Z'):
+        return self.client.post(
+            '/api/internal/whatsapp/message-ingest-batch/',
+            data=json.dumps({
+                'worker_session_id': self.account.pk,
+                'messages': [{'provider_message_id': 'message-1'}],
+                'is_latest': False,
+                'received': 1,
+                'transport_key': transport_key,
+            }),
+            content_type='application/json',
+            **INTERNAL_HEADERS,
+        )
+
+    @patch('apps.whatsapp_bridge.services.ingestion_service.IngestionService.ingest_batch')
+    def test_batch_endpoint_enqueues_without_persisting_in_request(self, ingest_batch):
+        response = self._post_batch()
+
+        self.assertEqual(response.status_code, 202)
+        ingest_batch.assert_not_called()
+        task = BackgroundTask.objects.get(pk=response.json()['task_id'])
+        self.assertEqual(task.queue_name, 'history_ingestion')
+        self.assertEqual(task.task_key, 'whatsapp.persist_history_batch')
+        self.assertEqual(task.payload['account_id'], self.account.pk)
+
+    def test_transport_retry_returns_the_existing_task(self):
+        first = self._post_batch()
+        second = self._post_batch()
+
+        self.assertEqual(first.status_code, 202)
+        self.assertEqual(second.status_code, 202)
+        self.assertTrue(first.json()['created'])
+        self.assertFalse(second.json()['created'])
+        self.assertEqual(first.json()['task_id'], second.json()['task_id'])
+
+    @patch('apps.whatsapp_bridge.services.ingestion_service.IngestionService.ingest_batch')
+    def test_persistence_handler_enqueues_history_embedding_task(self, ingest_batch):
+        from .task_handlers import persist_history_batch
+
+        ingest_batch.return_value = {
+            'total': 2,
+            'created': 2,
+            'skipped': 0,
+            'errors': 0,
+            'message_ids': [101, 102],
+            'sync_log_id': 55,
+        }
+        result = persist_history_batch({
+            'version': 1,
+            'account_id': self.account.pk,
+            'messages': [{}, {}],
+            'is_latest': False,
+            'received': 2,
+            'batch_key': 'batch-1',
+        }, SimpleNamespace(task_id=900, correlation_id='ingestion-correlation'))
+
+        ingest_batch.assert_called_once_with(
+            self.account.pk, [{}, {}], is_latest=False, received=2,
+            dispatch_downstream=False,
+        )
+        task = BackgroundTask.objects.get(pk=result['history_embedding_task_id'])
+        self.assertEqual(task.queue_name, 'history_embedding_dispatch')
+        self.assertEqual(task.payload['message_ids'], [101, 102])
+
+    def test_history_dispatch_handler_enqueues_embedding_task(self):
+        from .task_handlers import dispatch_history_embeddings
+
+        contact = WhatsAppContact.objects.create(
+            account=self.account,
+            wa_contact_id='971500000099@s.whatsapp.net',
+            phone_number='971500000099',
+        )
+        chat = WhatsAppChat.objects.create(
+            account=self.account,
+            wa_chat_id=contact.wa_contact_id,
+            chat_type='individual',
+            contact=contact,
+        )
+        message = WhatsAppMessage.objects.create(
+            account=self.account,
+            chat=chat,
+            contact=contact,
+            provider_message_id='post-ingestion-message-1',
+            direction='inbound',
+            message_type='text',
+            message_text='WTB iPhone 17 Pro',
+            message_time=timezone.now(),
+        )
+
+        result = dispatch_history_embeddings(
+            {'version': 1, 'message_ids': [message.pk], 'sync_log_id': 55},
+            SimpleNamespace(task_id=901, correlation_id='ingestion-correlation'),
+        )
+
+        task = BackgroundTask.objects.get(task_key='whatsapp.embed_message')
+        self.assertEqual(result['embedding_tasks_enqueued'], 1)
+        self.assertEqual(task.queue_name, 'embeddings')
+        self.assertEqual(task.correlation_id, f'whatsapp-message:{message.pk}')
+        self.assertEqual(task.idempotency_key, f'embedding:message:{message.pk}')
+
+
+class LiveIngestionQueueTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.account = _make_account(
+            phone_number='971500000018',
+            worker_session_id='live-ingestion-session',
+        )
+
+    def setUp(self):
+        self.client = Client()
+        from django.conf import settings
+        settings.INTERNAL_API_TOKEN = 'test-token'
+
+    def _payload(self):
+        return {
+            'worker_session_id': self.account.pk,
+            'provider_message_id': 'live-message-1',
+            'chat_id': '971500000077@s.whatsapp.net',
+            'chat_type': 'individual',
+            'sender_number': '971500000077',
+            'direction': 'inbound',
+            'message_type': 'text',
+            'message_text': 'WTB iPhone 17 Pro',
+            'message_time': timezone.now().isoformat(),
+            'transport_key': 'event-45:2026-09-16T12:00:01Z',
+        }
+
+    @patch('apps.whatsapp_bridge.services.ingestion_service.IngestionService.ingest_message')
+    def test_live_endpoint_enqueues_without_persisting_in_request(self, ingest_message):
+        response = self.client.post(
+            '/api/internal/whatsapp/message-ingest/',
+            data=json.dumps(self._payload()),
+            content_type='application/json',
+            **INTERNAL_HEADERS,
+        )
+
+        self.assertEqual(response.status_code, 202)
+        ingest_message.assert_not_called()
+        task = BackgroundTask.objects.get(pk=response.json()['task_id'])
+        self.assertEqual(task.queue_name, 'live_ingestion')
+        self.assertEqual(task.task_key, 'whatsapp.persist_live_message')
+        self.assertNotIn('transport_key', task.payload['message'])
+
+    @patch('apps.whatsapp_bridge.services.ingestion_service.dispatch_queued_live_message')
+    @patch('apps.whatsapp_bridge.services.ingestion_service.IngestionService.ingest_message')
+    def test_live_handler_persists_then_dispatches_downstream(self, ingest_message, dispatch):
+        from .task_handlers import persist_live_message
+
+        ingest_message.return_value = SimpleNamespace(pk=777)
+        payload = self._payload()
+        payload.pop('transport_key')
+        result = persist_live_message(
+            {'version': 1, 'account_id': self.account.pk, 'message': payload},
+            SimpleNamespace(task_id=902, correlation_id='live-correlation'),
+        )
+
+        ingest_message.assert_called_once_with(payload, dispatch_downstream=False)
+        dispatch.assert_called_once_with(777)
+        self.assertEqual(result, {'message_id': 777, 'downstream_dispatched': True})
 
 
 class AccountSettingsEndpointTests(TestCase):

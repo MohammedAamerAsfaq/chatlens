@@ -37,6 +37,48 @@ function readFallbackRecords(logsDir) {
     .map(line => JSON.parse(line));
 }
 
+test('message ingestion batches include the durable SQLite transport key', async () => {
+  const { client } = makeClient();
+  client.http.post = test.mock.fn(async () => ({ data: { queued: true, task_id: 71 } }));
+
+  const result = await client.sendMessageIngestBatch(
+    'session-1',
+    [{ provider_message_id: 'message-1' }],
+    { isLatest: true, received: 4, transportKey: '44:2026-09-16T12:00:00Z' },
+  );
+
+  assert.deepEqual(result, { queued: true, task_id: 71 });
+  assert.deepEqual(client.http.post.mock.calls[0].arguments, [
+    '/api/internal/whatsapp/message-ingest-batch/',
+    {
+      worker_session_id: 'session-1',
+      messages: [{ provider_message_id: 'message-1' }],
+      is_latest: true,
+      received: 4,
+      transport_key: '44:2026-09-16T12:00:00Z',
+    },
+  ]);
+});
+
+test('live message ingestion includes the durable SQLite transport key', async () => {
+  const { client } = makeClient();
+  client.http.post = test.mock.fn(async () => ({ data: { queued: true, task_id: 72 } }));
+
+  await client.sendMessageIngest(
+    { worker_session_id: 'session-1', provider_message_id: 'message-2' },
+    { transportKey: '45:2026-09-16T12:00:01Z' },
+  );
+
+  assert.deepEqual(client.http.post.mock.calls[0].arguments, [
+    '/api/internal/whatsapp/message-ingest/',
+    {
+      worker_session_id: 'session-1',
+      provider_message_id: 'message-2',
+      transport_key: '45:2026-09-16T12:00:01Z',
+    },
+  ]);
+});
+
 test('metadata update failures are written to local fallback reports', async () => {
   const { client, logsDir } = makeClient();
   client.http.post = test.mock.fn(async () => { throw new Error('django unreachable'); });

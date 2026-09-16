@@ -51,6 +51,7 @@ def _ensure_task_handlers_registered():
     # Importing handlers performs explicit decorator registration once per process.
     from apps.task_management import handlers  # noqa: F401
     from apps.message_intelligence import embedding_task_handlers  # noqa: F401
+    from apps.whatsapp_bridge import task_handlers as whatsapp_task_handlers  # noqa: F401
 
 
 def _event(task, event_type, *, worker_id='', message='', metadata=None, error='', traceback_text=''):

@@ -363,6 +363,15 @@ Recommended order:
 5. Metadata fallback replay.
 6. Heavy reports or exports.
 
+WhatsApp ingestion uses explicit history and live stages:
+
+- `history_ingestion` / `whatsapp.persist_history_batch` persists history batches.
+- `history_embedding_dispatch` / `whatsapp.dispatch_history_embeddings` creates history embedding tasks only.
+- `live_ingestion` / `whatsapp.persist_live_message` persists live messages before downstream routing.
+
+See `docs/WhatsApp Ingestion Queue Architecture.md` for queue boundaries,
+idempotency, and deployment details.
+
 Why start with classification:
 
 - It directly affects inquiries.

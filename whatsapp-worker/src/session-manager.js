@@ -404,6 +404,9 @@ class SessionManager {
       // on every process restart — a fresh process re-learns these the first time
       // WhatsApp asks again, which costs one crash, already-safely-caught by Baileys.
       knownStuckMessageIds: new Set(),
+      // Baileys does not await async event listeners. Chain history callbacks so a
+      // reconnect cannot fan several large batches into Django simultaneously.
+      historyIngestChain: Promise.resolve(),
     });
     this._connect(sessionId).catch(err => {
       const session = this.sessions.get(sessionId);
@@ -892,13 +895,15 @@ class SessionManager {
           try { safeMsg = JSON.parse(JSON.stringify(m)); } catch { safeMsg = { unserializable: true }; }
           this._debugWatchLog(sessionId, 'messages.upsert', safeMsg, { type });
         }
-        this._recordBaileysEvent(sessionId, m, {
-          event_type: 'messages.upsert',
-          event_stage: 'received',
-          status: 'info',
-          upsert_type: type || '',
-          metadata: { has_message: !!m.message },
-        });
+        if (type !== 'prepend') {
+          this._recordBaileysEvent(sessionId, m, {
+            event_type: 'messages.upsert',
+            event_stage: 'received',
+            status: 'info',
+            upsert_type: type || '',
+            metadata: { has_message: !!m.message },
+          });
+        }
       }
 
       // 'prepend' arrives when WhatsApp delivers missed messages after a reconnect.
@@ -909,12 +914,15 @@ class SessionManager {
           if (m.key?.remoteJid && m.message) {
             valid.push(m);
           } else {
-            this._reportDropped(sessionId, m, 'prepend_no_content');
+            await this._reportDropped(sessionId, m, 'prepend_no_content');
           }
         }
         if (valid.length) {
           this.logger.info({ sessionId, count: valid.length }, 'messages.upsert prepend — routing as history');
-          await this._forwardHistoryBatch(sessionId, valid);
+          await this._enqueueHistoryBatch(sessionId, valid, {
+            sourceEvent: 'messages.upsert.prepend',
+            received: messages.length,
+          });
         }
         return;
       }
@@ -925,7 +933,7 @@ class SessionManager {
         // Report each one explicitly so it shows up in whatsapp_dropped_message.
         this.logger.warn({ sessionId, type, count: messages.length }, 'messages.upsert — unhandled type, reporting as dropped');
         for (const m of messages) {
-          this._reportDropped(sessionId, m, `unhandled_type:${type}`);
+          await this._reportDropped(sessionId, m, `unhandled_type:${type}`);
         }
         return;
       }
@@ -937,11 +945,11 @@ class SessionManager {
           'messages.upsert received',
         );
         if (!msg.key?.remoteJid) {
-          this._reportDropped(sessionId, msg, 'no_remote_jid');
+          await this._reportDropped(sessionId, msg, 'no_remote_jid');
           continue;
         }
         if (!msg.message) {
-          this._reportDropped(sessionId, msg, 'no_message_content');
+          await this._reportDropped(sessionId, msg, 'no_message_content');
           continue;
         }
         await this._forwardMessage(sessionId, msg);
@@ -956,12 +964,6 @@ class SessionManager {
           try { safeMsg = JSON.parse(JSON.stringify(m)); } catch { safeMsg = { unserializable: true }; }
           this._debugWatchLog(sessionId, 'messaging-history.set', safeMsg);
         }
-        this._recordBaileysEvent(sessionId, m, {
-          event_type: 'messaging-history.set',
-          event_stage: 'history',
-          status: 'info',
-          metadata: { is_latest: !!isLatest, has_message: !!m.message },
-        });
       }
 
       let filtered = messages.filter(m => m.key?.remoteJid && m.message);
@@ -975,7 +977,11 @@ class SessionManager {
         { sessionId, received: messages.length, processing: filtered.length, isLatest },
         'History sync',
       );
-      await this._forwardHistoryBatch(sessionId, filtered, { isLatest, received: messages.length });
+      await this._enqueueHistoryBatch(sessionId, filtered, {
+        isLatest,
+        received: messages.length,
+        sourceEvent: 'messaging-history.set',
+      });
     });
 
     // Sync contact names whenever Baileys provides them.
@@ -1147,9 +1153,9 @@ class SessionManager {
   // Pass isHistory:true to skip media download and mark the payload for the batch endpoint.
   async _buildPayload(sessionId, msg, { isHistory = false } = {}) {
     const { jidNormalizedUser, downloadMediaMessage } = this.baileys || await loadBaileys();
-    const _skip = (reason) => {
+    const _skip = async (reason) => {
       this.logger.info({ sessionId, msgId: msg.key?.id, jid: msg.key?.remoteJid, reason }, '_buildPayload filtered');
-      this._reportDropped(sessionId, msg, reason);
+      await this._reportDropped(sessionId, msg, reason);
       return null;
     };
     if (msg.key.remoteJid === 'status@broadcast') return _skip('status@broadcast');
@@ -1543,17 +1549,17 @@ class SessionManager {
       { sessionId, msgId: msg.key?.id, jid: msg.key?.remoteJid, hasMsg: !!msg.message, reason },
       'message dropped before Django',
     );
-    this._recordBaileysEvent(sessionId, msg, {
+    await this.djangoClient.sendBaileysEvent(sessionId, this._baileysEventPayload(sessionId, msg, {
       event_type: 'message_dropped',
       event_stage: 'filtered',
       status: 'skipped',
       reason,
       raw_payload: this._safeAlertContext(msg),
       metadata: { has_message: !!msg.message },
-    });
+    }));
 
-    // Fire-and-forget — don't await so the upsert loop is never blocked by HTTP
-    this.djangoClient.sendDroppedMessage(sessionId, {
+    // Apply backpressure here; dropped-message bursts must not saturate Django/IIS.
+    await this.djangoClient.sendDroppedMessage(sessionId, {
       msg_id: msg.key?.id || null,
       raw_jid: msg.key?.remoteJid || null,
       from_me: msg.key?.fromMe ?? null,
@@ -1583,7 +1589,7 @@ class SessionManager {
       });
     } catch (bufferError) {
       this.logger.error({ sessionId, msgId: msg.key?.id, err: bufferError.message }, 'Ingestion Buffer write failed');
-      this._reportDropped(sessionId, msg, 'ingestion_buffer_write_failed');
+      await this._reportDropped(sessionId, msg, 'ingestion_buffer_write_failed');
       return;
     }
 
@@ -1654,8 +1660,34 @@ class SessionManager {
     }
   }
 
-  async _forwardHistoryBatch(sessionId, msgs, { isLatest = false, received = msgs.length } = {}) {
+  async _enqueueHistoryBatch(sessionId, msgs, options = {}) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    const previous = session.historyIngestChain || Promise.resolve();
+    const run = previous.catch(() => {}).then(
+      () => this._forwardHistoryBatch(sessionId, msgs, options),
+    );
+    session.historyIngestChain = run.catch(err => {
+      this.logger.error({ sessionId, err: err.message }, 'Serialized history batch failed');
+    });
+    await session.historyIngestChain;
+  }
+
+  async _forwardHistoryBatch(
+    sessionId,
+    msgs,
+    { isLatest = false, received = msgs.length, sourceEvent = 'history_batch' } = {},
+  ) {
     const CHUNK_SIZE = 100;
+
+    // One summary per provider callback replaces one HTTP diagnostic per message.
+    await this.djangoClient.sendBaileysEvent(sessionId, {
+      event_type: sourceEvent,
+      event_stage: 'history',
+      status: 'info',
+      metadata: { is_latest: !!isLatest, received, processing: msgs.length },
+    });
 
     // Build all payloads (filters protocol messages; fetches group names via cache).
     // A build failure here is reported the same way as the live path (_reportDropped)
@@ -1669,20 +1701,28 @@ class SessionManager {
         if (result) built.push(result);
       } catch (err) {
         this.logger.warn({ sessionId, msgId: msg.key?.id, err: err.message }, 'Failed to build history payload — skipping');
-        this._reportDropped(sessionId, msg, 'history_build_error');
+        await this._reportDropped(sessionId, msg, 'history_build_error');
       }
     }
 
     if (!built.length) {
-      // Still report this chunk to Django — even empty. A narrow history_days window
-      // (or a chunk that's entirely older than it) can filter an entire WhatsApp-
-      // delivered batch down to zero, and without this call the sync-progress UI never
-      // sees a single history_sync log, making a *finished* sync indistinguishable from
-      // one that's still hanging.
+      // Queue empty chunks too, so sync progress uses the same durable transport.
       try {
-        await this.djangoClient.sendMessageIngestBatch(sessionId, [], { isLatest, received });
+        const ingestionEvent = this.ingestionBuffer.enqueue({
+          sessionId,
+          eventType: 'message_ingest_batch',
+          rawPayload: { worker_session_id: sessionId, messages: [], is_latest: isLatest, received },
+        });
+        await this.ingestionDispatcher.dispatchOnce();
+        const buffered = this.ingestionBuffer.db.prepare(
+          'SELECT status, last_error FROM ingestion_event WHERE id = ?',
+        ).get(ingestionEvent.id);
+        if (!buffered || buffered.status !== 'delivered') {
+          throw new Error(buffered?.last_error || `Ingestion Event ${ingestionEvent.id} is buffered for retry.`);
+        }
+        this._recordHealthySignal(sessionId);
       } catch (err) {
-        this.logger.error({ sessionId, err: err.message }, 'Failed to report empty history batch to Django');
+        this.logger.error({ sessionId, err: err.message }, 'Failed to queue empty history batch');
       }
       return;
     }
@@ -1733,28 +1773,26 @@ class SessionManager {
         );
       }
 
-      for (const { payload, logEntry } of chunk) {
+      await this.djangoClient.sendBaileysEvent(sessionId, {
+        event_type: 'history_batch_queued',
+        event_stage: forwardStatus === 'success' ? 'forwarded' : 'failed',
+        status: forwardStatus === 'success' ? 'success' : 'failure',
+        reason: forwardStatus === 'success' ? '' : forwardStatus,
+        error_message: forwardError || '',
+        metadata: {
+          is_latest: !!isLatest,
+          received,
+          chunk_index: Math.floor(i / CHUNK_SIZE),
+          chunk_size: chunk.length,
+          delivery_stage: 'postgres_task_queue',
+          first_provider_message_id: payloads[0]?.provider_message_id || '',
+          last_provider_message_id: payloads[payloads.length - 1]?.provider_message_id || '',
+        },
+      });
+
+      for (const { logEntry } of chunk) {
         logEntry.forward_status = forwardStatus;
         logEntry.forward_error  = forwardError;
-        this.djangoClient.sendBaileysEvent(sessionId, {
-          event_type: 'history_message_forwarded',
-          event_stage: forwardStatus === 'success' ? 'forwarded' : 'failed',
-          status: forwardStatus === 'success' ? 'success' : 'failure',
-          provider_message_id: payload.provider_message_id || '',
-          raw_jid: payload.chat_id || '',
-          remote_jid: payload.chat_id || '',
-          sender_number: payload.sender_number || '',
-          push_name: payload.push_name || '',
-          direction: payload.direction || '',
-          message_type: payload.message_type || '',
-          reason: forwardStatus === 'success' ? '' : forwardStatus,
-          error_message: forwardError || '',
-          metadata: {
-            is_latest: !!isLatest,
-            received,
-            chat_type: payload.chat_type,
-          },
-        });
         this.messageLogger.write(sessionId, logEntry);
       }
     }

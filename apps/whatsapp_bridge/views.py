@@ -98,13 +98,24 @@ def internal_message_ingest(request):
         return JsonResponse({'error': f'Missing fields: {missing}'}, status=400)
 
     try:
-        service = IngestionService()
-        message = service.ingest_message(payload)
-        return JsonResponse({'success': True, 'message_id': message.id})
+        account = WhatsAppAccount.objects.select_related(
+            'communication_account__company', 'owner',
+        ).get(pk=payload['worker_session_id'])
     except WhatsAppAccount.DoesNotExist:
         return JsonResponse({'error': 'WhatsApp account not found'}, status=404)
+
+    try:
+        from .services.live_ingestion_queue import enqueue_live_message
+        task, created = enqueue_live_message(account, payload)
+        return JsonResponse({
+            'success': True,
+            'queued': True,
+            'created': created,
+            'task_id': task.pk,
+            'task_status': task.status,
+        }, status=202)
     except Exception as e:
-        logger.exception('Error in internal_message_ingest')
+        logger.exception('Error enqueueing internal_message_ingest')
         try:
             account = WhatsAppAccount.objects.get(pk=payload.get('worker_session_id'))
             SyncLog.objects.create(
@@ -142,19 +153,28 @@ def internal_message_ingest_batch(request):
     if not isinstance(messages, list):
         return JsonResponse({'error': 'messages must be a list'}, status=400)
 
+    if len(messages) > 100:
+        return JsonResponse({'error': 'messages cannot exceed 100 items'}, status=400)
+
     try:
-        service = IngestionService()
-        result = service.ingest_batch(
-            worker_session_id,
-            messages,
-            is_latest=bool(data.get('is_latest')),
-            received=data.get('received', len(messages)),
-        )
-        return JsonResponse({'success': True, **result})
+        account = WhatsAppAccount.objects.select_related(
+            'communication_account__company', 'owner',
+        ).get(pk=worker_session_id)
     except WhatsAppAccount.DoesNotExist:
         return JsonResponse({'error': 'WhatsApp account not found'}, status=404)
+
+    try:
+        from .services.history_ingestion_queue import enqueue_history_batch
+        task, created = enqueue_history_batch(account, data)
+        return JsonResponse({
+            'success': True,
+            'queued': True,
+            'created': created,
+            'task_id': task.pk,
+            'task_status': task.status,
+        }, status=202)
     except Exception as e:
-        logger.exception('Error in internal_message_ingest_batch')
+        logger.exception('Error enqueueing internal_message_ingest_batch')
         return JsonResponse({'error': str(e)}, status=500)
 
 

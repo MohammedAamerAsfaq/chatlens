@@ -158,10 +158,13 @@ class IngestionDispatcher {
         }
         const response = await this.deliver(event, payload);
         if (!response || response.success !== true) {
-          throw new Error('Django did not explicitly confirm ingestion persistence.');
+          throw new Error('Django did not explicitly confirm durable ingestion acceptance.');
         }
         this.buffer.markDelivered(event.id);
-        this.logger.debug({ ingestionEventId: event.id, providerMessageId: event.provider_message_id }, 'Ingestion Dispatcher delivered event');
+        this.logger.debug(
+          { ingestionEventId: event.id, providerMessageId: event.provider_message_id },
+          'Ingestion Dispatcher handed event to Django durable storage',
+        );
       } catch (error) {
         const outcome = this.buffer.markDeliveryFailed(event, error);
         this.logger.warn({ ingestionEventId: event.id, providerMessageId: event.provider_message_id, error: error.message, ...outcome }, 'Ingestion Dispatcher delivery failed');

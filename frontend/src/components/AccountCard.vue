@@ -172,6 +172,7 @@ const syncDone     = ref(false)  // true briefly after sync finishes
 const syncFinished = ref(false)  // permanently true after the done badge fades
 let syncPollTimer  = null
 let syncDoneTimer  = null
+let syncProgressInitialized = false
 
 // null       = nothing to show (sync_history off, disconnected, or already done+faded)
 // 'unhealthy'= worker detected a degraded session (repeated decrypt failures / handshake
@@ -203,15 +204,23 @@ async function fetchSyncProgress() {
   // degraded connection that needs surfacing, so this is no longer gated on that flag.
   try {
     const { data } = await accountsApi.syncProgress(props.account.id)
+    const isInitialSample = !syncProgressInitialized
     const alreadyComplete = syncProgress.value?.is_complete
     syncProgress.value = data
+    syncProgressInitialized = true
 
     // is_complete comes from Baileys' own isLatest flag on the final history chunk —
     // authoritative, and set even when that chunk had zero messages after the
     // history_days filter. This replaces the old "no new batches for 30s" heuristic,
     // which could never fire for an account whose entire history sync filtered down
     // to nothing (no batches ever arrived to go idle from).
-    if (!alreadyComplete && data.is_complete) {
+    if (isInitialSample && data.is_complete) {
+      // A completed sync returned on page load is historical, not a new event.
+      // Hide it immediately instead of replaying the completion banner on refresh.
+      syncFinished.value = true
+      clearInterval(syncPollTimer)
+      syncPollTimer = null
+    } else if (!alreadyComplete && data.is_complete) {
       syncDone.value = true
       clearInterval(syncPollTimer)
       syncPollTimer = null
@@ -232,6 +241,7 @@ function startSyncPolling() {
   syncDone.value     = false
   syncFinished.value = false
   syncProgress.value = null
+  syncProgressInitialized = false
 
   fetchSyncProgress()
   syncPollTimer = setInterval(fetchSyncProgress, 4000)

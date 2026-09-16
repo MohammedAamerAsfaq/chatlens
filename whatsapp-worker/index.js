@@ -40,10 +40,16 @@ const ingestionDispatcher = new IngestionDispatcher({
       return djangoClient.sendMessageIngestBatch(
         payload.worker_session_id,
         payload.messages,
-        { isLatest: payload.is_latest, received: payload.received },
+        {
+          isLatest: payload.is_latest,
+          received: payload.received,
+          transportKey: `${event.id}:${event.created_at}`,
+        },
       );
     }
-    return djangoClient.sendMessageIngest(payload);
+    return djangoClient.sendMessageIngest(payload, {
+      transportKey: `${event.id}:${event.created_at}`,
+    });
   },
   logger,
   intervalMs: parseInt(process.env.INGESTION_DISPATCH_INTERVAL_MS || '1000', 10),
