@@ -11,6 +11,9 @@ from .worker_alert import WorkerAlert
 from .stuck_receipt import StuckReceipt
 from .unresolved_message import WhatsAppUnresolvedMessage, ResolutionStatus
 from .baileys_event import BaileysEvent, BaileysEventStage, BaileysEventStatus
+from .outbound_message import (
+    OutboundAccountState, OutboundMessage, OutboundMessageEvent, OutboundRecipientState,
+)
 
 __all__ = [
     'WhatsAppAccount',
@@ -37,4 +40,8 @@ __all__ = [
     'BaileysEvent',
     'BaileysEventStage',
     'BaileysEventStatus',
+    'OutboundMessage',
+    'OutboundMessageEvent',
+    'OutboundAccountState',
+    'OutboundRecipientState',
 ]

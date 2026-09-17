@@ -2,7 +2,7 @@
 from .registry import (
     task_handler, validate_any_v1_payload, validate_recovery_payload,
     validate_automation_payload, validate_v2_pass2_payload,
-    validate_versioned_message_payload,
+    validate_versioned_message_payload, validate_outbound_payload,
 )
 
 
@@ -24,6 +24,16 @@ def process_automation_rules(payload, context):
     else:
         processed = process_automation_rule(message, rule_id)
     return {'message_id': message.pk, 'rule_id': rule_id, 'automation_processed': processed}
+
+
+@task_handler(
+    key='whatsapp.send_message', default_queue='outbound',
+    payload_validator=validate_outbound_payload, retry_safe=True,
+)
+def send_whatsapp_message(payload, context):
+    from apps.whatsapp_bridge.outbound.task_handler import execute_outbound_message
+
+    return execute_outbound_message(payload['outbound_message_id'], context)
 
 
 @task_handler(key='trading.classify_message_v1', default_queue='ai', payload_validator=validate_versioned_message_payload)

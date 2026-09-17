@@ -1,7 +1,7 @@
 # WhatsApp Outbound Messaging Implementation Design
 
-> **Status:** Phases 1-3 implemented; later phases remain proposed.
-> **Updated:** 2026-09-15
+> **Status:** Phases 1-4 implemented; controlled live verification remains pending.
+> **Updated:** 2026-09-17
 > **Purpose:** Define safe, account-configured WhatsApp message sending with durable execution, destination permission checks, throttling, and new-chat limit visibility.
 
 Implemented so far:
@@ -12,8 +12,9 @@ Implemented so far:
 - Phase 3 pins Baileys `7.0.0-rc14`, persists new-chat cap and reach-out lock
   telemetry, consumes live updates, and exposes current/stale/unavailable state
   plus an authenticated manual refresh in the account UI.
-- No outbound message record, send task, or Baileys `sendMessage` transport is
-  implemented yet.
+- Phase 4 adds the durable outbound ledger and events, database throttling,
+  `outbound` queue handler, authenticated Baileys transport, duplicate suppression,
+  Conversations composer, and Task Operations outbound ledger.
 
 ## 1. Objective
 
@@ -612,9 +613,9 @@ Baileys transport.
 
 ### Phase 4: Durable Outbound Execution
 
-- Add outbound records, event ledger, throttle state, queue, and task handler.
-- Add the authenticated Node send endpoint and duplicate suppression.
-- Keep the feature disabled except for a dedicated test account.
+- Implemented: outbound records, event ledger, throttle state, queue, and task handler.
+- Implemented: authenticated Node send endpoint and duplicate suppression.
+- Sending remains disabled per account until explicitly enabled by an operator.
 
 ### Phase 5: Controlled Verification
 

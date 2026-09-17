@@ -57,6 +57,7 @@ export const accountsApi = {
   preflightMessage: (id, destinationJid) => http.post(`/accounts/${id}/message-preflight/`, {
     destination_jid: destinationJid,
   }),
+  sendMessage: (id, data) => http.post(`/accounts/${id}/messages/`, data),
   getMessageCapacity: (id) => http.get(`/accounts/${id}/message-capacity/`),
   refreshMessageCapacity: (id) => http.post(`/accounts/${id}/message-capacity/refresh/`),
   export: (id) => http.get(`/accounts/${id}/export/`, { responseType: 'blob' }),
@@ -77,6 +78,13 @@ export const accountsApi = {
   setAutoDownload: (id, enabled) => http.post(`/accounts/${id}/set-auto-download/`, { enabled }),
   setAutoDownloadAll: (enabled) => http.post('/accounts/set-auto-download-all/', { enabled }),
   syncProgress: (id) => http.get(`/accounts/${id}/sync-progress/`),
+}
+
+export const outboundMessagesApi = {
+  list: (params = {}) => http.get('/outbound-messages/', { params }),
+  get: (id) => http.get(`/outbound-messages/${id}/`),
+  cancel: (id) => http.post(`/outbound-messages/${id}/cancel/`),
+  retry: (id) => http.post(`/outbound-messages/${id}/retry/`),
 }
 
 export const chatsApi = {

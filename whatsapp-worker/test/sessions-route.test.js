@@ -115,6 +115,31 @@ test('POST destination preflight rejects an invalid internal token', async () =>
   assert.equal(sessionManager.preflightDestination.mock.callCount(), 0);
 });
 
+test('POST messages authenticates and delegates durable outbound transport', async () => {
+  const sessionManager = {
+    sendOutboundMessage: test.mock.fn(async () => ({ accepted: true, dispatch_started: true })),
+  };
+  const router = sessionsRouter(sessionManager, '.', { read: () => ({}), clear: () => {} }, 'test-token');
+  const route = findRoute(router, 'post', '/:id/messages');
+  const req = {
+    params: { id: 'account-1' },
+    headers: { 'x-internal-token': 'test-token' },
+    body: {
+      outbound_message_id: 4,
+      provider_message_id: 'fixed-id',
+      destination_jid: '971500000001@s.whatsapp.net',
+      content_type: 'text',
+      content: { text: 'Hello' },
+    },
+  };
+  const res = makeResponse();
+
+  await route.route.stack[0].handle(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(sessionManager.sendOutboundMessage.mock.callCount(), 1);
+});
+
 test('POST capacity refresh returns telemetry without sending a message', async () => {
   const sessionManager = {
     getCapacityTelemetry: test.mock.fn(async () => ({

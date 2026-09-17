@@ -1,0 +1,49 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { OutboundMessageSender } = require('../src/outbound/message-sender');
+
+function request(overrides = {}) {
+  return {
+    provider_message_id: 'outbound-1',
+    destination_jid: '971500000001@s.whatsapp.net',
+    content: { text: 'Hello' },
+    settings: { account_interval_ms: 1000, recipient_interval_ms: 1000 },
+    ...overrides,
+  };
+}
+
+test('sender validates registration, sends text, and suppresses duplicate provider ids', async () => {
+  const sock = {
+    onWhatsApp: test.mock.fn(async () => [{ exists: true }]),
+    sendMessage: test.mock.fn(async () => ({ key: { id: 'provider-result' } })),
+  };
+  const sender = new OutboundMessageSender();
+  const session = { sock, status: 'connected' };
+
+  const first = await sender.send('1', session, request());
+  const duplicate = await sender.send('1', session, request());
+
+  assert.equal(first.accepted, true);
+  assert.equal(duplicate.accepted, true);
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(sock.sendMessage.mock.callCount(), 1);
+});
+
+test('sender reports an ambiguous outcome after sendMessage starts', async () => {
+  const sender = new OutboundMessageSender();
+  const session = {
+    status: 'connected',
+    sock: {
+      onWhatsApp: async () => [{ exists: true }],
+      sendMessage: async () => { throw new Error('socket closed'); },
+    },
+  };
+
+  const result = await sender.send('1', session, request());
+
+  assert.equal(result.accepted, false);
+  assert.equal(result.dispatch_started, true);
+  assert.equal(result.outcome_unknown, true);
+});

@@ -27,6 +27,15 @@ class TaskDeadlineExceeded(TimeoutError):
     pass
 
 
+class TaskDeferred(RuntimeError):
+    """Release a running task until an exact time without treating it as a failure."""
+    def __init__(self, available_at, reason, metadata=None):
+        super().__init__(reason)
+        self.available_at = available_at
+        self.reason = reason
+        self.metadata = metadata or {}
+
+
 class WorkerSuperseded(RuntimeError):
     pass
 
@@ -251,6 +260,9 @@ class TaskExecutor:
                 result = {}
             if not isinstance(result, dict):
                 raise ValueError('Task handler result must be a JSON object.')
+        except TaskDeferred as exc:
+            self._defer(task.pk, exc)
+            return False
         except Exception as exc:
             self._fail(task.pk, exc)
             return False
@@ -268,6 +280,27 @@ class TaskExecutor:
             task.save(update_fields=['status', 'result', 'finished_at', 'heartbeat_at', 'updated_at'])
             _event(task, BackgroundTaskEvent.EVENT_SUCCEEDED, worker_id=self.worker_id, message='Task completed.', metadata={'result': result})
         return True
+
+    def _defer(self, task_id, exc):
+        with transaction.atomic():
+            task = BackgroundTask.objects.select_for_update().get(pk=task_id)
+            task.status = BackgroundTask.STATUS_RETRYING
+            task.available_at = exc.available_at
+            task.locked_at = None
+            task.locked_by = ''
+            task.heartbeat_at = None
+            task.last_error = ''
+            task.save(update_fields=[
+                'status', 'available_at', 'locked_at', 'locked_by',
+                'heartbeat_at', 'last_error', 'updated_at',
+            ])
+            _event(
+                task,
+                BackgroundTaskEvent.EVENT_RETRY_SCHEDULED,
+                worker_id=self.worker_id,
+                message=exc.reason,
+                metadata={'deferred': True, **exc.metadata},
+            )
 
     def _fail(self, task_id, exc):
         traceback_text = traceback.format_exc()

@@ -1,6 +1,7 @@
 <script setup>
 import { watch, nextTick, ref, computed } from 'vue'
 import { useConversationsStore } from '@/stores/conversations'
+import { accountsApi } from '@/api'
 
 defineOptions({ inheritAttrs: false })
 
@@ -14,6 +15,67 @@ function chatKind(waId) {
 }
 
 const isGroup = computed(() => chatKind(store.selectedChat?.wa_chat_id) === 'group')
+const draft = ref('')
+const sending = ref(false)
+const sendError = ref('')
+const sendFeedback = ref('')
+const preflight = ref(null)
+const preflightLoading = ref(false)
+const sendingEnabled = computed(() => {
+  const account = store.selectedAccount
+  if (!account?.outbound_sending_enabled) return false
+  return isGroup.value ? account.group_sending_enabled : account.direct_sending_enabled
+})
+const canSend = computed(() => sendingEnabled.value && preflight.value?.allowed && draft.value.trim() && !sending.value)
+
+async function loadPreflight() {
+  preflight.value = null
+  sendError.value = ''
+  if (!sendingEnabled.value || !store.selectedChat?.wa_chat_id || !store.selectedAccountId) return
+  preflightLoading.value = true
+  try {
+    const { data } = await accountsApi.preflightMessage(store.selectedAccountId, store.selectedChat.wa_chat_id)
+    preflight.value = data
+  } catch (error) {
+    sendError.value = error.response?.data?.detail || 'Unable to verify this destination.'
+  } finally {
+    preflightLoading.value = false
+  }
+}
+
+async function sendMessage(confirmNewChat = false) {
+  if (!canSend.value) return
+  sending.value = true
+  sendError.value = ''
+  sendFeedback.value = ''
+  const payload = {
+    destination_jid: store.selectedChat.wa_chat_id,
+    text: draft.value.trim(),
+    idempotency_key: crypto.randomUUID(),
+    confirm_new_chat: confirmNewChat,
+  }
+  try {
+    const { data } = await accountsApi.sendMessage(store.selectedAccountId, payload)
+    if (data.status === 'preflight_blocked') {
+      sendError.value = `Sending blocked: ${data.status_reason}`
+    } else {
+      draft.value = ''
+      sendFeedback.value = `Queued as outbound #${data.id}`
+    }
+  } catch (error) {
+    if (error.response?.status === 409 && error.response?.data?.code === 'likely_new_chat_confirmation_required') {
+      if (confirm('This may start a new WhatsApp chat and use new-chat capacity. Continue?')) {
+        sending.value = false
+        await sendMessage(true)
+        return
+      }
+    } else {
+      sendError.value = error.response?.data?.detail || error.message || 'Unable to queue message.'
+    }
+  } finally {
+    sending.value = false
+  }
+}
 
 const isAtBottom = ref(true)
 
@@ -33,8 +95,15 @@ watch(lastMessageId, async (newId) => {
 
 // Also scroll when switching chats (messages may already be loaded)
 watch(() => store.selectedChatId, async () => {
+  draft.value = ''
+  sendFeedback.value = ''
+  await loadPreflight()
   await nextTick()
   scrollToBottom()
+})
+
+watch(sendingEnabled, (enabled, previous) => {
+  if (enabled && !previous) loadPreflight()
 })
 
 // Scroll to and highlight a specific message when navigated from Trading
@@ -447,11 +516,30 @@ watch(lightbox, (val) => {
       </Transition>
       </div>
 
-      <!-- Input bar (read-only indicator) -->
-      <div class="bg-[#f0f2f5] border-t border-gray-200 px-4 py-3 flex items-center gap-3 shrink-0">
-        <div class="flex-1 bg-white rounded-full px-4 py-2 text-sm text-gray-400 border border-gray-200 select-none">
-          Read-only mode — messages are captured automatically
+      <!-- Durable outbound composer -->
+      <div class="bg-[#f0f2f5] border-t border-gray-200 px-4 py-3 shrink-0">
+        <div v-if="!sendingEnabled" class="bg-white rounded-full px-4 py-2 text-sm text-gray-400 border border-gray-200">
+          Sending is disabled for this {{ isGroup ? 'group' : 'account/contact' }}. Enable it in Session Manager settings.
         </div>
+        <div v-else class="flex items-end gap-2">
+          <textarea
+            v-model="draft"
+            rows="1"
+            maxlength="10000"
+            :disabled="preflightLoading || !preflight?.allowed"
+            class="flex-1 resize-none rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500 disabled:bg-gray-100"
+            :placeholder="preflightLoading ? 'Checking destination…' : preflight?.allowed ? 'Type a message' : 'Sending blocked'"
+            @keydown.enter.exact.prevent="sendMessage()"
+          />
+          <button
+            :disabled="!canSend"
+            class="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+            @click="sendMessage()"
+          >{{ sending ? 'Queueing…' : 'Send' }}</button>
+        </div>
+        <p v-if="preflight && !preflight.allowed" class="mt-1 text-xs text-red-600">Blocked: {{ preflight.reason }}</p>
+        <p v-if="sendError" class="mt-1 text-xs text-red-600">{{ sendError }}</p>
+        <p v-if="sendFeedback" class="mt-1 text-xs text-green-700">{{ sendFeedback }}</p>
       </div>
     </template>
   </div>

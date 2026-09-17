@@ -88,6 +88,13 @@ def validate_automation_payload(payload):
         raise UnsupportedTaskPayload('rule_id must be a positive integer.')
 
 
+def validate_outbound_payload(payload):
+    if not isinstance(payload, dict) or payload.get('version') != 1:
+        raise UnsupportedTaskPayload('Payload version 1 is required.')
+    if not isinstance(payload.get('outbound_message_id'), int) or payload['outbound_message_id'] <= 0:
+        raise UnsupportedTaskPayload('outbound_message_id must be a positive integer.')
+
+
 def validate_recovery_payload(payload):
     if not isinstance(payload, dict) or payload.get('version') != 1:
         raise UnsupportedTaskPayload('Payload version 1 is required.')

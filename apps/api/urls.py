@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     WhatsAppAccountViewSet, ChatViewSet, SyncLogViewSet, DroppedMessageViewSet,
     ContactViewSet, GroupViewSet, WorkerAlertViewSet, StuckReceiptViewSet,
-    UnresolvedMessageViewSet, BaileysEventViewSet,
+    UnresolvedMessageViewSet, BaileysEventViewSet, OutboundMessageViewSet,
     message_trace_view, message_trace_list_view,
     auth_login_view, auth_logout_view, auth_me_view, auth_select_company_view, auth_current_company_settings_view,
     admin_companies_view, admin_company_detail_view, admin_company_enroll_view, admin_company_users_view,
@@ -20,6 +20,7 @@ router.register('stuck-receipts', StuckReceiptViewSet, basename='stuck-receipts'
 router.register('unresolved-messages', UnresolvedMessageViewSet, basename='unresolved-messages')
 router.register('contacts', ContactViewSet, basename='contacts')
 router.register('groups', GroupViewSet, basename='groups')
+router.register('outbound-messages', OutboundMessageViewSet, basename='outbound-messages')
 
 urlpatterns = [
     path('', include(router.urls)),

@@ -161,6 +161,32 @@ module.exports = function sessionsRouter(sessionManager, mediaStorePath, message
     }
   });
 
+  // Authenticated durable-send transport. Browser clients never call this route.
+  router.post('/:id/messages', async (req, res) => {
+    const suppliedToken = req.get?.('x-internal-token') || req.headers?.['x-internal-token'] || '';
+    if (!internalApiToken || suppliedToken !== internalApiToken) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const body = req.body || {};
+    if (!body.outbound_message_id || !body.provider_message_id || !body.destination_jid
+        || body.content_type !== 'text' || !String(body.content?.text || '').trim()) {
+      return res.status(400).json({ error: 'A valid outbound id, provider id, destination, and text are required.' });
+    }
+    try {
+      const result = await sessionManager.sendOutboundMessage(req.params.id, body);
+      const code = result.accepted ? 200 : result.retryable ? 503 : result.outcome_unknown ? 502 : 409;
+      return res.status(code).json(result);
+    } catch (err) {
+      return res.status(502).json({
+        accepted: false,
+        dispatch_started: false,
+        retryable: true,
+        code: 'live_preflight_unavailable',
+        error: err.message,
+      });
+    }
+  });
+
   // Fetches server telemetry only. It does not submit or prepare a message.
   router.post('/:id/capacity/refresh', async (req, res) => {
     const suppliedToken = req.get?.('x-internal-token') || req.headers?.['x-internal-token'] || '';

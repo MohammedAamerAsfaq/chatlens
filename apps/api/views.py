@@ -27,7 +27,7 @@ from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact,
     SyncLog, DroppedMessage, WhatsAppGroup, SessionStatus, WorkerAlert,
     StuckReceipt, WhatsAppUnresolvedMessage, ResolutionStatus, ContactRoleTag,
-    BaileysEvent,
+    BaileysEvent, OutboundMessage,
 )
 from apps.tenancy.models import AccountEndpoint, CommunicationAccount, Company, CompanyMembership
 from apps.tenancy.services.access import (
@@ -48,12 +48,86 @@ from .serializers import (
     SyncLogSerializer, DroppedMessageSerializer, ContactDetailSerializer,
     GroupSerializer, GroupDetailSerializer, WorkerAlertSerializer,
     StuckReceiptSerializer, UnresolvedMessageSerializer, BaileysEventSerializer,
+    OutboundMessageSerializer,
 )
 
 WORKER_BASE_URL = getattr(settings, 'WORKER_BASE_URL', 'http://localhost:3001')
 ACTIVE_COMPANY_SESSION_KEY = 'active_company_id'
 logger = logging.getLogger(__name__)
 WORKER_HEARTBEAT_STALE_SECONDS = 90
+
+
+class OutboundMessagePagination(PageNumberPagination):
+    page_size = 25
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class OutboundMessageViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = OutboundMessageSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = OutboundMessagePagination
+
+    def get_queryset(self):
+        queryset = OutboundMessage.objects.select_related(
+            'whatsapp_account', 'requested_by',
+        ).prefetch_related('events')
+        queryset = scope_queryset_to_visible_accounts(
+            queryset, self.request.user, account_field='whatsapp_account',
+        )
+        if value := self.request.query_params.get('status'):
+            queryset = queryset.filter(status=value)
+        if value := self.request.query_params.get('account'):
+            queryset = queryset.filter(whatsapp_account_id=value)
+        return queryset.order_by('-created_at')
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['include_events'] = self.action == 'retrieve'
+        return context
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        from apps.task_management.models import BackgroundTask
+        from apps.whatsapp_bridge.outbound.events import record_event
+
+        message = self.get_object()
+        if message.status not in {OutboundMessage.STATUS_QUEUED, OutboundMessage.STATUS_DEFERRED}:
+            return Response({'detail': 'Only queued or deferred messages can be cancelled.'}, status=400)
+        message.status = OutboundMessage.STATUS_CANCELLED
+        message.status_reason = 'cancelled_by_user'
+        message.finished_at = now()
+        message.save(update_fields=['status', 'status_reason', 'finished_at', 'updated_at'])
+        BackgroundTask.objects.filter(
+            correlation_id=message.correlation_id, status__in=BackgroundTask.ACTIVE_STATUSES,
+        ).update(status=BackgroundTask.STATUS_CANCELLED, finished_at=now())
+        record_event(message, 'cancelled', actor=f'user:{request.user.pk}')
+        return Response(self.get_serializer(message).data)
+
+    @action(detail=True, methods=['post'])
+    def retry(self, request, pk=None):
+        from apps.queue_management.services import enqueue_task
+        from apps.whatsapp_bridge.outbound.events import record_event
+
+        message = self.get_object()
+        safe_reasons = {
+            'session_disconnected', 'live_preflight_unavailable', 'group_metadata_unavailable',
+            'master_sending_disabled', 'direct_sending_disabled', 'group_sending_disabled',
+        }
+        if message.status not in {OutboundMessage.STATUS_FAILED, OutboundMessage.STATUS_BLOCKED} or message.status_reason not in safe_reasons:
+            return Response({'detail': 'This outcome is not safe for automatic retry.'}, status=400)
+        message.status = OutboundMessage.STATUS_QUEUED
+        message.status_reason = ''
+        message.finished_at = None
+        message.eligible_at = now()
+        message.save(update_fields=['status', 'status_reason', 'finished_at', 'eligible_at', 'updated_at'])
+        task = enqueue_task(
+            task_key='whatsapp.send_message', payload={'version': 1, 'outbound_message_id': message.pk},
+            queue_name='outbound', idempotency_key=f'outbound:{message.pk}:retry:{message.attempt_count}',
+            correlation_id=message.correlation_id, company=message.company, created_by=request.user,
+        )
+        record_event(message, 'queued', actor=f'user:{request.user.pk}', metadata={'task_id': task.pk, 'retry': True})
+        return Response(self.get_serializer(message).data)
 
 
 def _worker_liveness_status(account):
@@ -202,6 +276,37 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
         settings_serializer.is_valid(raise_exception=True)
         settings_serializer.save()
         return Response(WhatsAppAccountSerializer(account).data)
+
+    @action(detail=True, methods=['post'], url_path='messages')
+    def create_message(self, request, pk=None):
+        from apps.whatsapp_bridge.outbound.message_service import create_outbound_message
+
+        account = self.get_object()
+        if not account.communication_account_id:
+            return Response({'detail': 'Account is not assigned to a company.'}, status=status.HTTP_400_BAD_REQUEST)
+        destination_jid = str(request.data.get('destination_jid') or '').strip().lower()
+        text = str(request.data.get('text') or '').strip()
+        if not destination_jid or '@' not in destination_jid:
+            return Response({'destination_jid': ['A valid WhatsApp JID is required.']}, status=status.HTTP_400_BAD_REQUEST)
+        if not text or len(text) > 10000:
+            return Response({'text': ['Text must contain 1 to 10000 characters.']}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            outbound, created = create_outbound_message(
+                account=account, destination_jid=destination_jid, text=text,
+                requested_by=request.user, idempotency_key=request.data.get('idempotency_key'),
+                confirm_new_chat=bool(request.data.get('confirm_new_chat')),
+            )
+        except ValueError as exc:
+            if str(exc) == 'likely_new_chat_confirmation_required':
+                return Response(
+                    {'detail': 'This may start a new chat. Explicit confirmation is required.', 'code': str(exc)},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            raise
+        return Response(
+            OutboundMessageSerializer(outbound).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
     @action(detail=True, methods=['post'], url_path='message-preflight')
     def message_preflight(self, request, pk=None):

@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from apps.task_management.models import BackgroundTask, BackgroundTaskEvent, BackgroundTaskSchedule
 from apps.task_management.registry import TaskDefinition, task_registry, validate_any_v1_payload
-from apps.queue_management.models import QueueDefinition
+from apps.queue_management.models import BackgroundWorker, QueueDefinition
 from apps.queue_management.services import (
     TaskWorker, claim_tasks, enqueue_due_schedules, enqueue_task, release_stale_locks,
 )
@@ -127,10 +127,14 @@ class DurableTaskQueueTests(TestCase):
 
     def test_stale_retry_safe_lock_is_released(self):
         task = enqueue_task(task_key='tests.success', payload={'version': 1, 'value': 'x'}, idempotency_key='stale')
+        TaskWorker(['default'], worker_id='dead-worker').start()
         claimed = claim_tasks('default', 'dead-worker')
         self.assertEqual(claimed[0].pk, task.pk)
         QueueDefinition.objects.filter(name='default').update(lock_timeout_seconds=1)
         BackgroundTask.objects.filter(pk=task.pk).update(heartbeat_at=timezone.now() - timedelta(seconds=10))
+        BackgroundWorker.objects.filter(worker_id='dead-worker').update(
+            last_heartbeat_at=timezone.now() - timedelta(seconds=10),
+        )
         result = release_stale_locks('default')
         task.refresh_from_db()
         self.assertEqual(result['released'], 1)
@@ -138,9 +142,13 @@ class DurableTaskQueueTests(TestCase):
 
     def test_stale_non_retry_safe_lock_fails(self):
         task = enqueue_task(task_key='tests.unsafe', payload={'version': 1, 'value': 'x'}, idempotency_key='unsafe')
+        TaskWorker(['default'], worker_id='dead-worker').start()
         claim_tasks('default', 'dead-worker')
         QueueDefinition.objects.filter(name='default').update(lock_timeout_seconds=1)
         BackgroundTask.objects.filter(pk=task.pk).update(heartbeat_at=timezone.now() - timedelta(seconds=10))
+        BackgroundWorker.objects.filter(worker_id='dead-worker').update(
+            last_heartbeat_at=timezone.now() - timedelta(seconds=10),
+        )
         result = release_stale_locks('default')
         task.refresh_from_db()
         self.assertEqual(result['failed'], 1)

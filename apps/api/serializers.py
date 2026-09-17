@@ -2,7 +2,7 @@ from rest_framework import serializers
 from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact, SyncLog, DroppedMessage,
     WhatsAppGroup, WhatsAppGroupParticipant, WorkerAlert, StuckReceipt, WhatsAppUnresolvedMessage,
-    BaileysEvent, SessionStatus,
+    BaileysEvent, SessionStatus, OutboundMessage,
 )
 
 
@@ -64,6 +64,40 @@ class WhatsAppAccountSettingsSerializer(serializers.ModelSerializer):
             'outbound_sending_enabled', 'direct_sending_enabled', 'group_sending_enabled',
             'recipient_interval_ms', 'account_interval_ms',
             'allow_concurrent_sends', 'max_concurrent_sends', 'unknown_new_chat_policy',
+        ]
+
+
+class OutboundMessageSerializer(serializers.ModelSerializer):
+    account_name = serializers.SerializerMethodField()
+    requested_by_name = serializers.CharField(source='requested_by.username', default=None, read_only=True)
+    events = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OutboundMessage
+        fields = [
+            'id', 'company', 'whatsapp_account', 'account_name', 'destination_jid',
+            'destination_type', 'content_type', 'content_payload', 'status', 'status_reason',
+            'idempotency_key', 'provider_message_id', 'correlation_id', 'new_chat_state',
+            'new_chat_confidence', 'new_chat_reason', 'permission_snapshot', 'settings_snapshot',
+            'provider_response', 'attempt_count', 'requested_by_name', 'requested_at',
+            'eligible_at', 'dispatch_started_at', 'provider_accepted_at', 'delivered_at',
+            'read_at', 'finished_at', 'last_error_code', 'last_error', 'events',
+        ]
+        read_only_fields = fields
+
+    def get_account_name(self, obj):
+        return obj.whatsapp_account.display_name or obj.whatsapp_account.phone_number
+
+    def get_events(self, obj):
+        if not self.context.get('include_events'):
+            return []
+        return [
+            {
+                'id': event.pk, 'event_type': event.event_type, 'actor': event.actor,
+                'attempt_number': event.attempt_number, 'detail': event.detail,
+                'metadata': event.metadata, 'created_at': event.created_at,
+            }
+            for event in obj.events.all()
         ]
 
 

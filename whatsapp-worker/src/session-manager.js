@@ -15,6 +15,7 @@ const {
   fetchCapacityTelemetry,
   reachoutEvent,
 } = require('./outbound/capacity-telemetry');
+const { OutboundMessageSender } = require('./outbound/message-sender');
 
 const SESSION_STATUS = {
   STARTING:      'starting',
@@ -107,6 +108,7 @@ class SessionManager {
     this.shuttingDown = false;
     // Cache group names to avoid repeated API calls
     this.groupNameCache = new Map();
+    this.outboundMessageSender = new OutboundMessageSender();
 
     if (!fs.existsSync(sessionStorePath)) {
       fs.mkdirSync(sessionStorePath, { recursive: true });
@@ -517,6 +519,11 @@ class SessionManager {
       destination_type: initialType,
       recipient_registered: initialType === DESTINATION.DIRECT ? null : undefined,
     };
+  }
+
+  async sendOutboundMessage(sessionId, request) {
+    const session = this.sessions.get(sessionId);
+    return await this.outboundMessageSender.send(sessionId, session, request);
   }
 
   // Fetch all groups the account participates in and push metadata to Django.

@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -18,6 +19,7 @@ from apps.whatsapp_bridge.models import (
     WhatsAppContact,
     WhatsAppGroup,
     WhatsAppMessage,
+    OutboundMessage,
 )
 
 
@@ -278,6 +280,88 @@ class TenantScopedApiTests(TestCase):
         self.assertTrue(resp.json()['recipient_registered'])
         self.assertEqual(post_mock.call_count, 1)
         self.assertIn('/destinations/preflight', post_mock.call_args.args[0])
+
+    def _existing_direct_chat(self, suffix='90'):
+        jid = f'9715000000{suffix}@s.whatsapp.net'
+        chat = WhatsAppChat.objects.create(
+            account=self.account_a, wa_chat_id=jid, chat_type='individual', last_message_at=now(),
+        )
+        WhatsAppMessage.objects.create(
+            account=self.account_a, chat=chat, provider_message_id=f'history-{suffix}',
+            direction='inbound', message_type='text', message_text='Hello', message_time=now(),
+        )
+        return chat
+
+    def test_outbound_message_api_durably_enqueues_once(self):
+        from apps.task_management.models import BackgroundTask
+
+        chat = self._existing_direct_chat('91')
+        self.account_a.outbound_sending_enabled = True
+        self.account_a.direct_sending_enabled = True
+        self.account_a.save(update_fields=['outbound_sending_enabled', 'direct_sending_enabled'])
+        self.client.force_authenticate(self.user_a)
+        payload = {
+            'destination_jid': chat.wa_chat_id,
+            'text': 'Durable hello',
+            'idempotency_key': 'api-outbound-once',
+        }
+
+        first = self.client.post(f'/api/accounts/{self.account_a.pk}/messages/', payload, format='json')
+        second = self.client.post(f'/api/accounts/{self.account_a.pk}/messages/', payload, format='json')
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.json()['id'], second.json()['id'])
+        outbound = OutboundMessage.objects.get(pk=first.json()['id'])
+        task = BackgroundTask.objects.get(correlation_id=outbound.correlation_id)
+        self.assertEqual(task.queue_name, 'outbound')
+        self.assertEqual(task.payload, {'version': 1, 'outbound_message_id': outbound.pk})
+
+    @patch('apps.whatsapp_bridge.outbound.task_handler.send_to_worker')
+    def test_outbound_handler_records_provider_acceptance(self, send_to_worker):
+        from apps.whatsapp_bridge.outbound.message_service import create_outbound_message
+        from apps.whatsapp_bridge.outbound.task_handler import execute_outbound_message
+
+        chat = self._existing_direct_chat('92')
+        self.account_a.outbound_sending_enabled = True
+        self.account_a.direct_sending_enabled = True
+        self.account_a.save(update_fields=['outbound_sending_enabled', 'direct_sending_enabled'])
+        outbound, _ = create_outbound_message(
+            account=self.account_a, destination_jid=chat.wa_chat_id, text='Accepted',
+            requested_by=self.user_a, idempotency_key='handler-accepted',
+        )
+        send_to_worker.return_value = (200, {'accepted': True, 'provider_message_id': 'provider-1'})
+
+        result = execute_outbound_message(outbound.pk, SimpleNamespace(worker_id='test-worker'))
+
+        outbound.refresh_from_db()
+        self.assertEqual(result['status'], OutboundMessage.STATUS_SENT)
+        self.assertEqual(outbound.status, OutboundMessage.STATUS_SENT)
+        self.assertIsNotNone(outbound.provider_accepted_at)
+        self.assertTrue(outbound.events.filter(event_type='provider_accepted').exists())
+
+    @patch('apps.whatsapp_bridge.outbound.task_handler.send_to_worker')
+    def test_outbound_handler_rechecks_disabled_switch(self, send_to_worker):
+        from apps.whatsapp_bridge.outbound.message_service import create_outbound_message
+        from apps.whatsapp_bridge.outbound.task_handler import execute_outbound_message
+
+        chat = self._existing_direct_chat('93')
+        self.account_a.outbound_sending_enabled = True
+        self.account_a.direct_sending_enabled = True
+        self.account_a.save(update_fields=['outbound_sending_enabled', 'direct_sending_enabled'])
+        outbound, _ = create_outbound_message(
+            account=self.account_a, destination_jid=chat.wa_chat_id, text='Must not send',
+            requested_by=self.user_a, idempotency_key='handler-blocked',
+        )
+        self.account_a.outbound_sending_enabled = False
+        self.account_a.save(update_fields=['outbound_sending_enabled'])
+
+        execute_outbound_message(outbound.pk, SimpleNamespace(worker_id='test-worker'))
+
+        outbound.refresh_from_db()
+        self.assertEqual(outbound.status, OutboundMessage.STATUS_BLOCKED)
+        self.assertEqual(outbound.status_reason, 'master_sending_disabled')
+        send_to_worker.assert_not_called()
 
     def test_message_preflight_rejects_unregistered_direct_recipient(self):
         self.account_a.outbound_sending_enabled = True
