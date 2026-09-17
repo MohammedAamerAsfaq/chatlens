@@ -976,7 +976,8 @@ def classify_message_v2(message) -> None:
         _enqueue_v2_pass2(message, classification.pk, inquiry_ids)
     else:
         log.total_ms = _elapsed_ms(total_start)
-        log.save(update_fields=['total_ms', 'updated_at'])
+        log.status = AiParseV2Log.STATUS_COMPLETE
+        log.save(update_fields=['total_ms', 'status', 'updated_at'])
 
 
 def _enqueue_v2_pass2(message, classification_id: int, inquiry_ids: list[int]):

@@ -6,7 +6,14 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.tenancy.models import CommunicationAccount, Company, ConnectionProvider
-from apps.trading.models import AiParseV2Log, AutomatedPriceCapture, AutomationRule, AutomationRuleSource
+from apps.trading.models import (
+    AiParseV2Log,
+    AutomatedPriceCapture,
+    AutomationRule,
+    AutomationRuleSource,
+    PromptConfig,
+    QTY_COST_UPDATE_DEFAULT,
+)
 from apps.trading.services.classification_service import (
     _parse_v2_extraction_response,
     _reconcile_stale_pass1_logs,
@@ -104,6 +111,51 @@ class AutomatedPriceCapturePersistenceTests(TestCase):
         self.assertEqual(capture.error, '')
         self.assertEqual(self.rule.trigger_count, 1)
         self.assertIsNotNone(self.rule.last_triggered_at)
+
+    @patch('apps.trading.services.price_update_service.parse_against_inventory')
+    def test_qty_cost_rule_uses_qty_cost_parser_and_captures_updates(self, parse_against_inventory):
+        self.rule.update_type = AutomationRule.UPDATE_QTY_COST
+        self.rule.action_mode = AutomationRule.ACTION_REVIEW
+        self.rule.save(update_fields=['update_type', 'action_mode'])
+        parse_against_inventory.return_value = [
+            {'product_id': 1, 'canonical_name': 'Matched item', 'qty': 12, 'cost_price': 825},
+        ]
+        message = self._message(provider_message_id='qty-cost')
+
+        price_update_automation._process_match(self.rule, message)
+
+        capture = AutomatedPriceCapture.objects.get(message=message)
+        self.assertEqual(capture.update_type, AutomationRule.UPDATE_QTY_COST)
+        self.assertEqual(capture.status, AutomatedPriceCapture.STATUS_QUEUED)
+        self.assertEqual(capture.items, parse_against_inventory.return_value)
+        parse_against_inventory.assert_called_once_with(
+            message.message_text,
+            PromptConfig.KEY_QTY_COST_UPDATE,
+            QTY_COST_UPDATE_DEFAULT,
+            company=self.company,
+        )
+
+    @patch('apps.trading.services.price_update_service.apply_items_to_inventory')
+    def test_qty_cost_capture_never_zeros_unlisted_inventory(self, apply_items_to_inventory):
+        message = self._message(provider_message_id='qty-cost-apply')
+        capture = AutomatedPriceCapture.objects.create(
+            rule=self.rule,
+            message=message,
+            update_type=AutomationRule.UPDATE_QTY_COST,
+            items=[{'product_id': 1, 'qty': 4, 'cost_price': 750}],
+        )
+
+        price_update_automation.apply_capture(capture)
+
+        apply_items_to_inventory.assert_called_once_with(
+            capture.items,
+            [('qty', 'qty'), ('cost_price', 'cost_price')],
+            zero_unmatched_qty=False,
+            company=self.company,
+        )
+        capture.refresh_from_db()
+        self.assertEqual(capture.status, AutomatedPriceCapture.STATUS_APPLIED)
+        self.assertIsNotNone(capture.applied_at)
 
     @patch('apps.trading.services.price_update_automation.apply_capture')
     @patch('apps.trading.services.price_update_service.parse_against_inventory')
@@ -328,3 +380,26 @@ class V2ClassificationRecoveryTests(TestCase):
         self.assertEqual(log.gate_decision, 'not_inquiry')
         self.assertFalse(log.classification.is_inquiry)
         self.assertFalse(Inquiry.objects.filter(inquiry_messages__message=message).exists())
+
+    @patch('apps.trading.services.classification_service._enqueue_v2_pass2')
+    @patch('apps.trading.services.classification_service._call_agent_with_timeout')
+    @patch('apps.trading.services.agent_logger.call_agent')
+    def test_observational_not_inquiry_finishes_without_pass2(
+        self, gate_call, extraction_call, enqueue_pass2,
+    ):
+        gate_call.return_value = '{"decision":"not_inquiry"}'
+        extraction_call.return_value = (
+            '{"tags":["other"],"products":[],"is_inquiry":false,'
+            '"inquiry_type":"","summary":"General message","dedup_key":""}'
+        )
+        message = self._message(provider_message_id='gate-observe-complete', text='Hello everyone')
+
+        classify_message_v2(message)
+
+        log = AiParseV2Log.objects.get(message=message)
+        self.assertEqual(log.gate_mode, 'observational')
+        self.assertEqual(log.gate_decision, 'not_inquiry')
+        self.assertEqual(log.status, AiParseV2Log.STATUS_COMPLETE)
+        self.assertIsNotNone(log.total_ms)
+        self.assertFalse(log.classification.is_inquiry)
+        enqueue_pass2.assert_not_called()

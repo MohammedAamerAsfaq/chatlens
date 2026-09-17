@@ -3,15 +3,16 @@ from django.db import models
 
 class AutomationRule(models.Model):
     """
-    A watch rule for the Product Price Update page's "Automated Price Updates"
-    section (Sale Price tab only) — when an inbound message from one of this rule's
-    watched sources satisfies its trigger condition, the message text is run through
-    the same AI sale-price matching process as the manual flow
-    (PromptConfig.KEY_SALE_PRICE_UPDATE). Per action_mode, the result is queued for
-    human review, applied immediately, or — for ACTION_TEST — just recorded as a
-    "this rule fires correctly" confirmation with no inventory change and nothing
-    left needing review.
+    A watch rule that routes matching inbound messages through either the Qty & Cost
+    or Sale Price inventory-update parser.
     """
+    UPDATE_SALE_PRICE = 'sale_price'
+    UPDATE_QTY_COST = 'qty_cost'
+    UPDATE_TYPE_CHOICES = [
+        (UPDATE_SALE_PRICE, 'Sale Price'),
+        (UPDATE_QTY_COST, 'Qty & Cost'),
+    ]
+
     ACTION_REVIEW = 'review'
     ACTION_AUTO   = 'auto'
     ACTION_TEST   = 'test'
@@ -23,6 +24,9 @@ class AutomationRule(models.Model):
 
     name       = models.CharField(max_length=200)
     is_active  = models.BooleanField(default=True)
+    update_type = models.CharField(
+        max_length=20, choices=UPDATE_TYPE_CHOICES, default=UPDATE_SALE_PRICE, db_index=True,
+    )
 
     # Content trigger — OR'd together: matches if the heading text is found (when
     # set), or if trigger_ai_detect is on and the AI parse actually returns priced
@@ -87,8 +91,8 @@ class AutomatedPriceCapture(models.Model):
     """
     One row per inbound message that matched an AutomationRule — the "Recent
     detections" feed and review queue. `items` is the same shape the manual Sale
-    Price parse returns: [{product_id, canonical_name, sale_price, currency}].
-    `error` records why a matched attempt failed before it could queue/apply.
+    Price or Qty & Cost parser. `update_type` snapshots the selected process so later
+    rule edits cannot change queued work. `error` records why an attempt failed.
     One capture per message (a message triggers at most the first rule it matches).
     """
     STATUS_QUEUED  = 'queued'
@@ -97,6 +101,7 @@ class AutomatedPriceCapture(models.Model):
     STATUS_TEST    = 'test'
     STATUS_PARSE_FAILED = 'parse_failed'
     STATUS_NO_PRICED_ITEMS = 'no_priced_items'
+    STATUS_NO_UPDATE_ITEMS = 'no_update_items'
     STATUS_APPLY_FAILED = 'apply_failed'
     STATUS_CHOICES = [
         (STATUS_QUEUED,  'Queued'),
@@ -105,6 +110,7 @@ class AutomatedPriceCapture(models.Model):
         (STATUS_TEST,    'Test match'),
         (STATUS_PARSE_FAILED, 'Parse failed'),
         (STATUS_NO_PRICED_ITEMS, 'No priced items'),
+        (STATUS_NO_UPDATE_ITEMS, 'No update items'),
         (STATUS_APPLY_FAILED, 'Apply failed'),
     ]
 
@@ -114,6 +120,12 @@ class AutomatedPriceCapture(models.Model):
     )
     message = models.OneToOneField(
         'whatsapp_bridge.WhatsAppMessage', on_delete=models.CASCADE, related_name='price_capture',
+    )
+    update_type = models.CharField(
+        max_length=20,
+        choices=AutomationRule.UPDATE_TYPE_CHOICES,
+        default=AutomationRule.UPDATE_SALE_PRICE,
+        db_index=True,
     )
     items  = models.JSONField(default=list)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_QUEUED)

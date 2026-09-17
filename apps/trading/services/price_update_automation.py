@@ -1,6 +1,5 @@
 """
-Automated price-list detection — the "Automated Price Updates" section of the
-Product Price Update page (Sale Price tab only). Called once per inbound message
+Automated inventory-list detection for the Product Price Update page. Called once per inbound message
 from apps.whatsapp_bridge.services.ingestion_service, gated by its own
 eligibility check (_automation_skip_reason) rather than the AI-classification
 gate — a rule must be able to fire inside a chat that has AI classification
@@ -11,10 +10,9 @@ Design: a message is matched against each active AutomationRule's watched source
 (contact DM / whole group / one contact scoped to one group — independently
 combinable) and content trigger (heading text and/or "let the AI parse decide").
 There is deliberately no separate "is this a price list" classification call —
-the message is run through the same AI sale-price matching process the manual
-flow uses (parse_against_inventory), and getting back at least one item with a
-real sale_price *is* the price-list signal. This avoids a redundant AI call per
-candidate message: one call both detects and extracts.
+the message is run through the selected manual-flow parser, and getting back at
+least one applicable value is the inventory-list signal. This avoids a redundant
+AI call per candidate message: one call both detects and extracts.
 """
 import logging
 
@@ -132,7 +130,13 @@ def _content_matches(rule, message) -> bool:
 def _process_match(rule, message) -> None:
     from django.db.models import F
     from django.utils.timezone import now
-    from apps.trading.models import AutomationRule, AutomatedPriceCapture, PromptConfig, SALE_PRICE_UPDATE_DEFAULT
+    from apps.trading.models import (
+        AutomationRule,
+        AutomatedPriceCapture,
+        PromptConfig,
+        QTY_COST_UPDATE_DEFAULT,
+        SALE_PRICE_UPDATE_DEFAULT,
+    )
     from apps.trading.services.price_update_service import parse_against_inventory
 
     AutomationRule.objects.filter(pk=rule.pk).update(
@@ -140,10 +144,17 @@ def _process_match(rule, message) -> None:
     )
 
     try:
+        if rule.update_type == AutomationRule.UPDATE_QTY_COST:
+            prompt_key = PromptConfig.KEY_QTY_COST_UPDATE
+            default_prompt = QTY_COST_UPDATE_DEFAULT
+        else:
+            prompt_key = PromptConfig.KEY_SALE_PRICE_UPDATE
+            default_prompt = SALE_PRICE_UPDATE_DEFAULT
+
         items = parse_against_inventory(
             message.message_text,
-            PromptConfig.KEY_SALE_PRICE_UPDATE,
-            SALE_PRICE_UPDATE_DEFAULT,
+            prompt_key,
+            default_prompt,
             company=_company_for_rule_message(message),
         )
     except Exception as exc:
@@ -151,6 +162,7 @@ def _process_match(rule, message) -> None:
             message=message,
             defaults={
                 'rule': rule,
+                'update_type': rule.update_type,
                 'items': [],
                 'status': AutomatedPriceCapture.STATUS_PARSE_FAILED,
                 'error': str(exc),
@@ -160,14 +172,24 @@ def _process_match(rule, message) -> None:
         logger.exception('check_automation_rules | parse failed | rule_id=%s | message_id=%s', rule.pk, message.pk)
         return
 
-    priced_items = [item for item in items if item.get('sale_price') is not None]
-    if not priced_items:
+    if rule.update_type == AutomationRule.UPDATE_QTY_COST:
+        update_items = [
+            item for item in items
+            if item.get('qty') is not None or item.get('cost_price') is not None
+        ]
+        empty_status = AutomatedPriceCapture.STATUS_NO_UPDATE_ITEMS
+    else:
+        update_items = [item for item in items if item.get('sale_price') is not None]
+        empty_status = AutomatedPriceCapture.STATUS_NO_PRICED_ITEMS
+
+    if not update_items:
         AutomatedPriceCapture.objects.update_or_create(
             message=message,
             defaults={
                 'rule': rule,
+                'update_type': rule.update_type,
                 'items': items,
-                'status': AutomatedPriceCapture.STATUS_NO_PRICED_ITEMS,
+                'status': empty_status,
                 'error': '',
                 'applied_at': None,
             },
@@ -186,7 +208,8 @@ def _process_match(rule, message) -> None:
         message=message,
         defaults={
             'rule': rule,
-            'items': priced_items,
+            'update_type': rule.update_type,
+            'items': update_items,
             'status': initial_status,
             'error': '',
             'applied_at': None,
@@ -209,21 +232,25 @@ def _process_match(rule, message) -> None:
 
     logger.info(
         'check_automation_rules | matched | rule_id=%s | message_id=%s | items=%d | action=%s',
-        rule.pk, message.pk, len(priced_items), rule.action_mode,
+        rule.pk, message.pk, len(update_items), rule.action_mode,
     )
 
 
 def apply_capture(capture) -> None:
-    """Applies a capture's items to inventory (sale_price only) and marks it
-    applied. Used both for auto-apply-on-match and for a human clicking Apply
-    from the review queue."""
+    """Apply the fields selected when this capture was created."""
     from django.utils.timezone import now
-    from apps.trading.models import AutomatedPriceCapture
+    from apps.trading.models import AutomatedPriceCapture, AutomationRule
     from apps.trading.services.price_update_service import apply_items_to_inventory
 
+    fields = (
+        [('qty', 'qty'), ('cost_price', 'cost_price')]
+        if capture.update_type == AutomationRule.UPDATE_QTY_COST
+        else [('sale_price', 'sale_price')]
+    )
     apply_items_to_inventory(
         capture.items,
-        [('sale_price', 'sale_price')],
+        fields,
+        zero_unmatched_qty=False,
         company=_company_for_rule_message(capture.message),
     )
     capture.status = AutomatedPriceCapture.STATUS_APPLIED

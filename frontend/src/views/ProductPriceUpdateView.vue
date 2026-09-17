@@ -178,12 +178,13 @@
           </button>
         </div>
       </div>
+    </div>
 
       <!-- ── AUTOMATED PRICE UPDATES ─────────────────────────────────────── -->
       <div class="automation-section">
-        <div class="section-eyebrow"><span class="accent-mark"></span><span>Automated — Sale Price only</span></div>
-        <div class="section-title-row"><h3>Automated Price Updates</h3></div>
-        <p class="section-desc">Watch specific contacts or groups for incoming price lists. Matching messages are captured automatically and sent into this Sale Price process.</p>
+        <div class="section-eyebrow"><span class="accent-mark"></span><span>Automated inventory updates</span></div>
+        <div class="section-title-row"><h3>Qty, Cost &amp; Sale Price Automation</h3></div>
+        <p class="section-desc">Watch specific contacts or groups, then route each matching message through either the Qty &amp; Cost or Sale Price process.</p>
 
         <div class="summary-strip">
           <div class="summary-cell"><div class="summary-num accent">{{ automationSummary.active_rules }}</div><div class="summary-label">Active rules</div></div>
@@ -200,6 +201,7 @@
             <div class="rule-top">
               <div class="rule-name-group">
                 <span class="rule-name">{{ rule.name }}</span>
+                <span class="update-type-pill">{{ automationTypeLabel(rule.update_type) }}</span>
                 <span :class="['status-pill', rule.is_active ? 'on' : 'off']"><span class="dot"></span>{{ rule.is_active ? 'Active' : 'Paused' }}</span>
               </div>
               <div class="rule-actions">
@@ -265,6 +267,17 @@
             <div class="field">
               <label>Rule name</label>
               <input v-model="ruleForm.name" class="fake-input-real" placeholder='e.g. "Expert Devices — supplier price lists"' />
+            </div>
+          </div>
+
+          <div class="form-row single">
+            <div class="field">
+              <label>Inventory update type</label>
+              <div class="segmented">
+                <button :class="{ sel: ruleForm.update_type === 'qty_cost' }" @click="ruleForm.update_type = 'qty_cost'">Qty &amp; Cost</button>
+                <button :class="{ sel: ruleForm.update_type === 'sale_price' }" @click="ruleForm.update_type = 'sale_price'">Sale Price</button>
+              </div>
+              <span class="field-hint">Determines which AI instruction parses the message and which inventory fields can be updated.</span>
             </div>
           </div>
 
@@ -373,7 +386,7 @@
                 <button :class="{ sel: ruleForm.action_mode === 'test' }" @click="ruleForm.action_mode = 'test'">🧪 Test rule</button>
               </div>
               <span class="field-hint">
-                Review queues it below; auto-apply updates prices with no confirmation step; test rule never touches
+                Review queues it below; auto-apply updates the selected inventory fields with no confirmation step; test rule never touches
                 inventory or needs review — it just confirms in Recent detections that this rule fires correctly.
               </span>
             </div>
@@ -399,6 +412,7 @@
           <button :class="['filter-chip', captureFilter === 'parse_failed' && 'sel']" @click="filterCaptures('parse_failed')">Parse failed</button>
           <button :class="['filter-chip', captureFilter === 'apply_failed' && 'sel']" @click="filterCaptures('apply_failed')">Apply failed</button>
           <button :class="['filter-chip', captureFilter === 'no_priced_items' && 'sel']" @click="filterCaptures('no_priced_items')">No priced items</button>
+          <button :class="['filter-chip', captureFilter === 'no_update_items' && 'sel']" @click="filterCaptures('no_update_items')">No qty/cost items</button>
           <button :class="['filter-chip', captureFilter === 'test' && 'sel']" @click="filterCaptures('test')">🧪 Test matches</button>
         </div>
 
@@ -430,6 +444,7 @@
                 {{ cap.source_name }}
                 <span v-if="cap.source_kind === 'group'" class="feed-dim">in {{ cap.group_name }}</span>
                 <span class="feed-dim">· matched "{{ cap.rule_name || 'deleted rule' }}"</span>
+                <span class="update-type-pill">{{ automationTypeLabel(cap.update_type) }}</span>
               </div>
               <div class="feed-snippet">{{ cap.message_text }}</div>
               <div v-if="cap.error" class="feed-error">{{ cap.error }}</div>
@@ -441,15 +456,12 @@
                 <button class="btn-sm danger" @click="ignoreCapture(cap)">Ignore</button>
               </template>
               <span v-else :class="['feed-outcome', cap.status]">
-                {{ cap.status === 'applied' ? `Applied · ${cap.items.length} updated`
-                   : cap.status === 'test' ? `🧪 Rule works · ${cap.items.length} would update`
-                   : 'Ignored' }}
+                {{ captureOutcomeLabel(cap) }}
               </span>
             </div>
           </div>
         </div>
       </div>
-    </div>
   </div>
 </template>
 
@@ -511,8 +523,23 @@ const ruleSaving    = ref(false)
 function emptyRuleForm() {
   return {
     id: null, name: '', trigger_heading: '', trigger_ai_detect: false,
-    action_mode: 'review', sources: [],
+    update_type: activeTab.value, action_mode: 'review', sources: [],
   }
+}
+
+function automationTypeLabel(updateType) {
+  return updateType === 'qty_cost' ? 'Qty & Cost' : 'Sale Price'
+}
+
+function captureOutcomeLabel(capture) {
+  if (capture.status === 'applied') return `Applied · ${capture.items.length} updated`
+  if (capture.status === 'test') return `Test passed · ${capture.items.length} would update`
+  if (capture.status === 'ignored') return 'Ignored'
+  if (capture.status === 'no_priced_items') return 'No sale price updates found'
+  if (capture.status === 'no_update_items') return 'No qty or cost updates found'
+  if (capture.status === 'parse_failed') return 'Parse failed'
+  if (capture.status === 'apply_failed') return 'Apply failed'
+  return capture.status
 }
 
 async function loadAutomation() {
@@ -593,6 +620,7 @@ function editRule(rule) {
     name: rule.name,
     trigger_heading: rule.trigger_heading,
     trigger_ai_detect: rule.trigger_ai_detect,
+    update_type: rule.update_type || 'sale_price',
     action_mode: rule.action_mode,
     sources: rule.sources.map(s => ({
       source_type: s.source_type,
@@ -631,6 +659,7 @@ async function saveRule() {
       name: ruleForm.value.name.trim(),
       trigger_heading: ruleForm.value.trigger_heading.trim(),
       trigger_ai_detect: ruleForm.value.trigger_ai_detect,
+      update_type: ruleForm.value.update_type,
       action_mode: ruleForm.value.action_mode,
       sources: ruleForm.value.sources.map(s => ({
         source_type: s.source_type, contact_id: s.contact_id, group_id: s.group_id,
@@ -910,6 +939,7 @@ onMounted(() => {
 .rules-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
 .rule-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; }
 .rule-card.paused { opacity: 0.6; }
+.update-type-pill { display: inline-flex; align-items: center; border: 1px solid #bfdbfe; border-radius: 999px; padding: 2px 8px; background: #eff6ff; color: #1d4ed8; font-size: 0.68rem; font-weight: 700; white-space: nowrap; }
 .rule-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .rule-name-group { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .rule-name { font-size: 0.9rem; font-weight: 650; }

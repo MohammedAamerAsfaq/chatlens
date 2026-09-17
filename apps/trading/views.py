@@ -4263,9 +4263,8 @@ class ProductPriceUpdateViewSet(viewsets.ViewSet):
 
 
 class AutomationRuleViewSet(viewsets.ModelViewSet):
-    """CRUD for the Product Price Update page's Automated Price Update rules
-    (Sale Price tab only — see apps.trading.services.price_update_automation for
-    the matching/apply logic this configures). Each rule's `sources` list is
+    """CRUD for the Product Price Update page's automated inventory rules.
+    Each rule's `sources` list is
     replaced wholesale on every create/update — simpler and safer than diffing
     individual source rows for what's a small, human-edited list."""
     serializer_class = AutomationRuleSerializer
