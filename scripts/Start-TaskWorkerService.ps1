@@ -8,7 +8,13 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $logRoot = Join-Path $repoRoot 'logs\services'
-if (-not $PythonPath) { $PythonPath = Join-Path $repoRoot 'venv\Scripts\python.exe' }
+if (-not $PythonPath) {
+    $parentRoot = Split-Path -Parent $repoRoot
+    $PythonPath = @(
+        (Join-Path $repoRoot 'venv\Scripts\python.exe'),
+        (Join-Path $parentRoot 'venv\Scripts\python.exe')
+    ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+}
 
 if (-not $NssmPath) {
     $nssmCommand = Get-Command nssm.exe -ErrorAction SilentlyContinue
@@ -24,8 +30,8 @@ if (-not $NssmPath) {
 if (-not (Test-Path -LiteralPath $NssmPath -PathType Leaf)) {
     throw 'NSSM was not found. Install it with "choco install nssm -y", pass -NssmPath, or set NSSM_PATH.'
 }
-if (-not (Test-Path -LiteralPath $PythonPath -PathType Leaf)) {
-    throw "Python was not found at '$PythonPath'. Pass -PythonPath explicitly."
+if ([string]::IsNullOrWhiteSpace($PythonPath) -or -not (Test-Path -LiteralPath $PythonPath -PathType Leaf)) {
+    throw "Python was not found in a repository or sibling venv. Pass -PythonPath explicitly."
 }
 if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'manage.py') -PathType Leaf)) {
     throw "manage.py was not found under '$repoRoot'."
