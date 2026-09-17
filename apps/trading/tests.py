@@ -97,6 +97,8 @@ class AutomatedPriceCapturePersistenceTests(TestCase):
 
     @patch('apps.trading.services.price_update_service.parse_against_inventory')
     def test_no_priced_items_creates_persistent_capture(self, parse_against_inventory):
+        self.rule.regenerate_price_list = True
+        self.rule.save(update_fields=['regenerate_price_list'])
         parse_against_inventory.return_value = [
             {'product_id': None, 'canonical_name': 'Unknown item', 'sale_price': None, 'currency': 'AED'},
         ]
@@ -107,6 +109,7 @@ class AutomatedPriceCapturePersistenceTests(TestCase):
         capture = AutomatedPriceCapture.objects.get(message=message)
         self.rule.refresh_from_db()
         self.assertEqual(capture.status, AutomatedPriceCapture.STATUS_NO_PRICED_ITEMS)
+        self.assertTrue(capture.regenerate_price_list)
         self.assertEqual(capture.items, parse_against_inventory.return_value)
         self.assertEqual(capture.error, '')
         self.assertEqual(self.rule.trigger_count, 1)
@@ -178,6 +181,30 @@ class AutomatedPriceCapturePersistenceTests(TestCase):
             zero_unmatched_qty=True,
             company=self.company,
         )
+
+    @patch('apps.trading.services.price_list_service.generate_price_list')
+    @patch('apps.trading.services.price_update_service.apply_items_to_inventory')
+    def test_sale_price_capture_can_regenerate_formatted_price_list(
+        self, apply_items_to_inventory, generate_price_list,
+    ):
+        message = self._message(provider_message_id='sale-price-regenerate')
+        capture = AutomatedPriceCapture.objects.create(
+            rule=self.rule,
+            message=message,
+            update_type=AutomationRule.UPDATE_SALE_PRICE,
+            regenerate_price_list=True,
+            items=[{'product_id': 1, 'sale_price': 900}],
+        )
+
+        price_update_automation.apply_capture(capture)
+
+        apply_items_to_inventory.assert_called_once_with(
+            capture.items,
+            [('sale_price', 'sale_price')],
+            zero_unmatched_qty=False,
+            company=self.company,
+        )
+        generate_price_list.assert_called_once_with(self.company)
 
     @patch('apps.trading.services.price_update_automation.apply_capture')
     @patch('apps.trading.services.price_update_service.parse_against_inventory')

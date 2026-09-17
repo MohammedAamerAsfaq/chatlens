@@ -39,6 +39,10 @@ class AutomationRule(models.Model):
         default=False,
         help_text='Treat Qty & Cost messages as complete snapshots and zero omitted products.',
     )
+    regenerate_price_list = models.BooleanField(
+        default=False,
+        help_text='Regenerate the formatted WhatsApp price list after applying sale prices.',
+    )
 
     last_triggered_at = models.DateTimeField(null=True, blank=True)
     trigger_count     = models.PositiveIntegerField(default=0)
@@ -133,6 +137,7 @@ class AutomatedPriceCapture(models.Model):
     )
     items  = models.JSONField(default=list)
     zero_unmatched_qty = models.BooleanField(default=False)
+    regenerate_price_list = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_QUEUED)
     error = models.TextField(blank=True)
 

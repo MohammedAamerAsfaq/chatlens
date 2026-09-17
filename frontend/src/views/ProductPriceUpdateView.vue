@@ -246,6 +246,7 @@
                   {{ rule.action_mode === 'auto' ? '⚡ Auto-apply' : rule.action_mode === 'test' ? '🧪 Test rule' : '📥 Send for review' }}
                 </span>
                 <div v-if="rule.update_type === 'qty_cost' && rule.zero_unmatched_qty" class="field-hint">Complete snapshot: omitted product quantities become 0.</div>
+                <div v-if="rule.update_type === 'sale_price' && rule.regenerate_price_list" class="field-hint">Regenerates the WhatsApp price list after apply.</div>
               </div>
             </div>
             <div class="rule-meta">
@@ -289,6 +290,16 @@
                 Complete inventory snapshot
               </label>
               <span class="field-hint">Set quantity to 0 for every active product omitted from the parsed message. Enable this only when the source always sends its complete inventory list.</span>
+            </div>
+          </div>
+
+          <div v-if="ruleForm.update_type === 'sale_price'" class="form-row single">
+            <div class="field">
+              <label class="checkbox-field-real">
+                <input v-model="ruleForm.regenerate_price_list" type="checkbox" />
+                Regenerate WhatsApp price list after applying
+              </label>
+              <span class="field-hint">Run the Price List Formatting AI instruction after sale prices are successfully applied, then replace the saved WhatsApp price list.</span>
             </div>
           </div>
 
@@ -534,7 +545,8 @@ const ruleSaving    = ref(false)
 function emptyRuleForm() {
   return {
     id: null, name: '', trigger_heading: '', trigger_ai_detect: false,
-    update_type: activeTab.value, action_mode: 'review', zero_unmatched_qty: false, sources: [],
+    update_type: activeTab.value, action_mode: 'review', zero_unmatched_qty: false,
+    regenerate_price_list: false, sources: [],
   }
 }
 
@@ -634,6 +646,7 @@ function editRule(rule) {
     update_type: rule.update_type || 'sale_price',
     action_mode: rule.action_mode,
     zero_unmatched_qty: Boolean(rule.zero_unmatched_qty),
+    regenerate_price_list: Boolean(rule.regenerate_price_list),
     sources: rule.sources.map(s => ({
       source_type: s.source_type,
       contact_id: s.contact, contact_name: s.contact_name, contact_account_name: s.contact_account_name,
@@ -674,6 +687,7 @@ async function saveRule() {
       update_type: ruleForm.value.update_type,
       action_mode: ruleForm.value.action_mode,
       zero_unmatched_qty: ruleForm.value.update_type === 'qty_cost' && ruleForm.value.zero_unmatched_qty,
+      regenerate_price_list: ruleForm.value.update_type === 'sale_price' && ruleForm.value.regenerate_price_list,
       sources: ruleForm.value.sources.map(s => ({
         source_type: s.source_type, contact_id: s.contact_id, group_id: s.group_id,
       })),

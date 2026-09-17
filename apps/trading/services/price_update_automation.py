@@ -146,6 +146,10 @@ def _process_match(rule, message) -> None:
         rule.update_type == AutomationRule.UPDATE_QTY_COST
         and rule.zero_unmatched_qty
     )
+    regenerate_price_list = (
+        rule.update_type == AutomationRule.UPDATE_SALE_PRICE
+        and rule.regenerate_price_list
+    )
 
     try:
         if rule.update_type == AutomationRule.UPDATE_QTY_COST:
@@ -168,6 +172,7 @@ def _process_match(rule, message) -> None:
                 'rule': rule,
                 'update_type': rule.update_type,
                 'zero_unmatched_qty': zero_unmatched_qty,
+                'regenerate_price_list': regenerate_price_list,
                 'items': [],
                 'status': AutomatedPriceCapture.STATUS_PARSE_FAILED,
                 'error': str(exc),
@@ -194,6 +199,7 @@ def _process_match(rule, message) -> None:
                 'rule': rule,
                 'update_type': rule.update_type,
                 'zero_unmatched_qty': zero_unmatched_qty,
+                'regenerate_price_list': regenerate_price_list,
                 'items': items,
                 'status': empty_status,
                 'error': '',
@@ -216,6 +222,7 @@ def _process_match(rule, message) -> None:
             'rule': rule,
             'update_type': rule.update_type,
             'zero_unmatched_qty': zero_unmatched_qty,
+            'regenerate_price_list': regenerate_price_list,
             'items': update_items,
             'status': initial_status,
             'error': '',
@@ -254,6 +261,7 @@ def apply_capture(capture) -> None:
         if capture.update_type == AutomationRule.UPDATE_QTY_COST
         else [('sale_price', 'sale_price')]
     )
+    company = _company_for_rule_message(capture.message)
     apply_items_to_inventory(
         capture.items,
         fields,
@@ -261,8 +269,11 @@ def apply_capture(capture) -> None:
             capture.update_type == AutomationRule.UPDATE_QTY_COST
             and capture.zero_unmatched_qty
         ),
-        company=_company_for_rule_message(capture.message),
+        company=company,
     )
+    if capture.update_type == AutomationRule.UPDATE_SALE_PRICE and capture.regenerate_price_list:
+        from apps.trading.services.price_list_service import generate_price_list
+        generate_price_list(company)
     capture.status = AutomatedPriceCapture.STATUS_APPLIED
     capture.error = ''
     capture.applied_at = now()
