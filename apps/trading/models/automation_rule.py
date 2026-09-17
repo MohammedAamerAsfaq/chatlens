@@ -35,6 +35,10 @@ class AutomationRule(models.Model):
     trigger_ai_detect  = models.BooleanField(default=False)
 
     action_mode = models.CharField(max_length=10, choices=ACTION_CHOICES, default=ACTION_REVIEW)
+    zero_unmatched_qty = models.BooleanField(
+        default=False,
+        help_text='Treat Qty & Cost messages as complete snapshots and zero omitted products.',
+    )
 
     last_triggered_at = models.DateTimeField(null=True, blank=True)
     trigger_count     = models.PositiveIntegerField(default=0)
@@ -128,6 +132,7 @@ class AutomatedPriceCapture(models.Model):
         db_index=True,
     )
     items  = models.JSONField(default=list)
+    zero_unmatched_qty = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_QUEUED)
     error = models.TextField(blank=True)
 

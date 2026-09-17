@@ -142,6 +142,10 @@ def _process_match(rule, message) -> None:
     AutomationRule.objects.filter(pk=rule.pk).update(
         last_triggered_at=now(), trigger_count=F('trigger_count') + 1,
     )
+    zero_unmatched_qty = (
+        rule.update_type == AutomationRule.UPDATE_QTY_COST
+        and rule.zero_unmatched_qty
+    )
 
     try:
         if rule.update_type == AutomationRule.UPDATE_QTY_COST:
@@ -163,6 +167,7 @@ def _process_match(rule, message) -> None:
             defaults={
                 'rule': rule,
                 'update_type': rule.update_type,
+                'zero_unmatched_qty': zero_unmatched_qty,
                 'items': [],
                 'status': AutomatedPriceCapture.STATUS_PARSE_FAILED,
                 'error': str(exc),
@@ -188,6 +193,7 @@ def _process_match(rule, message) -> None:
             defaults={
                 'rule': rule,
                 'update_type': rule.update_type,
+                'zero_unmatched_qty': zero_unmatched_qty,
                 'items': items,
                 'status': empty_status,
                 'error': '',
@@ -209,6 +215,7 @@ def _process_match(rule, message) -> None:
         defaults={
             'rule': rule,
             'update_type': rule.update_type,
+            'zero_unmatched_qty': zero_unmatched_qty,
             'items': update_items,
             'status': initial_status,
             'error': '',
@@ -250,7 +257,10 @@ def apply_capture(capture) -> None:
     apply_items_to_inventory(
         capture.items,
         fields,
-        zero_unmatched_qty=False,
+        zero_unmatched_qty=(
+            capture.update_type == AutomationRule.UPDATE_QTY_COST
+            and capture.zero_unmatched_qty
+        ),
         company=_company_for_rule_message(capture.message),
     )
     capture.status = AutomatedPriceCapture.STATUS_APPLIED

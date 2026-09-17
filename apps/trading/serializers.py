@@ -617,7 +617,7 @@ class AutomationRuleSerializer(serializers.ModelSerializer):
         model = AutomationRule
         fields = [
             'id', 'name', 'is_active', 'update_type', 'trigger_heading', 'trigger_ai_detect',
-            'action_mode', 'sources', 'last_triggered_at', 'trigger_count',
+            'action_mode', 'zero_unmatched_qty', 'sources', 'last_triggered_at', 'trigger_count',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'sources', 'last_triggered_at', 'trigger_count', 'created_at', 'updated_at']
@@ -636,7 +636,7 @@ class AutomatedPriceCaptureSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'rule', 'rule_name', 'message', 'source_name', 'source_kind', 'group_name',
             'message_text', 'message_time', 'update_type', 'items', 'status', 'error',
-            'created_at', 'applied_at',
+            'zero_unmatched_qty', 'created_at', 'applied_at',
         ]
         read_only_fields = fields
 

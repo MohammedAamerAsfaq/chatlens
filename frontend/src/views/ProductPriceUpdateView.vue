@@ -245,6 +245,7 @@
                 <span :class="['action-mode', rule.action_mode]">
                   {{ rule.action_mode === 'auto' ? '⚡ Auto-apply' : rule.action_mode === 'test' ? '🧪 Test rule' : '📥 Send for review' }}
                 </span>
+                <div v-if="rule.update_type === 'qty_cost' && rule.zero_unmatched_qty" class="field-hint">Complete snapshot: omitted product quantities become 0.</div>
               </div>
             </div>
             <div class="rule-meta">
@@ -278,6 +279,16 @@
                 <button :class="{ sel: ruleForm.update_type === 'sale_price' }" @click="ruleForm.update_type = 'sale_price'">Sale Price</button>
               </div>
               <span class="field-hint">Determines which AI instruction parses the message and which inventory fields can be updated.</span>
+            </div>
+          </div>
+
+          <div v-if="ruleForm.update_type === 'qty_cost'" class="form-row single">
+            <div class="field">
+              <label class="checkbox-field-real">
+                <input v-model="ruleForm.zero_unmatched_qty" type="checkbox" />
+                Complete inventory snapshot
+              </label>
+              <span class="field-hint">Set quantity to 0 for every active product omitted from the parsed message. Enable this only when the source always sends its complete inventory list.</span>
             </div>
           </div>
 
@@ -523,7 +534,7 @@ const ruleSaving    = ref(false)
 function emptyRuleForm() {
   return {
     id: null, name: '', trigger_heading: '', trigger_ai_detect: false,
-    update_type: activeTab.value, action_mode: 'review', sources: [],
+    update_type: activeTab.value, action_mode: 'review', zero_unmatched_qty: false, sources: [],
   }
 }
 
@@ -622,6 +633,7 @@ function editRule(rule) {
     trigger_ai_detect: rule.trigger_ai_detect,
     update_type: rule.update_type || 'sale_price',
     action_mode: rule.action_mode,
+    zero_unmatched_qty: Boolean(rule.zero_unmatched_qty),
     sources: rule.sources.map(s => ({
       source_type: s.source_type,
       contact_id: s.contact, contact_name: s.contact_name, contact_account_name: s.contact_account_name,
@@ -661,6 +673,7 @@ async function saveRule() {
       trigger_ai_detect: ruleForm.value.trigger_ai_detect,
       update_type: ruleForm.value.update_type,
       action_mode: ruleForm.value.action_mode,
+      zero_unmatched_qty: ruleForm.value.update_type === 'qty_cost' && ruleForm.value.zero_unmatched_qty,
       sources: ruleForm.value.sources.map(s => ({
         source_type: s.source_type, contact_id: s.contact_id, group_id: s.group_id,
       })),

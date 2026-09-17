@@ -116,7 +116,8 @@ class AutomatedPriceCapturePersistenceTests(TestCase):
     def test_qty_cost_rule_uses_qty_cost_parser_and_captures_updates(self, parse_against_inventory):
         self.rule.update_type = AutomationRule.UPDATE_QTY_COST
         self.rule.action_mode = AutomationRule.ACTION_REVIEW
-        self.rule.save(update_fields=['update_type', 'action_mode'])
+        self.rule.zero_unmatched_qty = True
+        self.rule.save(update_fields=['update_type', 'action_mode', 'zero_unmatched_qty'])
         parse_against_inventory.return_value = [
             {'product_id': 1, 'canonical_name': 'Matched item', 'qty': 12, 'cost_price': 825},
         ]
@@ -126,6 +127,7 @@ class AutomatedPriceCapturePersistenceTests(TestCase):
 
         capture = AutomatedPriceCapture.objects.get(message=message)
         self.assertEqual(capture.update_type, AutomationRule.UPDATE_QTY_COST)
+        self.assertTrue(capture.zero_unmatched_qty)
         self.assertEqual(capture.status, AutomatedPriceCapture.STATUS_QUEUED)
         self.assertEqual(capture.items, parse_against_inventory.return_value)
         parse_against_inventory.assert_called_once_with(
@@ -136,7 +138,7 @@ class AutomatedPriceCapturePersistenceTests(TestCase):
         )
 
     @patch('apps.trading.services.price_update_service.apply_items_to_inventory')
-    def test_qty_cost_capture_never_zeros_unlisted_inventory(self, apply_items_to_inventory):
+    def test_qty_cost_capture_preserves_unlisted_inventory_by_default(self, apply_items_to_inventory):
         message = self._message(provider_message_id='qty-cost-apply')
         capture = AutomatedPriceCapture.objects.create(
             rule=self.rule,
@@ -156,6 +158,26 @@ class AutomatedPriceCapturePersistenceTests(TestCase):
         capture.refresh_from_db()
         self.assertEqual(capture.status, AutomatedPriceCapture.STATUS_APPLIED)
         self.assertIsNotNone(capture.applied_at)
+
+    @patch('apps.trading.services.price_update_service.apply_items_to_inventory')
+    def test_qty_cost_snapshot_capture_zeros_unlisted_inventory(self, apply_items_to_inventory):
+        message = self._message(provider_message_id='qty-cost-snapshot-apply')
+        capture = AutomatedPriceCapture.objects.create(
+            rule=self.rule,
+            message=message,
+            update_type=AutomationRule.UPDATE_QTY_COST,
+            zero_unmatched_qty=True,
+            items=[{'product_id': 1, 'qty': 4, 'cost_price': 750}],
+        )
+
+        price_update_automation.apply_capture(capture)
+
+        apply_items_to_inventory.assert_called_once_with(
+            capture.items,
+            [('qty', 'qty'), ('cost_price', 'cost_price')],
+            zero_unmatched_qty=True,
+            company=self.company,
+        )
 
     @patch('apps.trading.services.price_update_automation.apply_capture')
     @patch('apps.trading.services.price_update_service.parse_against_inventory')
