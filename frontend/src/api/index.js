@@ -57,7 +57,7 @@ export const accountsApi = {
   preflightMessage: (id, destinationJid) => http.post(`/accounts/${id}/message-preflight/`, {
     destination_jid: destinationJid,
   }),
-  sendMessage: (id, data) => http.post(`/accounts/${id}/messages/`, data),
+  sendMessage: (id, data) => http.post(`/accounts/${id}/messages/`, data, { timeout: 15000 }),
   getMessageCapacity: (id) => http.get(`/accounts/${id}/message-capacity/`),
   refreshMessageCapacity: (id) => http.post(`/accounts/${id}/message-capacity/refresh/`),
   export: (id) => http.get(`/accounts/${id}/export/`, { responseType: 'blob' }),

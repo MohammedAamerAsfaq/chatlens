@@ -21,6 +21,7 @@ const sendError = ref('')
 const sendFeedback = ref('')
 const preflight = ref(null)
 const preflightLoading = ref(false)
+let pendingSendAttempt = null
 const sendingEnabled = computed(() => {
   const account = store.selectedAccount
   if (!account?.outbound_sending_enabled) return false
@@ -33,6 +34,14 @@ function createIdempotencyKey() {
     return globalThis.crypto.randomUUID()
   }
   return `web-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
+}
+
+function getSendAttempt(accountId, destinationJid, text) {
+  const identity = `${accountId}\n${destinationJid}\n${text}`
+  if (pendingSendAttempt?.identity !== identity) {
+    pendingSendAttempt = { identity, idempotencyKey: createIdempotencyKey() }
+  }
+  return pendingSendAttempt
 }
 
 async function loadPreflight() {
@@ -56,13 +65,18 @@ async function sendMessage(confirmNewChat = false) {
   sendError.value = ''
   sendFeedback.value = ''
   try {
+    const accountId = store.selectedAccountId
+    const destinationJid = store.selectedChat.wa_chat_id
+    const text = draft.value.trim()
+    const attempt = getSendAttempt(accountId, destinationJid, text)
     const payload = {
-      destination_jid: store.selectedChat.wa_chat_id,
-      text: draft.value.trim(),
-      idempotency_key: createIdempotencyKey(),
+      destination_jid: destinationJid,
+      text,
+      idempotency_key: attempt.idempotencyKey,
       confirm_new_chat: confirmNewChat,
     }
-    const { data } = await accountsApi.sendMessage(store.selectedAccountId, payload)
+    const { data } = await accountsApi.sendMessage(accountId, payload)
+    pendingSendAttempt = null
     if (data.status === 'preflight_blocked') {
       sendError.value = `Sending blocked: ${data.status_reason}`
     } else {
@@ -76,8 +90,12 @@ async function sendMessage(confirmNewChat = false) {
         await sendMessage(true)
         return
       }
+      pendingSendAttempt = null
     } else {
-      sendError.value = error.response?.data?.detail || error.message || 'Unable to queue message.'
+      if (error.response) pendingSendAttempt = null
+      sendError.value = error.code === 'ECONNABORTED'
+        ? 'The queue request timed out. Press Send again to retry safely.'
+        : error.response?.data?.detail || error.message || 'Unable to queue message.'
     }
   } finally {
     sending.value = false
