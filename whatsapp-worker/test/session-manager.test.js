@@ -318,3 +318,24 @@ test('O. a history chunk emits summaries instead of one event per message', asyn
   assert.equal(djangoClient.sendBaileysEvent.mock.calls[1].arguments[1].metadata.chunk_size, 3);
   assert.equal(messageLogger.write.mock.callCount(), 3);
 });
+
+test('P. worker shutdown closes sockets without logging linked devices out', async () => {
+  const { sm, session } = makeSessionManager();
+  const end = test.mock.fn();
+  const logout = test.mock.fn();
+  session.sock = { end, logout };
+  session.idleTimer = setInterval(() => {}, 10000);
+  session.reconnectTimer = setTimeout(() => {}, 10000);
+  session.watchdogTimer = setTimeout(() => {}, 10000);
+  session.historyIngestChain = Promise.resolve();
+
+  await sm.shutdown();
+
+  assert.equal(sm.shuttingDown, true);
+  assert.equal(end.mock.callCount(), 1);
+  assert.equal(logout.mock.callCount(), 0);
+  assert.equal(session.sock, null);
+  assert.equal(session.idleTimer, null);
+  assert.equal(session.reconnectTimer, null);
+  assert.equal(session.watchdogTimer, null);
+});

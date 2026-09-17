@@ -10,6 +10,7 @@ const { SessionManager } = require('./src/session-manager');
 const { DjangoClient } = require('./src/django-client');
 const { MessageLogger } = require('./src/message-logger');
 const { IngestionBuffer, IngestionDispatcher } = require('./src/ingestion-buffer');
+const { createGracefulShutdown } = require('./src/graceful-shutdown');
 const sessionsRouter = require('./src/routes/sessions');
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -149,12 +150,29 @@ app.use((err, req, res, _next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-app.listen(PORT, async () => {
+let heartbeatTimer = null;
+const server = app.listen(PORT, async () => {
   logger.info(`ChatLens WhatsApp Worker running on port ${PORT}`);
   logger.info(`Django base URL: ${DJANGO_BASE_URL}`);
   await sessionManager.initialize();
+  if (sessionManager.shuttingDown) return;
   if ((process.env.INGESTION_DISPATCHER_ENABLED || 'true').toLowerCase() === 'true') {
     ingestionDispatcher.start();
   }
-  startHeartbeatLoop();
+  heartbeatTimer = startHeartbeatLoop();
 });
+
+const shutdown = createGracefulShutdown({
+  server,
+  stopHeartbeat: () => {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  },
+  dispatcher: ingestionDispatcher,
+  sessionManager,
+  ingestionBuffer,
+  logger,
+});
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

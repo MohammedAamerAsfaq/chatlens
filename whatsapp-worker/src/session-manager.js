@@ -104,6 +104,7 @@ class SessionManager {
     this.logger = logger;
     // Map<sessionId, { sock, status, qrDataUrl, phoneNumber, displayName }>
     this.sessions = new Map();
+    this.shuttingDown = false;
     // Cache group names to avoid repeated API calls
     this.groupNameCache = new Map();
 
@@ -318,6 +319,7 @@ class SessionManager {
     const sessionIds = entries.filter(e => e.isDirectory()).map(e => e.name);
     this.logger.info({ count: sessionIds.length }, 'Auto-restoring sessions from disk');
     for (const sessionId of sessionIds) {
+      if (this.shuttingDown) break;
       const credsFile = path.join(this.sessionStorePath, sessionId, 'creds.json');
       if (!fs.existsSync(credsFile)) {
         this.logger.info({ sessionId }, 'Skipping session — no credentials on disk (was logged out)');
@@ -334,6 +336,9 @@ class SessionManager {
   }
 
   async createSession(sessionId, options = {}) {
+    if (this.shuttingDown) {
+      throw new Error('WhatsApp worker is shutting down.');
+    }
     const existing = this.sessions.get(sessionId);
     if (existing?.sock) {
       return this._snapshot(sessionId);
@@ -382,6 +387,7 @@ class SessionManager {
       // retry interval during an outage is exactly the kind of behavior that gets a
       // linked device flagged/rate-limited, forcing an unwanted fresh QR re-link.
       reconnectAttempts: 0,
+      reconnectTimer: null,
       // LID → phone JID mapping built from contacts.set/upsert, seeded from
       // already-known contacts on restore (see initialize()) so the cache
       // isn't cold immediately after a worker restart.
@@ -541,6 +547,33 @@ class SessionManager {
     return true;
   }
 
+  async shutdown() {
+    this.shuttingDown = true;
+    const pendingHistory = [];
+
+    for (const [sessionId, session] of this.sessions.entries()) {
+      session.preventReconnect = true;
+      if (session.idleTimer) clearInterval(session.idleTimer);
+      if (session.reconnectTimer) clearTimeout(session.reconnectTimer);
+      session.idleTimer = null;
+      session.reconnectTimer = null;
+      this._clearWatchdog(session);
+      if (session.historyIngestChain) pendingHistory.push(session.historyIngestChain);
+
+      const socket = session.sock;
+      session.sock = null;
+      session.connecting = false;
+      session.status = SESSION_STATUS.DISCONNECTED;
+      try {
+        socket?.end(new Error('WhatsApp worker shutting down'));
+      } catch (error) {
+        this.logger.warn({ sessionId, error: error.message }, 'Session socket shutdown failed');
+      }
+    }
+
+    await Promise.allSettled(pendingHistory);
+  }
+
   listSessions() {
     return [...this.sessions.entries()].map(([id, s]) => ({
       sessionId: id,
@@ -599,6 +632,7 @@ class SessionManager {
   }
 
   async _connect(sessionId) {
+    if (this.shuttingDown) return;
     const {
       default: makeWASocket,
       useMultiFileAuthState,
@@ -635,6 +669,10 @@ class SessionManager {
       const versionInfo = configuredVersion
         ? { version: configuredVersion, isLatest: null, source: 'env' }
         : { ...(await fetchLatestBaileysVersion()), source: 'fetchLatestBaileysVersion' };
+      if (this.shuttingDown) {
+        session.connecting = false;
+        return;
+      }
       this.logger.info(
         {
           sessionId,
@@ -874,7 +912,10 @@ class SessionManager {
               RECONNECT_MAX_DELAY_MS,
             );
             this.logger.info({ sessionId, attempt, delayMs }, `Reconnecting in ${Math.round(delayMs / 1000)}s`);
-            setTimeout(() => this._connect(sessionId), delayMs);
+            session.reconnectTimer = setTimeout(() => {
+              session.reconnectTimer = null;
+              if (!this.shuttingDown) this._connect(sessionId);
+            }, delayMs);
           }
         }
       }

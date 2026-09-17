@@ -176,14 +176,14 @@ class IngestionDispatcher {
   start() {
     if (this.timer) return;
     const tick = async () => {
-      if (this.running) return;
+      if (!this.timer || this.running) return;
       this.running = true;
       try { await this.dispatchOnce(); }
       catch (error) { this.logger.error({ error: error.message }, 'Ingestion Dispatcher poll failed'); }
       finally { this.running = false; }
     };
-    tick();
     this.timer = setInterval(tick, this.intervalMs);
+    tick();
   }
 
   stop() {
