@@ -28,6 +28,13 @@ const sendingEnabled = computed(() => {
 })
 const canSend = computed(() => sendingEnabled.value && preflight.value?.allowed && draft.value.trim() && !sending.value)
 
+function createIdempotencyKey() {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID()
+  }
+  return `web-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
+}
+
 async function loadPreflight() {
   preflight.value = null
   sendError.value = ''
@@ -48,13 +55,13 @@ async function sendMessage(confirmNewChat = false) {
   sending.value = true
   sendError.value = ''
   sendFeedback.value = ''
-  const payload = {
-    destination_jid: store.selectedChat.wa_chat_id,
-    text: draft.value.trim(),
-    idempotency_key: crypto.randomUUID(),
-    confirm_new_chat: confirmNewChat,
-  }
   try {
+    const payload = {
+      destination_jid: store.selectedChat.wa_chat_id,
+      text: draft.value.trim(),
+      idempotency_key: createIdempotencyKey(),
+      confirm_new_chat: confirmNewChat,
+    }
     const { data } = await accountsApi.sendMessage(store.selectedAccountId, payload)
     if (data.status === 'preflight_blocked') {
       sendError.value = `Sending blocked: ${data.status_reason}`
