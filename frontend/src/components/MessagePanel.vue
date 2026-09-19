@@ -7,6 +7,7 @@ defineOptions({ inheritAttrs: false })
 
 const props = defineProps({
   initialDraft: { type: String, default: '' },
+  composerRows: { type: Number, default: 1 },
 })
 
 const store = useConversationsStore()
@@ -557,7 +558,7 @@ watch(lightbox, (val) => {
         <div v-else class="flex items-end gap-2">
           <textarea
             v-model="draft"
-            rows="1"
+            :rows="composerRows"
             maxlength="10000"
             :disabled="preflightLoading || !preflight?.allowed"
             class="flex-1 resize-none rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500 disabled:bg-gray-100"

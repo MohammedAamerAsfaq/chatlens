@@ -781,7 +781,12 @@
         </header>
         <div v-if="chatLensWaLoading" class="chatlens-wa-state">Loading conversation...</div>
         <div v-else-if="chatLensWaError" class="chatlens-wa-state error">{{ chatLensWaError }}</div>
-        <MessagePanel v-else class="chatlens-wa-panel" :initial-draft="chatLensWaDraft" />
+        <MessagePanel
+          v-else
+          class="chatlens-wa-panel"
+          :initial-draft="chatLensWaDraft"
+          :composer-rows="5"
+        />
       </section>
     </div>
   </Teleport>
