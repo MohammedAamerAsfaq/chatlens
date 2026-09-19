@@ -53,6 +53,53 @@ test('normalizes account role and permits an admin in an announcement group', ()
   assert.equal(result.metadata_complete, true);
 });
 
+test('matches an account by LID when group metadata contains no phone JIDs', () => {
+  const result = normalizeGroupMetadata({
+    id: '120007@g.us',
+    participants: [
+      { id: '45617082548317@lid', admin: 'admin' },
+      { id: '10020192288980@lid' },
+    ],
+  }, {
+    id: '971500000001:14@s.whatsapp.net',
+    lid: '45617082548317:14@lid',
+  });
+
+  assert.equal(result.account_is_participant, true);
+  assert.equal(result.account_participant_role, 'admin');
+  assert.equal(result.can_send, true);
+  assert.equal(result.send_block_reason, '');
+});
+
+test('fails closed when neither account JID nor LID is a group participant', () => {
+  const result = normalizeGroupMetadata({
+    id: '120008@g.us',
+    participants: [{ id: '10020192288980@lid' }],
+  }, {
+    id: '971500000001@s.whatsapp.net',
+    lid: '45617082548317@lid',
+  });
+
+  assert.equal(result.account_is_participant, false);
+  assert.equal(result.can_send, false);
+  assert.equal(result.send_block_reason, 'not_a_group_participant');
+});
+
+test('allows a linked community group when the account is a participant', () => {
+  const result = normalizeGroupMetadata({
+    id: '120009@g.us',
+    linkedParent: '120006@g.us',
+    participants: [{ id: '45617082548317@lid' }],
+  }, {
+    id: '971500000001@s.whatsapp.net',
+    lid: '45617082548317@lid',
+  });
+
+  assert.equal(result.account_is_participant, true);
+  assert.equal(result.can_send, true);
+  assert.equal(result.send_block_reason, '');
+});
+
 test('blocks member-only access to announcement group and community umbrella', () => {
   const member = normalizeGroupMetadata({
     id: '120005@g.us',

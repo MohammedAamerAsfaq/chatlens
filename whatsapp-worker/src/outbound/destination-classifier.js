@@ -27,17 +27,29 @@ function classifyDestination(jid, metadata = null) {
   return DESTINATION.UNKNOWN;
 }
 
-function phoneUser(jid) {
-  const value = String(jid || '');
-  if (!value.endsWith('@s.whatsapp.net')) return '';
-  return value.slice(0, value.indexOf('@')).split(':')[0];
+function normalizedUserJid(jid) {
+  const value = String(jid || '').trim().toLowerCase();
+  const separator = value.indexOf('@');
+  if (separator < 1) return '';
+  const user = value.slice(0, separator).split(':')[0];
+  const server = value.slice(separator + 1);
+  if (!user || !['s.whatsapp.net', 'lid', 'hosted.lid'].includes(server)) return '';
+  return `${user}@${server}`;
 }
 
-function accountParticipant(metadata, ownJid) {
-  const ownUser = phoneUser(ownJid);
-  if (!ownUser) return null;
+function identityJids(identity) {
+  const values = typeof identity === 'string'
+    ? [identity]
+    : [identity?.id, identity?.jid, identity?.lid, identity?.phoneNumber];
+  return new Set(values.map(normalizedUserJid).filter(Boolean));
+}
+
+function accountParticipant(metadata, ownIdentity) {
+  const ownJids = identityJids(ownIdentity);
+  if (!ownJids.size) return null;
   return (metadata?.participants || []).find((participant) => {
-    return [participant.id, participant.jid].some(candidate => phoneUser(candidate) === ownUser);
+    const participantJids = identityJids(participant);
+    return [...participantJids].some(candidate => ownJids.has(candidate));
   }) || null;
 }
 
@@ -49,8 +61,8 @@ function participantRole(participant) {
   return participant ? 'member' : '';
 }
 
-function normalizeGroupMetadata(metadata, ownJid) {
-  const participant = accountParticipant(metadata, ownJid);
+function normalizeGroupMetadata(metadata, ownIdentity) {
+  const participant = accountParticipant(metadata, ownIdentity);
   const role = participantRole(participant);
   const type = classifyDestination(metadata?.id, metadata);
   let canSend = false;

@@ -502,7 +502,7 @@ class SessionManager {
     const initialType = classifyDestination(normalizedJid);
     if ([DESTINATION.GROUP].includes(initialType)) {
       const metadata = await session.sock.groupMetadata(normalizedJid);
-      const normalized = normalizeGroupMetadata(metadata, session.sock.user?.id);
+      const normalized = normalizeGroupMetadata(metadata, session.sock.user);
       return {
         destination_type: classifyDestination(normalizedJid, metadata),
         group_metadata: normalized,
@@ -540,7 +540,7 @@ class SessionManager {
       if (!meta?.id) continue;
       await this.djangoClient.sendGroupUpdate(
         sessionId,
-        normalizeGroupMetadata(meta, s.sock.user?.id),
+        normalizeGroupMetadata(meta, s.sock.user),
       );
       if (meta.id && meta.subject) this.groupNameCache.set(meta.id, meta.subject);
     }
@@ -1118,7 +1118,7 @@ class SessionManager {
       if (!meta?.id) return;
       await this.djangoClient.sendGroupUpdate(
         sessionId,
-        normalizeGroupMetadata(meta, sock.user?.id),
+        normalizeGroupMetadata(meta, sock.user),
       );
     };
 
