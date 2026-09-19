@@ -11,6 +11,7 @@ const accounts = ref([])
 const loading = ref(false)
 const error = ref('')
 const total = ref(0)
+const summary = ref({ mapped: 0, pending: 0, unmatched: 0 })
 const page = ref(1)
 const pageSize = ref(25)
 const pageSizeOptions = [25, 50, 100]
@@ -37,9 +38,9 @@ const filters = ref({
   date: '',
 })
 
-const mappedCount = computed(() => rows.value.filter(r => r.product).length)
-const pendingCount = computed(() => rows.value.filter(r => r.decision_status === 'pending').length)
-const unmatchedCount = computed(() => rows.value.filter(r => r.match_status === 'unmatched').length)
+const mappedCount = computed(() => summary.value.mapped)
+const pendingCount = computed(() => summary.value.pending)
+const unmatchedCount = computed(() => summary.value.unmatched)
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 const pageStart = computed(() => total.value === 0 ? 0 : (page.value - 1) * pageSize.value + 1)
 const pageEnd = computed(() => Math.min(page.value * pageSize.value, total.value))
@@ -61,6 +62,11 @@ async function load() {
     if (seq !== requestSeq) return
     rows.value = data.results ?? data
     total.value = data.count ?? rows.value.length
+    summary.value = data.summary ?? {
+      mapped: rows.value.filter(row => row.product).length,
+      pending: rows.value.filter(row => row.decision_status === 'pending').length,
+      unmatched: rows.value.filter(row => row.match_status === 'unmatched').length,
+    }
   } catch (err) {
     if (seq !== requestSeq) return
     error.value = err.response?.data?.detail || err.message || 'Failed to load inquiry products'

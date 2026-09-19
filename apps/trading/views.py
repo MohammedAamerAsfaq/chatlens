@@ -1913,9 +1913,33 @@ class InquiryViewSet(viewsets.GenericViewSet,
         return Response({'queued': queued})
 
 
+class InquiryProductPagination(PageNumberPagination):
+    page_size = 25
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+    def paginate_queryset(self, queryset, request, view=None):
+        self.summary = queryset.aggregate(
+            mapped=Count('id', filter=Q(product__isnull=False)),
+            pending=Count('id', filter=Q(decision_status='pending')),
+            unmatched=Count('id', filter=Q(match_status='unmatched')),
+        )
+        return super().paginate_queryset(queryset, request, view)
+
+    def get_paginated_response(self, data):
+        return Response({
+            'count': self.page.paginator.count,
+            'next': self.get_next_link(),
+            'previous': self.get_previous_link(),
+            'summary': self.summary,
+            'results': data,
+        })
+
+
 class InquiryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin):
     serializer_class = InquiryProductSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = InquiryProductPagination
     ordering_map = {
         'created_newest': ('-created_at', '-id'),
         'created_oldest': ('created_at', 'id'),
