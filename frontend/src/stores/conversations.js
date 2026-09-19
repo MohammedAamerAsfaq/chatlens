@@ -136,6 +136,18 @@ export const useConversationsStore = defineStore('conversations', () => {
     messagePollTimer = setInterval(() => refreshMessages(id), 5000)
   }
 
+  async function selectDirectChat(accountId, contactId) {
+    if (String(selectedAccountId.value) !== String(accountId)) {
+      await switchAccount(accountId)
+    }
+    const { data } = await chatsApi.resolveDirect(accountId, contactId)
+    const index = chats.value.findIndex(chat => chat.id === data.id)
+    if (index === -1) chats.value.unshift(data)
+    else chats.value[index] = data
+    await selectChat(data.id)
+    return data
+  }
+
   async function markAllRead() {
     await chatsApi.markAllRead(selectedAccountId.value).catch(() => {})
     // Zero all badge counts locally so the UI updates instantly
@@ -168,7 +180,7 @@ export const useConversationsStore = defineStore('conversations', () => {
     selectedChatId, messages, loadingChats, loadingMessages,
     loadingOlderMessages, hasMoreMessages, highlightMessageId, highlightChatId,
     searchQuery, selectedChat, filteredChats,
-    fetchChats, fetchChatsInitial, selectChat, switchAccount,
+    fetchChats, fetchChatsInitial, selectChat, selectDirectChat, switchAccount,
     loadOlderMessages, markAllRead, startPolling, stopPolling,
     setChatAiParsing,
   }

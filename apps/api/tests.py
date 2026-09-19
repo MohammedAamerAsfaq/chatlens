@@ -121,6 +121,51 @@ class TenantScopedApiTests(TestCase):
         ids = {row['id'] for row in resp.json()}
         self.assertEqual(ids, {self.account_a.id})
 
+    def test_resolve_direct_chat_creates_and_reuses_contact_chat(self):
+        contact = WhatsAppContact.objects.create(
+            account=self.account_a,
+            wa_contact_id='971500000099@s.whatsapp.net',
+            phone_number='971500000099',
+            display_name='Direct Contact',
+        )
+        self.client.force_authenticate(self.user_a)
+
+        first = self.client.post(
+            '/api/chats/resolve-direct/',
+            {'account': self.account_a.id, 'contact': contact.id},
+            format='json',
+        )
+        second = self.client.post(
+            '/api/chats/resolve-direct/',
+            {'account': self.account_a.id, 'contact': contact.id},
+            format='json',
+        )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.json()['id'], second.json()['id'])
+        chat = WhatsAppChat.objects.get(pk=first.json()['id'])
+        self.assertEqual(chat.wa_chat_id, contact.wa_contact_id)
+        self.assertEqual(chat.contact, contact)
+        self.assertEqual(chat.chat_type, 'individual')
+
+    def test_resolve_direct_chat_rejects_hidden_account(self):
+        contact = WhatsAppContact.objects.create(
+            account=self.account_b,
+            wa_contact_id='971500000088@s.whatsapp.net',
+            phone_number='971500000088',
+        )
+        self.client.force_authenticate(self.user_a)
+
+        response = self.client.post(
+            '/api/chats/resolve-direct/',
+            {'account': self.account_b.id, 'contact': contact.id},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(WhatsAppChat.objects.filter(account=self.account_b).exists())
+
     def test_auth_me_exposes_current_company_context(self):
         self.client.force_authenticate(self.user_a)
         resp = self.client.get('/api/auth/me/')

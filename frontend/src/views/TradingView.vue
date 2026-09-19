@@ -285,22 +285,45 @@
             </div>
             <div class="card-footer">
               <div class="card-actions">
-                <button v-if="inq.products?.length" class="act-btn products" @click="openInquiryProducts(inq)">Inquiry Products</button>
-                <button v-if="hasManualMatchTargets(inq)" class="act-btn products" @click="openManualMatch(inq)">Manual Match</button>
+                <details v-if="inq.products?.length || hasManualMatchTargets(inq)" class="inquiry-products-menu">
+                  <summary class="act-btn products">Inquiry Products <span aria-hidden="true">▾</span></summary>
+                  <div class="inquiry-products-menu-items">
+                    <button v-if="inq.products?.length" @click="runCardMenuAction($event, () => openInquiryProducts(inq))">Inquiry Product List</button>
+                    <button v-if="hasManualMatchTargets(inq)" @click="runCardMenuAction($event, () => openManualMatch(inq))">Manual Match</button>
+                  </div>
+                </details>
                 <button v-if="inq.products?.length" class="act-btn market" @click="openMarketParties(inq)">
                   {{ inq.inquiry_type === 'sell' ? 'Potential Buyers' : 'Available Sellers' }}
                 </button>
-                <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id, inq.account, inq.source_message_id, inq.source_message_time)" title="Open conversation">Chat →</button>
-                <a v-if="waLink(inq)" :href="waLink(inq)" class="act-btn wa" title="Open in WhatsApp">
-                  <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2zm4.82 13.68c-.2.56-1.18 1.07-1.62 1.14-.44.07-.98.1-1.58-.1-.36-.12-.83-.28-1.42-.55-2.5-1.08-4.13-3.6-4.26-3.77-.13-.17-1.05-1.4-1.05-2.67 0-1.27.66-1.9.9-2.16.23-.26.5-.32.67-.32.17 0 .33 0 .48.01.15.01.36-.06.56.43.2.49.7 1.7.76 1.82.06.13.1.27.02.43-.08.17-.12.27-.23.41-.11.14-.24.31-.33.42-.11.13-.23.27-.1.53.13.26.59 1 1.27 1.63.87.8 1.61 1.04 1.87 1.16.26.12.41.1.57-.06.16-.16.66-.77.83-1.04.17-.26.34-.22.57-.13.23.09 1.44.68 1.69.8.25.12.41.18.47.28.07.1.07.56-.13 1.12z"/></svg>
-                  WA
-                </a>
-                <a v-if="waAskPriceLink(inq)" :href="waAskPriceLink(inq)" class="act-btn wa-ask" title="Ask price on WhatsApp">
-                  Ask Price
-                </a>
-                <a v-if="waPriceListLink(inq)" :href="waPriceListLink(inq)" class="act-btn wa-list" title="Send full price list on WhatsApp">
-                  Price List
-                </a>
+                <details v-if="inq.source_chat_id || waLink(inq)" class="wa-actions-menu">
+                  <summary class="act-btn wa" title="WhatsApp actions">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2zm4.82 13.68c-.2.56-1.18 1.07-1.62 1.14-.44.07-.98.1-1.58-.1-.36-.12-.83-.28-1.42-.55-2.5-1.08-4.13-3.6-4.26-3.77-.13-.17-1.05-1.4-1.05-2.67 0-1.27.66-1.9.9-2.16.23-.26.5-.32.67-.32.17 0 .33 0 .48.01.15.01.36-.06.56.43.2.49.7 1.7.76 1.82.06.13.1.27.02.43-.08.17-.12.27-.23.41-.11.14-.24.31-.33.42-.11.13-.23.27-.1.53.13.26.59 1 1.27 1.63.87.8 1.61 1.04 1.87 1.16.26.12.41.1.57-.06.16-.16.66-.77.83-1.04.17-.26.34-.22.57-.13.23.09 1.44.68 1.69.8.25.12.41.18.47.28.07.1.07.56-.13 1.12z"/></svg>
+                    WA <span aria-hidden="true">▾</span>
+                  </summary>
+                  <div class="wa-actions-menu-items">
+                    <a v-if="waLink(inq)" :href="waLink(inq)" @click="closeCardMenu">WA Client</a>
+                    <button v-if="inq.source_chat_id" @click="runCardMenuAction($event, () => openChatLensWa(inq))">WA ChatLens</button>
+                    <button v-if="inq.contact" @click="runCardMenuAction($event, () => openDirectChatLensWa(inq))">
+                      ChatLens <FontAwesomeIcon :icon="faMessage" />
+                    </button>
+                    <button v-if="inq.source_chat_id" @click="runCardMenuAction($event, () => openChatReference(inq))">Chat Ref</button>
+                  </div>
+                </details>
+                <details v-if="waAskPriceLink(inq) || waPriceListLink(inq) || inq.source_chat_id" class="prices-actions-menu">
+                  <summary class="act-btn prices">Prices <span aria-hidden="true">▾</span></summary>
+                  <div class="prices-actions-menu-items">
+                    <a v-if="waAskPriceLink(inq)" :href="waAskPriceLink(inq)" @click="closeCardMenu">Ask Price - WA Client</a>
+                    <button v-if="inq.source_chat_id" @click="runCardMenuAction($event, () => openAskPriceChatLens(inq))">Ask Price - ChatLens</button>
+                    <button v-if="inq.contact" @click="runCardMenuAction($event, () => openDirectAskPriceChatLens(inq))">
+                      Ask Price - ChatLens <FontAwesomeIcon :icon="faMessage" />
+                    </button>
+                    <a v-if="waPriceListLink(inq)" :href="waPriceListLink(inq)" @click="closeCardMenu">Price List - WA Client</a>
+                    <button v-if="inq.source_chat_id && formattedPriceList" @click="runCardMenuAction($event, () => openPriceListChatLens(inq))">Price List - ChatLens</button>
+                    <button v-if="inq.contact && formattedPriceList" @click="runCardMenuAction($event, () => openDirectPriceListChatLens(inq))">
+                      Price List - ChatLens <FontAwesomeIcon :icon="faMessage" />
+                    </button>
+                  </div>
+                </details>
               </div>
               <div class="rating-row">
                 <span class="rating-label">Match quality:</span>
@@ -524,19 +547,40 @@
             </div>
             <div class="card-footer">
               <div class="card-actions">
-                <button v-if="inq.products?.length" class="act-btn products" @click="openInquiryProducts(inq)">Inquiry Products</button>
-                <button v-if="hasManualMatchTargets(inq)" class="act-btn products" @click="openManualMatch(inq)">Manual Match</button>
+                <details v-if="inq.products?.length || hasManualMatchTargets(inq)" class="inquiry-products-menu">
+                  <summary class="act-btn products">Inquiry Products <span aria-hidden="true">▾</span></summary>
+                  <div class="inquiry-products-menu-items">
+                    <button v-if="inq.products?.length" @click="runCardMenuAction($event, () => openInquiryProducts(inq))">Inquiry Product List</button>
+                    <button v-if="hasManualMatchTargets(inq)" @click="runCardMenuAction($event, () => openManualMatch(inq))">Manual Match</button>
+                  </div>
+                </details>
                 <button v-if="inq.products?.length" class="act-btn market" @click="openMarketParties(inq)">
                   {{ inq.inquiry_type === 'sell' ? 'Potential Buyers' : 'Available Sellers' }}
                 </button>
-                <button v-if="inq.source_chat_id" class="act-btn chat" @click="viewChat(inq.source_chat_id, inq.account, inq.source_message_id, inq.source_message_time)" title="Open conversation">Chat →</button>
-                <a v-if="waLink(inq)" :href="waLink(inq)" class="act-btn wa" title="Open in WhatsApp">
-                  <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2zm4.82 13.68c-.2.56-1.18 1.07-1.62 1.14-.44.07-.98.1-1.58-.1-.36-.12-.83-.28-1.42-.55-2.5-1.08-4.13-3.6-4.26-3.77-.13-.17-1.05-1.4-1.05-2.67 0-1.27.66-1.9.9-2.16.23-.26.5-.32.67-.32.17 0 .33 0 .48.01.15.01.36-.06.56.43.2.49.7 1.7.76 1.82.06.13.1.27.02.43-.08.17-.12.27-.23.41-.11.14-.24.31-.33.42-.11.13-.23.27-.1.53.13.26.59 1 1.27 1.63.87.8 1.61 1.04 1.87 1.16.26.12.41.1.57-.06.16-.16.66-.77.83-1.04.17-.26.34-.22.57-.13.23.09 1.44.68 1.69.8.25.12.41.18.47.28.07.1.07.56-.13 1.12z"/></svg>
-                  WA
-                </a>
-                <a v-if="waAskPriceLink(inq)" :href="waAskPriceLink(inq)" class="act-btn wa-ask" title="Ask price on WhatsApp">
-                  Ask Price
-                </a>
+                <details v-if="inq.source_chat_id || waLink(inq)" class="wa-actions-menu">
+                  <summary class="act-btn wa" title="WhatsApp actions">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2zm4.82 13.68c-.2.56-1.18 1.07-1.62 1.14-.44.07-.98.1-1.58-.1-.36-.12-.83-.28-1.42-.55-2.5-1.08-4.13-3.6-4.26-3.77-.13-.17-1.05-1.4-1.05-2.67 0-1.27.66-1.9.9-2.16.23-.26.5-.32.67-.32.17 0 .33 0 .48.01.15.01.36-.06.56.43.2.49.7 1.7.76 1.82.06.13.1.27.02.43-.08.17-.12.27-.23.41-.11.14-.24.31-.33.42-.11.13-.23.27-.1.53.13.26.59 1 1.27 1.63.87.8 1.61 1.04 1.87 1.16.26.12.41.1.57-.06.16-.16.66-.77.83-1.04.17-.26.34-.22.57-.13.23.09 1.44.68 1.69.8.25.12.41.18.47.28.07.1.07.56-.13 1.12z"/></svg>
+                    WA <span aria-hidden="true">▾</span>
+                  </summary>
+                  <div class="wa-actions-menu-items">
+                    <a v-if="waLink(inq)" :href="waLink(inq)" @click="closeCardMenu">WA Client</a>
+                    <button v-if="inq.source_chat_id" @click="runCardMenuAction($event, () => openChatLensWa(inq))">WA ChatLens</button>
+                    <button v-if="inq.contact" @click="runCardMenuAction($event, () => openDirectChatLensWa(inq))">
+                      ChatLens <FontAwesomeIcon :icon="faMessage" />
+                    </button>
+                    <button v-if="inq.source_chat_id" @click="runCardMenuAction($event, () => openChatReference(inq))">Chat Ref</button>
+                  </div>
+                </details>
+                <details v-if="waAskPriceLink(inq) || inq.source_chat_id" class="prices-actions-menu">
+                  <summary class="act-btn prices">Prices <span aria-hidden="true">▾</span></summary>
+                  <div class="prices-actions-menu-items">
+                    <a v-if="waAskPriceLink(inq)" :href="waAskPriceLink(inq)" @click="closeCardMenu">Ask Price - WA Client</a>
+                    <button v-if="inq.source_chat_id" @click="runCardMenuAction($event, () => openAskPriceChatLens(inq))">Ask Price - ChatLens</button>
+                    <button v-if="inq.contact" @click="runCardMenuAction($event, () => openDirectAskPriceChatLens(inq))">
+                      Ask Price - ChatLens <FontAwesomeIcon :icon="faMessage" />
+                    </button>
+                  </div>
+                </details>
               </div>
               <div class="rating-row">
                 <span class="rating-label">Match quality:</span>
@@ -726,11 +770,28 @@
   </Teleport>
 
   <Teleport to="body">
+    <div v-if="chatLensWaOpen" class="chatlens-wa-backdrop" @click.self="closeChatLensWa">
+      <section class="chatlens-wa-dialog" role="dialog" aria-modal="true" :aria-label="`${chatLensWaTitle} conversation`">
+        <header class="chatlens-wa-header">
+          <div>
+            <strong>{{ chatLensWaTitle }}</strong>
+            <span>{{ chatLensWaInquiry?.contact_name || chatLensWaInquiry?.contact_phone || 'Conversation' }}</span>
+          </div>
+          <button type="button" title="Close" @click="closeChatLensWa">×</button>
+        </header>
+        <div v-if="chatLensWaLoading" class="chatlens-wa-state">Loading conversation...</div>
+        <div v-else-if="chatLensWaError" class="chatlens-wa-state error">{{ chatLensWaError }}</div>
+        <MessagePanel v-else class="chatlens-wa-panel" :initial-draft="chatLensWaDraft" />
+      </section>
+    </div>
+  </Teleport>
+
+  <Teleport to="body">
     <div v-if="productModalOpen" class="inquiry-product-backdrop" @click.self="closeInquiryProducts">
       <div class="inquiry-product-dialog">
         <div class="inquiry-product-header">
           <div>
-            <div class="inquiry-product-title">Inquiry Products</div>
+            <div class="inquiry-product-title">Inquiry Product List</div>
             <div class="inquiry-product-subtitle">{{ productModalInquiry?.summary || 'Parsed products from selected inquiry' }}</div>
           </div>
           <button class="match-fix-close" @click="closeInquiryProducts" title="Close">×</button>
@@ -900,8 +961,9 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { faXmark } from '@fortawesome/free-solid-svg-icons'
+import { faMessage, faXmark } from '@fortawesome/free-solid-svg-icons'
 import { useConversationsStore } from '@/stores/conversations'
+import MessagePanel from '@/components/MessagePanel.vue'
 import { accountsApi, tradingApi, contactsApi } from '../api/index.js'
 
 // The teleported "Fix match" dialog below makes this component multi-root, which breaks
@@ -1129,6 +1191,12 @@ const productLinesLoading = ref(false)
 const productLinesError = ref('')
 const creatingLineIndex = ref(null)
 const trackingLineIndex = ref(null)
+const chatLensWaOpen = ref(false)
+const chatLensWaLoading = ref(false)
+const chatLensWaError = ref('')
+const chatLensWaDraft = ref('')
+const chatLensWaInquiry = ref(null)
+const chatLensWaTitle = ref('WA ChatLens')
 const marketModalOpen = ref(false)
 const marketModalInquiry = ref(null)
 const marketProducts = ref([])
@@ -1208,6 +1276,119 @@ async function openInquiryProducts(inq) {
   productModalInquiry.value = inq
   productModalOpen.value = true
   await loadInquiryProducts(inq.id)
+}
+
+function closeCardMenu(event) {
+  event.currentTarget.closest('details')?.removeAttribute('open')
+}
+
+function runCardMenuAction(event, action) {
+  closeCardMenu(event)
+  action()
+}
+
+function openChatLensWa(inq) {
+  return openChatLensConversation(inq, {
+    title: 'WA ChatLens',
+    draft: waPrefillText(inq),
+  })
+}
+
+function openDirectChatLensWa(inq) {
+  return openDirectChatLensConversation(inq, {
+    title: 'WA ChatLens - Direct Message',
+    draft: waPrefillText(inq),
+  })
+}
+
+function openChatReference(inq) {
+  return openChatLensConversation(inq, {
+    title: 'Chat Reference',
+    draft: '',
+  })
+}
+
+function openAskPriceChatLens(inq) {
+  return openChatLensConversation(inq, {
+    title: 'Ask Price - ChatLens',
+    draft: waAskPriceText(inq),
+  })
+}
+
+function openDirectAskPriceChatLens(inq) {
+  return openDirectChatLensConversation(inq, {
+    title: 'Ask Price - Direct Message',
+    draft: waAskPriceText(inq),
+  })
+}
+
+function openPriceListChatLens(inq) {
+  return openChatLensConversation(inq, {
+    title: 'Price List - ChatLens',
+    draft: formattedPriceList.value,
+  })
+}
+
+function openDirectPriceListChatLens(inq) {
+  return openDirectChatLensConversation(inq, {
+    title: 'Price List - Direct Message',
+    draft: formattedPriceList.value,
+  })
+}
+
+async function openDirectChatLensConversation(inq, { title, draft }) {
+  if (!inq?.account || !inq?.contact) return
+  chatLensWaOpen.value = true
+  chatLensWaLoading.value = true
+  chatLensWaError.value = ''
+  chatLensWaDraft.value = draft
+  chatLensWaInquiry.value = inq
+  chatLensWaTitle.value = title
+
+  try {
+    if (!convStore.accounts.length) await convStore.fetchChatsInitial()
+    await convStore.selectDirectChat(inq.account, inq.contact)
+  } catch (error) {
+    chatLensWaError.value = error.response?.data?.detail || error.message || 'Unable to open this direct conversation.'
+  } finally {
+    chatLensWaLoading.value = false
+  }
+}
+
+async function openChatLensConversation(inq, { title, draft }) {
+  if (!inq?.source_chat_id) return
+  chatLensWaOpen.value = true
+  chatLensWaLoading.value = true
+  chatLensWaError.value = ''
+  chatLensWaDraft.value = draft
+  chatLensWaInquiry.value = inq
+  chatLensWaTitle.value = title
+
+  try {
+    if (!convStore.accounts.length) await convStore.fetchChatsInitial()
+    if (String(convStore.selectedAccountId) !== String(inq.account)) {
+      await convStore.switchAccount(inq.account)
+    } else if (!convStore.chats.length) {
+      await convStore.fetchChats(inq.account)
+    }
+    await convStore.selectChat(inq.source_chat_id, {
+      messageId: inq.source_message_id,
+      messageTime: inq.source_message_time,
+    })
+  } catch (error) {
+    chatLensWaError.value = error.response?.data?.detail || error.message || 'Unable to open this conversation.'
+  } finally {
+    chatLensWaLoading.value = false
+  }
+}
+
+function closeChatLensWa() {
+  chatLensWaOpen.value = false
+  chatLensWaInquiry.value = null
+  chatLensWaDraft.value = ''
+  chatLensWaError.value = ''
+  chatLensWaTitle.value = 'WA ChatLens'
+  convStore.stopPolling()
 }
 
 function closeInquiryProducts() {
@@ -1818,6 +1999,15 @@ function closeContactPickersOnOutsideClick(event) {
   sellContactOpen.value = false
 }
 
+function closeCardMenusOnOutsideClick(event) {
+  const menuSelector = '.inquiry-products-menu, .wa-actions-menu, .prices-actions-menu'
+  const activeMenu = event.target.closest?.(menuSelector)
+  const openMenuSelector = '.inquiry-products-menu[open], .wa-actions-menu[open], .prices-actions-menu[open]'
+  document.querySelectorAll(openMenuSelector).forEach(menu => {
+    if (menu !== activeMenu) menu.removeAttribute('open')
+  })
+}
+
 function searchContacts(type) {
   const timerRef = type === 'buy' ? 'buy' : 'sell'
   if (timerRef === 'buy') {
@@ -2314,6 +2504,7 @@ onMounted(async () => {
   tradingApi.getWtsReplySettings().then(({ data }) => { Object.assign(wtsReply.value, data) }).catch(() => {})
   tradingApi.getCardAnimationSettings().then(({ data }) => { Object.assign(cardAnimation.value, data) }).catch(() => {})
   document.addEventListener('pointerdown', closeContactPickersOnOutsideClick)
+  document.addEventListener('pointerdown', closeCardMenusOnOutsideClick)
   pollTimer = setInterval(refresh, 15000)
   freshnessTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
 })
@@ -2322,9 +2513,11 @@ onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
   if (freshnessTimer) clearInterval(freshnessTimer)
   document.removeEventListener('pointerdown', closeContactPickersOnOutsideClick)
+  document.removeEventListener('pointerdown', closeCardMenusOnOutsideClick)
   stopRowDialogDrag()
   stopMatchFixDrag()
   stopMarketDialogDrag()
+  convStore.stopPolling()
 })
 </script>
 
@@ -2493,11 +2686,113 @@ onUnmounted(() => {
 .act-btn.close:disabled { opacity: 0.45; cursor: not-allowed; }
 .act-btn.deal  { background: #16a34a; color: #fff; }
 .act-btn.products { background: #eef2ff; color: #3730a3; }
+.inquiry-products-menu { position: relative; }
+.inquiry-products-menu > summary { display: flex; align-items: center; gap: 5px; list-style: none; user-select: none; }
+.inquiry-products-menu > summary::-webkit-details-marker { display: none; }
+.inquiry-products-menu[open] > summary { background: #e0e7ff; }
+.inquiry-products-menu-items {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 30;
+  min-width: 178px;
+  padding: 5px;
+  border: 1px solid #d9ddf5;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(30, 41, 59, 0.18);
+}
+.inquiry-products-menu-items button {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #3730a3;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+.inquiry-products-menu-items button:hover { background: #eef2ff; }
 .act-btn.market { background: #ecfeff; color: #0e7490; }
 .act-btn.chat  { background: #eff6ff; color: #1d4ed8; margin-left: auto; }
 .act-btn.wa    { background: #dcfce7; color: #16a34a; display: flex; align-items: center; gap: 3px; text-decoration: none; }
-.act-btn.wa-ask { background: #fef9c3; color: #92400e; text-decoration: none; }
-.act-btn.wa-list { background: #e0e7ff; color: #4338ca; text-decoration: none; }
+.wa-actions-menu { position: relative; margin-left: auto; }
+.wa-actions-menu > summary { list-style: none; user-select: none; }
+.wa-actions-menu > summary::-webkit-details-marker { display: none; }
+.wa-actions-menu[open] > summary { background: #bbf7d0; }
+.wa-actions-menu-items {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 30;
+  min-width: 148px;
+  padding: 5px;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(30, 41, 59, 0.18);
+}
+.wa-actions-menu-items button,
+.wa-actions-menu-items a {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #15803d;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.wa-actions-menu-items button:hover,
+.wa-actions-menu-items a:hover { background: #dcfce7; }
+.wa-actions-menu-items button svg,
+.prices-actions-menu-items button svg { margin-left: 5px; }
+.act-btn.prices { background: #fef3c7; color: #92400e; display: flex; align-items: center; gap: 5px; }
+.prices-actions-menu { position: relative; }
+.prices-actions-menu > summary { list-style: none; user-select: none; }
+.prices-actions-menu > summary::-webkit-details-marker { display: none; }
+.prices-actions-menu[open] > summary { background: #fde68a; }
+.prices-actions-menu-items {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 30;
+  min-width: 132px;
+  padding: 5px;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(30, 41, 59, 0.18);
+}
+.prices-actions-menu-items a,
+.prices-actions-menu-items button {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #92400e;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.prices-actions-menu-items a:hover,
+.prices-actions-menu-items button:hover { background: #fef3c7; }
 .status-select-mini { padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 5px; font-size: 0.78rem; color: #374151; cursor: pointer; background: #fff; }
 .header-status-select {
   width: 118px;
@@ -2868,6 +3163,72 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+}
+.chatlens-wa-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.58);
+  backdrop-filter: blur(3px);
+}
+.chatlens-wa-dialog {
+  width: min(1040px, 96vw);
+  height: min(780px, 92vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 14px;
+  background: #efeae2;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.35);
+}
+.chatlens-wa-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #d1d5db;
+  background: #fff;
+}
+.chatlens-wa-header div { display: flex; flex-direction: column; min-width: 0; }
+.chatlens-wa-header strong { color: #166534; font-size: 0.95rem; }
+.chatlens-wa-header span {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chatlens-wa-header button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  cursor: pointer;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+.chatlens-wa-header button:hover { background: #e2e8f0; color: #0f172a; }
+.chatlens-wa-panel { flex: 1; min-height: 0; }
+.chatlens-wa-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: #64748b;
+}
+.chatlens-wa-state.error { color: #b91c1c; }
+@media (max-width: 640px) {
+  .chatlens-wa-backdrop { padding: 8px; }
+  .chatlens-wa-dialog { width: 100%; height: 96vh; }
 }
 .row-expand-backdrop {
   position: fixed;

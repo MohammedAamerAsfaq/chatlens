@@ -89,6 +89,7 @@ export const outboundMessagesApi = {
 
 export const chatsApi = {
   list: (params) => http.get('/chats/', { params }),
+  resolveDirect: (account, contact) => http.post('/chats/resolve-direct/', { account, contact }),
   messages: (id, params = {}) => http.get(`/chats/${id}/messages/`, { params }),
   markRead: (id) => http.post(`/chats/${id}/mark-read/`),
   markAllRead: (accountId) => http.post('/chats/mark-all-read/', {}, { params: accountId ? { account: accountId } : {} }),

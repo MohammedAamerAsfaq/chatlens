@@ -5,6 +5,10 @@ import { accountsApi } from '@/api'
 
 defineOptions({ inheritAttrs: false })
 
+const props = defineProps({
+  initialDraft: { type: String, default: '' },
+})
+
 const store = useConversationsStore()
 const messagesEl = ref(null)
 
@@ -15,7 +19,7 @@ function chatKind(waId) {
 }
 
 const isGroup = computed(() => chatKind(store.selectedChat?.wa_chat_id) === 'group')
-const draft = ref('')
+const draft = ref(props.initialDraft)
 const sending = ref(false)
 const sendError = ref('')
 const sendFeedback = ref('')
@@ -119,12 +123,16 @@ watch(lastMessageId, async (newId) => {
 })
 
 // Also scroll when switching chats (messages may already be loaded)
-watch(() => store.selectedChatId, async () => {
-  draft.value = ''
+watch(() => store.selectedChatId, async (chatId, previousChatId) => {
+  if (previousChatId !== undefined) draft.value = ''
   sendFeedback.value = ''
   await loadPreflight()
   await nextTick()
-  scrollToBottom()
+  if (!store.highlightMessageId) scrollToBottom()
+}, { immediate: true })
+
+watch(() => props.initialDraft, value => {
+  draft.value = value || ''
 })
 
 watch(sendingEnabled, (enabled, previous) => {
@@ -143,7 +151,7 @@ watch(() => store.highlightMessageId, async (msgId) => {
     el.classList.remove('msg-highlight')
     store.highlightMessageId = null
   }, 3000)
-})
+}, { immediate: true })
 
 function scrollToBottom() {
   if (messagesEl.value) {
@@ -341,7 +349,7 @@ watch(lightbox, (val) => {
               </a>
               <div
                 :class="[
-                  'relative max-w-xs lg:max-w-md xl:max-w-lg px-3 pt-1.5 pb-1 rounded-lg shadow-sm text-sm',
+                  'message-bubble relative max-w-xs lg:max-w-md xl:max-w-lg px-3 pt-1.5 pb-1 rounded-lg shadow-sm text-sm',
                   msg.direction === 'outbound'
                     ? 'bg-[#d9fdd3] rounded-tr-none'
                     : 'bg-white rounded-tl-none',
@@ -606,3 +614,16 @@ watch(lightbox, (val) => {
     </div>
   </Teleport>
 </template>
+
+<style scoped>
+.msg-highlight .message-bubble {
+  outline: 3px solid #f59e0b;
+  outline-offset: 3px;
+  animation: reference-pulse 0.8s ease-in-out 3;
+}
+
+@keyframes reference-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.2); }
+  50% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0.28); }
+}
+</style>

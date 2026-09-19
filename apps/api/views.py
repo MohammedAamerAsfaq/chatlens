@@ -893,6 +893,39 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
             )
         return qs
 
+    @action(detail=False, methods=['post'], url_path='resolve-direct')
+    def resolve_direct(self, request):
+        account = _visible_account_or_none(request.user, request.data.get('account'))
+        if not account:
+            return Response({'detail': 'Account not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        contact = WhatsAppContact.objects.filter(
+            account=account,
+            pk=request.data.get('contact'),
+        ).first()
+        if not contact:
+            return Response({'detail': 'Contact not found for this account.'}, status=status.HTTP_404_NOT_FOUND)
+
+        jid = (contact.wa_contact_id or '').strip().lower()
+        if not jid.endswith('@s.whatsapp.net'):
+            phone = re.sub(r'\D', '', contact.phone_number or '')
+            jid = f'{phone}@s.whatsapp.net' if phone else ''
+        if not jid:
+            return Response(
+                {'detail': 'This contact has no resolved WhatsApp phone identity.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        chat, _ = WhatsAppChat.objects.get_or_create(
+            account=account,
+            wa_chat_id=jid,
+            defaults={'chat_type': 'individual', 'contact': contact},
+        )
+        if chat.contact_id != contact.id:
+            chat.contact = contact
+            chat.save(update_fields=['contact', 'updated_at'])
+        return Response(ChatSerializer(chat, context=self.get_serializer_context()).data)
+
     @action(detail=True, methods=['get'])
     def info(self, request, pk=None):
         from django.db.models import Count, Min, Max
