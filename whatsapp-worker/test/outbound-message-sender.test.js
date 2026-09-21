@@ -47,3 +47,31 @@ test('sender reports an ambiguous outcome after sendMessage starts', async () =>
   assert.equal(result.dispatch_started, true);
   assert.equal(result.outcome_unknown, true);
 });
+
+test('sender uses the persisted account LID for group membership checks', async () => {
+  const sender = new OutboundMessageSender();
+  const session = {
+    status: 'connected',
+    accountIdentity: {
+      id: '971500000001:14@s.whatsapp.net',
+      lid: '45617082548317:14@lid',
+    },
+    sock: {
+      user: { id: '971500000001:14@s.whatsapp.net' },
+      groupMetadata: async () => ({
+        id: '120001@g.us',
+        participants: [{ id: '45617082548317@lid' }],
+      }),
+      sendMessage: async () => ({ key: { id: 'provider-group-1' } }),
+    },
+  };
+
+  const result = await sender.send('8', session, request({
+    destination_jid: '120001@g.us',
+    provider_message_id: 'outbound-group-1',
+    content: { text: 'Group message' },
+  }));
+
+  assert.equal(result.accepted, true);
+  assert.equal(result.destination_type, 'standard_group');
+});

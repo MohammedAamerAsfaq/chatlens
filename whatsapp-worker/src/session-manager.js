@@ -369,6 +369,8 @@ class SessionManager {
       hasCredentials: fs.existsSync(credsFile),
       phoneNumber: null,
       displayName: null,
+      // sock.user can omit the LID even when persisted Baileys credentials have it.
+      accountIdentity: null,
       // Sync settings
       syncHistory: options.sync_history !== false,
       historyDays: options.history_days || null,
@@ -502,7 +504,10 @@ class SessionManager {
     const initialType = classifyDestination(normalizedJid);
     if ([DESTINATION.GROUP].includes(initialType)) {
       const metadata = await session.sock.groupMetadata(normalizedJid);
-      const normalized = normalizeGroupMetadata(metadata, session.sock.user);
+      const normalized = normalizeGroupMetadata(
+        metadata,
+        session.accountIdentity || session.sock.user,
+      );
       return {
         destination_type: classifyDestination(normalizedJid, metadata),
         group_metadata: normalized,
@@ -540,7 +545,7 @@ class SessionManager {
       if (!meta?.id) continue;
       await this.djangoClient.sendGroupUpdate(
         sessionId,
-        normalizeGroupMetadata(meta, s.sock.user),
+        normalizeGroupMetadata(meta, s.accountIdentity || s.sock.user),
       );
       if (meta.id && meta.subject) this.groupNameCache.set(meta.id, meta.subject);
     }
@@ -670,6 +675,7 @@ class SessionManager {
       fs.mkdirSync(authDir, { recursive: true });
 
       const { state, saveCreds } = await useMultiFileAuthState(authDir);
+      session.accountIdentity = state.creds.me ? { ...state.creds.me } : null;
       session.status = SESSION_STATUS.FETCHING_VERSION;
       session.startupPhase = SESSION_STATUS.FETCHING_VERSION;
       const configuredVersion = _parseWhatsAppWebVersion(process.env.WHATSAPP_WEB_VERSION);
@@ -733,7 +739,10 @@ class SessionManager {
         },
       });
 
-      sock.ev.on('creds.update', async () => {
+      sock.ev.on('creds.update', async (update) => {
+        if (update?.me) {
+          session.accountIdentity = { ...(session.accountIdentity || {}), ...update.me };
+        }
         await saveCreds();
         session.hasCredentials = true;
       });
@@ -779,6 +788,7 @@ class SessionManager {
       if (connection === 'open') {
         this._clearWatchdog(session);
         const me = sock.user;
+        session.accountIdentity = { ...(session.accountIdentity || {}), ...(me || {}) };
         session.status = SESSION_STATUS.CONNECTED;
         session.startupPhase = SESSION_STATUS.CONNECTED;
         session.hasCredentials = true;
@@ -1118,7 +1128,7 @@ class SessionManager {
       if (!meta?.id) return;
       await this.djangoClient.sendGroupUpdate(
         sessionId,
-        normalizeGroupMetadata(meta, sock.user),
+        normalizeGroupMetadata(meta, session.accountIdentity || sock.user),
       );
     };
 

@@ -34,7 +34,10 @@ class OutboundMessageSender {
       }
     } else if ([DESTINATION.GROUP].includes(type)) {
       const metadata = await session.sock.groupMetadata(jid);
-      const normalized = normalizeGroupMetadata(metadata, session.sock.user);
+      const normalized = normalizeGroupMetadata(
+        metadata,
+        session.accountIdentity || session.sock.user,
+      );
       type = classifyDestination(jid, metadata);
       if (!normalized.can_send) {
         return { accepted: false, retryable: false, dispatch_started: false, code: normalized.send_block_reason };
