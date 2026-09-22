@@ -287,6 +287,14 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(accepted.status_code, 201)
         self.assertEqual(accepted.json()['inquiry']['groups'][0]['group'], sendable.id)
         self.assertEqual(rejected.status_code, 400)
+        inquiry_recipient_id = accepted.json()['inquiry']['groups'][0]['id']
+        inquiry_counter = self.client.post(
+            f'/api/buying-inquiries/{inquiry.id}/mark-group-chatlens-click/',
+            {'recipient_id': inquiry_recipient_id},
+            format='json',
+        )
+        self.assertEqual(inquiry_counter.status_code, 200)
+        self.assertEqual(inquiry_counter.json()['groups'][0]['chatlens_click_count'], 1)
 
         offer_created = self.client.post(
             '/api/selling-offers/',
@@ -307,6 +315,14 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(offer_accepted.status_code, 201)
         self.assertEqual(offer_accepted.json()['offer']['groups'][0]['group'], sendable.id)
         self.assertEqual(offer_rejected.status_code, 400)
+        offer_recipient_id = offer_accepted.json()['offer']['groups'][0]['id']
+        offer_counter = self.client.post(
+            f"/api/selling-offers/{offer_created.json()['id']}/mark-group-chatlens-click/",
+            {'recipient_id': offer_recipient_id},
+            format='json',
+        )
+        self.assertEqual(offer_counter.status_code, 200)
+        self.assertEqual(offer_counter.json()['groups'][0]['chatlens_click_count'], 1)
 
     def test_group_campaign_supports_direct_message_mode(self):
         self.client.force_authenticate(self.user_a)
@@ -572,6 +588,44 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(outbound.status, OutboundMessage.STATUS_SENT)
         self.assertIsNotNone(outbound.provider_accepted_at)
         self.assertTrue(outbound.events.filter(event_type='provider_accepted').exists())
+
+    def test_outbound_throttle_applies_account_and_recipient_intervals_to_groups(self):
+        from apps.whatsapp_bridge.outbound.throttle import OutboundDeferred, release, reserve
+
+        self.account_a.account_interval_ms = 5000
+        self.account_a.recipient_interval_ms = 5000
+        self.account_a.save(update_fields=['account_interval_ms', 'recipient_interval_ms'])
+
+        def group_message(suffix):
+            jid = f'1203630000000000{suffix}@g.us'
+            return OutboundMessage.objects.create(
+                company=self.company_a,
+                whatsapp_account=self.account_a,
+                destination_jid=jid,
+                canonical_recipient_key=jid,
+                destination_type='group',
+                content_payload={'text': 'Group message'},
+                idempotency_key=f'group-throttle-{suffix}',
+                correlation_id=f'group-throttle-{suffix}',
+            )
+
+        first = group_message('21')
+        same_group = group_message('21-repeat')
+        same_group.destination_jid = first.destination_jid
+        same_group.canonical_recipient_key = first.canonical_recipient_key
+        same_group.save(update_fields=['destination_jid', 'canonical_recipient_key'])
+        other_group = group_message('22')
+
+        reserve(first)
+        release(first)
+
+        with self.assertRaises(OutboundDeferred) as recipient_wait:
+            reserve(same_group)
+        self.assertEqual(recipient_wait.exception.reason, 'recipient_interval_wait')
+
+        with self.assertRaises(OutboundDeferred) as account_wait:
+            reserve(other_group)
+        self.assertEqual(account_wait.exception.reason, 'account_interval_wait')
 
     @patch('apps.whatsapp_bridge.outbound.task_handler.send_to_worker')
     def test_outbound_handler_rechecks_disabled_switch(self, send_to_worker):

@@ -45,7 +45,7 @@ export const taskQueueApi = {
 }
 
 export const accountsApi = {
-  list: () => http.get('/accounts/'),
+  list: (params) => http.get('/accounts/', { params }),
   create: (data) => http.post('/accounts/', data),
   get: (id) => http.get(`/accounts/${id}/`),
   startSession: (id) => http.post(`/accounts/${id}/start-session/`),
@@ -302,7 +302,7 @@ export const tradingApi = {
   markBuyingInquirySupplierSent: (id, supplier_id) => http.post(`/buying-inquiries/${id}/mark-sent/`, { supplier_id }),
   addBuyingInquiryGroup: (id, group_id) => http.post(`/buying-inquiries/${id}/add-group/`, { group_id }),
   removeBuyingInquiryGroup: (id, recipient_id) => http.post(`/buying-inquiries/${id}/remove-group/`, { recipient_id }),
-  markBuyingInquiryGroupSent: (id, recipient_id) => http.post(`/buying-inquiries/${id}/mark-group-sent/`, { recipient_id }),
+  markBuyingInquiryGroupChatLensClick: (id, recipient_id) => http.post(`/buying-inquiries/${id}/mark-group-chatlens-click/`, { recipient_id }),
 
   // Selling Offers (manual offer-to-customers workflow)
   listSellingOffers:       (params) => http.get('/selling-offers/', { params }),
@@ -324,7 +324,7 @@ export const tradingApi = {
   markSellingOfferCustomerSent: (id, customer_id) => http.post(`/selling-offers/${id}/mark-sent/`, { customer_id }),
   addSellingOfferGroup: (id, group_id) => http.post(`/selling-offers/${id}/add-group/`, { group_id }),
   removeSellingOfferGroup: (id, recipient_id) => http.post(`/selling-offers/${id}/remove-group/`, { recipient_id }),
-  markSellingOfferGroupSent: (id, recipient_id) => http.post(`/selling-offers/${id}/mark-group-sent/`, { recipient_id }),
+  markSellingOfferGroupChatLensClick: (id, recipient_id) => http.post(`/selling-offers/${id}/mark-group-chatlens-click/`, { recipient_id }),
 
   askSupplierQuote:     (id)         => http.post(`/supplier-quotes/${id}/ask/`),
   updateSupplierQuote:  (id, data)   => http.patch(`/supplier-quotes/${id}/`, data),

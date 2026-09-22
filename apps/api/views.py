@@ -208,10 +208,14 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return visible_accounts_queryset(
+        queryset = visible_accounts_queryset(
             self.request.user,
             WhatsAppAccount.objects.all().order_by('-created_at'),
         )
+        if self.request.query_params.get('current_company') == 'true':
+            company = default_company_for_user(self.request.user)
+            queryset = queryset.filter(communication_account__company=company) if company else queryset.none()
+        return queryset
 
     def perform_create(self, serializer):
         if self.request.user.is_authenticated:

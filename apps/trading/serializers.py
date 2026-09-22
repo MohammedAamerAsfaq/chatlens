@@ -454,6 +454,8 @@ class GroupCampaignRecipientSerializer(serializers.Serializer):
     account_name = serializers.SerializerMethodField()
     sent_count = serializers.IntegerField(read_only=True)
     last_sent_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    chatlens_click_count = serializers.IntegerField(read_only=True)
+    last_chatlens_clicked_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
     def get_account_name(self, obj):
         account = obj.group.account

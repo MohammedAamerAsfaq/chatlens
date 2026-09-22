@@ -3081,6 +3081,18 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
         inquiry = self.get_queryset().get(pk=inquiry.pk)
         return Response(self.get_serializer(inquiry).data)
 
+    @action(detail=True, methods=['post'], url_path='mark-group-chatlens-click')
+    def mark_group_chatlens_click(self, request, pk=None):
+        inquiry = self.get_object()
+        row = inquiry.groups.filter(pk=request.data.get('recipient_id')).first()
+        if not row:
+            return Response({'detail': 'Group recipient not found.'}, status=status.HTTP_404_NOT_FOUND)
+        row.chatlens_click_count = F('chatlens_click_count') + 1
+        row.last_chatlens_clicked_at = now()
+        row.save(update_fields=['chatlens_click_count', 'last_chatlens_clicked_at', 'updated_at'])
+        inquiry = self.get_queryset().get(pk=inquiry.pk)
+        return Response(self.get_serializer(inquiry).data)
+
     def partial_update(self, request, *args, **kwargs):
         inquiry = self.get_object()
         allowed = {
@@ -3606,6 +3618,18 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
         row.last_sent_at = now()
         row.save(update_fields=['sent_count', 'last_sent_at', 'updated_at'])
         row.refresh_from_db()
+        offer = self.get_queryset().get(pk=offer.pk)
+        return Response(self.get_serializer(offer).data)
+
+    @action(detail=True, methods=['post'], url_path='mark-group-chatlens-click')
+    def mark_group_chatlens_click(self, request, pk=None):
+        offer = self.get_object()
+        row = offer.groups.filter(pk=request.data.get('recipient_id')).first()
+        if not row:
+            return Response({'detail': 'Group recipient not found.'}, status=status.HTTP_404_NOT_FOUND)
+        row.chatlens_click_count = F('chatlens_click_count') + 1
+        row.last_chatlens_clicked_at = now()
+        row.save(update_fields=['chatlens_click_count', 'last_chatlens_clicked_at', 'updated_at'])
         offer = self.get_queryset().get(pk=offer.pk)
         return Response(self.get_serializer(offer).data)
 

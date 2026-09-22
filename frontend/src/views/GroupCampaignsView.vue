@@ -6,11 +6,13 @@ const props = defineProps({ kind: { type: String, required: true } })
 const isBuying = computed(() => props.kind === 'buying')
 const title = computed(() => isBuying.value ? 'Group Buying Inquiries' : 'Group Selling Offers')
 const campaigns = ref([])
+const accounts = ref([])
 const products = ref([])
 const productOptions = ref([])
 const expanded = ref(new Set())
 const groupSearch = reactive({})
 const groupOptions = reactive({})
+const groupAccountIds = reactive({})
 const loadingGroups = reactive({})
 const sendFeedback = reactive({})
 const busy = ref('')
@@ -39,7 +41,7 @@ function apiFor(action) {
     create: tradingApi.createBuyingInquiry,
     addGroup: tradingApi.addBuyingInquiryGroup,
     removeGroup: tradingApi.removeBuyingInquiryGroup,
-    markSent: tradingApi.markBuyingInquiryGroupSent,
+    markChatLensClick: tradingApi.markBuyingInquiryGroupChatLensClick,
     update: tradingApi.updateBuyingInquiry,
     addProduct: tradingApi.addBuyingInquiryProduct,
     removeProduct: tradingApi.removeBuyingInquiryProduct,
@@ -49,7 +51,7 @@ function apiFor(action) {
     create: tradingApi.createSellingOffer,
     addGroup: tradingApi.addSellingOfferGroup,
     removeGroup: tradingApi.removeSellingOfferGroup,
-    markSent: tradingApi.markSellingOfferGroupSent,
+    markChatLensClick: tradingApi.markSellingOfferGroupChatLensClick,
     update: tradingApi.updateSellingOffer,
     addProduct: tradingApi.addSellingOfferProduct,
     removeProduct: tradingApi.removeSellingOfferProduct,
@@ -60,6 +62,11 @@ function apiFor(action) {
 async function loadCampaigns() {
   const { data } = await apiFor('list')({ audience_type: 'groups', page_size: 100 })
   campaigns.value = data.results || data
+}
+
+async function loadAccounts() {
+  const { data } = await accountsApi.list({ current_company: 'true' })
+  accounts.value = data.results || data
 }
 
 async function searchProducts() {
@@ -163,12 +170,47 @@ async function removeEditProduct(campaign, row) {
 async function searchGroups(campaign) {
   loadingGroups[campaign.id] = true
   try {
-    const { data } = await groupsApi.list({ search: groupSearch[campaign.id], sendable: 'true', page_size: 100 })
+    const accountIds = groupAccountIds[campaign.id] || []
+    const pages = await Promise.all(accountIds.map(async accountId => {
+      const rows = []
+      let page = 1
+      let hasNext = true
+      while (hasNext) {
+        const { data } = await groupsApi.list({
+          account: accountId,
+          search: groupSearch[campaign.id],
+          sendable: 'true',
+          page_size: 100,
+          page,
+        })
+        rows.push(...(data.results || data))
+        hasNext = Boolean(data.next)
+        page += 1
+      }
+      return rows
+    }))
     const selected = new Set(campaign.groups.map(row => row.group))
-    groupOptions[campaign.id] = (data.results || data).filter(row => !selected.has(row.id))
+    groupOptions[campaign.id] = pages.flat().filter(row => !selected.has(row.id))
   } finally {
     loadingGroups[campaign.id] = false
   }
+}
+
+function toggleGroupAccount(campaign, accountId) {
+  const selected = new Set(groupAccountIds[campaign.id] || [])
+  selected.has(accountId) ? selected.delete(accountId) : selected.add(accountId)
+  groupAccountIds[campaign.id] = [...selected]
+  searchGroups(campaign)
+}
+
+function selectAllGroupAccounts(campaign) {
+  groupAccountIds[campaign.id] = accounts.value.map(account => account.id)
+  searchGroups(campaign)
+}
+
+function accountLabel(accountId) {
+  const account = accounts.value.find(row => row.id === accountId)
+  return account?.display_name || account?.phone_number || `Account ${accountId}`
 }
 
 async function addGroup(campaign, group) {
@@ -225,6 +267,8 @@ async function sendGroup(campaign, recipient) {
   error.value = ''
   sendFeedback[recipient.id] = { state: 'checking', message: 'Checking group permission...' }
   try {
+    const counterResponse = await apiFor('markChatLensClick')(campaign.id, recipient.id)
+    replaceCampaign(counterResponse.data)
     const preflight = await accountsApi.preflightMessage(recipient.account_id, recipient.wa_group_id)
     if (!preflight.data.allowed) {
       const labels = {
@@ -254,29 +298,21 @@ async function sendGroup(campaign, recipient) {
   } finally { busy.value = '' }
 }
 
-function waClientUrl(campaign) {
-  return `whatsapp://send?${new URLSearchParams({ text: message(campaign) }).toString()}`
-}
-
-async function markWaPressed(campaign, recipient) {
-  try {
-    const { data } = await apiFor('markSent')(campaign.id, recipient.id)
-    replaceCampaign(data)
-  } catch (exc) {
-    error.value = exc.response?.data?.detail || 'Unable to record WA Client button press.'
-  }
-}
-
 async function toggle(campaign) {
   const next = new Set(expanded.value)
   const opening = !next.has(campaign.id)
   opening ? next.add(campaign.id) : next.delete(campaign.id)
   expanded.value = next
-  if (opening && groupOptions[campaign.id] === undefined) await searchGroups(campaign)
+  if (opening && groupOptions[campaign.id] === undefined) {
+    groupAccountIds[campaign.id] = accounts.value.map(account => account.id)
+    await searchGroups(campaign)
+  }
 }
 
 resetDraft()
-onMounted(loadCampaigns)
+onMounted(async () => {
+  await Promise.all([loadAccounts(), loadCampaigns()])
+})
 </script>
 
 <template>
@@ -318,10 +354,12 @@ onMounted(loadCampaigns)
             <label v-else>Direct message<textarea v-model="editDraft.directMessage" rows="6" /></label>
           </div>
           <div v-else class="preview"><h3>Message preview</h3><pre>{{ message(campaign) }}</pre></div>
-          <div class="selector"><div class="selector-head"><div><h3>Available groups</h3><small>Only groups currently allowed for sending are listed.</small></div><button :disabled="loadingGroups[campaign.id] || !(groupOptions[campaign.id] || []).length || busy === `add-all-${campaign.id}`" @click="addAllAvailableGroups(campaign)">{{ busy === `add-all-${campaign.id}` ? 'Adding...' : 'Add all available' }}</button></div><div class="inline"><input v-model="groupSearch[campaign.id]" placeholder="Filter available groups..." @keydown.enter.prevent="searchGroups(campaign)" /><button :disabled="loadingGroups[campaign.id]" @click="searchGroups(campaign)">{{ loadingGroups[campaign.id] ? 'Loading...' : 'Refresh' }}</button></div>
-            <div class="options"><button v-for="group in groupOptions[campaign.id] || []" :key="group.id" :disabled="busy === `add-${campaign.id}-${group.id}` || busy === `add-all-${campaign.id}`" @click="addGroup(campaign, group)"><strong>{{ group.name || group.wa_group_id }}</strong><span>{{ group.participant_count }} participants · Account {{ group.account_id }}</span></button><p v-if="!loadingGroups[campaign.id] && !(groupOptions[campaign.id] || []).length" class="empty">No additional sendable groups available.</p></div>
+          <div class="selector"><div class="selector-head"><div><h3>Available groups</h3><small>Select the WhatsApp accounts whose sendable groups should be listed.</small></div><button :disabled="loadingGroups[campaign.id] || !(groupOptions[campaign.id] || []).length || busy === `add-all-${campaign.id}`" @click="addAllAvailableGroups(campaign)">{{ busy === `add-all-${campaign.id}` ? 'Adding...' : 'Add all available' }}</button></div>
+            <div class="account-filter"><div class="account-filter-head"><strong>Accounts</strong><button @click="selectAllGroupAccounts(campaign)">Select all</button></div><div class="account-options"><label v-for="account in accounts" :key="account.id"><input type="checkbox" :checked="(groupAccountIds[campaign.id] || []).includes(account.id)" @change="toggleGroupAccount(campaign, account.id)" /><span>{{ account.display_name || account.phone_number || `Account ${account.id}` }}</span><small>{{ account.effective_session_status }}</small></label></div><p v-if="!accounts.length" class="empty">No WhatsApp accounts are available.</p></div>
+            <div class="inline"><input v-model="groupSearch[campaign.id]" placeholder="Filter available groups..." @keydown.enter.prevent="searchGroups(campaign)" /><button :disabled="loadingGroups[campaign.id]" @click="searchGroups(campaign)">{{ loadingGroups[campaign.id] ? 'Loading...' : 'Refresh' }}</button></div>
+            <div class="options"><button v-for="group in groupOptions[campaign.id] || []" :key="group.id" :disabled="busy === `add-${campaign.id}-${group.id}` || busy === `add-all-${campaign.id}`" @click="addGroup(campaign, group)"><strong>{{ group.name || group.wa_group_id }}</strong><span>{{ group.participant_count }} participants · {{ accountLabel(group.account_id) }}</span></button><p v-if="!loadingGroups[campaign.id] && !(groupOptions[campaign.id] || []).length" class="empty">No additional sendable groups available for the selected accounts.</p></div>
           </div>
-          <div class="recipients"><h3>Groups to message</h3><div v-for="recipient in campaign.groups" :key="recipient.id" class="recipient"><div><strong>{{ recipient.group_name || recipient.wa_group_id }}</strong><span>{{ recipient.account_name }}</span><span :class="['press-count', { sent: recipient.sent_count > 0 }]">{{ recipient.sent_count ? `WA pressed ${recipient.sent_count}x` : 'WA not pressed' }}</span><span v-if="sendFeedback[recipient.id]" :class="['send-feedback', sendFeedback[recipient.id].state]">{{ sendFeedback[recipient.id].message }}</span></div><div><a class="wa-client" :href="waClientUrl(campaign)" title="Open WhatsApp with this message, then select the intended group" @click="markWaPressed(campaign, recipient)">WA Client</a><button class="send" :disabled="busy === `send-${campaign.id}-${recipient.id}`" @click="sendGroup(campaign, recipient)">{{ busy === `send-${campaign.id}-${recipient.id}` ? 'Working...' : 'ChatLens Send' }}</button><button class="danger" @click="removeGroup(campaign, recipient)">Remove</button></div></div><p v-if="!campaign.groups.length" class="empty">No groups selected.</p></div>
+          <div class="recipients"><h3>Groups to message</h3><div v-for="recipient in campaign.groups" :key="recipient.id" class="recipient"><div><strong>{{ recipient.group_name || recipient.wa_group_id }}</strong><span>{{ recipient.account_name }}</span><span :class="['press-count', { sent: recipient.chatlens_click_count > 0 }]">{{ recipient.chatlens_click_count ? `ChatLens clicked ${recipient.chatlens_click_count}x` : 'ChatLens not clicked' }}</span><span v-if="sendFeedback[recipient.id]" :class="['send-feedback', sendFeedback[recipient.id].state]">{{ sendFeedback[recipient.id].message }}</span></div><div><button class="send" :disabled="busy === `send-${campaign.id}-${recipient.id}`" @click="sendGroup(campaign, recipient)">{{ busy === `send-${campaign.id}-${recipient.id}` ? 'Working...' : 'ChatLens Send' }}</button><button class="danger" @click="removeGroup(campaign, recipient)">Remove</button></div></div><p v-if="!campaign.groups.length" class="empty">No groups selected.</p></div>
         </div>
       </article>
     </section>
@@ -329,6 +367,7 @@ onMounted(loadCampaigns)
 </template>
 
 <style scoped>
-.campaign-page{height:100%;min-height:0;overflow-y:auto;padding:28px;background:radial-gradient(circle at top right,#dcfce7,transparent 32%),#f8fafc;color:#172033}.campaign-page>header{max-width:1400px;margin:auto}.eyebrow{color:#15803d;text-transform:uppercase;letter-spacing:.16em;font-size:.72rem;font-weight:800}h1{font:700 2rem Georgia,serif;margin:4px 0}header p,.section-head p{color:#64748b}.panel{max-width:1400px;margin:18px auto;background:#fff;border:1px solid #dfe7e2;border-radius:18px;padding:22px;box-shadow:0 16px 40px #0f172a0d}.fields,.templates{display:grid;grid-template-columns:1fr 1fr;gap:14px}.templates{grid-template-columns:repeat(3,1fr);margin-top:16px}label{display:flex;flex-direction:column;gap:6px;font-size:.75rem;font-weight:800;text-transform:uppercase;color:#64748b}input,textarea,button{font:inherit}input,textarea{border:1px solid #d7e2dc;border-radius:10px;padding:10px;background:#fbfdfc}.inline{display:flex;gap:8px}.inline input{flex:1}button,.wa-client{border:1px solid #cedbd4;background:#fff;border-radius:9px;padding:9px 13px;cursor:pointer}.wa-client{display:inline-flex;align-items:center;text-decoration:none;background:#25d366;color:#fff;border-color:#25d366;font-weight:700}.primary,.send{background:#168447;color:#fff;border-color:#168447}.primary{margin-top:16px;font-weight:700}.options{display:grid;gap:6px;margin-top:8px}.options button,.recipient{display:flex;justify-content:space-between;align-items:center;text-align:left}.options span,.recipient span,small{display:block;color:#64748b;font-size:.78rem}.tokens{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.tokens span{background:#edf8f1;border-radius:20px;padding:6px 10px;font-size:.8rem}.tokens button{border:0;background:none;padding:0 0 0 6px}.section-head,.summary,.selector-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.campaign{border:1px solid #e3ebe6;border-radius:13px;margin-top:10px;overflow:hidden}.summary{width:100%;border:0;border-radius:0;padding:14px 16px}.summary strong{display:block}.details{padding:16px;background:#fbfdfc;display:grid;grid-template-columns:1fr 1fr;gap:18px}.edit-toolbar,.edit-panel{grid-column:1/-1}.edit-toolbar{display:flex;gap:8px}.edit-toolbar .primary{margin-top:0}.edit-panel{border:1px solid #dfe7e2;border-radius:12px;padding:16px;background:#fff}.edit-products{margin-top:16px}.edit-product-list{display:grid;gap:6px;margin-top:10px}.edit-product-list>div{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #e3ebe6;padding-top:7px}.preview pre{white-space:pre-wrap;background:#eef5f0;border-radius:12px;padding:14px}.recipients{grid-column:1/-1}.recipient{padding:11px 0;border-top:1px solid #e3ebe6}.recipient>div:last-child{display:flex;gap:7px;flex-wrap:wrap}.press-count{margin-top:3px!important;color:#64748b}.press-count.sent{color:#15803d;font-weight:700}.send-feedback{margin-top:3px!important;font-weight:700}.send-feedback.checking,.send-feedback.queueing{color:#986700}.send-feedback.queued{color:#15803d}.send-feedback.failed{color:#b42318}.danger{color:#b42318;border-color:#f3c7c3}.error{max-width:1400px;margin:14px auto;background:#fff1f0;color:#b42318;padding:12px;border-radius:10px}.empty{color:#94a3b8}@media(max-width:800px){.campaign-page{padding:14px}.fields,.templates,.details{grid-template-columns:1fr}.recipients{grid-column:auto}.recipient{align-items:flex-start;gap:10px}}
+.campaign-page{height:100%;min-height:0;overflow-y:auto;padding:28px;background:radial-gradient(circle at top right,#dcfce7,transparent 32%),#f8fafc;color:#172033}.campaign-page>header{max-width:1400px;margin:auto}.eyebrow{color:#15803d;text-transform:uppercase;letter-spacing:.16em;font-size:.72rem;font-weight:800}h1{font:700 2rem Georgia,serif;margin:4px 0}header p,.section-head p{color:#64748b}.panel{max-width:1400px;margin:18px auto;background:#fff;border:1px solid #dfe7e2;border-radius:18px;padding:22px;box-shadow:0 16px 40px #0f172a0d}.fields,.templates{display:grid;grid-template-columns:1fr 1fr;gap:14px}.templates{grid-template-columns:repeat(3,1fr);margin-top:16px}label{display:flex;flex-direction:column;gap:6px;font-size:.75rem;font-weight:800;text-transform:uppercase;color:#64748b}input,textarea,button{font:inherit}input,textarea{border:1px solid #d7e2dc;border-radius:10px;padding:10px;background:#fbfdfc}.inline{display:flex;gap:8px}.inline input{flex:1}button{border:1px solid #cedbd4;background:#fff;border-radius:9px;padding:9px 13px;cursor:pointer}.primary,.send{background:#168447;color:#fff;border-color:#168447}.primary{margin-top:16px;font-weight:700}.options{display:grid;gap:6px;margin-top:8px}.options button,.recipient{display:flex;justify-content:space-between;align-items:center;text-align:left}.options span,.recipient span,small{display:block;color:#64748b;font-size:.78rem}.tokens{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.tokens span{background:#edf8f1;border-radius:20px;padding:6px 10px;font-size:.8rem}.tokens button{border:0;background:none;padding:0 0 0 6px}.section-head,.summary,.selector-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.campaign{border:1px solid #e3ebe6;border-radius:13px;margin-top:10px;overflow:hidden}.summary{width:100%;border:0;border-radius:0;padding:14px 16px}.summary strong{display:block}.details{padding:16px;background:#fbfdfc;display:grid;grid-template-columns:1fr 1fr;gap:18px}.edit-toolbar,.edit-panel{grid-column:1/-1}.edit-toolbar{display:flex;gap:8px}.edit-toolbar .primary{margin-top:0}.edit-panel{border:1px solid #dfe7e2;border-radius:12px;padding:16px;background:#fff}.edit-products{margin-top:16px}.edit-product-list{display:grid;gap:6px;margin-top:10px}.edit-product-list>div{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #e3ebe6;padding-top:7px}.preview pre{white-space:pre-wrap;background:#eef5f0;border-radius:12px;padding:14px}.recipients{grid-column:1/-1}.recipient{padding:11px 0;border-top:1px solid #e3ebe6}.recipient>div:last-child{display:flex;gap:7px;flex-wrap:wrap}.press-count{margin-top:3px!important;color:#64748b}.press-count.sent{color:#15803d;font-weight:700}.send-feedback{margin-top:3px!important;font-weight:700}.send-feedback.checking,.send-feedback.queueing{color:#986700}.send-feedback.queued{color:#15803d}.send-feedback.failed{color:#b42318}.danger{color:#b42318;border-color:#f3c7c3}.error{max-width:1400px;margin:14px auto;background:#fff1f0;color:#b42318;padding:12px;border-radius:10px}.empty{color:#94a3b8}@media(max-width:800px){.campaign-page{padding:14px}.fields,.templates,.details{grid-template-columns:1fr}.recipients{grid-column:auto}.recipient{align-items:flex-start;gap:10px}}
 .mode-picker{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:16px 0}.mode-picker button{padding:14px;text-align:left}.mode-picker button.active{border-color:#168447;background:#edf8f1;box-shadow:inset 0 0 0 1px #168447}.mode-picker strong,.mode-picker span{display:block}.mode-picker span{margin-top:4px;color:#64748b;font-size:.78rem}@media(max-width:800px){.mode-picker{grid-template-columns:1fr}}
+.account-filter{margin:12px 0;padding:12px;border:1px solid #dfe7e2;border-radius:12px;background:#fff}.account-filter-head{display:flex;align-items:center;justify-content:space-between}.account-filter-head button{padding:5px 9px}.account-options{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}.account-options label{display:grid;grid-template-columns:auto 1fr;column-gap:7px;align-items:center;padding:8px 10px;border:1px solid #dfe7e2;border-radius:9px;text-transform:none;cursor:pointer}.account-options label:has(input:checked){border-color:#168447;background:#edf8f1}.account-options input{grid-row:1/3;margin:0}.account-options small{font-weight:400}
 </style>
