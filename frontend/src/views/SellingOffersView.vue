@@ -37,7 +37,18 @@
           </label>
         </div>
 
-        <div class="section-block">
+        <div class="message-mode-picker">
+          <button :class="{ active: draft.message_mode === 'formatted' }" @click="draft.message_mode = 'formatted'">
+            <strong>Preformatted Products</strong>
+            <span>Build the customer message from selected inventory products.</span>
+          </button>
+          <button :class="{ active: draft.message_mode === 'direct' }" @click="draft.message_mode = 'direct'">
+            <strong>Direct Message</strong>
+            <span>Write one message for every selected customer.</span>
+          </button>
+        </div>
+
+        <div v-if="draft.message_mode === 'formatted'" class="section-block">
           <div class="section-title-row">
             <div>
               <h3>Products to Offer</h3>
@@ -71,7 +82,7 @@
           </div>
         </div>
 
-        <div class="section-block">
+        <div v-if="draft.message_mode === 'formatted'" class="section-block">
           <div class="section-title-row">
             <div>
               <h3>Offer Message Format</h3>
@@ -118,12 +129,19 @@
           </div>
         </div>
 
+        <div v-else class="section-block direct-message-block">
+          <label>
+            <span>Direct message</span>
+            <textarea v-model="draft.direct_message" rows="7" placeholder="Write the message to send to selected customers..." />
+          </label>
+        </div>
+
         <div class="form-actions">
           <button class="ghost-btn" :disabled="savingOffer || savingFullPriceList" @click="resetDraft">Reset</button>
           <button class="ghost-btn emphasis" :disabled="savingOffer || savingFullPriceList" @click="createFullPriceListOffer">
             {{ savingFullPriceList ? 'Creating full list...' : 'Create From Current Price List' }}
           </button>
-          <button class="primary-btn" :disabled="savingOffer || savingFullPriceList" @click="createOffer">
+          <button class="primary-btn" :disabled="savingOffer || savingFullPriceList || (draft.message_mode === 'direct' && !draft.direct_message.trim())" @click="createOffer">
             {{ savingOffer ? 'Creating...' : 'Create Selling Inquiry' }}
           </button>
         </div>
@@ -190,7 +208,7 @@
               <span class="row-index"><span>{{ offerRowNumber(index) }}</span></span>
               <div>
                 <strong>{{ offer.name }}</strong>
-                <span>{{ offer.products.length }} products - {{ offer.customer_count }} customers</span>
+                <span>{{ offer.message_mode === 'direct' ? 'Direct message' : `${offer.products.length} products` }} - {{ offer.customer_count }} customers</span>
               </div>
             </div>
             <div class="offer-right">
@@ -210,7 +228,7 @@
             <div class="edit-toolbar">
               <button v-if="editingOfferId !== offer.id" class="ghost-btn" @click="startEditOffer(offer)">Edit Inquiry</button>
               <template v-else>
-                <button class="primary-btn" :disabled="busyAction === `save-${offer.id}`" @click="saveEditOffer(offer)">
+                <button class="primary-btn" :disabled="busyAction === `save-${offer.id}` || (editDraft.message_mode === 'direct' && !editDraft.direct_message.trim())" @click="saveEditOffer(offer)">
                   {{ busyAction === `save-${offer.id}` ? 'Saving...' : 'Save Changes' }}
                 </button>
                 <button class="ghost-btn" @click="cancelEditOffer">Cancel</button>
@@ -231,7 +249,17 @@
                   </select>
                 </label>
               </div>
-              <div class="template-grid edit-template-grid">
+              <div class="message-mode-picker edit-mode-picker">
+                <button :class="{ active: editDraft.message_mode === 'formatted' }" @click="editDraft.message_mode = 'formatted'">
+                  <strong>Preformatted Products</strong>
+                  <span>Use products and templates.</span>
+                </button>
+                <button :class="{ active: editDraft.message_mode === 'direct' }" @click="editDraft.message_mode = 'direct'">
+                  <strong>Direct Message</strong>
+                  <span>Use one customer message.</span>
+                </button>
+              </div>
+              <div v-if="editDraft.message_mode === 'formatted'" class="template-grid edit-template-grid">
                 <label>
                   <span>Header</span>
                   <textarea v-model="editDraft.header_template" rows="2" />
@@ -245,7 +273,7 @@
                   <textarea v-model="editDraft.footer_template" rows="2" />
                 </label>
               </div>
-              <div class="format-options edit-format-options">
+              <div v-if="editDraft.message_mode === 'formatted'" class="format-options edit-format-options">
                 <label class="checkbox-label">
                   <input v-model="editDraft.send_flag" type="checkbox" />
                   <span>Add region flag</span>
@@ -269,6 +297,10 @@
                   </select>
                 </label>
               </div>
+              <label v-else class="direct-edit-message">
+                <span>Direct message</span>
+                <textarea v-model="editDraft.direct_message" rows="7" />
+              </label>
             </div>
 
             <div class="detail-grid">
@@ -469,6 +501,8 @@ const editingOfferId = ref(null)
 const editDraft = reactive({
   name: '',
   status: 'open',
+  message_mode: 'formatted',
+  direct_message: '',
   header_template: DEFAULT_HEADER,
   product_line_template: DEFAULT_LINE,
   footer_template: DEFAULT_FOOTER,
@@ -481,6 +515,8 @@ const editDraft = reactive({
 const draft = reactive({
   name: '',
   status: 'open',
+  message_mode: 'formatted',
+  direct_message: '',
   products: [],
   header_template: DEFAULT_HEADER,
   product_line_template: DEFAULT_LINE,
@@ -492,6 +528,8 @@ const draft = reactive({
 })
 
 const draftPreview = computed(() => formatOfferMessage({
+  message_mode: draft.message_mode,
+  direct_message: draft.direct_message,
   header_template: draft.header_template,
   product_line_template: draft.product_line_template,
   footer_template: draft.footer_template,
@@ -564,12 +602,18 @@ async function createOffer() {
     error.value = 'Inquiry name is required.'
     return
   }
+  if (draft.message_mode === 'direct' && !draft.direct_message.trim()) {
+    error.value = 'Direct message is required.'
+    return
+  }
   savingOffer.value = true
   error.value = ''
   try {
     const payload = {
       name: draft.name.trim(),
       status: draft.status,
+      message_mode: draft.message_mode,
+      direct_message: draft.message_mode === 'direct' ? draft.direct_message.trim() : '',
       header_template: draft.header_template,
       product_line_template: draft.product_line_template,
       footer_template: draft.footer_template,
@@ -577,7 +621,7 @@ async function createOffer() {
       flag_position: draft.flag_position,
       send_color: draft.send_color,
       color_position: draft.color_position,
-      product_ids: draft.products.map(product => product.id),
+      product_ids: draft.message_mode === 'formatted' ? draft.products.map(product => product.id) : [],
     }
     const { data } = await tradingApi.createSellingOffer(payload)
     offerSearch.value = ''
@@ -694,6 +738,8 @@ function startEditOffer(offer) {
   editingOfferId.value = offer.id
   editDraft.name = offer.name
   editDraft.status = offer.status
+  editDraft.message_mode = offer.message_mode || 'formatted'
+  editDraft.direct_message = offer.direct_message || ''
   editDraft.header_template = valueOrDefault(offer.header_template, DEFAULT_HEADER)
   editDraft.product_line_template = valueOrDefault(offer.product_line_template, DEFAULT_LINE)
   editDraft.footer_template = valueOrDefault(offer.footer_template, DEFAULT_FOOTER)
@@ -713,12 +759,18 @@ async function saveEditOffer(offer) {
     error.value = 'Inquiry name is required.'
     return
   }
+  if (editDraft.message_mode === 'direct' && !editDraft.direct_message.trim()) {
+    error.value = 'Direct message is required.'
+    return
+  }
   busyAction.value = `save-${offer.id}`
   error.value = ''
   try {
     const { data } = await tradingApi.updateSellingOffer(offer.id, {
       name,
       status: editDraft.status,
+      message_mode: editDraft.message_mode,
+      direct_message: editDraft.message_mode === 'direct' ? editDraft.direct_message.trim() : '',
       header_template: editDraft.header_template,
       product_line_template: editDraft.product_line_template,
       footer_template: editDraft.footer_template,
@@ -835,6 +887,8 @@ function replaceOffer(updated) {
 function resetDraft() {
   draft.name = ''
   draft.status = 'open'
+  draft.message_mode = 'formatted'
+  draft.direct_message = ''
   draft.products = []
   draft.header_template = DEFAULT_HEADER
   draft.product_line_template = DEFAULT_LINE
@@ -911,6 +965,7 @@ function affixLine(line, token, position = 'prefix') {
 }
 
 function formatOfferMessage(offer) {
+  if (offer.message_mode === 'direct') return offer.direct_message || ''
   const lines = (offer.products || []).map(row => {
     const lineTemplate = valueOrDefault(offer.product_line_template, DEFAULT_LINE)
     let line = lineTemplate
@@ -1060,6 +1115,36 @@ h3 {
   gap: 12px;
   margin-top: 16px;
 }
+.message-mode-picker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+.message-mode-picker button {
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px;
+  color: #172033;
+  text-align: left;
+  cursor: pointer;
+}
+.message-mode-picker button.active {
+  border-color: #168447;
+  background: #edf8f1;
+  box-shadow: inset 0 0 0 1px #168447;
+}
+.message-mode-picker strong,
+.message-mode-picker span { display: block; }
+.message-mode-picker span {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 0.8rem;
+}
+.edit-mode-picker { margin-bottom: 16px; }
+.direct-message-block textarea,
+.direct-edit-message textarea { min-height: 150px; }
 label {
   display: flex;
   flex-direction: column;
@@ -1489,6 +1574,7 @@ pre {
   }
 }
 @media (max-width: 720px) {
+  .message-mode-picker { grid-template-columns: 1fr; }
   .selling-offers-view {
     padding: 16px;
   }
