@@ -91,6 +91,16 @@ async function handleCompanySwitch(event) {
       <RouterLink to="/trading"            class="nav-link" active-class="nav-link-active">Trading</RouterLink>
       <RouterLink to="/buying-inquiries"  class="nav-link" active-class="nav-link-active">Buying Inquiries</RouterLink>
       <RouterLink to="/selling-offers"     class="nav-link" active-class="nav-link-active">Selling Offers</RouterLink>
+      <div class="relative group">
+        <button type="button" class="nav-link flex items-center gap-1">
+          Group Campaigns
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div class="absolute left-0 top-full hidden group-hover:block bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[210px] z-50">
+          <RouterLink to="/group-buying-inquiries" class="dropdown-item" active-class="dropdown-item-active">Group Buying Inquiries</RouterLink>
+          <RouterLink to="/group-selling-offers" class="dropdown-item" active-class="dropdown-item-active">Group Selling Offers</RouterLink>
+        </div>
+      </div>
       <RouterLink to="/v2-match-training"  class="nav-link" active-class="nav-link-active">V2 Match Training</RouterLink>
 
       <!-- Reports — grouped dropdown, opens on hover -->

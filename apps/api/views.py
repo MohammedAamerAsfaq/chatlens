@@ -878,7 +878,7 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = scope_queryset_to_visible_accounts(
-            WhatsAppChat.objects.select_related('contact').order_by('-last_message_at'),
+            WhatsAppChat.objects.select_related('contact', 'group').order_by('-last_message_at'),
             self.request.user,
         )
         account_id = self.request.query_params.get('account')
@@ -1779,6 +1779,15 @@ class GroupViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(is_community=True)
         elif group_type == 'group':
             qs = qs.filter(is_community=False)
+
+        if self.request.query_params.get('sendable') == 'true':
+            qs = qs.filter(
+                can_send=True,
+                account_is_participant=True,
+                is_community=False,
+                is_community_announcement=False,
+                announce=False,
+            )
 
         community_id = self.request.query_params.get('community')
         if community_id:

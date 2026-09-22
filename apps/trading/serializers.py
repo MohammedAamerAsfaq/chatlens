@@ -3,9 +3,9 @@ from .models import (
     Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryMessage,
     InquiryProduct, NonInventoryProduct, NonInventoryProductMention,
     AiParsingLog, AiParseV2Log, BuyingInquiry, BuyingInquiryProduct,
-    BuyingInquirySupplier, SupplierQuote,
+    BuyingInquiryGroup, BuyingInquirySupplier, SupplierQuote,
     AutomationRule, AutomationRuleSource, AutomatedPriceCapture,
-    SellingOffer, SellingOfferCustomer, SellingOfferProduct,
+    SellingOffer, SellingOfferCustomer, SellingOfferGroup, SellingOfferProduct,
 )
 
 
@@ -445,18 +445,34 @@ class BuyingInquirySupplierSerializer(serializers.ModelSerializer):
         return f'{obj.source_product.brand} {obj.source_product.name}'.strip()
 
 
+class GroupCampaignRecipientSerializer(serializers.Serializer):
+    id = serializers.IntegerField(read_only=True)
+    group = serializers.IntegerField(source='group_id', read_only=True)
+    group_name = serializers.CharField(source='group.name', read_only=True)
+    wa_group_id = serializers.CharField(source='group.wa_group_id', read_only=True)
+    account_id = serializers.IntegerField(source='group.account_id', read_only=True)
+    account_name = serializers.SerializerMethodField()
+    sent_count = serializers.IntegerField(read_only=True)
+    last_sent_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+    def get_account_name(self, obj):
+        account = obj.group.account
+        return account.display_name or account.phone_number or f'Account {account.pk}'
+
+
 class BuyingInquirySerializer(serializers.ModelSerializer):
     products = BuyingInquiryProductSerializer(many=True, read_only=True)
     suppliers = BuyingInquirySupplierSerializer(many=True, read_only=True)
+    groups = serializers.SerializerMethodField()
     supplier_count = serializers.SerializerMethodField()
     notified_count = serializers.SerializerMethodField()
 
     class Meta:
         model = BuyingInquiry
         fields = [
-            'id', 'company', 'name', 'status', 'header_template',
+            'id', 'company', 'name', 'audience_type', 'status', 'header_template',
             'product_line_template', 'footer_template', 'products', 'suppliers',
-            'supplier_count', 'notified_count', 'closed_at', 'created_at', 'updated_at',
+            'groups', 'supplier_count', 'notified_count', 'closed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'company', 'products', 'suppliers', 'supplier_count',
@@ -474,6 +490,9 @@ class BuyingInquirySerializer(serializers.ModelSerializer):
         if 'suppliers' in prefetched:
             return sum(1 for row in prefetched['suppliers'] if row.sent_count > 0)
         return obj.suppliers.filter(sent_count__gt=0).count()
+
+    def get_groups(self, obj):
+        return GroupCampaignRecipientSerializer(obj.groups.all(), many=True).data
 
 
 class SellingOfferProductSerializer(serializers.ModelSerializer):
@@ -530,15 +549,16 @@ class SellingOfferCustomerSerializer(serializers.ModelSerializer):
 class SellingOfferSerializer(serializers.ModelSerializer):
     products = SellingOfferProductSerializer(many=True, read_only=True)
     customers = SellingOfferCustomerSerializer(many=True, read_only=True)
+    groups = serializers.SerializerMethodField()
     customer_count = serializers.SerializerMethodField()
     notified_count = serializers.SerializerMethodField()
 
     class Meta:
         model = SellingOffer
         fields = [
-            'id', 'company', 'name', 'status', 'header_template',
+            'id', 'company', 'name', 'audience_type', 'status', 'header_template',
             'product_line_template', 'footer_template', 'send_flag', 'flag_position',
-            'send_color', 'color_position', 'products', 'customers',
+            'send_color', 'color_position', 'products', 'customers', 'groups',
             'customer_count', 'notified_count', 'closed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = [
@@ -557,6 +577,9 @@ class SellingOfferSerializer(serializers.ModelSerializer):
         if 'customers' in prefetched:
             return sum(1 for row in prefetched['customers'] if row.sent_count > 0)
         return obj.customers.filter(sent_count__gt=0).count()
+
+    def get_groups(self, obj):
+        return GroupCampaignRecipientSerializer(obj.groups.all(), many=True).data
 
 
 def _contact_label(contact) -> str:

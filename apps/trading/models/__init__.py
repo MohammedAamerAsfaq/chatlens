@@ -1,4 +1,5 @@
 from .product import Product
+from .campaign_audience import CampaignAudience
 from .product_alias import ProductAlias
 from .product_attribute import ProductAttribute
 from .message_classification import MessageClassification, MessageTag
@@ -39,6 +40,7 @@ from .buying_inquiry import (
     BuyingInquiryProduct,
     BuyingInquiryStatus,
     BuyingInquirySupplier,
+    BuyingInquiryGroup,
     BuyingInquirySupplierSource,
     SupplierQuote,
     SupplierQuoteStatus,
@@ -49,6 +51,7 @@ from .selling_offer import (
     SellingOffer,
     SellingOfferCustomer,
     SellingOfferCustomerSource,
+    SellingOfferGroup,
     SellingOfferProduct,
     SellingOfferStatus,
 )
@@ -56,6 +59,7 @@ from .v2_match_training_sample import V2MatchTrainingSample
 
 __all__ = [
     'Product',
+    'CampaignAudience',
     'ProductAlias',
     'ProductAttribute',
     'MessageClassification', 'MessageTag',
@@ -81,10 +85,12 @@ __all__ = [
     'AiParseV2Log',
     'BuyingInquiry', 'BuyingInquiryProduct', 'BuyingInquiryStatus',
     'BuyingInquirySupplier', 'BuyingInquirySupplierSource',
+    'BuyingInquiryGroup',
     'SupplierQuote', 'SupplierQuoteStatus',
     'FormattedPriceList',
     'AutomationRule', 'AutomationRuleSource', 'AutomatedPriceCapture',
     'SellingOffer', 'SellingOfferCustomer', 'SellingOfferCustomerSource',
+    'SellingOfferGroup',
     'SellingOfferProduct', 'SellingOfferStatus',
     'V2MatchTrainingSample',
 ]

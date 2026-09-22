@@ -20,7 +20,7 @@ from apps.tenancy.services.access import (
     scope_queryset_to_visible_companies,
     visible_accounts_queryset,
 )
-from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, NonInventoryProduct, NonInventoryProductMention, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_GATE_V2_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, BuyingInquiryProduct, BuyingInquirySupplier, BuyingInquirySupplierSource, BuyingInquiryStatus, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture, SellingOffer, SellingOfferCustomer, SellingOfferCustomerSource, SellingOfferProduct, SellingOfferStatus
+from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, NonInventoryProduct, NonInventoryProductMention, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_GATE_V2_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, BuyingInquiryGroup, BuyingInquiryProduct, BuyingInquirySupplier, BuyingInquirySupplierSource, BuyingInquiryStatus, CampaignAudience, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture, SellingOffer, SellingOfferCustomer, SellingOfferCustomerSource, SellingOfferGroup, SellingOfferProduct, SellingOfferStatus
 from .serializers import (
     ProductSerializer,
     ProductAliasSerializer,
@@ -44,6 +44,32 @@ from .serializers import (
 from .services.product_cache import invalidate as invalidate_product_cache
 
 logger = logging.getLogger(__name__)
+
+
+def _sendable_campaign_group(user, company, group_id):
+    from apps.whatsapp_bridge.models import WhatsAppGroup
+
+    group = scope_queryset_to_visible_accounts(
+        WhatsAppGroup.objects.select_related('account'), user, account_field='account',
+    ).filter(pk=group_id).first()
+    if not group or company_for_whatsapp_account(group.account) != company:
+        raise ValidationError({'group_id': 'A visible group is required.'})
+    if (
+        not group.can_send
+        or not group.account_is_participant
+        or group.is_community
+        or group.is_community_announcement
+        or group.announce
+    ):
+        raise ValidationError({'group_id': 'Only sendable, participating non-announcement groups can be selected.'})
+    return group
+
+
+def _campaign_audience(value):
+    audience = value or CampaignAudience.CONTACTS
+    if audience not in CampaignAudience.values:
+        raise ValidationError({'audience_type': 'Audience must be contacts or groups.'})
+    return audience
 
 
 def _visible_account_or_none(user, account_id):
@@ -2895,10 +2921,13 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
                 'products__product',
                 'suppliers__contact__account',
                 'suppliers__source_product',
+                'groups__group__account',
             )
             .order_by('-created_at', '-id')
         )
         qs = scope_queryset_to_visible_companies(qs, self.request.user, company_field='company')
+        if self.action == 'list':
+            qs = qs.filter(audience_type=self.request.query_params.get('audience_type') or CampaignAudience.CONTACTS)
         if status_ := self.request.query_params.get('status'):
             qs = qs.filter(status=status_)
         search = (self.request.query_params.get('search') or '').strip()
@@ -2993,6 +3022,7 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
             inquiry = BuyingInquiry.objects.create(
                 company=company,
                 name=name,
+                audience_type=_campaign_audience(request.data.get('audience_type')),
                 status=requested_status,
                 header_template=request.data.get('header_template') or BuyingInquiry._meta.get_field('header_template').default,
                 product_line_template=request.data.get('product_line_template') or BuyingInquiry._meta.get_field('product_line_template').default,
@@ -3005,6 +3035,38 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
 
         inquiry = self.get_queryset().get(pk=inquiry.pk)
         return Response(self.get_serializer(inquiry).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='add-group')
+    def add_group(self, request, pk=None):
+        inquiry = self.get_object()
+        if inquiry.audience_type != CampaignAudience.GROUPS:
+            raise ValidationError({'detail': 'This buying inquiry targets contacts, not groups.'})
+        group = _sendable_campaign_group(request.user, inquiry.company, request.data.get('group_id'))
+        row, created = BuyingInquiryGroup.objects.get_or_create(inquiry=inquiry, group=group)
+        inquiry = self.get_queryset().get(pk=inquiry.pk)
+        return Response(
+            {'created': created, 'inquiry': self.get_serializer(inquiry).data},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=['post'], url_path='remove-group')
+    def remove_group(self, request, pk=None):
+        inquiry = self.get_object()
+        removed, _ = inquiry.groups.filter(pk=request.data.get('recipient_id')).delete()
+        return Response({'removed': removed})
+
+    @action(detail=True, methods=['post'], url_path='mark-group-sent')
+    def mark_group_sent(self, request, pk=None):
+        inquiry = self.get_object()
+        row = inquiry.groups.filter(pk=request.data.get('recipient_id')).first()
+        if not row:
+            return Response({'detail': 'Group recipient not found.'}, status=status.HTTP_404_NOT_FOUND)
+        row.sent_count = F('sent_count') + 1
+        row.last_sent_at = now()
+        row.save(update_fields=['sent_count', 'last_sent_at', 'updated_at'])
+        row.refresh_from_db()
+        inquiry = self.get_queryset().get(pk=inquiry.pk)
+        return Response(self.get_serializer(inquiry).data)
 
     def partial_update(self, request, *args, **kwargs):
         inquiry = self.get_object()
@@ -3397,10 +3459,13 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
                 'products__product__attribute_set',
                 'customers__contact__account',
                 'customers__source_product',
+                'groups__group__account',
             )
             .order_by('-created_at', '-id')
         )
         qs = scope_queryset_to_visible_companies(qs, self.request.user, company_field='company')
+        if self.action == 'list':
+            qs = qs.filter(audience_type=self.request.query_params.get('audience_type') or CampaignAudience.CONTACTS)
         if status_ := self.request.query_params.get('status'):
             qs = qs.filter(status=status_)
         search = (self.request.query_params.get('search') or '').strip()
@@ -3460,6 +3525,7 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
         offer = SellingOffer.objects.create(
             company=company,
             name=name,
+            audience_type=_campaign_audience(request.data.get('audience_type')),
             status=requested_status,
             header_template=self._template_value(request.data, 'header_template', SellingOffer._meta.get_field('header_template').default),
             product_line_template=self._template_value(request.data, 'product_line_template', SellingOffer._meta.get_field('product_line_template').default),
@@ -3475,6 +3541,38 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
             for product_id in product_ids:
                 self._add_product_row(offer, self._visible_product(product_id))
         return offer
+
+    @action(detail=True, methods=['post'], url_path='add-group')
+    def add_group(self, request, pk=None):
+        offer = self.get_object()
+        if offer.audience_type != CampaignAudience.GROUPS:
+            raise ValidationError({'detail': 'This selling offer targets contacts, not groups.'})
+        group = _sendable_campaign_group(request.user, offer.company, request.data.get('group_id'))
+        row, created = SellingOfferGroup.objects.get_or_create(offer=offer, group=group)
+        offer = self.get_queryset().get(pk=offer.pk)
+        return Response(
+            {'created': created, 'offer': self.get_serializer(offer).data},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=['post'], url_path='remove-group')
+    def remove_group(self, request, pk=None):
+        offer = self.get_object()
+        removed, _ = offer.groups.filter(pk=request.data.get('recipient_id')).delete()
+        return Response({'removed': removed})
+
+    @action(detail=True, methods=['post'], url_path='mark-group-sent')
+    def mark_group_sent(self, request, pk=None):
+        offer = self.get_object()
+        row = offer.groups.filter(pk=request.data.get('recipient_id')).first()
+        if not row:
+            return Response({'detail': 'Group recipient not found.'}, status=status.HTTP_404_NOT_FOUND)
+        row.sent_count = F('sent_count') + 1
+        row.last_sent_at = now()
+        row.save(update_fields=['sent_count', 'last_sent_at', 'updated_at'])
+        row.refresh_from_db()
+        offer = self.get_queryset().get(pk=offer.pk)
+        return Response(self.get_serializer(offer).data)
 
     def create(self, request, *args, **kwargs):
         company = default_company_for_user(request.user)
@@ -3645,6 +3743,151 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
 
         offer = self.get_queryset().get(pk=offer.pk)
         return Response({'added': added, 'skipped': skipped, 'offer': self.get_serializer(offer).data})
+
+    @action(detail=True, methods=['post'], url_path='auto-add-all-customers')
+    def auto_add_all_customers(self, request, pk=None):
+        offer = self.get_object()
+        product_ids = list(offer.products.values_list('product_id', flat=True))
+        if not product_ids:
+            return Response(
+                {'product_ids': 'Offer has no products to match customers against.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        rows = (
+            InquiryProduct.objects
+            .filter(company=offer.company, product_id__in=product_ids, inquiry_type='buy', contact__isnull=False)
+            .select_related('contact')
+            .order_by('-first_seen_at', '-id')
+        )
+        contact_rows = {}
+        for row in rows:
+            contact_rows.setdefault(row.contact_id, row)
+        added, skipped = self._bulk_add_customers(offer, contact_rows.keys(), contact_rows)
+        offer = self.get_queryset().get(pk=offer.pk)
+        return Response({'added': added, 'skipped': skipped, 'offer': self.get_serializer(offer).data})
+
+    @action(detail=True, methods=['post'], url_path='auto-add-all-customers-embedding')
+    def auto_add_all_customers_embedding(self, request, pk=None):
+        offer = self.get_object()
+        product_ids = list(offer.products.values_list('product_id', flat=True))
+        if not product_ids:
+            return Response(
+                {'product_ids': 'Offer has no products to match customers against.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        matched_row_ids = []
+        try:
+            with _db_conn.cursor() as cursor:
+                for anchor_id in product_ids:
+                    cursor.execute(
+                        """
+                        WITH scored AS (
+                            SELECT ip.id AS inquiry_product_id,
+                                   (pe.embedding <=> (SELECT embedding FROM product_embedding WHERE product_id = %(anchor_id)s)) AS distance
+                            FROM trading_inquiry_product ip
+                            JOIN product_embedding pe ON pe.product_id = ip.product_id
+                            WHERE ip.company_id = %(company_id)s AND ip.inquiry_type = 'buy'
+                              AND ip.contact_id IS NOT NULL AND ip.product_id IS NOT NULL AND pe.embedding IS NOT NULL
+                            UNION ALL
+                            SELECT ip.id, (pae.embedding <=> (SELECT embedding FROM product_embedding WHERE product_id = %(anchor_id)s))
+                            FROM trading_inquiry_product ip
+                            JOIN trading_product_alias pa ON pa.product_id = ip.product_id
+                            JOIN product_alias_embedding pae ON pae.alias_id = pa.id
+                            WHERE ip.company_id = %(company_id)s AND ip.inquiry_type = 'buy'
+                              AND ip.contact_id IS NOT NULL AND ip.product_id IS NOT NULL AND pae.embedding IS NOT NULL
+                            UNION ALL
+                            SELECT ip.id, (ip.embedding <=> (SELECT embedding FROM product_embedding WHERE product_id = %(anchor_id)s))
+                            FROM trading_inquiry_product ip
+                            WHERE ip.company_id = %(company_id)s AND ip.inquiry_type = 'buy'
+                              AND ip.contact_id IS NOT NULL AND ip.product_id IS NULL AND ip.embedding IS NOT NULL
+                        )
+                        SELECT inquiry_product_id, MIN(distance) AS best_distance
+                        FROM scored WHERE distance IS NOT NULL
+                        GROUP BY inquiry_product_id ORDER BY best_distance ASC LIMIT 15
+                        """,
+                        {'anchor_id': anchor_id, 'company_id': offer.company_id},
+                    )
+                    matched_row_ids.extend(row_id for row_id, _ in cursor.fetchall())
+        except Exception as exc:
+            logger.exception('auto_add_all_customers_embedding | offer_id=%s failed', offer.pk)
+            return Response({'detail': f'Embedding search unavailable: {exc}'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        rows_by_id = {
+            row.pk: row
+            for row in InquiryProduct.objects.filter(pk__in=matched_row_ids).select_related('contact')
+        }
+        contact_rows = {}
+        for row_id in matched_row_ids:
+            row = rows_by_id.get(row_id)
+            if row and row.contact_id:
+                contact_rows.setdefault(row.contact_id, row)
+        added, skipped = self._bulk_add_customers(offer, contact_rows.keys(), contact_rows)
+        offer = self.get_queryset().get(pk=offer.pk)
+        return Response({'added': added, 'skipped': skipped, 'offer': self.get_serializer(offer).data})
+
+    @action(detail=True, methods=['post'], url_path='add-all-tagged-customers')
+    def add_all_tagged_customers(self, request, pk=None):
+        return self._add_tagged_customers_response(self.get_object(), strict=False)
+
+    @action(detail=True, methods=['post'], url_path='add-all-tagged-customers-strict')
+    def add_all_tagged_customers_strict(self, request, pk=None):
+        return self._add_tagged_customers_response(self.get_object(), strict=True)
+
+    def _add_tagged_customers_response(self, offer, strict):
+        from apps.whatsapp_bridge.models import WhatsAppContact
+
+        contacts = WhatsAppContact.objects.filter(
+            account__communication_account__company=offer.company,
+            role_tags__role='customer',
+        )
+        if strict:
+            contacts = contacts.exclude(role_tags__role='supplier')
+        contact_ids = list(contacts.values_list('id', flat=True).distinct())
+        added, skipped = self._bulk_add_customers(offer, contact_ids)
+        offer = self.get_queryset().get(pk=offer.pk)
+        return Response({'added': added, 'skipped': skipped, 'offer': self.get_serializer(offer).data})
+
+    @action(detail=True, methods=['post'], url_path='add-all-previously-contacted-customers')
+    def add_all_previously_contacted_customers(self, request, pk=None):
+        offer = self.get_object()
+        contact_ids = list(
+            SellingOfferCustomer.objects
+            .filter(offer__company=offer.company, sent_count__gt=0)
+            .exclude(offer=offer)
+            .values_list('contact_id', flat=True)
+            .distinct()
+        )
+        added, skipped = self._bulk_add_customers(offer, contact_ids)
+        offer = self.get_queryset().get(pk=offer.pk)
+        return Response({'added': added, 'skipped': skipped, 'offer': self.get_serializer(offer).data})
+
+    def _bulk_add_customers(self, offer, contact_ids, source_rows=None):
+        contact_ids = list(contact_ids)
+        existing_ids = set(offer.customers.values_list('contact_id', flat=True))
+        new_ids = [contact_id for contact_id in contact_ids if contact_id not in existing_ids]
+        source_rows = source_rows or {}
+        SellingOfferCustomer.objects.bulk_create(
+            [
+                SellingOfferCustomer(
+                    offer=offer,
+                    contact_id=contact_id,
+                    source=SellingOfferCustomerSource.AUTO,
+                    source_product_id=getattr(source_rows.get(contact_id), 'product_id', None),
+                    source_inquiry_product=source_rows.get(contact_id),
+                )
+                for contact_id in new_ids
+            ],
+            ignore_conflicts=True,
+        )
+        return len(new_ids), len(contact_ids) - len(new_ids)
+
+    @action(detail=True, methods=['post'], url_path='remove-all-customers')
+    def remove_all_customers(self, request, pk=None):
+        offer = self.get_object()
+        removed, _ = offer.customers.all().delete()
+        offer = self.get_queryset().get(pk=offer.pk)
+        return Response({'removed': removed, 'offer': self.get_serializer(offer).data})
 
     @action(detail=True, methods=['post'], url_path='add-customer')
     def add_customer(self, request, pk=None):
@@ -3913,7 +4156,11 @@ class ReportViewSet(viewsets.ViewSet):
         search = (request.query_params.get('search') or '').strip()
         limit = min(max(int(request.query_params.get('limit') or 250), 1), 500)
 
-        offers_qs = SellingOffer.objects.filter(created_at__gte=start, created_at__lt=end)
+        offers_qs = SellingOffer.objects.filter(
+            created_at__gte=start,
+            created_at__lt=end,
+            audience_type=CampaignAudience.CONTACTS,
+        )
         offers_qs = scope_queryset_to_visible_companies(
             offers_qs,
             request.user,

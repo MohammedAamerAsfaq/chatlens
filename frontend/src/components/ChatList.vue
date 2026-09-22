@@ -14,19 +14,22 @@ const tabs = [
   { key: 'unread', label: 'Unread' },
   { key: 'direct', label: 'Direct' },
   { key: 'groups', label: 'Groups' },
+  { key: 'announcements', label: 'Announcements' },
 ]
 
-function chatKind(waId) {
-  if (waId?.endsWith('@g.us')) return 'group'
-  if (waId?.endsWith('@broadcast')) return 'broadcast'
+function chatKind(chat) {
+  if (chat?.is_announcement) return 'announcement'
+  if (chat?.wa_chat_id?.endsWith('@g.us')) return 'group'
+  if (chat?.wa_chat_id?.endsWith('@broadcast')) return 'broadcast'
   return 'direct'
 }
 
 const displayedChats = computed(() => {
   let list = store.filteredChats
   if (activeFilter.value === 'unread') list = list.filter(c => c.unread_count > 0)
-  else if (activeFilter.value === 'groups') list = list.filter(c => chatKind(c.wa_chat_id) === 'group')
-  else if (activeFilter.value === 'direct') list = list.filter(c => chatKind(c.wa_chat_id) === 'direct')
+  else if (activeFilter.value === 'groups') list = list.filter(c => chatKind(c) === 'group')
+  else if (activeFilter.value === 'announcements') list = list.filter(c => chatKind(c) === 'announcement')
+  else if (activeFilter.value === 'direct') list = list.filter(c => chatKind(c) === 'direct')
   return list
 })
 
@@ -180,13 +183,13 @@ async function toggleAccountAi() {
     </div>
 
     <!-- Filter tabs -->
-    <div class="flex border-b border-gray-100 shrink-0">
+    <div class="flex overflow-x-auto border-b border-gray-100 shrink-0">
       <button
         v-for="tab in tabs"
         :key="tab.key"
         @click="activeFilter = tab.key"
         :class="[
-          'flex-1 text-xs py-2.5 font-medium transition-colors border-b-2 flex items-center justify-center gap-1',
+          'shrink-0 px-3 text-xs py-2.5 font-medium transition-colors border-b-2 flex items-center justify-center gap-1',
           activeFilter === tab.key
             ? 'border-green-500 text-green-600'
             : 'border-transparent text-gray-400 hover:text-gray-600',
@@ -224,7 +227,14 @@ async function toggleAccountAi() {
       >
         <!-- Avatar -->
         <div class="relative shrink-0">
-          <div v-if="chatKind(chat.wa_chat_id) === 'group'"
+          <div v-if="chatKind(chat) === 'announcement'"
+            class="w-12 h-12 rounded-full bg-amber-400 flex items-center justify-center"
+          >
+            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M11 5 6 9H3v6h3l5 4V5Zm4.5 4.5a4 4 0 0 1 0 5m2-7a7 7 0 0 1 0 9"/>
+            </svg>
+          </div>
+          <div v-else-if="chatKind(chat) === 'group'"
             class="w-12 h-12 rounded-full bg-gray-300 flex items-center justify-center"
           >
             <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
@@ -241,9 +251,14 @@ async function toggleAccountAi() {
         <!-- Content -->
         <div class="flex-1 min-w-0">
           <div class="flex items-center justify-between mb-0.5">
-            <span :class="['text-sm truncate', chat.unread_count > 0 ? 'font-semibold text-gray-900' : 'font-medium text-gray-800']">
-              {{ chat.display_name }}
-            </span>
+            <div class="flex min-w-0 items-center gap-1.5">
+              <span :class="['text-sm truncate', chat.unread_count > 0 ? 'font-semibold text-gray-900' : 'font-medium text-gray-800']">
+                {{ chat.display_name }}
+              </span>
+              <span v-if="chat.is_announcement" class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700">
+                Announcement
+              </span>
+            </div>
             <span :class="['text-xs shrink-0 ml-2', chat.unread_count > 0 ? 'text-green-600 font-medium' : 'text-gray-400']">
               {{ formatTime(chat.last_message_at) }}
             </span>

@@ -1,0 +1,178 @@
+<script setup>
+import { computed, onMounted, reactive, ref } from 'vue'
+import { accountsApi, groupsApi, tradingApi } from '@/api'
+
+const props = defineProps({ kind: { type: String, required: true } })
+const isBuying = computed(() => props.kind === 'buying')
+const title = computed(() => isBuying.value ? 'Group Buying Inquiries' : 'Group Selling Offers')
+const campaigns = ref([])
+const products = ref([])
+const productOptions = ref([])
+const expanded = ref(new Set())
+const groupSearch = reactive({})
+const groupOptions = reactive({})
+const busy = ref('')
+const error = ref('')
+const draft = reactive({ name: '', productSearch: '', header: '', line: '', footer: '' })
+
+function defaults() {
+  return isBuying.value
+    ? ['Hello, looking to buy:', '- {product_name} - Qty {qty} - Target {price}', 'Please reply with availability and best price.']
+    : ['Hello, available stock offer:', '- {product_name} - Qty {qty} - {price}', 'Reply with required quantity. Subject to availability.']
+}
+
+function resetDraft() {
+  const [header, line, footer] = defaults()
+  Object.assign(draft, { name: '', productSearch: '', header, line, footer })
+  products.value = []
+  productOptions.value = []
+}
+
+function apiFor(action) {
+  const buying = {
+    list: tradingApi.listBuyingInquiries,
+    create: tradingApi.createBuyingInquiry,
+    addGroup: tradingApi.addBuyingInquiryGroup,
+    removeGroup: tradingApi.removeBuyingInquiryGroup,
+    markSent: tradingApi.markBuyingInquiryGroupSent,
+  }
+  const selling = {
+    list: tradingApi.listSellingOffers,
+    create: tradingApi.createSellingOffer,
+    addGroup: tradingApi.addSellingOfferGroup,
+    removeGroup: tradingApi.removeSellingOfferGroup,
+    markSent: tradingApi.markSellingOfferGroupSent,
+  }
+  return (isBuying.value ? buying : selling)[action]
+}
+
+async function loadCampaigns() {
+  const { data } = await apiFor('list')({ audience_type: 'groups', page_size: 100 })
+  campaigns.value = data.results || data
+}
+
+async function searchProducts() {
+  const { data } = await tradingApi.listProducts({ search: draft.productSearch, active: 'true' })
+  productOptions.value = (data.results || data).filter(row => !products.value.some(item => item.id === row.id))
+}
+
+function addProduct(product) {
+  products.value.push(product)
+  productOptions.value = productOptions.value.filter(row => row.id !== product.id)
+}
+
+async function createCampaign() {
+  if (!draft.name.trim()) return
+  busy.value = 'create'
+  error.value = ''
+  try {
+    const payload = {
+      name: draft.name.trim(), audience_type: 'groups', product_ids: products.value.map(row => row.id),
+      header_template: draft.header, product_line_template: draft.line, footer_template: draft.footer,
+    }
+    const { data } = await apiFor('create')(payload)
+    await loadCampaigns()
+    expanded.value = new Set([...expanded.value, data.id])
+    resetDraft()
+  } catch (exc) {
+    error.value = exc.response?.data?.detail || 'Unable to create group campaign.'
+  } finally {
+    busy.value = ''
+  }
+}
+
+async function searchGroups(campaign) {
+  const { data } = await groupsApi.list({ search: groupSearch[campaign.id], sendable: 'true', page_size: 50 })
+  const selected = new Set(campaign.groups.map(row => row.group))
+  groupOptions[campaign.id] = (data.results || data).filter(row => !selected.has(row.id))
+}
+
+async function addGroup(campaign, group) {
+  busy.value = `add-${campaign.id}-${group.id}`
+  try {
+    const { data } = await apiFor('addGroup')(campaign.id, group.id)
+    replaceCampaign(data.inquiry || data.offer)
+    groupOptions[campaign.id] = (groupOptions[campaign.id] || []).filter(row => row.id !== group.id)
+  } catch (exc) {
+    error.value = exc.response?.data?.group_id || 'Unable to add group.'
+  } finally { busy.value = '' }
+}
+
+async function removeGroup(campaign, recipient) {
+  await apiFor('removeGroup')(campaign.id, recipient.id)
+  campaign.groups = campaign.groups.filter(row => row.id !== recipient.id)
+}
+
+function replaceCampaign(updated) {
+  const index = campaigns.value.findIndex(row => row.id === updated.id)
+  if (index !== -1) campaigns.value[index] = updated
+}
+
+function message(campaign) {
+  const lines = campaign.products.map(row => campaign.product_line_template
+    .replaceAll('{product_name}', row.product_name)
+    .replaceAll('{qty}', row.quantity ?? '-')
+    .replaceAll('{price}', row.target_price ?? row.price ?? '-'))
+  return [campaign.header_template, ...lines, campaign.footer_template].filter(Boolean).join('\n')
+}
+
+async function sendGroup(campaign, recipient) {
+  busy.value = `send-${campaign.id}-${recipient.id}`
+  error.value = ''
+  try {
+    const { data } = await accountsApi.sendMessage(recipient.account_id, {
+      destination_jid: recipient.wa_group_id,
+      text: message(campaign),
+      idempotency_key: `${props.kind}-group-${campaign.id}-${recipient.id}-${Date.now()}`,
+    })
+    if (['blocked', 'preflight_blocked', 'failed'].includes(data.status)) {
+      throw new Error(data.status_reason || data.last_error || 'Outbound message was blocked.')
+    }
+    const marked = await apiFor('markSent')(campaign.id, recipient.id)
+    replaceCampaign(marked.data)
+  } catch (exc) {
+    error.value = exc.response?.data?.detail || exc.message || 'Unable to queue group message.'
+  } finally { busy.value = '' }
+}
+
+function toggle(id) {
+  const next = new Set(expanded.value)
+  next.has(id) ? next.delete(id) : next.add(id)
+  expanded.value = next
+}
+
+resetDraft()
+onMounted(loadCampaigns)
+</script>
+
+<template>
+  <main class="campaign-page">
+    <header><div><p class="eyebrow">Sendable groups only</p><h1>{{ title }}</h1><p>Create a product message and queue it only to participating groups where posting is allowed.</p></div></header>
+    <div v-if="error" class="error">{{ error }}</div>
+    <section class="panel composer">
+      <div class="fields"><label>Name<input v-model="draft.name" placeholder="Campaign name" /></label><label>Product search<div class="inline"><input v-model="draft.productSearch" @keydown.enter.prevent="searchProducts" /><button @click="searchProducts">Search</button></div></label></div>
+      <div v-if="productOptions.length" class="options"><button v-for="row in productOptions" :key="row.id" @click="addProduct(row)"><strong>{{ row.brand }} {{ row.name }}</strong><span>Qty {{ row.qty }}</span></button></div>
+      <div class="tokens"><span v-for="row in products" :key="row.id">{{ row.brand }} {{ row.name }} <button @click="products = products.filter(item => item.id !== row.id)">x</button></span></div>
+      <div class="templates"><label>Header<textarea v-model="draft.header" rows="2" /></label><label>Product line<textarea v-model="draft.line" rows="2" /></label><label>Footer<textarea v-model="draft.footer" rows="2" /></label></div>
+      <button class="primary" :disabled="busy === 'create' || !draft.name.trim()" @click="createCampaign">{{ busy === 'create' ? 'Creating...' : `Create ${title}` }}</button>
+    </section>
+    <section class="panel list">
+      <div class="section-head"><div><h2>Existing {{ title }}</h2><p>Announcements, communities, non-participant and blocked groups never appear in selection.</p></div><button @click="loadCampaigns">Refresh</button></div>
+      <p v-if="!campaigns.length" class="empty">No group campaigns created.</p>
+      <article v-for="campaign in campaigns" :key="campaign.id" class="campaign">
+        <button class="summary" @click="toggle(campaign.id)"><span><strong>{{ campaign.name }}</strong><small>{{ campaign.products.length }} products · {{ campaign.groups.length }} groups</small></span><b>{{ expanded.has(campaign.id) ? '−' : '+' }}</b></button>
+        <div v-if="expanded.has(campaign.id)" class="details">
+          <div class="preview"><h3>Message preview</h3><pre>{{ message(campaign) }}</pre></div>
+          <div class="selector"><h3>Add sendable group</h3><div class="inline"><input v-model="groupSearch[campaign.id]" placeholder="Search group..." @keydown.enter.prevent="searchGroups(campaign)" /><button @click="searchGroups(campaign)">Search</button></div>
+            <div class="options"><button v-for="group in groupOptions[campaign.id] || []" :key="group.id" :disabled="busy === `add-${campaign.id}-${group.id}`" @click="addGroup(campaign, group)"><strong>{{ group.name || group.wa_group_id }}</strong><span>{{ group.participant_count }} participants · {{ group.account_id }}</span></button></div>
+          </div>
+          <div class="recipients"><h3>Groups to message</h3><div v-for="recipient in campaign.groups" :key="recipient.id" class="recipient"><div><strong>{{ recipient.group_name || recipient.wa_group_id }}</strong><span>{{ recipient.account_name }} · {{ recipient.sent_count ? `Queued ${recipient.sent_count}x` : 'Not sent' }}</span></div><div><button class="send" :disabled="busy === `send-${campaign.id}-${recipient.id}`" @click="sendGroup(campaign, recipient)">{{ busy === `send-${campaign.id}-${recipient.id}` ? 'Queueing...' : 'Send' }}</button><button class="danger" @click="removeGroup(campaign, recipient)">Remove</button></div></div><p v-if="!campaign.groups.length" class="empty">No groups selected.</p></div>
+        </div>
+      </article>
+    </section>
+  </main>
+</template>
+
+<style scoped>
+.campaign-page{padding:28px;min-height:100%;background:radial-gradient(circle at top right,#dcfce7,transparent 32%),#f8fafc;color:#172033}.campaign-page>header{max-width:1400px;margin:auto}.eyebrow{color:#15803d;text-transform:uppercase;letter-spacing:.16em;font-size:.72rem;font-weight:800}h1{font:700 2rem Georgia,serif;margin:4px 0}header p,.section-head p{color:#64748b}.panel{max-width:1400px;margin:18px auto;background:#fff;border:1px solid #dfe7e2;border-radius:18px;padding:22px;box-shadow:0 16px 40px #0f172a0d}.fields,.templates{display:grid;grid-template-columns:1fr 1fr;gap:14px}.templates{grid-template-columns:repeat(3,1fr);margin-top:16px}label{display:flex;flex-direction:column;gap:6px;font-size:.75rem;font-weight:800;text-transform:uppercase;color:#64748b}input,textarea,button{font:inherit}input,textarea{border:1px solid #d7e2dc;border-radius:10px;padding:10px;background:#fbfdfc}.inline{display:flex;gap:8px}.inline input{flex:1}button{border:1px solid #cedbd4;background:#fff;border-radius:9px;padding:9px 13px;cursor:pointer}.primary,.send{background:#168447;color:#fff;border-color:#168447}.primary{margin-top:16px;font-weight:700}.options{display:grid;gap:6px;margin-top:8px}.options button,.recipient{display:flex;justify-content:space-between;align-items:center;text-align:left}.options span,.recipient span,small{display:block;color:#64748b;font-size:.78rem}.tokens{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.tokens span{background:#edf8f1;border-radius:20px;padding:6px 10px;font-size:.8rem}.tokens button{border:0;background:none;padding:0 0 0 6px}.section-head,.summary{display:flex;align-items:center;justify-content:space-between}.campaign{border:1px solid #e3ebe6;border-radius:13px;margin-top:10px;overflow:hidden}.summary{width:100%;border:0;border-radius:0;padding:14px 16px}.summary strong{display:block}.details{padding:16px;background:#fbfdfc;display:grid;grid-template-columns:1fr 1fr;gap:18px}.preview pre{white-space:pre-wrap;background:#eef5f0;border-radius:12px;padding:14px}.recipients{grid-column:1/-1}.recipient{padding:11px 0;border-top:1px solid #e3ebe6}.recipient>div:last-child{display:flex;gap:7px}.danger{color:#b42318;border-color:#f3c7c3}.error{max-width:1400px;margin:14px auto;background:#fff1f0;color:#b42318;padding:12px;border-radius:10px}.empty{color:#94a3b8}@media(max-width:800px){.campaign-page{padding:14px}.fields,.templates,.details{grid-template-columns:1fr}.recipients{grid-column:auto}.recipient{align-items:flex-start;gap:10px}}
+</style>

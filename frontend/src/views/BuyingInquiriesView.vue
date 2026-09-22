@@ -483,6 +483,7 @@ async function loadInquiries() {
       page: inquiryPage.value,
       page_size: inquiryPageSize.value,
       search: inquirySearch.value || undefined,
+      audience_type: 'contacts',
     })
     inquiries.value = data.results || data
     inquiryTotal.value = data.count ?? inquiries.value.length

@@ -189,6 +189,7 @@ class ContactDetailSerializer(serializers.ModelSerializer):
 class ChatSerializer(serializers.ModelSerializer):
     contact = ContactSerializer(read_only=True)
     display_name = serializers.SerializerMethodField()
+    is_announcement = serializers.SerializerMethodField()
     last_message_preview = serializers.SerializerMethodField()
     last_message_direction = serializers.SerializerMethodField()
     message_count = serializers.SerializerMethodField()
@@ -197,7 +198,7 @@ class ChatSerializer(serializers.ModelSerializer):
         model = WhatsAppChat
         fields = [
             'id', 'wa_chat_id', 'chat_type', 'name', 'contact',
-            'display_name', 'last_message_at', 'last_message_preview',
+            'display_name', 'is_announcement', 'last_message_at', 'last_message_preview',
             'last_message_direction', 'message_count', 'unread_count',
             'ai_parsing',
         ]
@@ -218,6 +219,10 @@ class ChatSerializer(serializers.ModelSerializer):
             # WhatsApp privacy-mode contact — no phone number available until name syncs
             return 'Unknown Contact'
         return jid
+
+    def get_is_announcement(self, obj):
+        group = getattr(obj, 'group', None)
+        return bool(group and (group.announce or group.is_community_announcement))
 
     def get_last_message_preview(self, obj):
         msg = obj.messages.order_by('-message_time').first()

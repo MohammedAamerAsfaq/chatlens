@@ -300,6 +300,9 @@ export const tradingApi = {
   addSupplierToInquiry: (id, supplier_id) => http.post(`/buying-inquiries/${id}/add-supplier/`, { supplier_id }),
   removeBuyingInquirySupplier: (id, supplier_id) => http.post(`/buying-inquiries/${id}/remove-supplier/`, { supplier_id }),
   markBuyingInquirySupplierSent: (id, supplier_id) => http.post(`/buying-inquiries/${id}/mark-sent/`, { supplier_id }),
+  addBuyingInquiryGroup: (id, group_id) => http.post(`/buying-inquiries/${id}/add-group/`, { group_id }),
+  removeBuyingInquiryGroup: (id, recipient_id) => http.post(`/buying-inquiries/${id}/remove-group/`, { recipient_id }),
+  markBuyingInquiryGroupSent: (id, recipient_id) => http.post(`/buying-inquiries/${id}/mark-group-sent/`, { recipient_id }),
 
   // Selling Offers (manual offer-to-customers workflow)
   listSellingOffers:       (params) => http.get('/selling-offers/', { params }),
@@ -310,9 +313,18 @@ export const tradingApi = {
   addSellingOfferProduct:  (id, product_id) => http.post(`/selling-offers/${id}/add-product/`, { product_id }),
   removeSellingOfferProduct: (id, product_id) => http.post(`/selling-offers/${id}/remove-product/`, { product_id }),
   autoAddSellingOfferCustomers: (id, product_id) => http.post(`/selling-offers/${id}/auto-add-customers/`, { product_id }),
+  autoAddAllSellingOfferCustomers: (id) => http.post(`/selling-offers/${id}/auto-add-all-customers/`),
+  autoAddAllSellingOfferCustomersEmbedding: (id) => http.post(`/selling-offers/${id}/auto-add-all-customers-embedding/`),
+  addAllTaggedSellingOfferCustomers: (id) => http.post(`/selling-offers/${id}/add-all-tagged-customers/`),
+  addAllTaggedSellingOfferCustomersStrict: (id) => http.post(`/selling-offers/${id}/add-all-tagged-customers-strict/`),
+  addAllPreviouslyContactedSellingOfferCustomers: (id) => http.post(`/selling-offers/${id}/add-all-previously-contacted-customers/`),
+  removeAllSellingOfferCustomers: (id) => http.post(`/selling-offers/${id}/remove-all-customers/`),
   addSellingOfferCustomer: (id, contact_id) => http.post(`/selling-offers/${id}/add-customer/`, { contact_id }),
   removeSellingOfferCustomer: (id, customer_id) => http.post(`/selling-offers/${id}/remove-customer/`, { customer_id }),
   markSellingOfferCustomerSent: (id, customer_id) => http.post(`/selling-offers/${id}/mark-sent/`, { customer_id }),
+  addSellingOfferGroup: (id, group_id) => http.post(`/selling-offers/${id}/add-group/`, { group_id }),
+  removeSellingOfferGroup: (id, recipient_id) => http.post(`/selling-offers/${id}/remove-group/`, { recipient_id }),
+  markSellingOfferGroupSent: (id, recipient_id) => http.post(`/selling-offers/${id}/mark-group-sent/`, { recipient_id }),
 
   askSupplierQuote:     (id)         => http.post(`/supplier-quotes/${id}/ask/`),
   updateSupplierQuote:  (id, data)   => http.patch(`/supplier-quotes/${id}/`, data),

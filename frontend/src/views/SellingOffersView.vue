@@ -331,6 +331,24 @@
                 <div class="section-title-row compact-title">
                   <h3>Manual Add Customer</h3>
                 </div>
+                <div class="select-all-row">
+                  <span class="muted">Select all buyers:</span>
+                  <button class="link-btn" :disabled="!offer.products.length || busyAction === `auto-all-${offer.id}`" title="Exact product match against buy-side inquiries" @click="autoAddAllCustomers(offer)">
+                    {{ busyAction === `auto-all-${offer.id}` ? 'Finding...' : 'Exact Match' }}
+                  </button>
+                  <button class="link-btn" :disabled="!offer.products.length || busyAction === `auto-all-embedding-${offer.id}`" title="Similarity match using product embeddings" @click="autoAddAllCustomersEmbedding(offer)">
+                    {{ busyAction === `auto-all-embedding-${offer.id}` ? 'Finding...' : 'Embedded Search' }}
+                  </button>
+                  <button class="link-btn" :disabled="busyAction === `auto-all-tagged-${offer.id}`" title="Every contact tagged Customer or Both" @click="addAllTaggedCustomers(offer)">
+                    {{ busyAction === `auto-all-tagged-${offer.id}` ? 'Adding...' : 'Tagged Customer / Both' }}
+                  </button>
+                  <button class="link-btn" :disabled="busyAction === `auto-all-tagged-strict-${offer.id}`" title="Every contact tagged Customer only, excluding Both" @click="addAllTaggedCustomersStrict(offer)">
+                    {{ busyAction === `auto-all-tagged-strict-${offer.id}` ? 'Adding...' : 'Tagged Customer' }}
+                  </button>
+                  <button class="link-btn" :disabled="busyAction === `auto-all-contacted-${offer.id}`" title="Every contact previously sent a selling offer" @click="addAllPreviouslyContactedCustomers(offer)">
+                    {{ busyAction === `auto-all-contacted-${offer.id}` ? 'Adding...' : 'Previously Contacted' }}
+                  </button>
+                </div>
                 <div class="customer-tools">
                   <input v-model="customerSearch[offer.id]" placeholder="Search customer name or phone..." @keydown.enter.prevent="searchContacts(offer)" />
                   <button class="ghost-btn" @click="searchContacts(offer)">Search</button>
@@ -356,7 +374,12 @@
                 <h3>Customers to Send Offer</h3>
                 <p>Saved customer list for this selling inquiry.</p>
               </div>
-              <span class="muted">{{ offer.customers.length }} customers</span>
+              <div class="customer-list-title-right">
+                <span class="muted">{{ offer.customers.length }} customers</span>
+                <button class="link-btn danger" :disabled="!offer.customers.length || busyAction === `remove-all-${offer.id}`" @click="removeAllCustomers(offer)">
+                  {{ busyAction === `remove-all-${offer.id}` ? 'Removing...' : 'Remove All Customers' }}
+                </button>
+              </div>
             </div>
             <div class="detail-customer-list">
               <div v-if="offer.customers.length === 0" class="empty-note">No customers added yet.</div>
@@ -503,6 +526,7 @@ async function loadOffers() {
       page: offerPage.value,
       page_size: offerPageSize.value,
       search: offerSearch.value || undefined,
+      audience_type: 'contacts',
     })
     offers.value = data.results || data
     offerTotal.value = data.count ?? offers.value.length
@@ -627,6 +651,30 @@ async function addCustomer(offer, contact) {
   } catch (exc) {
     error.value = apiError(exc, 'Add customer failed.')
   }
+}
+
+async function runBulkCustomerAction(offer, action, busyKey, message) {
+  busyAction.value = `${busyKey}-${offer.id}`
+  error.value = ''
+  try {
+    const { data } = await action(offer.id)
+    replaceOffer(data.offer)
+  } catch (exc) {
+    error.value = apiError(exc, message)
+  } finally {
+    busyAction.value = ''
+  }
+}
+
+const autoAddAllCustomers = offer => runBulkCustomerAction(offer, tradingApi.autoAddAllSellingOfferCustomers, 'auto-all', 'Auto customer discovery failed.')
+const autoAddAllCustomersEmbedding = offer => runBulkCustomerAction(offer, tradingApi.autoAddAllSellingOfferCustomersEmbedding, 'auto-all-embedding', 'Embedded customer discovery failed.')
+const addAllTaggedCustomers = offer => runBulkCustomerAction(offer, tradingApi.addAllTaggedSellingOfferCustomers, 'auto-all-tagged', 'Add tagged customers failed.')
+const addAllTaggedCustomersStrict = offer => runBulkCustomerAction(offer, tradingApi.addAllTaggedSellingOfferCustomersStrict, 'auto-all-tagged-strict', 'Add tagged customers failed.')
+const addAllPreviouslyContactedCustomers = offer => runBulkCustomerAction(offer, tradingApi.addAllPreviouslyContactedSellingOfferCustomers, 'auto-all-contacted', 'Add previously contacted customers failed.')
+
+async function removeAllCustomers(offer) {
+  if (!window.confirm(`Remove all ${offer.customers.length} customers from "${offer.name}"? This cannot be undone.`)) return
+  await runBulkCustomerAction(offer, tradingApi.removeAllSellingOfferCustomers, 'remove-all', 'Remove all customers failed.')
 }
 
 async function removeCustomerFromOffer(offer, customer) {
@@ -1059,6 +1107,16 @@ textarea {
   gap: 8px;
   margin-top: 12px;
 }
+.select-all-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.select-all-row .muted {
+  margin-top: 0;
+}
 .list-tools {
   display: grid;
   grid-template-columns: minmax(260px, 1fr) auto auto auto;
@@ -1386,6 +1444,12 @@ pre {
   margin-top: 4px;
   color: #64748b;
   font-size: 0.8rem;
+}
+.customer-list-title-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
 }
 .edit-template-grid {
   margin-top: 12px;

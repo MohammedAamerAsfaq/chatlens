@@ -1,5 +1,7 @@
 from django.db import models
 
+from .campaign_audience import CampaignAudience
+
 
 class BuyingInquiryStatus(models.TextChoices):
     OPEN = 'open', 'Open'
@@ -38,6 +40,12 @@ class BuyingInquiry(models.Model):
         related_name='buying_inquiries',
     )
     name = models.CharField(max_length=255, blank=True)
+    audience_type = models.CharField(
+        max_length=20,
+        choices=CampaignAudience.choices,
+        default=CampaignAudience.CONTACTS,
+        db_index=True,
+    )
     product_name = models.CharField(max_length=255, blank=True)
     quantity = models.CharField(max_length=100, blank=True)
     notes = models.TextField(blank=True)
@@ -144,6 +152,24 @@ class BuyingInquirySupplier(models.Model):
 
     def __str__(self):
         return f'{self.inquiry_id}: {self.contact}'
+
+
+class BuyingInquiryGroup(models.Model):
+    inquiry = models.ForeignKey(BuyingInquiry, on_delete=models.CASCADE, related_name='groups')
+    group = models.ForeignKey(
+        'whatsapp_bridge.WhatsAppGroup', on_delete=models.CASCADE, related_name='buying_inquiry_rows',
+    )
+    sent_count = models.PositiveIntegerField(default=0)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'trading_buying_inquiry_group'
+        ordering = ['id']
+        constraints = [
+            models.UniqueConstraint(fields=['inquiry', 'group'], name='unique_buying_inquiry_group'),
+        ]
 
 
 class SupplierQuote(models.Model):

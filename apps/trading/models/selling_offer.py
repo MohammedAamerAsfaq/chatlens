@@ -1,5 +1,7 @@
 from django.db import models
 
+from .campaign_audience import CampaignAudience
+
 
 class SellingOfferStatus(models.TextChoices):
     OPEN = 'open', 'Open'
@@ -18,6 +20,12 @@ class SellingOffer(models.Model):
         related_name='selling_offers',
     )
     name = models.CharField(max_length=255)
+    audience_type = models.CharField(
+        max_length=20,
+        choices=CampaignAudience.choices,
+        default=CampaignAudience.CONTACTS,
+        db_index=True,
+    )
     status = models.CharField(
         max_length=20,
         choices=SellingOfferStatus.choices,
@@ -124,3 +132,21 @@ class SellingOfferCustomer(models.Model):
 
     def __str__(self):
         return f'{self.offer_id}: {self.contact}'
+
+
+class SellingOfferGroup(models.Model):
+    offer = models.ForeignKey(SellingOffer, on_delete=models.CASCADE, related_name='groups')
+    group = models.ForeignKey(
+        'whatsapp_bridge.WhatsAppGroup', on_delete=models.CASCADE, related_name='selling_offer_rows',
+    )
+    sent_count = models.PositiveIntegerField(default=0)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'trading_selling_offer_group'
+        ordering = ['id']
+        constraints = [
+            models.UniqueConstraint(fields=['offer', 'group'], name='unique_selling_offer_group'),
+        ]

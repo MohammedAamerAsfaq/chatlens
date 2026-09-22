@@ -10,13 +10,17 @@ from unittest.mock import patch
 
 from apps.chatlens_core.models import SystemSettings
 from apps.tenancy.models import CommunicationAccount, Company, CompanyMembership, ConnectionProvider
-from apps.trading.models import FormattedPriceList, Inquiry, MessageClassification, Product, PromptConfig
+from apps.trading.models import (
+    BuyingInquiry, FormattedPriceList, Inquiry, InquiryProduct, MessageClassification, Product, PromptConfig,
+    SellingOffer, SellingOfferProduct,
+)
 from apps.trading.services.inquiry_service import process_inquiry
 from apps.whatsapp_bridge.models import (
     WhatsAppAccount,
     WhatsAppAccountCapacity,
     WhatsAppChat,
     WhatsAppContact,
+    ContactRoleTag,
     WhatsAppGroup,
     WhatsAppMessage,
     OutboundMessage,
@@ -165,6 +169,144 @@ class TenantScopedApiTests(TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertFalse(WhatsAppChat.objects.filter(account=self.account_b).exists())
+
+    def test_chat_list_classifies_announcement_groups(self):
+        announcement_chat = WhatsAppChat.objects.create(
+            account=self.account_a,
+            wa_chat_id='120363000000000001@g.us',
+            chat_type='group',
+            name='Announcements',
+        )
+        regular_chat = WhatsAppChat.objects.create(
+            account=self.account_a,
+            wa_chat_id='120363000000000002@g.us',
+            chat_type='group',
+            name='Regular Group',
+        )
+        WhatsAppGroup.objects.create(
+            account=self.account_a,
+            wa_group_id=announcement_chat.wa_chat_id,
+            chat=announcement_chat,
+            announce=True,
+        )
+        WhatsAppGroup.objects.create(
+            account=self.account_a,
+            wa_group_id=regular_chat.wa_chat_id,
+            chat=regular_chat,
+        )
+        self.client.force_authenticate(self.user_a)
+
+        response = self.client.get(f'/api/chats/?account={self.account_a.id}')
+
+        self.assertEqual(response.status_code, 200)
+        rows = {row['id']: row for row in response.json()}
+        self.assertIs(rows[announcement_chat.id]['is_announcement'], True)
+        self.assertIs(rows[regular_chat.id]['is_announcement'], False)
+
+    def test_selling_offer_bulk_customer_selection_matches_buying_options(self):
+        customer = WhatsAppContact.objects.create(
+            account=self.account_a,
+            wa_contact_id='971500000081@s.whatsapp.net',
+            phone_number='971500000081',
+        )
+        both = WhatsAppContact.objects.create(
+            account=self.account_a,
+            wa_contact_id='971500000082@s.whatsapp.net',
+            phone_number='971500000082',
+        )
+        ContactRoleTag.objects.create(company=self.company_a, contact=customer, role='customer')
+        ContactRoleTag.objects.create(company=self.company_a, contact=both, role='customer')
+        ContactRoleTag.objects.create(company=self.company_a, contact=both, role='supplier')
+        InquiryProduct.objects.create(
+            company=self.company_a,
+            inquiry=self.inquiry_a,
+            account=self.account_a,
+            contact=customer,
+            product=self.product_a,
+            inquiry_type='buy',
+            canonical_name=self.product_a.name,
+            first_seen_at=now(),
+        )
+        offer = SellingOffer.objects.create(company=self.company_a, name='Test offer', created_by=self.user_a)
+        SellingOfferProduct.objects.create(offer=offer, product=self.product_a)
+        self.client.force_authenticate(self.user_a)
+
+        exact = self.client.post(f'/api/selling-offers/{offer.id}/auto-add-all-customers/')
+        self.assertEqual(exact.status_code, 200)
+        self.assertEqual({row['contact'] for row in exact.json()['offer']['customers']}, {customer.id})
+
+        self.client.post(f'/api/selling-offers/{offer.id}/remove-all-customers/')
+        strict = self.client.post(f'/api/selling-offers/{offer.id}/add-all-tagged-customers-strict/')
+        self.assertEqual(strict.status_code, 200)
+        self.assertEqual({row['contact'] for row in strict.json()['offer']['customers']}, {customer.id})
+
+        inclusive = self.client.post(f'/api/selling-offers/{offer.id}/add-all-tagged-customers/')
+        self.assertEqual(inclusive.status_code, 200)
+        self.assertEqual(
+            {row['contact'] for row in inclusive.json()['offer']['customers']},
+            {customer.id, both.id},
+        )
+
+    def test_group_campaign_selector_excludes_announcements_and_revalidates_add(self):
+        sendable = WhatsAppGroup.objects.create(
+            account=self.account_a,
+            wa_group_id='120363000000000011@g.us',
+            name='Sendable Group',
+            account_is_participant=True,
+            can_send=True,
+        )
+        announcement = WhatsAppGroup.objects.create(
+            account=self.account_a,
+            wa_group_id='120363000000000012@g.us',
+            name='Announcement Group',
+            account_is_participant=True,
+            can_send=True,
+            announce=True,
+        )
+        self.client.force_authenticate(self.user_a)
+
+        options = self.client.get('/api/groups/?sendable=true')
+        self.assertEqual(options.status_code, 200)
+        option_ids = {row['id'] for row in options.json()['results']}
+        self.assertIn(sendable.id, option_ids)
+        self.assertNotIn(announcement.id, option_ids)
+
+        created = self.client.post(
+            '/api/buying-inquiries/',
+            {'name': 'Group stock request', 'audience_type': 'groups', 'product_ids': []},
+            format='json',
+        )
+        self.assertEqual(created.status_code, 201)
+        inquiry = BuyingInquiry.objects.get(pk=created.json()['id'])
+        accepted = self.client.post(
+            f'/api/buying-inquiries/{inquiry.id}/add-group/', {'group_id': sendable.id}, format='json',
+        )
+        rejected = self.client.post(
+            f'/api/buying-inquiries/{inquiry.id}/add-group/', {'group_id': announcement.id}, format='json',
+        )
+        self.assertEqual(accepted.status_code, 201)
+        self.assertEqual(accepted.json()['inquiry']['groups'][0]['group'], sendable.id)
+        self.assertEqual(rejected.status_code, 400)
+
+        offer_created = self.client.post(
+            '/api/selling-offers/',
+            {'name': 'Group stock offer', 'audience_type': 'groups', 'product_ids': []},
+            format='json',
+        )
+        self.assertEqual(offer_created.status_code, 201)
+        offer_accepted = self.client.post(
+            f"/api/selling-offers/{offer_created.json()['id']}/add-group/",
+            {'group_id': sendable.id},
+            format='json',
+        )
+        offer_rejected = self.client.post(
+            f"/api/selling-offers/{offer_created.json()['id']}/add-group/",
+            {'group_id': announcement.id},
+            format='json',
+        )
+        self.assertEqual(offer_accepted.status_code, 201)
+        self.assertEqual(offer_accepted.json()['offer']['groups'][0]['group'], sendable.id)
+        self.assertEqual(offer_rejected.status_code, 400)
 
     def test_auth_me_exposes_current_company_context(self):
         self.client.force_authenticate(self.user_a)
