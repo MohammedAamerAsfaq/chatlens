@@ -308,6 +308,52 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(offer_accepted.json()['offer']['groups'][0]['group'], sendable.id)
         self.assertEqual(offer_rejected.status_code, 400)
 
+    def test_group_campaign_supports_direct_message_mode(self):
+        self.client.force_authenticate(self.user_a)
+
+        inquiry_response = self.client.post(
+            '/api/buying-inquiries/',
+            {
+                'name': 'Direct stock request',
+                'audience_type': 'groups',
+                'message_mode': 'direct',
+                'direct_message': 'Need your latest stock list.',
+                'product_ids': [],
+            },
+            format='json',
+        )
+        self.assertEqual(inquiry_response.status_code, 201)
+        self.assertEqual(inquiry_response.json()['message_mode'], 'direct')
+        self.assertEqual(inquiry_response.json()['direct_message'], 'Need your latest stock list.')
+
+        offer_response = self.client.post(
+            '/api/selling-offers/',
+            {
+                'name': 'Direct stock offer',
+                'audience_type': 'groups',
+                'message_mode': 'direct',
+                'direct_message': 'New stock available today.',
+                'product_ids': [],
+            },
+            format='json',
+        )
+        self.assertEqual(offer_response.status_code, 201)
+        self.assertEqual(offer_response.json()['message_mode'], 'direct')
+        self.assertEqual(offer_response.json()['direct_message'], 'New stock available today.')
+
+        invalid_response = self.client.post(
+            '/api/buying-inquiries/',
+            {
+                'name': 'Empty direct message',
+                'audience_type': 'groups',
+                'message_mode': 'direct',
+                'direct_message': '   ',
+            },
+            format='json',
+        )
+        self.assertEqual(invalid_response.status_code, 400)
+        self.assertEqual(invalid_response.json()['direct_message'], 'Direct message is required.')
+
     def test_auth_me_exposes_current_company_context(self):
         self.client.force_authenticate(self.user_a)
         resp = self.client.get('/api/auth/me/')

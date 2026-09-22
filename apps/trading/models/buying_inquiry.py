@@ -1,6 +1,6 @@
 from django.db import models
 
-from .campaign_audience import CampaignAudience
+from .campaign_audience import CampaignAudience, CampaignMessageMode
 
 
 class BuyingInquiryStatus(models.TextChoices):
@@ -46,6 +46,12 @@ class BuyingInquiry(models.Model):
         default=CampaignAudience.CONTACTS,
         db_index=True,
     )
+    message_mode = models.CharField(
+        max_length=20,
+        choices=CampaignMessageMode.choices,
+        default=CampaignMessageMode.FORMATTED,
+    )
+    direct_message = models.TextField(blank=True)
     product_name = models.CharField(max_length=255, blank=True)
     quantity = models.CharField(max_length=100, blank=True)
     notes = models.TextField(blank=True)

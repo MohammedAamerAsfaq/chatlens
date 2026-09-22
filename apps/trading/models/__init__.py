@@ -1,5 +1,5 @@
 from .product import Product
-from .campaign_audience import CampaignAudience
+from .campaign_audience import CampaignAudience, CampaignMessageMode
 from .product_alias import ProductAlias
 from .product_attribute import ProductAttribute
 from .message_classification import MessageClassification, MessageTag
@@ -60,6 +60,7 @@ from .v2_match_training_sample import V2MatchTrainingSample
 __all__ = [
     'Product',
     'CampaignAudience',
+    'CampaignMessageMode',
     'ProductAlias',
     'ProductAttribute',
     'MessageClassification', 'MessageTag',

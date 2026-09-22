@@ -15,10 +15,10 @@ const loadingGroups = reactive({})
 const sendFeedback = reactive({})
 const busy = ref('')
 const error = ref('')
-const draft = reactive({ name: '', productSearch: '', header: '', line: '', footer: '' })
+const draft = reactive({ name: '', messageMode: 'formatted', directMessage: '', productSearch: '', header: '', line: '', footer: '' })
 const editingId = ref(null)
 const editProductOptions = ref([])
-const editDraft = reactive({ name: '', productSearch: '', header: '', line: '', footer: '' })
+const editDraft = reactive({ name: '', messageMode: 'formatted', directMessage: '', productSearch: '', header: '', line: '', footer: '' })
 
 function defaults() {
   return isBuying.value
@@ -28,7 +28,7 @@ function defaults() {
 
 function resetDraft() {
   const [header, line, footer] = defaults()
-  Object.assign(draft, { name: '', productSearch: '', header, line, footer })
+  Object.assign(draft, { name: '', messageMode: 'formatted', directMessage: '', productSearch: '', header, line, footer })
   products.value = []
   productOptions.value = []
 }
@@ -73,12 +73,14 @@ function addProduct(product) {
 }
 
 async function createCampaign() {
-  if (!draft.name.trim()) return
+  if (!draft.name.trim() || (draft.messageMode === 'direct' && !draft.directMessage.trim())) return
   busy.value = 'create'
   error.value = ''
   try {
     const payload = {
-      name: draft.name.trim(), audience_type: 'groups', product_ids: products.value.map(row => row.id),
+      name: draft.name.trim(), audience_type: 'groups', message_mode: draft.messageMode,
+      direct_message: draft.messageMode === 'direct' ? draft.directMessage.trim() : '',
+      product_ids: draft.messageMode === 'formatted' ? products.value.map(row => row.id) : [],
       header_template: draft.header, product_line_template: draft.line, footer_template: draft.footer,
     }
     const { data } = await apiFor('create')(payload)
@@ -86,7 +88,7 @@ async function createCampaign() {
     expanded.value = new Set([...expanded.value, data.id])
     resetDraft()
   } catch (exc) {
-    error.value = exc.response?.data?.detail || 'Unable to create group campaign.'
+    error.value = exc.response?.data?.direct_message || exc.response?.data?.detail || 'Unable to create group campaign.'
   } finally {
     busy.value = ''
   }
@@ -97,6 +99,8 @@ function startEdit(campaign) {
   editProductOptions.value = []
   Object.assign(editDraft, {
     name: campaign.name,
+    messageMode: campaign.message_mode || 'formatted',
+    directMessage: campaign.direct_message || '',
     productSearch: '',
     header: campaign.header_template,
     line: campaign.product_line_template,
@@ -110,12 +114,14 @@ function cancelEdit() {
 }
 
 async function saveEdit(campaign) {
-  if (!editDraft.name.trim()) return
+  if (!editDraft.name.trim() || (editDraft.messageMode === 'direct' && !editDraft.directMessage.trim())) return
   busy.value = `save-${campaign.id}`
   error.value = ''
   try {
     const { data } = await apiFor('update')(campaign.id, {
       name: editDraft.name.trim(),
+      message_mode: editDraft.messageMode,
+      direct_message: editDraft.messageMode === 'direct' ? editDraft.directMessage.trim() : '',
       header_template: editDraft.header,
       product_line_template: editDraft.line,
       footer_template: editDraft.footer,
@@ -123,7 +129,7 @@ async function saveEdit(campaign) {
     replaceCampaign(data)
     cancelEdit()
   } catch (exc) {
-    error.value = exc.response?.data?.detail || 'Unable to save campaign changes.'
+    error.value = exc.response?.data?.direct_message || exc.response?.data?.detail || 'Unable to save campaign changes.'
   } finally { busy.value = '' }
 }
 
@@ -206,6 +212,7 @@ function replaceCampaign(updated) {
 }
 
 function message(campaign) {
+  if (campaign.message_mode === 'direct') return campaign.direct_message || ''
   const lines = campaign.products.map(row => campaign.product_line_template
     .replaceAll('{product_name}', row.product_name)
     .replaceAll('{qty}', row.quantity ?? '-')
@@ -274,26 +281,41 @@ onMounted(loadCampaigns)
 
 <template>
   <main class="campaign-page">
-    <header><div><p class="eyebrow">Sendable groups only</p><h1>{{ title }}</h1><p>Create a product message and queue it only to participating groups where posting is allowed.</p></div></header>
+    <header><div><p class="eyebrow">Sendable groups only</p><h1>{{ title }}</h1><p>Create a preformatted product campaign or a direct message for groups where posting is allowed.</p></div></header>
     <div v-if="error" class="error">{{ error }}</div>
     <section class="panel composer">
-      <div class="fields"><label>Name<input v-model="draft.name" placeholder="Campaign name" /></label><label>Product search<div class="inline"><input v-model="draft.productSearch" @keydown.enter.prevent="searchProducts" /><button @click="searchProducts">Search</button></div></label></div>
-      <div v-if="productOptions.length" class="options"><button v-for="row in productOptions" :key="row.id" @click="addProduct(row)"><strong>{{ row.brand }} {{ row.name }}</strong><span>Qty {{ row.qty }}</span></button></div>
-      <div class="tokens"><span v-for="row in products" :key="row.id">{{ row.brand }} {{ row.name }} <button @click="products = products.filter(item => item.id !== row.id)">x</button></span></div>
-      <div class="templates"><label>Header<textarea v-model="draft.header" rows="2" /></label><label>Product line<textarea v-model="draft.line" rows="2" /></label><label>Footer<textarea v-model="draft.footer" rows="2" /></label></div>
-      <button class="primary" :disabled="busy === 'create' || !draft.name.trim()" @click="createCampaign">{{ busy === 'create' ? 'Creating...' : `Create ${title}` }}</button>
+      <label>Name<input v-model="draft.name" placeholder="Campaign name" /></label>
+      <div class="mode-picker">
+        <button :class="{ active: draft.messageMode === 'formatted' }" @click="draft.messageMode = 'formatted'"><strong>Preformatted Products</strong><span>Build the message from selected inventory and templates.</span></button>
+        <button :class="{ active: draft.messageMode === 'direct' }" @click="draft.messageMode = 'direct'"><strong>Direct Message</strong><span>Write one message to send to every selected group.</span></button>
+      </div>
+      <template v-if="draft.messageMode === 'formatted'">
+        <label>Product search<div class="inline"><input v-model="draft.productSearch" @keydown.enter.prevent="searchProducts" /><button @click="searchProducts">Search</button></div></label>
+        <div v-if="productOptions.length" class="options"><button v-for="row in productOptions" :key="row.id" @click="addProduct(row)"><strong>{{ row.brand }} {{ row.name }}</strong><span>Qty {{ row.qty }}</span></button></div>
+        <div class="tokens"><span v-for="row in products" :key="row.id">{{ row.brand }} {{ row.name }} <button @click="products = products.filter(item => item.id !== row.id)">x</button></span></div>
+        <div class="templates"><label>Header<textarea v-model="draft.header" rows="2" /></label><label>Product line<textarea v-model="draft.line" rows="2" /></label><label>Footer<textarea v-model="draft.footer" rows="2" /></label></div>
+      </template>
+      <label v-else>Direct message<textarea v-model="draft.directMessage" rows="6" placeholder="Write the message that will be sent to the selected groups..." /></label>
+      <button class="primary" :disabled="busy === 'create' || !draft.name.trim() || (draft.messageMode === 'direct' && !draft.directMessage.trim())" @click="createCampaign">{{ busy === 'create' ? 'Creating...' : `Create ${title}` }}</button>
     </section>
     <section class="panel list">
       <div class="section-head"><div><h2>Existing {{ title }}</h2><p>Announcements, communities, non-participant and blocked groups never appear in selection.</p></div><button @click="loadCampaigns">Refresh</button></div>
       <p v-if="!campaigns.length" class="empty">No group campaigns created.</p>
       <article v-for="campaign in campaigns" :key="campaign.id" class="campaign">
-        <button class="summary" @click="toggle(campaign)"><span><strong>{{ campaign.name }}</strong><small>{{ campaign.products.length }} products · {{ campaign.groups.length }} groups</small></span><b>{{ expanded.has(campaign.id) ? '−' : '+' }}</b></button>
+        <button class="summary" @click="toggle(campaign)"><span><strong>{{ campaign.name }}</strong><small>{{ campaign.message_mode === 'direct' ? 'Direct message' : `${campaign.products.length} products` }} · {{ campaign.groups.length }} groups</small></span><b>{{ expanded.has(campaign.id) ? '−' : '+' }}</b></button>
         <div v-if="expanded.has(campaign.id)" class="details">
           <div class="edit-toolbar"><button v-if="editingId !== campaign.id" @click="startEdit(campaign)">Edit {{ isBuying ? 'Inquiry' : 'Offer' }}</button><template v-else><button class="primary" :disabled="busy === `save-${campaign.id}`" @click="saveEdit(campaign)">{{ busy === `save-${campaign.id}` ? 'Saving...' : 'Save Changes' }}</button><button @click="cancelEdit">Cancel</button></template></div>
           <div v-if="editingId === campaign.id" class="edit-panel">
             <label>Name<input v-model="editDraft.name" /></label>
-            <div class="templates"><label>Header<textarea v-model="editDraft.header" rows="2" /></label><label>Product line<textarea v-model="editDraft.line" rows="2" /></label><label>Footer<textarea v-model="editDraft.footer" rows="2" /></label></div>
-            <div class="edit-products"><h3>Products</h3><div class="inline"><input v-model="editDraft.productSearch" placeholder="Search product to add..." @keydown.enter.prevent="searchEditProducts(campaign)" /><button @click="searchEditProducts(campaign)">Search</button></div><div v-if="editProductOptions.length" class="options"><button v-for="product in editProductOptions" :key="product.id" @click="addEditProduct(campaign, product)"><strong>{{ product.brand }} {{ product.name }}</strong><span>Qty {{ product.qty }}</span></button></div><div class="edit-product-list"><div v-for="row in campaign.products" :key="row.id"><span>{{ row.product_name }}</span><button class="danger" :disabled="busy === `remove-product-${campaign.id}-${row.product}`" @click="removeEditProduct(campaign, row)">Remove</button></div></div></div>
+            <div class="mode-picker">
+              <button :class="{ active: editDraft.messageMode === 'formatted' }" @click="editDraft.messageMode = 'formatted'"><strong>Preformatted Products</strong><span>Use products and templates.</span></button>
+              <button :class="{ active: editDraft.messageMode === 'direct' }" @click="editDraft.messageMode = 'direct'"><strong>Direct Message</strong><span>Use one campaign message.</span></button>
+            </div>
+            <template v-if="editDraft.messageMode === 'formatted'">
+              <div class="templates"><label>Header<textarea v-model="editDraft.header" rows="2" /></label><label>Product line<textarea v-model="editDraft.line" rows="2" /></label><label>Footer<textarea v-model="editDraft.footer" rows="2" /></label></div>
+              <div class="edit-products"><h3>Products</h3><div class="inline"><input v-model="editDraft.productSearch" placeholder="Search product to add..." @keydown.enter.prevent="searchEditProducts(campaign)" /><button @click="searchEditProducts(campaign)">Search</button></div><div v-if="editProductOptions.length" class="options"><button v-for="product in editProductOptions" :key="product.id" @click="addEditProduct(campaign, product)"><strong>{{ product.brand }} {{ product.name }}</strong><span>Qty {{ product.qty }}</span></button></div><div class="edit-product-list"><div v-for="row in campaign.products" :key="row.id"><span>{{ row.product_name }}</span><button class="danger" :disabled="busy === `remove-product-${campaign.id}-${row.product}`" @click="removeEditProduct(campaign, row)">Remove</button></div></div></div>
+            </template>
+            <label v-else>Direct message<textarea v-model="editDraft.directMessage" rows="6" /></label>
           </div>
           <div v-else class="preview"><h3>Message preview</h3><pre>{{ message(campaign) }}</pre></div>
           <div class="selector"><div class="selector-head"><div><h3>Available groups</h3><small>Only groups currently allowed for sending are listed.</small></div><button :disabled="loadingGroups[campaign.id] || !(groupOptions[campaign.id] || []).length || busy === `add-all-${campaign.id}`" @click="addAllAvailableGroups(campaign)">{{ busy === `add-all-${campaign.id}` ? 'Adding...' : 'Add all available' }}</button></div><div class="inline"><input v-model="groupSearch[campaign.id]" placeholder="Filter available groups..." @keydown.enter.prevent="searchGroups(campaign)" /><button :disabled="loadingGroups[campaign.id]" @click="searchGroups(campaign)">{{ loadingGroups[campaign.id] ? 'Loading...' : 'Refresh' }}</button></div>
@@ -308,4 +330,5 @@ onMounted(loadCampaigns)
 
 <style scoped>
 .campaign-page{height:100%;min-height:0;overflow-y:auto;padding:28px;background:radial-gradient(circle at top right,#dcfce7,transparent 32%),#f8fafc;color:#172033}.campaign-page>header{max-width:1400px;margin:auto}.eyebrow{color:#15803d;text-transform:uppercase;letter-spacing:.16em;font-size:.72rem;font-weight:800}h1{font:700 2rem Georgia,serif;margin:4px 0}header p,.section-head p{color:#64748b}.panel{max-width:1400px;margin:18px auto;background:#fff;border:1px solid #dfe7e2;border-radius:18px;padding:22px;box-shadow:0 16px 40px #0f172a0d}.fields,.templates{display:grid;grid-template-columns:1fr 1fr;gap:14px}.templates{grid-template-columns:repeat(3,1fr);margin-top:16px}label{display:flex;flex-direction:column;gap:6px;font-size:.75rem;font-weight:800;text-transform:uppercase;color:#64748b}input,textarea,button{font:inherit}input,textarea{border:1px solid #d7e2dc;border-radius:10px;padding:10px;background:#fbfdfc}.inline{display:flex;gap:8px}.inline input{flex:1}button,.wa-client{border:1px solid #cedbd4;background:#fff;border-radius:9px;padding:9px 13px;cursor:pointer}.wa-client{display:inline-flex;align-items:center;text-decoration:none;background:#25d366;color:#fff;border-color:#25d366;font-weight:700}.primary,.send{background:#168447;color:#fff;border-color:#168447}.primary{margin-top:16px;font-weight:700}.options{display:grid;gap:6px;margin-top:8px}.options button,.recipient{display:flex;justify-content:space-between;align-items:center;text-align:left}.options span,.recipient span,small{display:block;color:#64748b;font-size:.78rem}.tokens{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.tokens span{background:#edf8f1;border-radius:20px;padding:6px 10px;font-size:.8rem}.tokens button{border:0;background:none;padding:0 0 0 6px}.section-head,.summary,.selector-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.campaign{border:1px solid #e3ebe6;border-radius:13px;margin-top:10px;overflow:hidden}.summary{width:100%;border:0;border-radius:0;padding:14px 16px}.summary strong{display:block}.details{padding:16px;background:#fbfdfc;display:grid;grid-template-columns:1fr 1fr;gap:18px}.edit-toolbar,.edit-panel{grid-column:1/-1}.edit-toolbar{display:flex;gap:8px}.edit-toolbar .primary{margin-top:0}.edit-panel{border:1px solid #dfe7e2;border-radius:12px;padding:16px;background:#fff}.edit-products{margin-top:16px}.edit-product-list{display:grid;gap:6px;margin-top:10px}.edit-product-list>div{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #e3ebe6;padding-top:7px}.preview pre{white-space:pre-wrap;background:#eef5f0;border-radius:12px;padding:14px}.recipients{grid-column:1/-1}.recipient{padding:11px 0;border-top:1px solid #e3ebe6}.recipient>div:last-child{display:flex;gap:7px;flex-wrap:wrap}.press-count{margin-top:3px!important;color:#64748b}.press-count.sent{color:#15803d;font-weight:700}.send-feedback{margin-top:3px!important;font-weight:700}.send-feedback.checking,.send-feedback.queueing{color:#986700}.send-feedback.queued{color:#15803d}.send-feedback.failed{color:#b42318}.danger{color:#b42318;border-color:#f3c7c3}.error{max-width:1400px;margin:14px auto;background:#fff1f0;color:#b42318;padding:12px;border-radius:10px}.empty{color:#94a3b8}@media(max-width:800px){.campaign-page{padding:14px}.fields,.templates,.details{grid-template-columns:1fr}.recipients{grid-column:auto}.recipient{align-items:flex-start;gap:10px}}
+.mode-picker{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:16px 0}.mode-picker button{padding:14px;text-align:left}.mode-picker button.active{border-color:#168447;background:#edf8f1;box-shadow:inset 0 0 0 1px #168447}.mode-picker strong,.mode-picker span{display:block}.mode-picker span{margin-top:4px;color:#64748b;font-size:.78rem}@media(max-width:800px){.mode-picker{grid-template-columns:1fr}}
 </style>

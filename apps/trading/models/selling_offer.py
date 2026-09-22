@@ -1,6 +1,6 @@
 from django.db import models
 
-from .campaign_audience import CampaignAudience
+from .campaign_audience import CampaignAudience, CampaignMessageMode
 
 
 class SellingOfferStatus(models.TextChoices):
@@ -26,6 +26,12 @@ class SellingOffer(models.Model):
         default=CampaignAudience.CONTACTS,
         db_index=True,
     )
+    message_mode = models.CharField(
+        max_length=20,
+        choices=CampaignMessageMode.choices,
+        default=CampaignMessageMode.FORMATTED,
+    )
+    direct_message = models.TextField(blank=True)
     status = models.CharField(
         max_length=20,
         choices=SellingOfferStatus.choices,

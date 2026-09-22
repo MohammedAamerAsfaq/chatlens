@@ -470,7 +470,7 @@ class BuyingInquirySerializer(serializers.ModelSerializer):
     class Meta:
         model = BuyingInquiry
         fields = [
-            'id', 'company', 'name', 'audience_type', 'status', 'header_template',
+            'id', 'company', 'name', 'audience_type', 'message_mode', 'direct_message', 'status', 'header_template',
             'product_line_template', 'footer_template', 'products', 'suppliers',
             'groups', 'supplier_count', 'notified_count', 'closed_at', 'created_at', 'updated_at',
         ]
@@ -556,7 +556,7 @@ class SellingOfferSerializer(serializers.ModelSerializer):
     class Meta:
         model = SellingOffer
         fields = [
-            'id', 'company', 'name', 'audience_type', 'status', 'header_template',
+            'id', 'company', 'name', 'audience_type', 'message_mode', 'direct_message', 'status', 'header_template',
             'product_line_template', 'footer_template', 'send_flag', 'flag_position',
             'send_color', 'color_position', 'products', 'customers', 'groups',
             'customer_count', 'notified_count', 'closed_at', 'created_at', 'updated_at',

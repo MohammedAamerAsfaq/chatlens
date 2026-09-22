@@ -20,7 +20,7 @@ from apps.tenancy.services.access import (
     scope_queryset_to_visible_companies,
     visible_accounts_queryset,
 )
-from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, NonInventoryProduct, NonInventoryProductMention, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_GATE_V2_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, BuyingInquiryGroup, BuyingInquiryProduct, BuyingInquirySupplier, BuyingInquirySupplierSource, BuyingInquiryStatus, CampaignAudience, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture, SellingOffer, SellingOfferCustomer, SellingOfferCustomerSource, SellingOfferGroup, SellingOfferProduct, SellingOfferStatus
+from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, NonInventoryProduct, NonInventoryProductMention, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_GATE_V2_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, BuyingInquiryGroup, BuyingInquiryProduct, BuyingInquirySupplier, BuyingInquirySupplierSource, BuyingInquiryStatus, CampaignAudience, CampaignMessageMode, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture, SellingOffer, SellingOfferCustomer, SellingOfferCustomerSource, SellingOfferGroup, SellingOfferProduct, SellingOfferStatus
 from .serializers import (
     ProductSerializer,
     ProductAliasSerializer,
@@ -70,6 +70,13 @@ def _campaign_audience(value):
     if audience not in CampaignAudience.values:
         raise ValidationError({'audience_type': 'Audience must be contacts or groups.'})
     return audience
+
+
+def _campaign_message_mode(value):
+    mode = value or CampaignMessageMode.FORMATTED
+    if mode not in CampaignMessageMode.values:
+        raise ValidationError({'message_mode': 'Message mode must be formatted or direct.'})
+    return mode
 
 
 def _visible_account_or_none(user, account_id):
@@ -3017,12 +3024,18 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
         requested_status = request.data.get('status') or BuyingInquiryStatus.OPEN
         if requested_status not in BuyingInquiryStatus.values:
             return Response({'status': 'Invalid buying inquiry status.'}, status=status.HTTP_400_BAD_REQUEST)
+        message_mode = _campaign_message_mode(request.data.get('message_mode'))
+        direct_message = (request.data.get('direct_message') or '').strip()
+        if message_mode == CampaignMessageMode.DIRECT and not direct_message:
+            return Response({'direct_message': 'Direct message is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
             inquiry = BuyingInquiry.objects.create(
                 company=company,
                 name=name,
                 audience_type=_campaign_audience(request.data.get('audience_type')),
+                message_mode=message_mode,
+                direct_message=direct_message,
                 status=requested_status,
                 header_template=request.data.get('header_template') or BuyingInquiry._meta.get_field('header_template').default,
                 product_line_template=request.data.get('product_line_template') or BuyingInquiry._meta.get_field('product_line_template').default,
@@ -3070,14 +3083,27 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
 
     def partial_update(self, request, *args, **kwargs):
         inquiry = self.get_object()
-        allowed = {'name', 'status', 'header_template', 'product_line_template', 'footer_template'}
+        allowed = {
+            'name', 'status', 'message_mode', 'direct_message',
+            'header_template', 'product_line_template', 'footer_template',
+        }
         update_fields = ['updated_at']
         if 'status' in request.data and request.data['status'] not in BuyingInquiryStatus.values:
             return Response({'status': 'Invalid buying inquiry status.'}, status=status.HTTP_400_BAD_REQUEST)
+        requested_message_mode = None
+        if 'message_mode' in request.data:
+            requested_message_mode = _campaign_message_mode(request.data['message_mode'])
         for field in allowed:
             if field in request.data:
-                setattr(inquiry, field, request.data[field])
+                value = request.data[field]
+                if field == 'message_mode':
+                    value = requested_message_mode
+                elif field == 'direct_message':
+                    value = (value or '').strip()
+                setattr(inquiry, field, value)
                 update_fields.append(field)
+        if inquiry.message_mode == CampaignMessageMode.DIRECT and not inquiry.direct_message:
+            return Response({'direct_message': 'Direct message is required.'}, status=status.HTTP_400_BAD_REQUEST)
         if 'status' in request.data:
             if inquiry.status == BuyingInquiryStatus.CLOSED and inquiry.closed_at is None:
                 inquiry.closed_at = now()
@@ -3112,6 +3138,9 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
                 company=source.company,
                 account=source.account,
                 name=f'{source.name} (Copy)',
+                audience_type=source.audience_type,
+                message_mode=source.message_mode,
+                direct_message=source.direct_message,
                 status=BuyingInquiryStatus.OPEN,
                 header_template=source.header_template,
                 product_line_template=source.product_line_template,
@@ -3522,10 +3551,16 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
         requested_status = request.data.get('status') or SellingOfferStatus.OPEN
         if requested_status not in SellingOfferStatus.values:
             raise ValidationError({'status': 'Invalid selling offer status.'})
+        message_mode = _campaign_message_mode(request.data.get('message_mode'))
+        direct_message = (request.data.get('direct_message') or '').strip()
+        if message_mode == CampaignMessageMode.DIRECT and not direct_message:
+            raise ValidationError({'direct_message': 'Direct message is required.'})
         offer = SellingOffer.objects.create(
             company=company,
             name=name,
             audience_type=_campaign_audience(request.data.get('audience_type')),
+            message_mode=message_mode,
+            direct_message=direct_message,
             status=requested_status,
             header_template=self._template_value(request.data, 'header_template', SellingOffer._meta.get_field('header_template').default),
             product_line_template=self._template_value(request.data, 'product_line_template', SellingOffer._meta.get_field('product_line_template').default),
@@ -3667,23 +3702,33 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
     def partial_update(self, request, *args, **kwargs):
         offer = self.get_object()
         allowed = {
-            'name', 'status', 'header_template', 'product_line_template', 'footer_template',
+            'name', 'status', 'message_mode', 'direct_message',
+            'header_template', 'product_line_template', 'footer_template',
             'send_flag', 'flag_position', 'send_color', 'color_position',
         }
         update_fields = ['updated_at']
         if 'status' in request.data and request.data['status'] not in SellingOfferStatus.values:
             return Response({'status': 'Invalid selling offer status.'}, status=status.HTTP_400_BAD_REQUEST)
+        requested_message_mode = None
+        if 'message_mode' in request.data:
+            requested_message_mode = _campaign_message_mode(request.data['message_mode'])
         for field in allowed:
             if field in request.data:
                 value = request.data[field]
-                if field in {'flag_position', 'color_position'}:
+                if field == 'message_mode':
+                    value = requested_message_mode
+                elif field in {'flag_position', 'color_position'}:
                     value = self._format_position(value)
                 elif field in {'send_flag', 'send_color'}:
                     value = bool(value)
                 elif field in {'header_template', 'product_line_template', 'footer_template'}:
                     value = '' if value is None else str(value)
+                elif field == 'direct_message':
+                    value = (value or '').strip()
                 setattr(offer, field, value)
                 update_fields.append(field)
+        if offer.message_mode == CampaignMessageMode.DIRECT and not offer.direct_message:
+            return Response({'direct_message': 'Direct message is required.'}, status=status.HTTP_400_BAD_REQUEST)
         if 'status' in request.data:
             if offer.status == SellingOfferStatus.CLOSED and offer.closed_at is None:
                 offer.closed_at = now()
