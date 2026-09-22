@@ -32,7 +32,8 @@ import ProductPriceUpdateView from '../views/ProductPriceUpdateView.vue'
 import AIInstructionsView   from '../views/AIInstructionsView.vue'
 import V2SettingsView        from '../views/V2SettingsView.vue'
 import BuyingInquiriesView  from '../views/BuyingInquiriesView.vue'
-import GroupCampaignsView from '../views/GroupCampaignsView.vue'
+import GroupBuyingInquiriesView from '../views/GroupBuyingInquiriesView.vue'
+import GroupSellingOffersView from '../views/GroupSellingOffersView.vue'
 import TenantAdminView from '../views/TenantAdminView.vue'
 import V2MatchTrainingView from '../views/V2MatchTrainingView.vue'
 import TaskOperationsView from '../views/TaskOperationsView.vue'
@@ -74,8 +75,8 @@ const router = createRouter({
     { path: '/v2-candidate-search', name: 'v2-candidate-search', component: V2CandidateSearchView, meta: { title: 'V2 Candidate Search' } },
     { path: '/product-price-update', name: 'product-price-update', component: ProductPriceUpdateView, meta: { title: 'Product Price Update' } },
     { path: '/buying-inquiries', name: 'buying-inquiries', component: BuyingInquiriesView, meta: { title: 'Buying Inquiries' } },
-    { path: '/group-buying-inquiries', name: 'group-buying-inquiries', component: GroupCampaignsView, props: { kind: 'buying' }, meta: { title: 'Group Buying Inquiries' } },
-    { path: '/group-selling-offers', name: 'group-selling-offers', component: GroupCampaignsView, props: { kind: 'selling' }, meta: { title: 'Group Selling Offers' } },
+    { path: '/group-buying-inquiries', name: 'group-buying-inquiries', component: GroupBuyingInquiriesView, meta: { title: 'Group Buying Inquiries' } },
+    { path: '/group-selling-offers', name: 'group-selling-offers', component: GroupSellingOffersView, meta: { title: 'Group Selling Offers' } },
     { path: '/ai-instructions', name: 'ai-instructions', component: AIInstructionsView, meta: { title: 'AI Instructions' } },
     { path: '/v2-settings', name: 'v2-settings', component: V2SettingsView, meta: { title: 'V2 Settings' } },
     { path: '/tenant-admin', name: 'tenant-admin', component: TenantAdminView, meta: { title: 'Tenant Admin' } },
