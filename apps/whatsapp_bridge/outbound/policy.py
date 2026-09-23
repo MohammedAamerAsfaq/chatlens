@@ -1,6 +1,10 @@
 from apps.whatsapp_bridge.models import TelemetryFetchStatus, WhatsAppChat
 from apps.whatsapp_bridge.services.capacity_service import capacity_snapshot
-from apps.whatsapp_bridge.services.destination_policy import DIRECT_CONTACT, evaluate_destination
+from apps.whatsapp_bridge.services.destination_policy import (
+    DIRECT_CONTACT,
+    classify_destination,
+    evaluate_destination,
+)
 
 
 def settings_snapshot(account):
@@ -17,6 +21,8 @@ def settings_snapshot(account):
 
 
 def new_chat_snapshot(account, destination_jid):
+    if classify_destination(destination_jid) != DIRECT_CONTACT:
+        return {'state': 'not_applicable', 'confidence': 1, 'reason': 'non_direct_destination'}
     chat = WhatsAppChat.objects.filter(account=account, wa_chat_id=destination_jid).first()
     if chat and chat.messages.exists():
         return {'state': 'existing', 'confidence': 1, 'reason': 'existing_message_history'}

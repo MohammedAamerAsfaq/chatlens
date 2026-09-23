@@ -566,6 +566,53 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(task.queue_name, 'outbound')
         self.assertEqual(task.payload, {'version': 1, 'outbound_message_id': outbound.pk})
 
+    def test_group_send_without_local_chat_does_not_require_new_chat_confirmation(self):
+        group = WhatsAppGroup.objects.create(
+            account=self.account_a,
+            wa_group_id='120363000000000091@g.us',
+            name='No local chat history',
+            account_is_participant=True,
+            can_send=True,
+            metadata_refreshed_at=now(),
+        )
+        self.account_a.outbound_sending_enabled = True
+        self.account_a.group_sending_enabled = True
+        self.account_a.save(update_fields=['outbound_sending_enabled', 'group_sending_enabled'])
+        self.client.force_authenticate(self.user_a)
+
+        response = self.client.post(
+            f'/api/accounts/{self.account_a.pk}/messages/',
+            {
+                'destination_jid': group.wa_group_id,
+                'text': 'Group message without local chat history',
+                'idempotency_key': 'group-without-local-chat',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()['destination_type'], 'standard_group')
+        self.assertEqual(response.json()['new_chat_state'], 'not_applicable')
+
+    def test_direct_send_without_local_history_still_requires_confirmation(self):
+        self.account_a.outbound_sending_enabled = True
+        self.account_a.direct_sending_enabled = True
+        self.account_a.save(update_fields=['outbound_sending_enabled', 'direct_sending_enabled'])
+        self.client.force_authenticate(self.user_a)
+
+        response = self.client.post(
+            f'/api/accounts/{self.account_a.pk}/messages/',
+            {
+                'destination_jid': '971500009999@s.whatsapp.net',
+                'text': 'New direct conversation',
+                'idempotency_key': 'new-direct-confirmation',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()['code'], 'likely_new_chat_confirmation_required')
+
     @patch('apps.whatsapp_bridge.outbound.task_handler.send_to_worker')
     def test_outbound_handler_records_provider_acceptance(self, send_to_worker):
         from apps.whatsapp_bridge.outbound.message_service import create_outbound_message
