@@ -75,3 +75,28 @@ test('sender uses the persisted account LID for group membership checks', async 
   assert.equal(result.accepted, true);
   assert.equal(result.destination_type, 'standard_group');
 });
+
+test('sender falls back to participating-group metadata before dispatch', async () => {
+  const sender = new OutboundMessageSender();
+  const metadata = {
+    id: '120002@g.us',
+    participants: [{ id: '45617082548317@lid' }],
+  };
+  const session = {
+    status: 'connected',
+    accountIdentity: { lid: '45617082548317:14@lid' },
+    sock: {
+      groupMetadata: async () => { throw new Error('forbidden'); },
+      groupFetchAllParticipating: async () => ({ [metadata.id]: metadata }),
+      sendMessage: test.mock.fn(async () => ({ key: { id: 'provider-group-2' } })),
+    },
+  };
+
+  const result = await sender.send('8', session, request({
+    destination_jid: metadata.id,
+    provider_message_id: 'outbound-group-2',
+  }));
+
+  assert.equal(result.accepted, true);
+  assert.equal(session.sock.sendMessage.mock.callCount(), 1);
+});

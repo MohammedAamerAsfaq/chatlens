@@ -16,6 +16,7 @@ const {
   reachoutEvent,
 } = require('./outbound/capacity-telemetry');
 const { OutboundMessageSender } = require('./outbound/message-sender');
+const { fetchGroupMetadata } = require('./outbound/group-metadata');
 
 const SESSION_STATUS = {
   STARTING:      'starting',
@@ -503,7 +504,7 @@ class SessionManager {
     const normalizedJid = String(destinationJid || '').trim().toLowerCase();
     const initialType = classifyDestination(normalizedJid);
     if ([DESTINATION.GROUP].includes(initialType)) {
-      const metadata = await session.sock.groupMetadata(normalizedJid);
+      const metadata = await fetchGroupMetadata(session.sock, normalizedJid);
       const normalized = normalizeGroupMetadata(
         metadata,
         session.accountIdentity || session.sock.user,

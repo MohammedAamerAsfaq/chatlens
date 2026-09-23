@@ -76,6 +76,25 @@ function makeMsg(overrides = {}) {
   };
 }
 
+test('group preflight falls back to the participating-group list', async () => {
+  const { sm, session } = makeSessionManager();
+  const metadata = {
+    id: '120003@g.us',
+    participants: [{ id: '45617082548317@lid' }],
+  };
+  session.status = 'connected';
+  session.accountIdentity = { lid: '45617082548317:14@lid' };
+  session.sock = {
+    groupMetadata: async () => { throw new Error('forbidden'); },
+    groupFetchAllParticipating: async () => ({ [metadata.id]: metadata }),
+  };
+
+  const result = await sm.preflightDestination(SESSION_ID, metadata.id);
+
+  assert.equal(result.destination_type, 'standard_group');
+  assert.equal(result.group_metadata.can_send, true);
+});
+
 // --- A. Existing inbound phone JID ---------------------------------------
 test('A. inbound phone-JID message ingests normally, no unresolved record', async () => {
   const { sm, djangoClient } = makeSessionManager();

@@ -1,6 +1,7 @@
 'use strict';
 
 const { DESTINATION, classifyDestination, normalizeGroupMetadata } = require('./destination-classifier');
+const { fetchGroupMetadata } = require('./group-metadata');
 
 class OutboundMessageSender {
   constructor() {
@@ -33,7 +34,7 @@ class OutboundMessageSender {
         return { accepted: false, retryable: false, dispatch_started: false, code: 'recipient_not_registered' };
       }
     } else if ([DESTINATION.GROUP].includes(type)) {
-      const metadata = await session.sock.groupMetadata(jid);
+      const metadata = await fetchGroupMetadata(session.sock, jid);
       const normalized = normalizeGroupMetadata(
         metadata,
         session.accountIdentity || session.sock.user,
