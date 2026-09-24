@@ -55,7 +55,10 @@ const isReportsActive = computed(() => REPORT_ROUTES.includes(route.name))
 const LIST_ROUTES = ['contacts', 'groups', 'products', 'inquiry-products', 'non-inventory-products', 'v2-candidate-search', 'product-price-update']
 const isListsActive = computed(() => LIST_ROUTES.includes(route.name))
 
-const SETTINGS_ROUTES = ['sessions', 'storage', 'ai-providers', 'kiwi-router', 'ai-instructions', 'v2-settings', 'task-queues', 'tenant-admin']
+const CAMPAIGN_ROUTES = ['buying-inquiries', 'selling-offers', 'group-buying-inquiries', 'group-selling-offers']
+const isCampaignsActive = computed(() => CAMPAIGN_ROUTES.includes(route.name))
+
+const SETTINGS_ROUTES = ['sessions', 'storage', 'ai-providers', 'kiwi-router', 'ai-instructions', 'v2-settings', 'v2-match-training', 'task-queues', 'tenant-admin']
 const isSettingsActive = computed(() => SETTINGS_ROUTES.includes(route.name))
 
 async function handleLogout() {
@@ -89,19 +92,18 @@ async function handleCompanySwitch(event) {
       </div>
       <RouterLink to="/conversations"   class="nav-link" active-class="nav-link-active">Conversations</RouterLink>
       <RouterLink to="/trading"            class="nav-link" active-class="nav-link-active">Trading</RouterLink>
-      <RouterLink to="/buying-inquiries"  class="nav-link" active-class="nav-link-active">Buying Inquiries</RouterLink>
-      <RouterLink to="/selling-offers"     class="nav-link" active-class="nav-link-active">Selling Offers</RouterLink>
       <div class="relative group">
-        <button type="button" class="nav-link flex items-center gap-1">
-          Group Campaigns
+        <button type="button" class="nav-link flex items-center gap-1" :class="{ 'nav-link-active': isCampaignsActive }">
+          Campaigns
           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
         </button>
         <div class="absolute left-0 top-full hidden group-hover:block bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[210px] z-50">
+          <RouterLink to="/buying-inquiries" class="dropdown-item" active-class="dropdown-item-active">Buying Inquiries</RouterLink>
+          <RouterLink to="/selling-offers" class="dropdown-item" active-class="dropdown-item-active">Selling Offers</RouterLink>
           <RouterLink to="/group-buying-inquiries" class="dropdown-item" active-class="dropdown-item-active">Group Buying Inquiries</RouterLink>
           <RouterLink to="/group-selling-offers" class="dropdown-item" active-class="dropdown-item-active">Group Selling Offers</RouterLink>
         </div>
       </div>
-      <RouterLink to="/v2-match-training"  class="nav-link" active-class="nav-link-active">V2 Match Training</RouterLink>
 
       <!-- Reports — grouped dropdown, opens on hover -->
       <div class="relative group">
@@ -153,6 +155,7 @@ async function handleCompanySwitch(event) {
           <RouterLink to="/kiwi-router"     class="dropdown-item" active-class="dropdown-item-active">KiwiRouter</RouterLink>
           <RouterLink to="/ai-instructions" class="dropdown-item" active-class="dropdown-item-active">AI Instructions</RouterLink>
           <RouterLink to="/v2-settings"     class="dropdown-item" active-class="dropdown-item-active">V2 Settings</RouterLink>
+          <RouterLink to="/v2-match-training" class="dropdown-item" active-class="dropdown-item-active">V2 Match Training</RouterLink>
           <RouterLink to="/task-queues"     class="dropdown-item" active-class="dropdown-item-active">Task &amp; Queues</RouterLink>
           <RouterLink v-if="auth.canManageTenants" to="/tenant-admin" class="dropdown-item" active-class="dropdown-item-active">Tenant Admin</RouterLink>
         </div>
