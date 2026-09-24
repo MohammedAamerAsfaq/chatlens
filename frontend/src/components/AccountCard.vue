@@ -28,6 +28,7 @@ const localSettings = ref({
   outbound_sending_enabled: props.account.outbound_sending_enabled ?? false,
   direct_sending_enabled:  props.account.direct_sending_enabled ?? false,
   group_sending_enabled:   props.account.group_sending_enabled ?? false,
+  image_sending_enabled:   props.account.image_sending_enabled ?? false,
   recipient_interval_ms:   props.account.recipient_interval_ms ?? 5000,
   account_interval_ms:     props.account.account_interval_ms ?? 5000,
   allow_concurrent_sends:  props.account.allow_concurrent_sends ?? false,
@@ -102,6 +103,7 @@ async function saveSettings() {
       outbound_sending_enabled: localSettings.value.outbound_sending_enabled,
       direct_sending_enabled:  localSettings.value.direct_sending_enabled,
       group_sending_enabled:   localSettings.value.group_sending_enabled,
+      image_sending_enabled:   localSettings.value.image_sending_enabled,
       recipient_interval_ms:   Number(localSettings.value.recipient_interval_ms),
       account_interval_ms:     Number(localSettings.value.account_interval_ms),
       allow_concurrent_sends:  localSettings.value.allow_concurrent_sends,
@@ -573,7 +575,7 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <div :class="['grid grid-cols-1 sm:grid-cols-2 gap-2', !localSettings.outbound_sending_enabled && 'opacity-60']">
+        <div :class="['grid grid-cols-1 sm:grid-cols-3 gap-2', !localSettings.outbound_sending_enabled && 'opacity-60']">
           <label class="flex items-center justify-between rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm text-gray-700">
             Direct contacts
             <input v-model="localSettings.direct_sending_enabled" type="checkbox" :disabled="!localSettings.outbound_sending_enabled" class="accent-green-600" />
@@ -581,6 +583,10 @@ onUnmounted(() => {
           <label class="flex items-center justify-between rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm text-gray-700">
             Eligible groups
             <input v-model="localSettings.group_sending_enabled" type="checkbox" :disabled="!localSettings.outbound_sending_enabled" class="accent-green-600" />
+          </label>
+          <label class="flex items-center justify-between rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm text-gray-700">
+            Images
+            <input v-model="localSettings.image_sending_enabled" type="checkbox" :disabled="!localSettings.outbound_sending_enabled" class="accent-green-600" />
           </label>
         </div>
 

@@ -63,6 +63,7 @@ class WhatsAppAccount(models.Model):
     outbound_sending_enabled = models.BooleanField(default=False)
     direct_sending_enabled = models.BooleanField(default=False)
     group_sending_enabled = models.BooleanField(default=False)
+    image_sending_enabled = models.BooleanField(default=False)
     recipient_interval_ms = models.PositiveIntegerField(default=5000)
     account_interval_ms = models.PositiveIntegerField(default=5000)
     allow_concurrent_sends = models.BooleanField(default=False)

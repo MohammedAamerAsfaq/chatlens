@@ -566,6 +566,39 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(task.queue_name, 'outbound')
         self.assertEqual(task.payload, {'version': 1, 'outbound_message_id': outbound.pk})
 
+    def test_outbound_image_upload_and_enqueue(self):
+        chat = self._existing_direct_chat('94')
+        self.account_a.outbound_sending_enabled = True
+        self.account_a.direct_sending_enabled = True
+        self.account_a.image_sending_enabled = True
+        self.account_a.save(update_fields=[
+            'outbound_sending_enabled', 'direct_sending_enabled', 'image_sending_enabled',
+        ])
+        self.client.force_authenticate(self.user_a)
+        upload = SimpleUploadedFile(
+            'offer.png', b'\x89PNG\r\n\x1a\n' + b'test-image-data', content_type='image/png',
+        )
+
+        asset_response = self.client.post('/api/outbound-assets/', {'file': upload}, format='multipart')
+        self.assertEqual(asset_response.status_code, 201)
+        response = self.client.post(
+            f'/api/accounts/{self.account_a.pk}/messages/',
+            {
+                'destination_jid': chat.wa_chat_id,
+                'text': 'Image caption',
+                'asset_id': asset_response.json()['id'],
+                'idempotency_key': 'api-outbound-image',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        outbound = OutboundMessage.objects.get(pk=response.json()['id'])
+        self.assertEqual(outbound.content_type, 'image')
+        self.assertEqual(outbound.content_payload['caption'], 'Image caption')
+        self.assertEqual(outbound.asset_id, asset_response.json()['id'])
+        outbound.asset.file.delete(save=False)
+
     def test_group_send_without_local_chat_does_not_require_new_chat_confirmation(self):
         group = WhatsAppGroup.objects.create(
             account=self.account_a,

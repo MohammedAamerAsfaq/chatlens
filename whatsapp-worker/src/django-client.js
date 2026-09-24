@@ -257,6 +257,22 @@ class DjangoClient {
     }
   }
 
+  async downloadOutboundAsset(assetId) {
+    const resp = await this.http.get(
+      `/api/internal/whatsapp/outbound-assets/${assetId}/`,
+      {
+        responseType: 'arraybuffer',
+        timeout: 30000,
+        maxContentLength: 10 * 1024 * 1024,
+      },
+    );
+    return {
+      buffer: Buffer.from(resp.data),
+      mimeType: String(resp.headers['content-type'] || '').split(';')[0].toLowerCase(),
+      sha256: String(resp.headers['x-content-sha256'] || '').toLowerCase(),
+    };
+  }
+
   // Resolution source 3 for outbound/cache-miss LID resolution (see
   // 'docs/Contact Message Loss — LID Resolution Fix Proposal.md' Fix 2) — a
   // narrow single-LID lookup against Django's persisted whatsapp_contact.lid_jid,

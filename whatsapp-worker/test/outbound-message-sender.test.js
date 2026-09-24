@@ -8,6 +8,7 @@ function request(overrides = {}) {
   return {
     provider_message_id: 'outbound-1',
     destination_jid: '971500000001@s.whatsapp.net',
+    content_type: 'text',
     content: { text: 'Hello' },
     settings: { account_interval_ms: 1000, recipient_interval_ms: 1000 },
     ...overrides,
@@ -29,6 +30,37 @@ test('sender validates registration, sends text, and suppresses duplicate provid
   assert.equal(duplicate.accepted, true);
   assert.equal(duplicate.duplicate, true);
   assert.equal(sock.sendMessage.mock.callCount(), 1);
+});
+
+test('sender downloads and verifies an image before dispatch', async () => {
+  const crypto = require('crypto');
+  const buffer = Buffer.from('image-bytes');
+  const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+  const sender = new OutboundMessageSender({
+    assetLoader: test.mock.fn(async () => ({ buffer, mimeType: 'image/png', sha256 })),
+  });
+  const sock = {
+    onWhatsApp: async () => [{ exists: true }],
+    sendMessage: test.mock.fn(async () => ({ key: { id: 'provider-image' } })),
+  };
+
+  const result = await sender.send('1', { sock, status: 'connected' }, request({
+    provider_message_id: 'outbound-image',
+    content_type: 'image',
+    content: {
+      asset_id: 42,
+      caption: 'Available now',
+      mime_type: 'image/png',
+      size_bytes: buffer.length,
+      sha256,
+    },
+  }));
+
+  assert.equal(result.accepted, true);
+  assert.deepEqual(sock.sendMessage.mock.calls[0].arguments[1], {
+    image: buffer,
+    caption: 'Available now',
+  });
 });
 
 test('sender reports an ambiguous outcome after sendMessage starts', async () => {

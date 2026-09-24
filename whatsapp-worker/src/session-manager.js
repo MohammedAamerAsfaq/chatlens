@@ -109,7 +109,9 @@ class SessionManager {
     this.shuttingDown = false;
     // Cache group names to avoid repeated API calls
     this.groupNameCache = new Map();
-    this.outboundMessageSender = new OutboundMessageSender();
+    this.outboundMessageSender = new OutboundMessageSender({
+      assetLoader: assetId => this.djangoClient.downloadOutboundAsset(assetId),
+    });
 
     if (!fs.existsSync(sessionStorePath)) {
       fs.mkdirSync(sessionStorePath, { recursive: true });

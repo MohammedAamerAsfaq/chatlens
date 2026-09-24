@@ -2,7 +2,7 @@ from rest_framework import serializers
 from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact, SyncLog, DroppedMessage,
     WhatsAppGroup, WhatsAppGroupParticipant, WorkerAlert, StuckReceipt, WhatsAppUnresolvedMessage,
-    BaileysEvent, SessionStatus, OutboundMessage,
+    BaileysEvent, SessionStatus, OutboundAsset, OutboundMessage,
 )
 
 
@@ -25,6 +25,7 @@ class WhatsAppAccountSerializer(serializers.ModelSerializer):
             'sync_history', 'history_days', 'idle_disconnect_minutes',
             'auto_download_media', 'ai_parsing_enabled',
             'outbound_sending_enabled', 'direct_sending_enabled', 'group_sending_enabled',
+            'image_sending_enabled',
             'recipient_interval_ms', 'account_interval_ms',
             'allow_concurrent_sends', 'max_concurrent_sends', 'unknown_new_chat_policy',
             'classification_version_override', 'effective_classification_version',
@@ -62,6 +63,7 @@ class WhatsAppAccountSettingsSerializer(serializers.ModelSerializer):
             'sync_history', 'history_days', 'idle_disconnect_minutes', 'display_name',
             'ai_parsing_enabled', 'auto_download_media', 'classification_version_override',
             'outbound_sending_enabled', 'direct_sending_enabled', 'group_sending_enabled',
+            'image_sending_enabled',
             'recipient_interval_ms', 'account_interval_ms',
             'allow_concurrent_sends', 'max_concurrent_sends', 'unknown_new_chat_policy',
         ]
@@ -76,7 +78,7 @@ class OutboundMessageSerializer(serializers.ModelSerializer):
         model = OutboundMessage
         fields = [
             'id', 'company', 'whatsapp_account', 'account_name', 'destination_jid',
-            'destination_type', 'content_type', 'content_payload', 'status', 'status_reason',
+            'destination_type', 'content_type', 'content_payload', 'asset', 'status', 'status_reason',
             'idempotency_key', 'provider_message_id', 'correlation_id', 'new_chat_state',
             'new_chat_confidence', 'new_chat_reason', 'permission_snapshot', 'settings_snapshot',
             'provider_response', 'attempt_count', 'requested_by_name', 'requested_at',
@@ -99,6 +101,15 @@ class OutboundMessageSerializer(serializers.ModelSerializer):
             }
             for event in obj.events.all()
         ]
+
+
+class OutboundAssetSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OutboundAsset
+        fields = [
+            'id', 'original_filename', 'mime_type', 'size_bytes', 'sha256', 'created_at',
+        ]
+        read_only_fields = fields
 
 
 def _worker_liveness_status(obj):

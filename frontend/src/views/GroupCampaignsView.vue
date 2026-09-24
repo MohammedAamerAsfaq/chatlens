@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { accountsApi, groupsApi, tradingApi } from '@/api'
+import { accountsApi, groupsApi, outboundAssetsApi, tradingApi } from '@/api'
 
 const props = defineProps({ kind: { type: String, required: true } })
 const isBuying = computed(() => props.kind === 'buying')
@@ -15,6 +15,8 @@ const groupOptions = reactive({})
 const groupAccountIds = reactive({})
 const loadingGroups = reactive({})
 const sendFeedback = reactive({})
+const campaignImages = reactive({})
+const campaignAssetIds = reactive({})
 const busy = ref('')
 const error = ref('')
 const draft = reactive({ name: '', messageMode: 'formatted', directMessage: '', productSearch: '', header: '', line: '', footer: '' })
@@ -262,6 +264,23 @@ function message(campaign) {
   return [campaign.header_template, ...lines, campaign.footer_template].filter(Boolean).join('\n')
 }
 
+function selectCampaignImage(campaign, event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) {
+    error.value = 'Select a JPEG, PNG, or WebP image no larger than 10 MB.'
+    return
+  }
+  campaignImages[campaign.id] = file
+  delete campaignAssetIds[campaign.id]
+}
+
+function removeCampaignImage(campaign) {
+  delete campaignImages[campaign.id]
+  delete campaignAssetIds[campaign.id]
+}
+
 async function sendGroup(campaign, recipient) {
   busy.value = `send-${campaign.id}-${recipient.id}`
   error.value = ''
@@ -282,10 +301,15 @@ async function sendGroup(campaign, recipient) {
       }
       throw new Error(labels[preflight.data.reason] || preflight.data.reason || 'Group sending is blocked.')
     }
+    if (campaignImages[campaign.id] && !campaignAssetIds[campaign.id]) {
+      const { data: asset } = await outboundAssetsApi.upload(campaignImages[campaign.id])
+      campaignAssetIds[campaign.id] = asset.id
+    }
     sendFeedback[recipient.id] = { state: 'queueing', message: 'Queueing message...' }
     const { data } = await accountsApi.sendMessage(recipient.account_id, {
       destination_jid: recipient.wa_group_id,
       text: message(campaign),
+      asset_id: campaignAssetIds[campaign.id] || null,
       idempotency_key: `${props.kind}-group-${campaign.id}-${recipient.id}-${Date.now()}`,
     })
     if (['blocked', 'preflight_blocked', 'failed'].includes(data.status)) {
@@ -354,6 +378,14 @@ onMounted(async () => {
             <label v-else>Direct message<textarea v-model="editDraft.directMessage" rows="6" /></label>
           </div>
           <div v-else class="preview"><h3>Message preview</h3><pre>{{ message(campaign) }}</pre></div>
+          <div class="attachment">
+            <div><h3>Optional image</h3><small>The same image and message will be queued for each group you send to.</small></div>
+            <div class="attachment-actions">
+              <span v-if="campaignImages[campaign.id]">{{ campaignImages[campaign.id].name }}</span>
+              <label class="image-picker">Choose image<input type="file" accept="image/jpeg,image/png,image/webp" @change="selectCampaignImage(campaign, $event)" /></label>
+              <button v-if="campaignImages[campaign.id]" class="danger" @click="removeCampaignImage(campaign)">Remove</button>
+            </div>
+          </div>
           <div class="selector"><div class="selector-head"><div><h3>Available groups</h3><small>Select the WhatsApp accounts whose sendable groups should be listed.</small></div><button :disabled="loadingGroups[campaign.id] || !(groupOptions[campaign.id] || []).length || busy === `add-all-${campaign.id}`" @click="addAllAvailableGroups(campaign)">{{ busy === `add-all-${campaign.id}` ? 'Adding...' : 'Add all available' }}</button></div>
             <div class="account-filter"><div class="account-filter-head"><strong>Accounts</strong><button @click="selectAllGroupAccounts(campaign)">Select all</button></div><div class="account-options"><label v-for="account in accounts" :key="account.id"><input type="checkbox" :checked="(groupAccountIds[campaign.id] || []).includes(account.id)" @change="toggleGroupAccount(campaign, account.id)" /><span>{{ account.display_name || account.phone_number || `Account ${account.id}` }}</span><small>{{ account.effective_session_status }}</small></label></div><p v-if="!accounts.length" class="empty">No WhatsApp accounts are available.</p></div>
             <div class="inline"><input v-model="groupSearch[campaign.id]" placeholder="Filter available groups..." @keydown.enter.prevent="searchGroups(campaign)" /><button :disabled="loadingGroups[campaign.id]" @click="searchGroups(campaign)">{{ loadingGroups[campaign.id] ? 'Loading...' : 'Refresh' }}</button></div>
@@ -370,4 +402,5 @@ onMounted(async () => {
 .campaign-page{height:100%;min-height:0;overflow-y:auto;padding:28px;background:radial-gradient(circle at top right,#dcfce7,transparent 32%),#f8fafc;color:#172033}.campaign-page>header{max-width:1400px;margin:auto}.eyebrow{color:#15803d;text-transform:uppercase;letter-spacing:.16em;font-size:.72rem;font-weight:800}h1{font:700 2rem Georgia,serif;margin:4px 0}header p,.section-head p{color:#64748b}.panel{max-width:1400px;margin:18px auto;background:#fff;border:1px solid #dfe7e2;border-radius:18px;padding:22px;box-shadow:0 16px 40px #0f172a0d}.fields,.templates{display:grid;grid-template-columns:1fr 1fr;gap:14px}.templates{grid-template-columns:repeat(3,1fr);margin-top:16px}label{display:flex;flex-direction:column;gap:6px;font-size:.75rem;font-weight:800;text-transform:uppercase;color:#64748b}input,textarea,button{font:inherit}input,textarea{border:1px solid #d7e2dc;border-radius:10px;padding:10px;background:#fbfdfc}.inline{display:flex;gap:8px}.inline input{flex:1}button{border:1px solid #cedbd4;background:#fff;border-radius:9px;padding:9px 13px;cursor:pointer}.primary,.send{background:#168447;color:#fff;border-color:#168447}.primary{margin-top:16px;font-weight:700}.options{display:grid;gap:6px;margin-top:8px}.options button,.recipient{display:flex;justify-content:space-between;align-items:center;text-align:left}.options span,.recipient span,small{display:block;color:#64748b;font-size:.78rem}.tokens{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.tokens span{background:#edf8f1;border-radius:20px;padding:6px 10px;font-size:.8rem}.tokens button{border:0;background:none;padding:0 0 0 6px}.section-head,.summary,.selector-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.campaign{border:1px solid #e3ebe6;border-radius:13px;margin-top:10px;overflow:hidden}.summary{width:100%;border:0;border-radius:0;padding:14px 16px}.summary strong{display:block}.details{padding:16px;background:#fbfdfc;display:grid;grid-template-columns:1fr 1fr;gap:18px}.edit-toolbar,.edit-panel{grid-column:1/-1}.edit-toolbar{display:flex;gap:8px}.edit-toolbar .primary{margin-top:0}.edit-panel{border:1px solid #dfe7e2;border-radius:12px;padding:16px;background:#fff}.edit-products{margin-top:16px}.edit-product-list{display:grid;gap:6px;margin-top:10px}.edit-product-list>div{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #e3ebe6;padding-top:7px}.preview pre{white-space:pre-wrap;background:#eef5f0;border-radius:12px;padding:14px}.recipients{grid-column:1/-1}.recipient{padding:11px 0;border-top:1px solid #e3ebe6}.recipient>div:last-child{display:flex;gap:7px;flex-wrap:wrap}.press-count{margin-top:3px!important;color:#64748b}.press-count.sent{color:#15803d;font-weight:700}.send-feedback{margin-top:3px!important;font-weight:700}.send-feedback.checking,.send-feedback.queueing{color:#986700}.send-feedback.queued{color:#15803d}.send-feedback.failed{color:#b42318}.danger{color:#b42318;border-color:#f3c7c3}.error{max-width:1400px;margin:14px auto;background:#fff1f0;color:#b42318;padding:12px;border-radius:10px}.empty{color:#94a3b8}@media(max-width:800px){.campaign-page{padding:14px}.fields,.templates,.details{grid-template-columns:1fr}.recipients{grid-column:auto}.recipient{align-items:flex-start;gap:10px}}
 .mode-picker{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:16px 0}.mode-picker button{padding:14px;text-align:left}.mode-picker button.active{border-color:#168447;background:#edf8f1;box-shadow:inset 0 0 0 1px #168447}.mode-picker strong,.mode-picker span{display:block}.mode-picker span{margin-top:4px;color:#64748b;font-size:.78rem}@media(max-width:800px){.mode-picker{grid-template-columns:1fr}}
 .account-filter{margin:12px 0;padding:12px;border:1px solid #dfe7e2;border-radius:12px;background:#fff}.account-filter-head{display:flex;align-items:center;justify-content:space-between}.account-filter-head button{padding:5px 9px}.account-options{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}.account-options label{display:grid;grid-template-columns:auto 1fr;column-gap:7px;align-items:center;padding:8px 10px;border:1px solid #dfe7e2;border-radius:9px;text-transform:none;cursor:pointer}.account-options label:has(input:checked){border-color:#168447;background:#edf8f1}.account-options input{grid-row:1/3;margin:0}.account-options small{font-weight:400}
+.attachment{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:16px;border:1px solid #dfe7e2;border-radius:12px;padding:13px;background:#fff}.attachment-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.attachment-actions span{max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.82rem;color:#475569}.image-picker{display:block;border:1px solid #cedbd4;border-radius:9px;padding:9px 13px;color:#172033;cursor:pointer;text-transform:none}.image-picker input{display:none}@media(max-width:800px){.attachment{align-items:flex-start;flex-direction:column}}
 </style>

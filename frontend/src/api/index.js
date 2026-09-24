@@ -87,6 +87,14 @@ export const outboundMessagesApi = {
   retry: (id) => http.post(`/outbound-messages/${id}/retry/`),
 }
 
+export const outboundAssetsApi = {
+  upload: (file) => {
+    const data = new FormData()
+    data.append('file', file)
+    return http.post('/outbound-assets/', data)
+  },
+}
+
 export const chatsApi = {
   list: (params) => http.get('/chats/', { params }),
   resolveDirect: (account, contact) => http.post('/chats/resolve-direct/', { account, contact }),

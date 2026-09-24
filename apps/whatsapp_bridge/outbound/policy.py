@@ -12,6 +12,7 @@ def settings_snapshot(account):
         'outbound_sending_enabled': account.outbound_sending_enabled,
         'direct_sending_enabled': account.direct_sending_enabled,
         'group_sending_enabled': account.group_sending_enabled,
+        'image_sending_enabled': account.image_sending_enabled,
         'recipient_interval_ms': account.recipient_interval_ms,
         'account_interval_ms': account.account_interval_ms,
         'allow_concurrent_sends': account.allow_concurrent_sends,
@@ -39,6 +40,8 @@ def evaluate_outbound(message):
     permission = evaluate_destination(account, message.destination_jid, group)
     if not permission['allowed']:
         return permission
+    if message.content_type == 'image' and not account.image_sending_enabled:
+        return {**permission, 'allowed': False, 'reason': 'image_sending_disabled'}
 
     capacity = capacity_snapshot(account)
     reachout = capacity['reachout']

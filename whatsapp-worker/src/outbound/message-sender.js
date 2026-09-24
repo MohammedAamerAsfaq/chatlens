@@ -1,11 +1,14 @@
 'use strict';
 
+const crypto = require('crypto');
+
 const { DESTINATION, classifyDestination, normalizeGroupMetadata } = require('./destination-classifier');
 const { fetchGroupMetadata } = require('./group-metadata');
 
 class OutboundMessageSender {
-  constructor() {
+  constructor({ assetLoader = null } = {}) {
     this.states = new Map();
+    this.assetLoader = assetLoader;
   }
 
   _state(sessionId) {
@@ -13,6 +16,25 @@ class OutboundMessageSender {
       this.states.set(sessionId, { inFlight: 0, lastAccountStart: 0, recipients: new Map(), sent: new Map() });
     }
     return this.states.get(sessionId);
+  }
+
+  async _content(request) {
+    if (request.content_type === 'text') {
+      return { text: String(request.content?.text || '') };
+    }
+    if (request.content_type !== 'image' || !this.assetLoader) {
+      throw new Error('unsupported_outbound_content');
+    }
+    const expected = request.content || {};
+    const asset = await this.assetLoader(expected.asset_id);
+    const digest = crypto.createHash('sha256').update(asset.buffer).digest('hex');
+    if (Number(expected.size_bytes) !== asset.buffer.length || expected.sha256 !== digest) {
+      throw new Error('outbound_asset_integrity_failed');
+    }
+    if (expected.mime_type !== asset.mimeType) {
+      throw new Error('outbound_asset_mime_mismatch');
+    }
+    return { image: asset.buffer, caption: String(expected.caption || '') };
   }
 
   async send(sessionId, session, request) {
@@ -64,6 +86,19 @@ class OutboundMessageSender {
       return { accepted: false, retryable: true, dispatch_started: false, code: 'node_concurrency_wait' };
     }
 
+    let content;
+    try {
+      content = await this._content(request);
+    } catch (error) {
+      return {
+        accepted: false,
+        retryable: true,
+        dispatch_started: false,
+        code: 'asset_fetch_failed',
+        error: error?.message || String(error),
+      };
+    }
+
     state.inFlight += 1;
     state.lastAccountStart = now;
     recipient.inFlight += 1;
@@ -72,7 +107,7 @@ class OutboundMessageSender {
     try {
       const result = await session.sock.sendMessage(
         jid,
-        { text: String(request.content?.text || '') },
+        content,
         { messageId: providerId },
       );
       const response = {

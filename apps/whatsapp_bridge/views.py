@@ -3,7 +3,7 @@ import logging
 import threading
 from django.conf import settings
 from django.db import IntegrityError, close_old_connections, connection, models
-from django.http import JsonResponse
+from django.http import FileResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
@@ -21,6 +21,25 @@ logger = logging.getLogger(__name__)
 def _verify_internal_token(request) -> bool:
     token = request.headers.get('X-Internal-Token', '')
     return token == settings.INTERNAL_API_TOKEN
+
+
+@require_GET
+def internal_outbound_asset(request, asset_id):
+    """Stream a queued outbound asset only to an authenticated worker."""
+    from .models import OutboundAsset
+
+    if not _verify_internal_token(request):
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+    asset = OutboundAsset.objects.filter(pk=asset_id).first()
+    if not asset or not asset.file:
+        return JsonResponse({'error': 'Asset not found'}, status=404)
+    try:
+        response = FileResponse(asset.file.open('rb'), content_type=asset.mime_type)
+    except FileNotFoundError:
+        return JsonResponse({'error': 'Asset file not found'}, status=404)
+    response['Content-Length'] = str(asset.size_bytes)
+    response['X-Content-SHA256'] = asset.sha256
+    return response
 
 
 def _recover_unresolved_for_lid_background(account_id, lid_jid, phone_jid):

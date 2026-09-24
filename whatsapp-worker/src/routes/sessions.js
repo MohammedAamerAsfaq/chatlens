@@ -168,9 +168,11 @@ module.exports = function sessionsRouter(sessionManager, mediaStorePath, message
       return res.status(401).json({ error: 'Unauthorized' });
     }
     const body = req.body || {};
+    const validText = body.content_type === 'text' && String(body.content?.text || '').trim();
+    const validImage = body.content_type === 'image' && Number(body.content?.asset_id) > 0;
     if (!body.outbound_message_id || !body.provider_message_id || !body.destination_jid
-        || body.content_type !== 'text' || !String(body.content?.text || '').trim()) {
-      return res.status(400).json({ error: 'A valid outbound id, provider id, destination, and text are required.' });
+        || (!validText && !validImage)) {
+      return res.status(400).json({ error: 'A valid outbound id, provider id, destination, and content are required.' });
     }
     try {
       const result = await sessionManager.sendOutboundMessage(req.params.id, body);

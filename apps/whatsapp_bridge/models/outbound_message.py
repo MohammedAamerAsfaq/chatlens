@@ -33,6 +33,10 @@ class OutboundMessage(models.Model):
     destination_type = models.CharField(max_length=40, blank=True)
     content_type = models.CharField(max_length=20, default='text')
     content_payload = models.JSONField(default=dict)
+    asset = models.ForeignKey(
+        'whatsapp_bridge.OutboundAsset', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='messages',
+    )
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default=STATUS_QUEUED, db_index=True)
     status_reason = models.CharField(max_length=100, blank=True)
     idempotency_key = models.CharField(max_length=255)

@@ -5,6 +5,11 @@ app_name = 'whatsapp_bridge'
 
 urlpatterns = [
     path(
+        'api/internal/whatsapp/outbound-assets/<int:asset_id>/',
+        views.internal_outbound_asset,
+        name='internal-outbound-asset',
+    ),
+    path(
         'api/internal/whatsapp/message-ingest/',
         views.internal_message_ingest,
         name='internal-message-ingest',

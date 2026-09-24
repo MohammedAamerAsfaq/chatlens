@@ -18,7 +18,7 @@ from django.db.models import Count, Q
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import now
 from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
-from rest_framework import viewsets, status
+from rest_framework import mixins, viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -27,7 +27,7 @@ from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact,
     SyncLog, DroppedMessage, WhatsAppGroup, SessionStatus, WorkerAlert,
     StuckReceipt, WhatsAppUnresolvedMessage, ResolutionStatus, ContactRoleTag,
-    BaileysEvent, OutboundMessage,
+    BaileysEvent, OutboundAsset, OutboundMessage,
 )
 from apps.tenancy.models import AccountEndpoint, CommunicationAccount, Company, CompanyMembership
 from apps.tenancy.services.access import (
@@ -48,7 +48,7 @@ from .serializers import (
     SyncLogSerializer, DroppedMessageSerializer, ContactDetailSerializer,
     GroupSerializer, GroupDetailSerializer, WorkerAlertSerializer,
     StuckReceiptSerializer, UnresolvedMessageSerializer, BaileysEventSerializer,
-    OutboundMessageSerializer,
+    OutboundAssetSerializer, OutboundMessageSerializer,
 )
 
 WORKER_BASE_URL = getattr(settings, 'WORKER_BASE_URL', 'http://localhost:3001')
@@ -61,6 +61,34 @@ class OutboundMessagePagination(PageNumberPagination):
     page_size = 25
     page_size_query_param = 'page_size'
     max_page_size = 100
+
+
+class OutboundAssetViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
+    serializer_class = OutboundAssetSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'post', 'head', 'options']
+
+    def get_queryset(self):
+        company = default_company_for_user(self.request.user)
+        return OutboundAsset.objects.filter(company=company) if company else OutboundAsset.objects.none()
+
+    def create(self, request):
+        from apps.whatsapp_bridge.outbound.assets import create_outbound_asset
+
+        company = default_company_for_user(request.user)
+        if not company:
+            return Response({'detail': 'Select a company before uploading.'}, status=400)
+        upload = request.FILES.get('file')
+        try:
+            asset = create_outbound_asset(company=company, uploaded_by=request.user, upload=upload)
+        except ValueError as exc:
+            messages = {
+                'empty_image': 'Select a non-empty image.',
+                'image_too_large': 'Image must not exceed 10 MB.',
+                'unsupported_image_type': 'Only JPEG, PNG, and WebP images are supported.',
+            }
+            return Response({'file': [messages.get(str(exc), 'Invalid image.')]}, status=400)
+        return Response(self.get_serializer(asset).data, status=status.HTTP_201_CREATED)
 
 
 class OutboundMessageViewSet(viewsets.ReadOnlyModelViewSet):
@@ -290,13 +318,25 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Account is not assigned to a company.'}, status=status.HTTP_400_BAD_REQUEST)
         destination_jid = str(request.data.get('destination_jid') or '').strip().lower()
         text = str(request.data.get('text') or '').strip()
+        asset = None
+        asset_id = request.data.get('asset_id')
+        if asset_id:
+            asset = OutboundAsset.objects.filter(
+                pk=asset_id, company=account.communication_account.company,
+            ).first()
+            if not asset:
+                return Response({'asset_id': ['Image was not found for this company.']}, status=400)
         if not destination_jid or '@' not in destination_jid:
             return Response({'destination_jid': ['A valid WhatsApp JID is required.']}, status=status.HTTP_400_BAD_REQUEST)
-        if not text or len(text) > 10000:
-            return Response({'text': ['Text must contain 1 to 10000 characters.']}, status=status.HTTP_400_BAD_REQUEST)
+        if not text and not asset:
+            return Response({'text': ['Enter text or select an image.']}, status=status.HTTP_400_BAD_REQUEST)
+        if len(text) > (1024 if asset else 10000):
+            limit = 1024 if asset else 10000
+            return Response({'text': [f'Text must not exceed {limit} characters.']}, status=400)
         try:
             outbound, created = create_outbound_message(
                 account=account, destination_jid=destination_jid, text=text,
+                asset=asset,
                 requested_by=request.user, idempotency_key=request.data.get('idempotency_key'),
                 confirm_new_chat=bool(request.data.get('confirm_new_chat')),
             )

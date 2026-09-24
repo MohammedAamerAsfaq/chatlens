@@ -14,6 +14,7 @@ from .baileys_event import BaileysEvent, BaileysEventStage, BaileysEventStatus
 from .outbound_message import (
     OutboundAccountState, OutboundMessage, OutboundMessageEvent, OutboundRecipientState,
 )
+from .outbound_asset import OutboundAsset
 
 __all__ = [
     'WhatsAppAccount',
@@ -44,4 +45,5 @@ __all__ = [
     'OutboundMessageEvent',
     'OutboundAccountState',
     'OutboundRecipientState',
+    'OutboundAsset',
 ]
