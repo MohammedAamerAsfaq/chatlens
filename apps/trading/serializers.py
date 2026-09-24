@@ -423,12 +423,13 @@ class BuyingInquirySupplierSerializer(serializers.ModelSerializer):
     source_product_name = serializers.SerializerMethodField()
     account_id = serializers.IntegerField(source='contact.account_id', read_only=True)
     destination_jid = serializers.CharField(source='contact.wa_contact_id', read_only=True)
+    is_existing_chat = serializers.BooleanField(source='contact.is_existing_chat', read_only=True)
 
     class Meta:
         model = BuyingInquirySupplier
         fields = [
             'id', 'contact', 'contact_name', 'phone_number', 'account_id',
-            'account_name', 'destination_jid',
+            'account_name', 'destination_jid', 'is_existing_chat',
             'source', 'source_product', 'source_product_name', 'source_inquiry_product',
             'sent_count', 'last_sent_at', 'chatlens_click_count',
             'last_chatlens_clicked_at', 'created_at', 'updated_at',
@@ -530,12 +531,13 @@ class SellingOfferCustomerSerializer(serializers.ModelSerializer):
     source_product_name = serializers.SerializerMethodField()
     account_id = serializers.IntegerField(source='contact.account_id', read_only=True)
     destination_jid = serializers.CharField(source='contact.wa_contact_id', read_only=True)
+    is_existing_chat = serializers.BooleanField(source='contact.is_existing_chat', read_only=True)
 
     class Meta:
         model = SellingOfferCustomer
         fields = [
             'id', 'contact', 'contact_name', 'phone_number', 'account_id',
-            'account_name', 'destination_jid',
+            'account_name', 'destination_jid', 'is_existing_chat',
             'source', 'source_product', 'source_product_name', 'source_inquiry_product',
             'sent_count', 'last_sent_at', 'chatlens_click_count',
             'last_chatlens_clicked_at', 'created_at', 'updated_at',

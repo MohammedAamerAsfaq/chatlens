@@ -436,6 +436,15 @@
                   <strong>{{ customer.contact_name }}</strong>
                   <span>{{ customer.phone_number || 'No phone' }} - {{ customer.account_name }} - {{ customer.source === 'auto' ? 'Auto: WTB inquiry product' : 'Manual add' }}</span>
                 </div>
+                <label class="chat-state-toggle" :class="{ existing: customer.is_existing_chat }">
+                  <input
+                    type="checkbox"
+                    :checked="customer.is_existing_chat"
+                    :disabled="busyAction === `chat-state-${customer.contact}`"
+                    @change="setContactChatState(customer, $event)"
+                  />
+                  <span>{{ customer.is_existing_chat ? 'Existing Chat' : 'New Chat' }}</span>
+                </label>
                 <div class="notify-state">
                   <span class="notify-pill" :class="{ sent: customer.sent_count > 0 }">
                     {{ customer.sent_count > 0 ? `WA pressed ${customer.sent_count}x` : 'WA not pressed' }}
@@ -906,6 +915,25 @@ function sendViaChatLens(offer, customer) {
   directSender.send(offer, customer, offerPreview(offer))
 }
 
+async function setContactChatState(customer, event) {
+  const isExisting = event.target.checked
+  busyAction.value = `chat-state-${customer.contact}`
+  error.value = ''
+  try {
+    const { data } = await contactsApi.update(customer.contact, { is_existing_chat: isExisting })
+    offers.value.forEach(offer => {
+      offer.customers.forEach(row => {
+        if (row.contact === customer.contact) row.is_existing_chat = data.is_existing_chat
+      })
+    })
+  } catch (exc) {
+    event.target.checked = !isExisting
+    error.value = apiError(exc, 'Could not update the contact chat state.')
+  } finally {
+    busyAction.value = ''
+  }
+}
+
 async function closeOffer(offer) {
   error.value = ''
   try {
@@ -1367,6 +1395,7 @@ textarea {
 }
 .customer-row {
   padding: 10px 12px;
+  flex-wrap: wrap;
 }
 .customer-main {
   min-width: 0;
@@ -1633,6 +1662,9 @@ pre {
 .send-feedback.queued { color: #15803d; }
 .send-feedback.failed { color: #be123c; }
 .chatlens-btn { height: 32px; padding: 0 12px; border: 1px solid #0f766e; border-radius: 11px; background: #0f766e; color: #fff; cursor: pointer; font-weight: 850; }
+.chat-state-toggle { display: inline-flex; align-items: center; gap: 7px; min-width: 112px; padding: 7px 10px; border: 1px solid #fed7aa; border-radius: 999px; background: #fff7ed; color: #c2410c; cursor: pointer; font-size: 0.72rem; font-weight: 850; white-space: nowrap; }
+.chat-state-toggle.existing { border-color: #bbf7d0; background: #f0fdf4; color: #15803d; }
+.chat-state-toggle input { width: 14px; height: 14px; margin: 0; accent-color: #15803d; }
 .detail-actions {
   justify-content: flex-end;
   margin-top: 12px;

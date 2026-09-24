@@ -124,7 +124,10 @@ def _worker_liveness_status(obj):
 class ContactSerializer(serializers.ModelSerializer):
     class Meta:
         model = WhatsAppContact
-        fields = ['id', 'phone_number', 'display_name', 'push_name', 'wa_contact_id', 'is_business']
+        fields = [
+            'id', 'phone_number', 'display_name', 'push_name', 'wa_contact_id',
+            'is_business', 'is_existing_chat',
+        ]
 
 
 class ContactDetailSerializer(serializers.ModelSerializer):
@@ -143,6 +146,7 @@ class ContactDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'account_id', 'wa_contact_id', 'lid_jid', 'username', 'phone_number',
             'display_name', 'push_name', 'is_business', 'category', 'role_tags', 'role_category',
+            'is_existing_chat',
             'account_name',
             'contact_type', 'message_count', 'chat_id', 'chat_db_id', 'ai_parsing',
             'created_at', 'updated_at',

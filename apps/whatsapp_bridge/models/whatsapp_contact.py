@@ -32,6 +32,9 @@ class WhatsAppContact(models.Model):
     display_name = models.CharField(max_length=255, blank=True)
     push_name = models.CharField(max_length=255, blank=True)
     is_business = models.BooleanField(default=False)
+    # Operator-owned outbound state. Existing is the safe workflow default requested
+    # for campaign contacts; untracked destinations still use message-history detection.
+    is_existing_chat = models.BooleanField(default=True)
     # User-assigned tag — blank means uncategorized. Drives the supplier picker on the
     # Buying Inquiries page; has no effect on message ingestion/classification.
     category = models.CharField(max_length=20, choices=ContactCategory.choices, blank=True)

@@ -1716,11 +1716,12 @@ class ContactViewSet(viewsets.ModelViewSet):
             except ValueError as exc:
                 return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Only display_name and category are user-editable; category now writes role tags
+        # Display name, category, and outbound chat state are user-editable. Category writes role tags
         # while the legacy column stays synchronized for backward compatibility.
         data = {
             'display_name': request.data.get('display_name', contact.display_name),
             'category': category,
+            'is_existing_chat': request.data.get('is_existing_chat', contact.is_existing_chat),
         }
         serializer = self.get_serializer(contact, data=data, partial=True)
         serializer.is_valid(raise_exception=True)

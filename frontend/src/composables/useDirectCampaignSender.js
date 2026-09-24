@@ -11,6 +11,12 @@ const PREFLIGHT_REASONS = {
   recipient_not_registered: 'This number is not registered on WhatsApp.',
   session_disconnected: 'WhatsApp session is disconnected.',
 }
+const OUTBOUND_REASONS = {
+  image_sending_disabled: 'Image sending is disabled for this account.',
+  new_chat_cap_reached: "WhatsApp reports that this account's new-chat limit has been reached.",
+  new_chat_cap_unknown: 'The current new-chat capacity is unknown and this account is configured to block it.',
+  reachout_locked: 'WhatsApp has temporarily restricted new outgoing conversations for this account.',
+}
 
 function requestKey(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
@@ -92,7 +98,12 @@ export function useDirectCampaignSender({ kind, markClick, updateRecipient }) {
         requestKey(`${kind}-${campaign.id}-${recipient.id}`),
       )
       if (['blocked', 'preflight_blocked', 'failed'].includes(data.status)) {
-        throw new Error(data.status_reason || data.last_error || 'Outbound message was blocked.')
+        throw new Error(
+          OUTBOUND_REASONS[data.status_reason]
+          || data.status_reason
+          || data.last_error
+          || 'Outbound message was blocked.',
+        )
       }
       feedback[key] = { state: 'queued', message: images[campaign.id] ? 'Image and caption queued.' : 'Message queued.' }
     } catch (exc) {

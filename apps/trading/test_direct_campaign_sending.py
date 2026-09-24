@@ -10,6 +10,7 @@ from apps.trading.models import (
     SellingOfferCustomer,
 )
 from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppContact
+from apps.whatsapp_bridge.outbound.policy import new_chat_snapshot
 
 
 class DirectCampaignChatLensTests(TestCase):
@@ -75,3 +76,39 @@ class DirectCampaignChatLensTests(TestCase):
         self.assertEqual(response.data['account_id'], self.account.pk)
         self.assertEqual(response.data['destination_jid'], self.contact.wa_contact_id)
         self.assertEqual(response.data['chatlens_click_count'], 1)
+
+    def test_contact_chat_state_persists_and_controls_future_campaign_rows(self):
+        self.assertTrue(self.contact.is_existing_chat)
+        response = self.client.patch(
+            f'/api/contacts/{self.contact.pk}/',
+            {'is_existing_chat': False},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.contact.refresh_from_db()
+        self.assertFalse(self.contact.is_existing_chat)
+        self.assertEqual(
+            new_chat_snapshot(self.account, self.contact.wa_contact_id)['reason'],
+            'operator_marked_new',
+        )
+
+        inquiry = BuyingInquiry.objects.create(company=self.company, name='Future inquiry')
+        supplier = BuyingInquirySupplier.objects.create(inquiry=inquiry, contact=self.contact)
+        response = self.client.post(
+            f'/api/buying-inquiries/{inquiry.pk}/mark-supplier-chatlens-click/',
+            {'supplier_id': supplier.pk},
+            format='json',
+        )
+        self.assertFalse(response.data['is_existing_chat'])
+
+        response = self.client.patch(
+            f'/api/contacts/{self.contact.pk}/',
+            {'is_existing_chat': True},
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            new_chat_snapshot(self.account, self.contact.wa_contact_id)['reason'],
+            'operator_marked_existing',
+        )
