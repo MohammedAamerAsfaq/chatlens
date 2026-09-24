@@ -126,6 +126,8 @@ class SellingOfferCustomer(models.Model):
     )
     sent_count = models.PositiveIntegerField(default=0)
     last_sent_at = models.DateTimeField(null=True, blank=True)
+    chatlens_click_count = models.PositiveIntegerField(default=0)
+    last_chatlens_clicked_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

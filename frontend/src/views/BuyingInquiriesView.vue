@@ -383,6 +383,21 @@
               </div>
             </div>
 
+            <div class="campaign-attachment">
+              <div>
+                <h3>Optional image</h3>
+                <p>The image and message will be queued only when you use ChatLens Send.</p>
+              </div>
+              <div class="attachment-actions">
+                <span v-if="directSender.images[inquiry.id]">{{ directSender.images[inquiry.id].name }}</span>
+                <label class="image-picker">
+                  Choose image
+                  <input type="file" accept="image/jpeg,image/png,image/webp" @change="selectCampaignImage(inquiry.id, $event)" />
+                </label>
+                <button v-if="directSender.images[inquiry.id]" class="link-btn danger" @click="directSender.removeImage(inquiry.id)">Remove image</button>
+              </div>
+            </div>
+
             <div class="supplier-list-title">
               <div>
                 <h3>Suppliers to Ask</h3>
@@ -407,17 +422,33 @@
                   <strong>{{ supplier.contact_name }}</strong>
                   <span>{{ supplier.phone_number || 'No phone' }} - {{ supplier.account_name }} - {{ supplier.source === 'auto' ? 'Auto: WTS inquiry product' : 'Manual add' }}</span>
                 </div>
-                <span class="notify-pill" :class="{ sent: supplier.sent_count > 0 }">
-                  {{ supplier.sent_count > 0 ? `WA pressed ${supplier.sent_count}x` : 'Not notified' }}
-                </span>
+                <div class="notify-state">
+                  <span class="notify-pill" :class="{ sent: supplier.sent_count > 0 }">
+                    {{ supplier.sent_count > 0 ? `WA pressed ${supplier.sent_count}x` : 'WA not pressed' }}
+                  </span>
+                  <span class="notify-pill chatlens" :class="{ sent: supplier.chatlens_click_count > 0 }">
+                    {{ supplier.chatlens_click_count > 0 ? `ChatLens clicked ${supplier.chatlens_click_count}x` : 'ChatLens not clicked' }}
+                  </span>
+                  <span
+                    v-if="directSender.feedback[directSender.rowKey(inquiry.id, supplier.id)]"
+                    :class="['send-feedback', directSender.feedback[directSender.rowKey(inquiry.id, supplier.id)].state]"
+                  >{{ directSender.feedback[directSender.rowKey(inquiry.id, supplier.id)].message }}</span>
+                </div>
                 <div class="row-actions">
                   <a
                     class="wa-btn"
                     :href="whatsappUrl(supplier.phone_number, inquiryPreview(inquiry))"
                     @click="markSent(inquiry, supplier)"
                   >
-                    WA
+                    WA Client
                   </a>
+                  <button
+                    class="chatlens-btn"
+                    :disabled="directSender.busy[directSender.rowKey(inquiry.id, supplier.id)]"
+                    @click="sendViaChatLens(inquiry, supplier)"
+                  >
+                    {{ directSender.busy[directSender.rowKey(inquiry.id, supplier.id)] ? 'Working...' : 'ChatLens Send' }}
+                  </button>
                   <button
                     class="link-btn danger"
                     :disabled="busyAction === `remove-supplier-${inquiry.id}-${supplier.id}`"
@@ -445,6 +476,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons'
 import { contactsApi, tradingApi } from '@/api'
+import { useDirectCampaignSender } from '@/composables/useDirectCampaignSender'
 
 const DEFAULT_HEADER = 'Hello, looking to buy:'
 const DEFAULT_LINE = '- {product_name} - Qty {qty} - Target {price}'
@@ -487,6 +519,12 @@ const draft = reactive({
   header_template: DEFAULT_HEADER,
   product_line_template: DEFAULT_LINE,
   footer_template: DEFAULT_FOOTER,
+})
+
+const directSender = useDirectCampaignSender({
+  kind: 'buying-inquiry',
+  markClick: tradingApi.markBuyingInquirySupplierChatLensClick,
+  updateRecipient: updateSupplier,
 })
 
 const draftPreview = computed(() => formatInquiryMessage({
@@ -857,6 +895,21 @@ async function markSent(inquiry, supplier) {
   } catch (exc) {
     error.value = apiError(exc, 'Could not record WA press.')
   }
+}
+
+function updateSupplier(inquiryId, supplier) {
+  const inquiry = inquiries.value.find(row => row.id === inquiryId)
+  if (!inquiry) return
+  const index = inquiry.suppliers.findIndex(row => row.id === supplier.id)
+  if (index !== -1) inquiry.suppliers[index] = supplier
+}
+
+function selectCampaignImage(inquiryId, event) {
+  error.value = directSender.selectImage(inquiryId, event)
+}
+
+function sendViaChatLens(inquiry, supplier) {
+  directSender.send(inquiry, supplier, inquiryPreview(inquiry))
 }
 
 async function closeInquiry(inquiry) {
@@ -1319,6 +1372,28 @@ pre {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+.campaign-attachment {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 13px;
+  border: 1px solid #dbe4ee;
+  border-radius: 12px;
+  background: #fff;
+}
+.campaign-attachment p { margin-top: 4px; color: #64748b; font-size: 0.8rem; }
+.attachment-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.attachment-actions > span { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #475569; font-size: 0.8rem; }
+.image-picker { display: block; border: 1px solid #cbd5e1; border-radius: 10px; padding: 8px 12px; color: #334155; cursor: pointer; font-size: 0.78rem; font-weight: 850; }
+.image-picker input { display: none; }
+.notify-state { display: grid; justify-items: start; gap: 4px; }
+.notify-pill.chatlens.sent { background: #dcfce7; color: #15803d; }
+.send-feedback { max-width: 230px; color: #64748b; font-size: 0.72rem; font-weight: 750; }
+.send-feedback.queued { color: #15803d; }
+.send-feedback.failed { color: #be123c; }
+.chatlens-btn { height: 32px; padding: 0 12px; border: 1px solid #0f766e; border-radius: 11px; background: #0f766e; color: #fff; cursor: pointer; font-weight: 850; }
 .detail-actions {
   justify-content: flex-end;
   margin-top: 12px;
@@ -1466,6 +1541,7 @@ button:disabled {
   .section-title-row,
   .inquiry-summary,
   .supplier-row,
+  .campaign-attachment,
   .form-actions {
     align-items: stretch;
     flex-direction: column;
@@ -1483,6 +1559,10 @@ button:disabled {
   }
   .inquiry-right {
     flex-wrap: wrap;
+  }
+  .attachment-actions,
+  .row-actions {
+    justify-content: flex-start;
   }
 }
 </style>

@@ -3458,6 +3458,25 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
         supplier.refresh_from_db()
         return Response(BuyingInquirySupplierSerializer(supplier).data)
 
+    @action(detail=True, methods=['post'], url_path='mark-supplier-chatlens-click')
+    def mark_supplier_chatlens_click(self, request, pk=None):
+        inquiry = self.get_object()
+        supplier_id = request.data.get('supplier_id')
+        try:
+            supplier = inquiry.suppliers.select_related(
+                'contact', 'contact__account', 'source_product',
+            ).get(pk=supplier_id)
+        except BuyingInquirySupplier.DoesNotExist:
+            return Response(
+                {'detail': 'Supplier row not found for this inquiry.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        supplier.chatlens_click_count = F('chatlens_click_count') + 1
+        supplier.last_chatlens_clicked_at = now()
+        supplier.save(update_fields=['chatlens_click_count', 'last_chatlens_clicked_at', 'updated_at'])
+        supplier.refresh_from_db()
+        return Response(BuyingInquirySupplierSerializer(supplier).data)
+
     @action(detail=True, methods=['post'], url_path='close')
     def close(self, request, pk=None):
         inquiry = self.get_object()
@@ -3992,6 +4011,25 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
         customer.sent_count = F('sent_count') + 1
         customer.last_sent_at = now()
         customer.save(update_fields=['sent_count', 'last_sent_at', 'updated_at'])
+        customer.refresh_from_db()
+        return Response(SellingOfferCustomerSerializer(customer).data)
+
+    @action(detail=True, methods=['post'], url_path='mark-customer-chatlens-click')
+    def mark_customer_chatlens_click(self, request, pk=None):
+        offer = self.get_object()
+        customer_id = request.data.get('customer_id')
+        try:
+            customer = offer.customers.select_related(
+                'contact', 'contact__account', 'source_product',
+            ).get(pk=customer_id)
+        except SellingOfferCustomer.DoesNotExist:
+            return Response(
+                {'detail': 'Customer row not found for this offer.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        customer.chatlens_click_count = F('chatlens_click_count') + 1
+        customer.last_chatlens_clicked_at = now()
+        customer.save(update_fields=['chatlens_click_count', 'last_chatlens_clicked_at', 'updated_at'])
         customer.refresh_from_db()
         return Response(SellingOfferCustomerSerializer(customer).data)
 

@@ -401,6 +401,21 @@
               </div>
             </div>
 
+            <div class="campaign-attachment">
+              <div>
+                <h3>Optional image</h3>
+                <p>The image and message will be queued only when you use ChatLens Send.</p>
+              </div>
+              <div class="attachment-actions">
+                <span v-if="directSender.images[offer.id]">{{ directSender.images[offer.id].name }}</span>
+                <label class="image-picker">
+                  Choose image
+                  <input type="file" accept="image/jpeg,image/png,image/webp" @change="selectCampaignImage(offer.id, $event)" />
+                </label>
+                <button v-if="directSender.images[offer.id]" class="link-btn danger" @click="directSender.removeImage(offer.id)">Remove image</button>
+              </div>
+            </div>
+
             <div class="customer-list-title">
               <div>
                 <h3>Customers to Send Offer</h3>
@@ -421,17 +436,33 @@
                   <strong>{{ customer.contact_name }}</strong>
                   <span>{{ customer.phone_number || 'No phone' }} - {{ customer.account_name }} - {{ customer.source === 'auto' ? 'Auto: WTB inquiry product' : 'Manual add' }}</span>
                 </div>
-                <span class="notify-pill" :class="{ sent: customer.sent_count > 0 }">
-                  {{ customer.sent_count > 0 ? `WA pressed ${customer.sent_count}x` : 'Not notified' }}
-                </span>
+                <div class="notify-state">
+                  <span class="notify-pill" :class="{ sent: customer.sent_count > 0 }">
+                    {{ customer.sent_count > 0 ? `WA pressed ${customer.sent_count}x` : 'WA not pressed' }}
+                  </span>
+                  <span class="notify-pill chatlens" :class="{ sent: customer.chatlens_click_count > 0 }">
+                    {{ customer.chatlens_click_count > 0 ? `ChatLens clicked ${customer.chatlens_click_count}x` : 'ChatLens not clicked' }}
+                  </span>
+                  <span
+                    v-if="directSender.feedback[directSender.rowKey(offer.id, customer.id)]"
+                    :class="['send-feedback', directSender.feedback[directSender.rowKey(offer.id, customer.id)].state]"
+                  >{{ directSender.feedback[directSender.rowKey(offer.id, customer.id)].message }}</span>
+                </div>
                 <div class="row-actions">
                   <a
                     class="wa-btn"
                     :href="whatsappUrl(customer.phone_number, offerPreview(offer))"
                     @click="markSent(offer, customer)"
                   >
-                    WA
+                    WA Client
                   </a>
+                  <button
+                    class="chatlens-btn"
+                    :disabled="directSender.busy[directSender.rowKey(offer.id, customer.id)]"
+                    @click="sendViaChatLens(offer, customer)"
+                  >
+                    {{ directSender.busy[directSender.rowKey(offer.id, customer.id)] ? 'Working...' : 'ChatLens Send' }}
+                  </button>
                   <button
                     class="link-btn danger"
                     :disabled="busyAction === `remove-customer-${offer.id}-${customer.id}`"
@@ -459,6 +490,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons'
 import { contactsApi, tradingApi } from '@/api'
+import { useDirectCampaignSender } from '@/composables/useDirectCampaignSender'
 
 const DEFAULT_HEADER = 'Hello, available stock offer:'
 const DEFAULT_LINE = '- {product_name} - Qty {qty} - {price}'
@@ -525,6 +557,12 @@ const draft = reactive({
   flag_position: DEFAULT_FLAG_POSITION,
   send_color: DEFAULT_SEND_COLOR,
   color_position: DEFAULT_COLOR_POSITION,
+})
+
+const directSender = useDirectCampaignSender({
+  kind: 'selling-offer',
+  markClick: tradingApi.markSellingOfferCustomerChatLensClick,
+  updateRecipient: updateCustomer,
 })
 
 const draftPreview = computed(() => formatOfferMessage({
@@ -851,6 +889,21 @@ async function markSent(offer, customer) {
   } catch (exc) {
     error.value = apiError(exc, 'Could not record WA press.')
   }
+}
+
+function updateCustomer(offerId, customer) {
+  const offer = offers.value.find(row => row.id === offerId)
+  if (!offer) return
+  const index = offer.customers.findIndex(row => row.id === customer.id)
+  if (index !== -1) offer.customers[index] = customer
+}
+
+function selectCampaignImage(offerId, event) {
+  error.value = directSender.selectImage(offerId, event)
+}
+
+function sendViaChatLens(offer, customer) {
+  directSender.send(offer, customer, offerPreview(offer))
 }
 
 async function closeOffer(offer) {
@@ -1558,6 +1611,28 @@ pre {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+.campaign-attachment {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 13px;
+  border: 1px solid #dbe4ee;
+  border-radius: 12px;
+  background: #fff;
+}
+.campaign-attachment p { margin-top: 4px; color: #64748b; font-size: 0.8rem; }
+.attachment-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.attachment-actions > span { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #475569; font-size: 0.8rem; }
+.image-picker { display: block; border: 1px solid #cbd5e1; border-radius: 10px; padding: 8px 12px; color: #334155; cursor: pointer; font-size: 0.78rem; font-weight: 850; }
+.image-picker input { display: none; }
+.notify-state { display: grid; justify-items: start; gap: 4px; }
+.notify-pill.chatlens.sent { background: #dcfce7; color: #15803d; }
+.send-feedback { max-width: 230px; color: #64748b; font-size: 0.72rem; font-weight: 750; }
+.send-feedback.queued { color: #15803d; }
+.send-feedback.failed { color: #be123c; }
+.chatlens-btn { height: 32px; padding: 0 12px; border: 1px solid #0f766e; border-radius: 11px; background: #0f766e; color: #fff; cursor: pointer; font-weight: 850; }
 .detail-actions {
   justify-content: flex-end;
   margin-top: 12px;
@@ -1583,6 +1658,7 @@ pre {
   .section-title-row,
   .offer-summary,
   .customer-row,
+  .campaign-attachment,
   .form-actions {
     align-items: stretch;
     flex-direction: column;
@@ -1600,6 +1676,10 @@ pre {
   }
   .offer-right {
     flex-wrap: wrap;
+  }
+  .attachment-actions,
+  .row-actions {
+    justify-content: flex-start;
   }
 }
 </style>

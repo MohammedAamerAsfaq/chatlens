@@ -421,13 +421,17 @@ class BuyingInquirySupplierSerializer(serializers.ModelSerializer):
     phone_number = serializers.CharField(source='contact.phone_number', read_only=True)
     account_name = serializers.SerializerMethodField()
     source_product_name = serializers.SerializerMethodField()
+    account_id = serializers.IntegerField(source='contact.account_id', read_only=True)
+    destination_jid = serializers.CharField(source='contact.wa_contact_id', read_only=True)
 
     class Meta:
         model = BuyingInquirySupplier
         fields = [
-            'id', 'contact', 'contact_name', 'phone_number', 'account_name',
+            'id', 'contact', 'contact_name', 'phone_number', 'account_id',
+            'account_name', 'destination_jid',
             'source', 'source_product', 'source_product_name', 'source_inquiry_product',
-            'sent_count', 'last_sent_at', 'created_at', 'updated_at',
+            'sent_count', 'last_sent_at', 'chatlens_click_count',
+            'last_chatlens_clicked_at', 'created_at', 'updated_at',
         ]
         read_only_fields = fields
 
@@ -524,13 +528,17 @@ class SellingOfferCustomerSerializer(serializers.ModelSerializer):
     phone_number = serializers.CharField(source='contact.phone_number', read_only=True)
     account_name = serializers.SerializerMethodField()
     source_product_name = serializers.SerializerMethodField()
+    account_id = serializers.IntegerField(source='contact.account_id', read_only=True)
+    destination_jid = serializers.CharField(source='contact.wa_contact_id', read_only=True)
 
     class Meta:
         model = SellingOfferCustomer
         fields = [
-            'id', 'contact', 'contact_name', 'phone_number', 'account_name',
+            'id', 'contact', 'contact_name', 'phone_number', 'account_id',
+            'account_name', 'destination_jid',
             'source', 'source_product', 'source_product_name', 'source_inquiry_product',
-            'sent_count', 'last_sent_at', 'created_at', 'updated_at',
+            'sent_count', 'last_sent_at', 'chatlens_click_count',
+            'last_chatlens_clicked_at', 'created_at', 'updated_at',
         ]
         read_only_fields = fields
 
