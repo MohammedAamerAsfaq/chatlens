@@ -7,7 +7,12 @@ class KiwiRouter(models.Model):
     STRATEGY_ORDERED_CAPACITY_FILL = 'ordered_capacity_fill'
     STRATEGY_CHOICES = [(STRATEGY_ORDERED_CAPACITY_FILL, 'Ordered capacity fill')]
 
-    name = models.CharField(max_length=100, unique=True)
+    company = models.ForeignKey(
+        'tenancy.Company',
+        on_delete=models.CASCADE,
+        related_name='kiwi_routers',
+    )
+    name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
     capability = models.CharField(max_length=50, choices=AIProviderConfig.CAPABILITY_CHOICES)
     strategy = models.CharField(max_length=50, choices=STRATEGY_CHOICES, default=STRATEGY_ORDERED_CAPACITY_FILL)
@@ -18,6 +23,12 @@ class KiwiRouter(models.Model):
 
     class Meta:
         ordering = ['name']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['company', 'name'],
+                name='unique_kiwi_router_name_per_company',
+            ),
+        ]
 
     def __str__(self):
         return self.name
@@ -100,7 +111,13 @@ class KiwiRoutingDecision(models.Model):
 
 
 class DefaultAgentTarget(models.Model):
-    """The global default used when an AI operation has no explicit target."""
+    """Company default used when an AI operation has no explicit target."""
+
+    company = models.OneToOneField(
+        'tenancy.Company',
+        on_delete=models.CASCADE,
+        related_name='default_agent_target',
+    )
 
     kiwi_router = models.ForeignKey(
         KiwiRouter,

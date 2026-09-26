@@ -1,4 +1,4 @@
-from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, IntegerField, QuerySet, Value, When
 
 from apps.tenancy.models import Company, CompanyMembership
 from apps.whatsapp_bridge.models import WhatsAppAccount
@@ -18,6 +18,8 @@ def default_company_for_user(user):
 
     if user.is_superuser:
         control = Company.objects.filter(company_type=Company.TYPE_CONTROL, is_active=True).first()
+        if control and not control.access_is_valid:
+            control = None
         if control:
             return control
 
@@ -34,8 +36,10 @@ def default_company_for_user(user):
         )
         .order_by('priority', 'company__name')
     )
-    membership = memberships.first()
-    return membership.company if membership else None
+    return next(
+        (membership.company for membership in memberships if membership.company.access_is_valid),
+        None,
+    )
 
 
 def visible_companies_queryset(user) -> QuerySet:
@@ -48,7 +52,8 @@ def visible_companies_queryset(user) -> QuerySet:
 def can_user_access_company(user, company_id) -> bool:
     if not company_id:
         return False
-    return available_companies_queryset(user).filter(pk=company_id, is_active=True).exists()
+    company = available_companies_queryset(user).filter(pk=company_id, is_active=True).first()
+    return bool(company and company.access_is_valid)
 
 
 def active_membership_for_user(user):
@@ -97,26 +102,14 @@ def visible_accounts_queryset(user, qs: QuerySet | None = None) -> QuerySet:
     active_company = default_company_for_user(user)
     if active_company is not None:
         return qs.filter(communication_account__company=active_company).distinct()
-    if user.is_superuser:
-        return qs
-    return qs.filter(
-        Q(
-            communication_account__company__memberships__user=user,
-            communication_account__company__memberships__is_active=True,
-        ) |
-        Q(owner=user, communication_account__isnull=True)
-    ).distinct()
+    return qs.none()
 
 
 def scope_queryset_to_visible_accounts(qs: QuerySet, user, account_field: str = 'account') -> QuerySet:
-    if user.is_superuser:
-        return qs
     visible_account_ids = visible_accounts_queryset(user).values('pk')
     return qs.filter(**{f'{account_field}__in': visible_account_ids}).distinct()
 
 
 def scope_queryset_to_visible_companies(qs: QuerySet, user, company_field: str = 'company') -> QuerySet:
-    if user.is_superuser:
-        return qs
     visible_company_ids = visible_companies_queryset(user).values('pk')
     return qs.filter(**{f'{company_field}__in': visible_company_ids}).distinct()

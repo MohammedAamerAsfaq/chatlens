@@ -52,6 +52,11 @@ class AIProviderConfig(models.Model):
         (CAPABILITY_AGENT,     'General AI Agent'),
     ]
 
+    company = models.ForeignKey(
+        'tenancy.Company',
+        on_delete=models.CASCADE,
+        related_name='ai_provider_configs',
+    )
     display_name = models.CharField(max_length=100)
     provider = models.CharField(max_length=50, choices=PROVIDER_CHOICES)
     capability = models.CharField(max_length=50, choices=CAPABILITY_CHOICES)
@@ -67,6 +72,13 @@ class AIProviderConfig(models.Model):
 
     class Meta:
         ordering = ['capability', '-is_active', 'display_name']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['company', 'capability'],
+                condition=models.Q(is_active=True),
+                name='unique_active_ai_provider_per_company_capability',
+            ),
+        ]
 
     def __str__(self):
         active = ' [active]' if self.is_active else ''

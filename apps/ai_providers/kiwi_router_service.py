@@ -28,7 +28,7 @@ def estimate_tokens(messages):
     return sum(len(str(message.get('content', ''))) for message in messages) // 4
 
 
-def reserve_agent(router_id, *, workflow_key, correlation_id, task_id=None,
+def reserve_agent(router_id, *, company, workflow_key, correlation_id, task_id=None,
                   estimated_input_tokens=0, estimated_output_tokens=0):
     """Reserve the first preferred member with current capacity.
 
@@ -38,7 +38,9 @@ def reserve_agent(router_id, *, workflow_key, correlation_id, task_id=None,
     """
     now = timezone.now()
     with transaction.atomic():
-        router = KiwiRouter.objects.select_for_update().get(pk=router_id, is_active=True)
+        router = KiwiRouter.objects.select_for_update().get(
+            pk=router_id, company=company, is_active=True,
+        )
         members = list(router.members.select_for_update().select_related('provider_config').filter(
             is_enabled=True,
             provider_config__capability=router.capability,
@@ -117,11 +119,11 @@ def mark_reservation_dispatched(reservation):
     reservation.save(update_fields=['status'])
 
 
-def execute_agent(router_id, *, messages, workflow_key, correlation_id, task_id=None, **kwargs):
+def execute_agent(router_id, *, company, messages, workflow_key, correlation_id, task_id=None, **kwargs):
     """Route one agent request without the legacy blocking provider limiter."""
     input_tokens = estimate_tokens(messages)
     selection = reserve_agent(
-        router_id, workflow_key=workflow_key, correlation_id=correlation_id,
+        router_id, company=company, workflow_key=workflow_key, correlation_id=correlation_id,
         task_id=task_id, estimated_input_tokens=input_tokens,
     )
     if selection.member is None:

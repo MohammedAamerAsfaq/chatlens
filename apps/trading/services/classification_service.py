@@ -463,7 +463,7 @@ def _find_v2_candidates(
         from apps.trading.models import Product
 
         brand_values = _brand_filter_values(brand)
-        query_vec = ai_manager.embed(query)
+        query_vec = ai_manager.embed(query, company=company)
         query_vec_text = Vector(query_vec).to_text()
         brand_filter = ''
         search_limit = max(top_k * 4, 20)

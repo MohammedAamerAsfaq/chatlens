@@ -192,6 +192,54 @@ async function updateCompanyClassificationVersion(company, version) {
     savingCompanySetting.value = null
   }
 }
+
+async function updateCompany(company, patch) {
+  savingCompanySetting.value = company.id
+  error.value = ''
+  try {
+    const { data } = await tenantAdminApi.updateCompany(company.id, patch)
+    const idx = companies.value.findIndex(item => item.id === company.id)
+    if (idx !== -1) companies.value[idx] = data
+  } catch (e) {
+    error.value = e.response?.data?.detail || e.message || 'Failed to update company'
+    await load()
+  } finally {
+    savingCompanySetting.value = null
+  }
+}
+
+async function deleteCompany(company) {
+  const confirmation = window.prompt(`Type "${company.name}" to permanently delete this company and all tenant data.`)
+  if (confirmation !== company.name) return
+  try {
+    await tenantAdminApi.deleteCompany(company.id, { confirm_name: confirmation })
+    await load()
+  } catch (e) {
+    error.value = e.response?.data?.detail || e.message || 'Failed to delete company'
+  }
+}
+
+async function updateMembership(membership, patch) {
+  error.value = ''
+  try {
+    const { data } = await tenantAdminApi.updateUser(membership.id, patch)
+    const idx = memberships.value.findIndex(item => item.id === membership.id)
+    if (idx !== -1) memberships.value[idx] = data
+  } catch (e) {
+    error.value = e.response?.data?.detail || e.message || 'Failed to update user'
+    await load()
+  }
+}
+
+async function removeMembership(membership) {
+  if (!window.confirm(`Remove ${membership.user.username} from ${membership.company.name}?`)) return
+  try {
+    await tenantAdminApi.removeUser(membership.id)
+    await load()
+  } catch (e) {
+    error.value = e.response?.data?.detail || e.message || 'Failed to remove user'
+  }
+}
 </script>
 
 <template>
@@ -316,15 +364,34 @@ async function updateCompanyClassificationVersion(company, version) {
                   <th>Type</th>
                   <th>Industry</th>
                   <th>Classification</th>
+                  <th>Validity</th>
                   <th>Users</th>
                   <th>Status</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="company in companies" :key="company.id">
-                  <td>{{ company.name }}</td>
+                  <td>
+                    <input
+                      class="inline-input company-name"
+                      :value="company.name"
+                      :disabled="company.company_type === 'control'"
+                      @change="updateCompany(company, { name: $event.target.value })"
+                    />
+                  </td>
                   <td>{{ company.company_type }}</td>
-                  <td>{{ company.industry_type }}</td>
+                  <td>
+                    <select
+                      class="inline-select"
+                      :value="company.industry_type"
+                      @change="updateCompany(company, { industry_type: $event.target.value })"
+                    >
+                      <option value="general">General</option>
+                      <option value="trading">Trading</option>
+                      <option value="real_estate">Real Estate</option>
+                    </select>
+                  </td>
                   <td>
                     <select
                       class="inline-select"
@@ -336,8 +403,50 @@ async function updateCompanyClassificationVersion(company, version) {
                       <option value="v2">V2</option>
                     </select>
                   </td>
+                  <td>
+                    <div class="validity-controls">
+                      <label>
+                        <input
+                          type="checkbox"
+                          :checked="company.enforce_validity_period"
+                          @change="updateCompany(company, { enforce_validity_period: $event.target.checked })"
+                        />
+                        Enforce
+                      </label>
+                      <input
+                        type="date"
+                        :value="company.valid_from || ''"
+                        @change="updateCompany(company, { valid_from: $event.target.value || null })"
+                      />
+                      <input
+                        type="date"
+                        :value="company.valid_until || ''"
+                        @change="updateCompany(company, { valid_until: $event.target.value || null })"
+                      />
+                      <small :class="company.access_is_valid ? 'valid' : 'invalid'">
+                        {{ company.validity_status.replaceAll('_', ' ') }}
+                      </small>
+                    </div>
+                  </td>
                   <td>{{ company.membership_count }}</td>
-                  <td>{{ company.is_active ? 'Active' : 'Inactive' }}</td>
+                  <td>
+                    <label class="toggle-label">
+                      <input
+                        type="checkbox"
+                        :checked="company.is_active"
+                        :disabled="company.company_type === 'control'"
+                        @change="updateCompany(company, { is_active: $event.target.checked })"
+                      />
+                      {{ company.is_active ? 'Active' : 'Inactive' }}
+                    </label>
+                  </td>
+                  <td>
+                    <button
+                      v-if="company.company_type !== 'control'"
+                      class="btn-danger"
+                      @click="deleteCompany(company)"
+                    >Delete</button>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -358,6 +467,8 @@ async function updateCompanyClassificationVersion(company, version) {
                   <th>Email</th>
                   <th>Company</th>
                   <th>Role</th>
+                  <th>Status</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -365,7 +476,30 @@ async function updateCompanyClassificationVersion(company, version) {
                   <td>{{ membership.user.username }}</td>
                   <td>{{ membership.user.email }}</td>
                   <td>{{ membership.company.name }}</td>
-                  <td>{{ membership.role.replaceAll('_', ' ') }}</td>
+                  <td>
+                    <select
+                      class="inline-select"
+                      :value="membership.role"
+                      @change="updateMembership(membership, { role: $event.target.value })"
+                    >
+                      <option value="super_user">Super User</option>
+                      <option value="admin">Admin</option>
+                      <option value="manager">Manager</option>
+                      <option value="user">User</option>
+                      <option value="viewer">Viewer</option>
+                    </select>
+                  </td>
+                  <td>
+                    <label class="toggle-label">
+                      <input
+                        type="checkbox"
+                        :checked="membership.is_active"
+                        @change="updateMembership(membership, { is_active: $event.target.checked })"
+                      />
+                      {{ membership.is_active ? 'Active' : 'Inactive' }}
+                    </label>
+                  </td>
+                  <td><button class="btn-danger" @click="removeMembership(membership)">Remove</button></td>
                 </tr>
               </tbody>
             </table>
@@ -458,6 +592,15 @@ async function updateCompanyClassificationVersion(company, version) {
   font-size: 0.82rem;
   background: #fff;
 }
+.inline-input { border: 1px solid #d1d5db; border-radius: 7px; padding: 6px 8px; background: #fff; }
+.company-name { min-width: 150px; font-weight: 600; }
+.validity-controls { display: grid; grid-template-columns: auto 136px 136px; gap: 6px; align-items: center; min-width: 320px; }
+.validity-controls label, .toggle-label { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+.validity-controls input[type='date'] { border: 1px solid #d1d5db; border-radius: 7px; padding: 6px; }
+.validity-controls small { grid-column: 1 / -1; text-transform: capitalize; }
+.validity-controls .valid { color: #166534; }
+.validity-controls .invalid { color: #b91c1c; }
+.btn-danger { border: 1px solid #fecaca; background: #fff; color: #b91c1c; border-radius: 7px; padding: 6px 9px; cursor: pointer; }
 .empty { color: #9ca3af; font-size: 0.9rem; padding: 12px 0; }
 @media (max-width: 960px) {
   .grid { grid-template-columns: 1fr; }

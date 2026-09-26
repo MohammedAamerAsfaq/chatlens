@@ -6,6 +6,22 @@ logger = logging.getLogger(__name__)
 BATCH_SIZE = getattr(settings, 'EMBEDDING_BATCH_SIZE', 128)
 
 
+def _message_company(message):
+    communication_account = getattr(message.account, 'communication_account', None)
+    return getattr(communication_account, 'company', None)
+
+
+def _one_company(rows, getter=lambda row: row.company):
+    companies = {company.pk: company for row in rows if (company := getter(row))}
+    if len(companies) != 1:
+        raise ValueError('Embedding batches must contain records from exactly one company.')
+    return next(iter(companies.values()))
+
+
+def _empty_batch_result(ids):
+    return {'total': len(ids), 'embedded': 0, 'skipped': 0, 'errors': 0}
+
+
 def _build_text(message) -> str:
     """Compose the text we embed for a given WhatsAppMessage."""
     parts = []
@@ -21,18 +37,21 @@ def embed_message(message_id: int) -> bool:
     from apps.message_intelligence.models import MessageEmbedding
     from apps.ai_providers.manager import ai_manager
 
-    message = WhatsAppMessage.objects.get(pk=message_id)
+    message = WhatsAppMessage.objects.select_related(
+        'account__communication_account__company',
+    ).get(pk=message_id)
+    company = _message_company(message)
     text = _build_text(message)
     if not text:
         logger.debug('embed_message | skip (no text) | message_id=%s', message_id)
         return False
 
-    config = ai_manager.active_config('embedding')
+    config = ai_manager.active_config('embedding', company=company)
     if config is None:
         logger.warning('embed_message | no active embedding provider configured')
         return False
 
-    vector = ai_manager.embed(text)
+    vector = ai_manager.embed(text, company=company)
 
     MessageEmbedding.objects.update_or_create(
         message=message,
@@ -48,16 +67,21 @@ def embed_message(message_id: int) -> bool:
 
 def embed_messages_batch(message_ids: list[int]) -> dict:
     """Embed a list of messages in provider-side batches. Returns counts."""
+    if not message_ids:
+        return _empty_batch_result(message_ids)
     from apps.whatsapp_bridge.models import WhatsAppMessage
     from apps.message_intelligence.models import MessageEmbedding
     from apps.ai_providers.manager import ai_manager
 
-    config = ai_manager.active_config('embedding')
+    messages = list(WhatsAppMessage.objects.select_related(
+        'account__communication_account__company',
+    ).filter(pk__in=message_ids))
+    company = _one_company(messages, _message_company)
+    config = ai_manager.active_config('embedding', company=company)
     if config is None:
         logger.warning('embed_messages_batch | no active embedding provider')
         return {'total': len(message_ids), 'embedded': 0, 'skipped': 0, 'errors': 0}
 
-    messages = list(WhatsAppMessage.objects.filter(pk__in=message_ids))
     pending = [(m, _build_text(m)) for m in messages]
     to_embed = [(m, t) for m, t in pending if t]
     skipped = len(pending) - len(to_embed)
@@ -68,7 +92,7 @@ def embed_messages_batch(message_ids: list[int]) -> dict:
         chunk = to_embed[i:i + BATCH_SIZE]
         texts = [t for _, t in chunk]
         try:
-            vectors = ai_manager.embed_batch(texts)
+            vectors = ai_manager.embed_batch(texts, company=company)
         except Exception:
             logger.exception('embed_messages_batch | provider error | chunk_start=%s', i)
             errors += len(chunk)
@@ -161,6 +185,7 @@ def embed_inquiry_product(inquiry_product_id: int) -> bool:
     from apps.trading.models import InquiryProduct, InquiryProductEmbeddingStatus
 
     row = InquiryProduct.objects.select_related('inquiry').get(pk=inquiry_product_id)
+    company = row.company
     if row.product_id:
         row.embedding = None
         row.embedding_model = ''
@@ -182,7 +207,7 @@ def embed_inquiry_product(inquiry_product_id: int) -> bool:
         logger.info('embed_inquiry_product | skipped empty text | inquiry_product_id=%s', inquiry_product_id)
         return False
 
-    config = ai_manager.active_config('embedding')
+    config = ai_manager.active_config('embedding', company=company)
     if config is None:
         row.embedding_status = InquiryProductEmbeddingStatus.ERROR
         row.embedding_error = 'No active embedding provider configured.'
@@ -191,7 +216,7 @@ def embed_inquiry_product(inquiry_product_id: int) -> bool:
         return False
 
     try:
-        vector = ai_manager.embed(text)
+        vector = ai_manager.embed(text, company=company)
     except Exception as exc:
         row.embedding_status = InquiryProductEmbeddingStatus.ERROR
         row.embedding_error = str(exc)
@@ -218,6 +243,8 @@ def embed_inquiry_product(inquiry_product_id: int) -> bool:
 
 def embed_inquiry_products_batch(inquiry_product_ids: list[int]) -> dict:
     """Embed unmapped InquiryProduct rows in provider-side batches."""
+    if not inquiry_product_ids:
+        return _empty_batch_result(inquiry_product_ids)
     from apps.ai_providers.manager import ai_manager
     from apps.trading.models import InquiryProduct, InquiryProductEmbeddingStatus
     from django.utils.timezone import now
@@ -227,6 +254,7 @@ def embed_inquiry_products_batch(inquiry_product_ids: list[int]) -> dict:
         .select_related('inquiry')
         .filter(pk__in=inquiry_product_ids)
     )
+    company = _one_company(rows)
     mapped_ids = [row.pk for row in rows if row.product_id]
     if mapped_ids:
         InquiryProduct.objects.filter(pk__in=mapped_ids).update(
@@ -246,7 +274,7 @@ def embed_inquiry_products_batch(inquiry_product_ids: list[int]) -> dict:
         )
     to_embed = [(row, text) for row, text in pending if text]
 
-    config = ai_manager.active_config('embedding')
+    config = ai_manager.active_config('embedding', company=company)
     if config is None:
         if to_embed:
             InquiryProduct.objects.filter(pk__in=[row.pk for row, _ in to_embed]).update(
@@ -266,7 +294,7 @@ def embed_inquiry_products_batch(inquiry_product_ids: list[int]) -> dict:
         chunk = to_embed[i:i + BATCH_SIZE]
         texts = [text for _, text in chunk]
         try:
-            vectors = ai_manager.embed_batch(texts)
+            vectors = ai_manager.embed_batch(texts, company=company)
         except Exception as exc:
             failed_ids = [row.pk for row, _ in chunk]
             InquiryProduct.objects.filter(pk__in=failed_ids).update(
@@ -308,6 +336,7 @@ def embed_non_inventory_product(non_inventory_product_id: int) -> bool:
     from apps.trading.models import NonInventoryProduct, NonInventoryProductEmbeddingStatus
 
     row = NonInventoryProduct.objects.get(pk=non_inventory_product_id)
+    company = row.company
     text = _build_non_inventory_product_text(row)
     if not text:
         row.embedding = None
@@ -325,7 +354,7 @@ def embed_non_inventory_product(non_inventory_product_id: int) -> bool:
         )
         return False
 
-    config = ai_manager.active_config('embedding')
+    config = ai_manager.active_config('embedding', company=company)
     if config is None:
         row.embedding_status = NonInventoryProductEmbeddingStatus.ERROR
         row.embedding_error = 'No active embedding provider configured.'
@@ -337,7 +366,7 @@ def embed_non_inventory_product(non_inventory_product_id: int) -> bool:
         return False
 
     try:
-        vector = ai_manager.embed(text)
+        vector = ai_manager.embed(text, company=company)
     except Exception as exc:
         row.embedding_status = NonInventoryProductEmbeddingStatus.ERROR
         row.embedding_error = str(exc)
@@ -371,11 +400,14 @@ def embed_non_inventory_product(non_inventory_product_id: int) -> bool:
 
 def embed_non_inventory_products_batch(non_inventory_product_ids: list[int]) -> dict:
     """Embed NonInventoryProduct rows in provider-side batches."""
+    if not non_inventory_product_ids:
+        return _empty_batch_result(non_inventory_product_ids)
     from apps.ai_providers.manager import ai_manager
     from apps.trading.models import NonInventoryProduct, NonInventoryProductEmbeddingStatus
     from django.utils.timezone import now
 
     rows = list(NonInventoryProduct.objects.filter(pk__in=non_inventory_product_ids))
+    company = _one_company(rows)
     pending = [(row, _build_non_inventory_product_text(row)) for row in rows]
     empty_ids = [row.pk for row, text in pending if not text]
     if empty_ids:
@@ -388,7 +420,7 @@ def embed_non_inventory_products_batch(non_inventory_product_ids: list[int]) -> 
         )
 
     to_embed = [(row, text) for row, text in pending if text]
-    config = ai_manager.active_config('embedding')
+    config = ai_manager.active_config('embedding', company=company)
     if config is None:
         if to_embed:
             NonInventoryProduct.objects.filter(pk__in=[row.pk for row, _ in to_embed]).update(
@@ -408,7 +440,7 @@ def embed_non_inventory_products_batch(non_inventory_product_ids: list[int]) -> 
         chunk = to_embed[i:i + BATCH_SIZE]
         texts = [text for _, text in chunk]
         try:
-            vectors = ai_manager.embed_batch(texts)
+            vectors = ai_manager.embed_batch(texts, company=company)
         except Exception as exc:
             failed_ids = [row.pk for row, _ in chunk]
             NonInventoryProduct.objects.filter(pk__in=failed_ids).update(
@@ -451,17 +483,18 @@ def embed_product(product_id: int) -> bool:
     from apps.ai_providers.manager import ai_manager
 
     product = Product.objects.get(pk=product_id)
+    company = product.company
     text = _build_product_text(product)
     if not text:
         logger.debug('embed_product | skip (no text) | product_id=%s', product_id)
         return False
 
-    config = ai_manager.active_config('embedding')
+    config = ai_manager.active_config('embedding', company=company)
     if config is None:
         logger.warning('embed_product | no active embedding provider configured')
         return False
 
-    vector = ai_manager.embed(text)
+    vector = ai_manager.embed(text, company=company)
 
     ProductEmbedding.objects.update_or_create(
         product=product,
@@ -477,16 +510,19 @@ def embed_product(product_id: int) -> bool:
 
 def embed_products_batch(product_ids: list[int]) -> dict:
     """Embed a list of products in provider-side batches. Returns counts."""
+    if not product_ids:
+        return _empty_batch_result(product_ids)
     from apps.trading.models import Product
     from apps.message_intelligence.models import ProductEmbedding
     from apps.ai_providers.manager import ai_manager
 
-    config = ai_manager.active_config('embedding')
+    products = list(Product.objects.filter(pk__in=product_ids))
+    company = _one_company(products)
+    config = ai_manager.active_config('embedding', company=company)
     if config is None:
         logger.warning('embed_products_batch | no active embedding provider')
         return {'total': len(product_ids), 'embedded': 0, 'skipped': 0, 'errors': 0}
 
-    products = list(Product.objects.filter(pk__in=product_ids))
     pending = [(p, _build_product_text(p)) for p in products]
     to_embed = [(p, t) for p, t in pending if t]
     skipped = len(pending) - len(to_embed)
@@ -497,7 +533,7 @@ def embed_products_batch(product_ids: list[int]) -> dict:
         chunk = to_embed[i:i + BATCH_SIZE]
         texts = [t for _, t in chunk]
         try:
-            vectors = ai_manager.embed_batch(texts)
+            vectors = ai_manager.embed_batch(texts, company=company)
         except Exception:
             logger.exception('embed_products_batch | provider error | chunk_start=%s', i)
             errors += len(chunk)
@@ -534,17 +570,18 @@ def embed_product_alias(alias_id: int) -> bool:
     from apps.ai_providers.manager import ai_manager
 
     alias = ProductAlias.objects.select_related('product').get(pk=alias_id)
+    company = alias.product.company
     text = _build_alias_text(alias)
     if not text:
         logger.debug('embed_product_alias | skip (no text) | alias_id=%s', alias_id)
         return False
 
-    config = ai_manager.active_config('embedding')
+    config = ai_manager.active_config('embedding', company=company)
     if config is None:
         logger.warning('embed_product_alias | no active embedding provider configured')
         return False
 
-    vector = ai_manager.embed(text)
+    vector = ai_manager.embed(text, company=company)
 
     ProductAliasEmbedding.objects.update_or_create(
         alias=alias,
@@ -560,16 +597,19 @@ def embed_product_alias(alias_id: int) -> bool:
 
 def embed_product_aliases_batch(alias_ids: list[int]) -> dict:
     """Embed a list of ProductAlias rows in provider-side batches. Returns counts."""
+    if not alias_ids:
+        return _empty_batch_result(alias_ids)
     from apps.trading.models import ProductAlias
     from apps.message_intelligence.models import ProductAliasEmbedding
     from apps.ai_providers.manager import ai_manager
 
-    config = ai_manager.active_config('embedding')
+    aliases = list(ProductAlias.objects.select_related('product').filter(pk__in=alias_ids))
+    company = _one_company(aliases, lambda row: row.product.company)
+    config = ai_manager.active_config('embedding', company=company)
     if config is None:
         logger.warning('embed_product_aliases_batch | no active embedding provider')
         return {'total': len(alias_ids), 'embedded': 0, 'skipped': 0, 'errors': 0}
 
-    aliases = list(ProductAlias.objects.select_related('product').filter(pk__in=alias_ids))
     pending = [(a, _build_alias_text(a)) for a in aliases]
     to_embed = [(a, t) for a, t in pending if t]
     skipped = len(pending) - len(to_embed)
@@ -580,7 +620,7 @@ def embed_product_aliases_batch(alias_ids: list[int]) -> dict:
         chunk = to_embed[i:i + BATCH_SIZE]
         texts = [t for _, t in chunk]
         try:
-            vectors = ai_manager.embed_batch(texts)
+            vectors = ai_manager.embed_batch(texts, company=company)
         except Exception:
             logger.exception('embed_product_aliases_batch | provider error | chunk_start=%s', i)
             errors += len(chunk)
@@ -628,6 +668,7 @@ _SIMILAR_PRODUCTS_SQL = """
         FROM product_embedding pe
         JOIN trading_product p ON p.id = pe.product_id
         WHERE pe.embedding IS NOT NULL AND p.is_active = TRUE
+          AND p.company_id = %(company_id)s
 
         UNION ALL
 
@@ -636,6 +677,7 @@ _SIMILAR_PRODUCTS_SQL = """
         JOIN trading_product_alias pa ON pa.id = pae.alias_id
         JOIN trading_product p ON p.id = pa.product_id
         WHERE pae.embedding IS NOT NULL AND p.is_active = TRUE
+          AND p.company_id = %(company_id)s
     )
     SELECT product_id, MIN(distance) AS best_distance
     FROM scored
@@ -645,7 +687,7 @@ _SIMILAR_PRODUCTS_SQL = """
 """
 
 
-def find_similar_products(query: str, top_k: int = 10) -> list:
+def find_similar_products(query: str, *, company, top_k: int = 10) -> list:
     """Return top_k products most similar to query using cosine distance — comparing
     the query against BOTH each product's own name embedding AND every one of its
     aliases' embeddings independently (multi-vector retrieval), keeping only the single
@@ -674,17 +716,23 @@ def find_similar_products(query: str, top_k: int = 10) -> list:
     from apps.ai_providers.manager import ai_manager
     from apps.trading.models import Product
 
-    query_vec = ai_manager.embed(query)
+    query_vec = ai_manager.embed(query, company=company)
     query_vec_text = Vector(query_vec).to_text()
 
     with connection.cursor() as cursor:
-        cursor.execute(_SIMILAR_PRODUCTS_SQL, {'qv': query_vec_text, 'top_k': top_k})
+        cursor.execute(_SIMILAR_PRODUCTS_SQL, {
+            'qv': query_vec_text,
+            'company_id': company.pk,
+            'top_k': top_k,
+        })
         rows = cursor.fetchall()  # [(product_id, distance), ...] already ranked + limited
 
     if not rows:
         return []
 
-    products_by_id = Product.objects.in_bulk([product_id for product_id, _ in rows])
+    products_by_id = Product.objects.filter(company=company).in_bulk(
+        [product_id for product_id, _ in rows],
+    )
     return [
         SimilarProduct(products_by_id[product_id], float(distance))
         for product_id, distance in rows
@@ -698,7 +746,12 @@ def semantic_search(query: str, account_id: int, top_k: int = 10) -> list:
     from apps.message_intelligence.models import MessageEmbedding
     from pgvector.django import CosineDistance
 
-    query_vec = ai_manager.embed(query)
+    from apps.whatsapp_bridge.models import WhatsAppAccount
+    account = WhatsAppAccount.objects.select_related(
+        'communication_account__company',
+    ).get(pk=account_id)
+    company = account.communication_account.company
+    query_vec = ai_manager.embed(query, company=company)
 
     results = (
         MessageEmbedding.objects

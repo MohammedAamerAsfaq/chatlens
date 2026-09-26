@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 class Company(models.Model):
@@ -47,6 +48,10 @@ class Company(models.Model):
     )
     ai_parsing_enabled = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
+    enforce_validity_period = models.BooleanField(
+        default=False,
+        help_text='Block company access outside the configured validity period.',
+    )
     valid_from = models.DateField(null=True, blank=True)
     valid_until = models.DateField(null=True, blank=True)
     parent_company = models.ForeignKey(
@@ -66,3 +71,18 @@ class Company(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def validity_status(self):
+        today = timezone.localdate()
+        if self.valid_from and today < self.valid_from:
+            return 'not_started'
+        if self.valid_until and today > self.valid_until:
+            return 'expired'
+        return 'valid'
+
+    @property
+    def access_is_valid(self):
+        return self.is_active and (
+            not self.enforce_validity_period or self.validity_status == 'valid'
+        )

@@ -6,6 +6,7 @@ from django.db import transaction
 from django.utils.text import slugify
 
 from apps.tenancy.models import Company, CompanyMembership
+from apps.tenancy.services.company_bootstrap import seed_required_company_settings
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ class CompanyEnrollmentService:
                 role=CompanyMembership.ROLE_SUPER_USER,
                 is_active=True,
             )
+            seed_required_company_settings(company)
             logger.info(
                 'Company enrolled | company_id=%s user_id=%s membership_id=%s',
                 company.pk, user.pk, membership.pk,

@@ -3,7 +3,7 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from apps.tenancy.models import CommunicationAccount, Company, ConnectionProvider
+from apps.tenancy.models import CommunicationAccount, Company, CompanyMembership, ConnectionProvider
 from apps.trading.models import Inquiry, InquiryProduct
 from apps.whatsapp_bridge.models import WhatsAppAccount
 
@@ -12,6 +12,10 @@ class InquiryProductPaginationTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_superuser('pager', 'pager@example.com', 'pw')
         company = Company.objects.create(name='Pager Co', slug='pager-co')
+        CompanyMembership.objects.create(
+            company=company, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
+        )
+        self.user.active_company = company
         provider = ConnectionProvider.objects.create(
             key='pager-whatsapp', name='Pager WhatsApp', channel='whatsapp',
         )

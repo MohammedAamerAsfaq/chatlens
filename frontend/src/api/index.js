@@ -368,7 +368,10 @@ export const kiwiRoutersApi = {
 export const tenantAdminApi = {
   listCompanies: () => http.get('/admin/companies/'),
   updateCompany: (id, data) => http.patch(`/admin/companies/${id}/`, data),
+  deleteCompany: (id, data) => http.delete(`/admin/companies/${id}/`, { data }),
   enrollCompany: (data) => http.post('/admin/companies/enroll/', data),
   listUsers: (params) => http.get('/admin/users/', { params }),
   createUser: (data) => http.post('/admin/users/', data),
+  updateUser: (id, data) => http.patch(`/admin/users/${id}/`, data),
+  removeUser: (id) => http.delete(`/admin/users/${id}/`),
 }

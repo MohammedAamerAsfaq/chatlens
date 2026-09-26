@@ -6,21 +6,29 @@ from rest_framework.response import Response
 from .models import AIProviderConfig, DefaultAgentTarget, KiwiRouter, KiwiRoutingDecision
 from .serializers import AIProviderConfigSerializer, KiwiRouterSerializer, KiwiRoutingDecisionSerializer, PROVIDER_MODELS
 from .manager import build_provider
+from apps.tenancy.permissions import CompanyAdminPermission
+from apps.tenancy.services.access import default_company_for_user
 
 logger = logging.getLogger(__name__)
 
 
 class AIProviderConfigViewSet(viewsets.ModelViewSet):
-    queryset = AIProviderConfig.objects.all()
     serializer_class = AIProviderConfigSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyAdminPermission]
+
+    def get_queryset(self):
+        company = default_company_for_user(self.request.user)
+        return AIProviderConfig.objects.filter(company=company) if company else AIProviderConfig.objects.none()
+
+    def perform_create(self, serializer):
+        serializer.save(company=default_company_for_user(self.request.user))
 
     @action(detail=True, methods=['post'], url_path='activate')
     def activate(self, request, pk=None):
         config = self.get_object()
         # Deactivate any currently active provider for this capability
         AIProviderConfig.objects.filter(
-            capability=config.capability, is_active=True
+            company=config.company, capability=config.capability, is_active=True
         ).exclude(pk=config.pk).update(is_active=False)
         config.is_active = True
         config.save(update_fields=['is_active'])
@@ -36,7 +44,8 @@ class AIProviderConfigViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get', 'patch'], url_path='agent-target')
     def agent_target(self, request):
         """Read or choose the default target for general AI agent work."""
-        target, _ = DefaultAgentTarget.objects.get_or_create(pk=1)
+        company = default_company_for_user(request.user)
+        target, _ = DefaultAgentTarget.objects.get_or_create(company=company)
         if request.method == 'PATCH':
             router_id = request.data.get('kiwi_router_id')
             if router_id in ('', None):
@@ -44,6 +53,7 @@ class AIProviderConfigViewSet(viewsets.ModelViewSet):
             else:
                 router = KiwiRouter.objects.filter(
                     pk=router_id,
+                    company=company,
                     capability=AIProviderConfig.CAPABILITY_AGENT,
                     is_active=True,
                 ).first()
@@ -126,7 +136,7 @@ class AIProviderConfigViewSet(viewsets.ModelViewSet):
 
         if config_id:
             try:
-                saved = AIProviderConfig.objects.get(pk=config_id)
+                saved = self.get_queryset().get(pk=config_id)
                 provider   = provider   or saved.provider
                 capability = capability or saved.capability
                 api_key    = api_key    or saved.api_key
@@ -177,11 +187,20 @@ class AIProviderConfigViewSet(viewsets.ModelViewSet):
 
 
 class KiwiRouterViewSet(viewsets.ModelViewSet):
-    queryset = KiwiRouter.objects.prefetch_related('members__provider_config')
     serializer_class = KiwiRouterSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyAdminPermission]
+
+    def get_queryset(self):
+        company = default_company_for_user(self.request.user)
+        if not company:
+            return KiwiRouter.objects.none()
+        return KiwiRouter.objects.filter(company=company).prefetch_related('members__provider_config')
+
+    def perform_create(self, serializer):
+        serializer.save(company=default_company_for_user(self.request.user))
 
     @action(detail=True, methods=['get'])
     def decisions(self, request, pk=None):
-        rows = KiwiRoutingDecision.objects.filter(router_id=pk).select_related('member__provider_config')[:100]
+        router = self.get_object()
+        rows = KiwiRoutingDecision.objects.filter(router=router).select_related('member__provider_config')[:100]
         return Response(KiwiRoutingDecisionSerializer(rows, many=True).data)

@@ -18,6 +18,11 @@ class AgentCallLog(models.Model):
         (PURPOSE_INQUIRY_GATE_V2, 'Inquiry GatePass V2'),
     ]
 
+    company = models.ForeignKey(
+        'tenancy.Company',
+        on_delete=models.CASCADE,
+        related_name='agent_call_logs',
+    )
     purpose      = models.CharField(max_length=50, choices=PURPOSE_CHOICES, db_index=True)
     provider     = models.CharField(max_length=50, blank=True)
     model        = models.CharField(max_length=100, blank=True)

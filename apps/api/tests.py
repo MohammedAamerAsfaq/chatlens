@@ -125,6 +125,37 @@ class TenantScopedApiTests(TestCase):
         ids = {row['id'] for row in resp.json()}
         self.assertEqual(ids, {self.account_a.id})
 
+    def test_django_superuser_is_limited_to_selected_workspace(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='platform-root', email='root@example.com', password='pw',
+        )
+        self.client.force_authenticate(superuser)
+        selected = self.client.post(
+            '/api/auth/select-company/', {'company_id': self.company_a.pk}, format='json',
+        )
+        self.assertEqual(selected.status_code, 200)
+        response = self.client.get('/api/products/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual({row['id'] for row in response.json()}, {self.product_a.pk})
+
+    def test_viewer_role_is_read_only(self):
+        viewer = get_user_model().objects.create_user('tenant-viewer', password='pw')
+        CompanyMembership.objects.create(
+            company=self.company_a, user=viewer, role=CompanyMembership.ROLE_VIEWER,
+        )
+        self.client.login(username='tenant-viewer', password='pw')
+        self.assertEqual(self.client.get('/api/products/').status_code, 200)
+        denied = self.client.post('/api/products/', {'name': 'Forbidden'}, format='json')
+        self.assertEqual(denied.status_code, 403)
+
+    @patch('apps.api.views.requests.post')
+    def test_account_delete_removes_communication_account(self, worker_post):
+        communication_account_id = self.account_a.communication_account_id
+        self.client.force_authenticate(self.user_a)
+        response = self.client.delete(f'/api/accounts/{self.account_a.pk}/')
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(CommunicationAccount.objects.filter(pk=communication_account_id).exists())
+
     def test_resolve_direct_chat_creates_and_reuses_contact_chat(self):
         contact = WhatsAppContact.objects.create(
             account=self.account_a,

@@ -92,17 +92,21 @@ class AIManager:
     (and deactivate the previous one) — no code changes required.
     """
 
-    def _active_config(self, capability: str) -> AIProviderConfig:
+    def _active_config(self, capability: str, company) -> AIProviderConfig:
+        if company is None:
+            raise RuntimeError('Company context is required to select an AI provider.')
         try:
-            return AIProviderConfig.objects.get(capability=capability, is_active=True)
+            return AIProviderConfig.objects.get(
+                company=company, capability=capability, is_active=True,
+            )
         except AIProviderConfig.DoesNotExist:
             raise RuntimeError(
                 f'No active {capability} provider configured. '
                 'Add one in AI Providers settings.'
             )
 
-    def _active(self, capability: str):
-        return build_provider(self._active_config(capability))
+    def _active(self, capability: str, company):
+        return build_provider(self._active_config(capability, company))
 
     def _throttle(self, config: AIProviderConfig, tokens_needed: int):
         """Blocks until this config's own configured rate limit (AI Providers screen →
@@ -121,20 +125,20 @@ class AIManager:
 
     # ── Embedding ──────────────────────────────────────────────────────────────
 
-    def embed(self, text: str) -> list:
-        config = self._active_config(AIProviderConfig.CAPABILITY_EMBEDDING)
+    def embed(self, text: str, *, company) -> list:
+        config = self._active_config(AIProviderConfig.CAPABILITY_EMBEDDING, company)
         self._throttle(config, rate_limiter.estimate_tokens(text))
         return build_provider(config).embed(text)
 
-    def embed_batch(self, texts: list) -> list:
-        config = self._active_config(AIProviderConfig.CAPABILITY_EMBEDDING)
+    def embed_batch(self, texts: list, *, company) -> list:
+        config = self._active_config(AIProviderConfig.CAPABILITY_EMBEDDING, company)
         self._throttle(config, sum(rate_limiter.estimate_tokens(t) for t in texts))
         return build_provider(config).embed_batch(texts)
 
     # ── Chat ───────────────────────────────────────────────────────────────────
 
-    def chat(self, messages: list, **kwargs) -> str:
-        config = self._active_config(AIProviderConfig.CAPABILITY_CHAT)
+    def chat(self, messages: list, *, company, **kwargs) -> str:
+        config = self._active_config(AIProviderConfig.CAPABILITY_CHAT, company)
         self._throttle(config, sum(rate_limiter.estimate_tokens(m.get('content', '')) for m in messages))
         return build_provider(config).chat(messages, **kwargs)
 
@@ -143,21 +147,21 @@ class AIManager:
     # a faster/cheaper model assigned for background tasks (enrichment, tagging,
     # summarisation) independently of the user-facing chat model.
 
-    def agent(self, messages: list, config=None, **kwargs) -> str:
-        config = config or self._active_config(AIProviderConfig.CAPABILITY_AGENT)
+    def agent(self, messages: list, config=None, company=None, **kwargs) -> str:
+        config = config or self._active_config(AIProviderConfig.CAPABILITY_AGENT, company)
         self._throttle(config, sum(rate_limiter.estimate_tokens(m.get('content', '')) for m in messages))
         return build_provider(config).chat(messages, **kwargs)
 
     # ── Utility ────────────────────────────────────────────────────────────────
 
-    def test(self, config_id: int) -> dict:
-        config = AIProviderConfig.objects.get(pk=config_id)
+    def test(self, config_id: int, *, company) -> dict:
+        config = AIProviderConfig.objects.get(pk=config_id, company=company)
         return build_provider(config).test_connection()
 
-    def active_config(self, capability: str):
+    def active_config(self, capability: str, *, company):
         """Return the active AIProviderConfig for a capability, or None."""
         return AIProviderConfig.objects.filter(
-            capability=capability, is_active=True
+            company=company, capability=capability, is_active=True
         ).first()
 
 

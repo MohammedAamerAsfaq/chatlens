@@ -19,13 +19,19 @@ def call_agent(purpose: str, messages: list, wa_message_id=None, **kwargs) -> st
     if kiwi_router is None and prompt_key:
         from apps.trading.models import PromptConfig
         kiwi_router = PromptConfig.get_kiwi_router(prompt_key, company=company)
+    if company is None:
+        raise ValueError('Company context is required for AI agent calls.')
+    if agent_config and agent_config.company_id != company.pk:
+        raise ValueError('The selected AI provider belongs to another company.')
+    if kiwi_router and kiwi_router.company_id != company.pk:
+        raise ValueError('The selected KiwiRouter belongs to another company.')
     provider = model = ''
     try:
         if kiwi_router:
             provider = 'kiwi_router'
             model = kiwi_router.name
         else:
-            config = agent_config or ai_manager.active_config('agent')
+            config = agent_config or ai_manager.active_config('agent', company=company)
             if config:
                 provider = config.provider
                 model = config.model
@@ -57,6 +63,7 @@ def call_agent(purpose: str, messages: list, wa_message_id=None, **kwargs) -> st
             response, member = run_ai_call_with_deadline(
                 lambda: execute_agent(
                     kiwi_router.pk,
+                    company=company,
                     messages=messages,
                     workflow_key=prompt_key or purpose,
                     correlation_id=correlation_id,
@@ -67,7 +74,9 @@ def call_agent(purpose: str, messages: list, wa_message_id=None, **kwargs) -> st
             model = member.provider_config.model
         else:
             response = run_ai_call_with_deadline(
-                lambda: ai_manager.agent(messages, config=agent_config, **kwargs)
+                lambda: ai_manager.agent(
+                    messages, config=agent_config, company=company, **kwargs,
+                )
             )
         success  = True
         return response
@@ -79,6 +88,7 @@ def call_agent(purpose: str, messages: list, wa_message_id=None, **kwargs) -> st
         output_tokens = len(response) // 4
         try:
             AgentCallLog.objects.create(
+                company       = company,
                 purpose       = purpose,
                 provider      = provider,
                 model         = model,

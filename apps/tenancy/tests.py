@@ -1,8 +1,16 @@
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
+from datetime import timedelta
 
 from apps.tenancy.models import Company, CompanyMembership, CommunicationAccount, ConnectionProvider
 from apps.tenancy.services.enrollment_service import CompanyEnrollmentService
+from apps.tenancy.services.access import can_user_access_company
+from apps.chatlens_core.models import SystemSettings
+from apps.trading.services.trading_settings_service import (
+    INQUIRY_PRODUCT_SAVE_KEY,
+    V2_MATCHING_SETTINGS_KEY,
+)
 
 
 class TenancySeedMigrationTests(TestCase):
@@ -37,6 +45,10 @@ class CompanyEnrollmentServiceTests(TestCase):
         self.assertEqual(membership.company_id, company.pk)
         self.assertEqual(membership.user_id, user.pk)
         self.assertEqual(membership.role, CompanyMembership.ROLE_SUPER_USER)
+        self.assertSetEqual(
+            set(SystemSettings.objects.filter(company=company).values_list('key', flat=True)),
+            {INQUIRY_PRODUCT_SAVE_KEY, V2_MATCHING_SETTINGS_KEY},
+        )
 
     def test_enroll_company_rejects_duplicate_username(self):
         user_model = get_user_model()
@@ -67,3 +79,21 @@ class CommunicationAccountValidationTests(TestCase):
                 channel=ConnectionProvider.CHANNEL_GMAIL,
                 name='Mismatched Account',
             )
+
+
+class CompanyValidityTests(TestCase):
+    def test_validity_is_observational_until_enforcement_is_enabled(self):
+        user = get_user_model().objects.create_user('validity-user')
+        company = Company.objects.create(
+            name='Future Company', slug='future-company',
+            valid_from=timezone.localdate() + timedelta(days=1),
+            enforce_validity_period=False,
+        )
+        CompanyMembership.objects.create(
+            company=company, user=user, role=CompanyMembership.ROLE_ADMIN,
+        )
+        self.assertEqual(company.validity_status, 'not_started')
+        self.assertTrue(can_user_access_company(user, company.pk))
+        company.enforce_validity_period = True
+        company.save(update_fields=['enforce_validity_period'])
+        self.assertFalse(can_user_access_company(user, company.pk))

@@ -1,6 +1,7 @@
 from django.db import transaction
 from rest_framework import serializers
 from .models import AIProviderConfig, KiwiRouter, KiwiRouterMember, KiwiRoutingDecision
+from apps.tenancy.services.access import default_company_for_user
 
 
 # Default model options surfaced to the UI for each provider+capability combination.
@@ -65,13 +66,13 @@ class AIProviderConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = AIProviderConfig
         fields = [
-            'id', 'display_name', 'provider', 'provider_label',
+            'id', 'company', 'display_name', 'provider', 'provider_label',
             'capability', 'capability_label',
             'api_key', 'api_key_masked',
             'model', 'base_url', 'extra_config',
             'is_active', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'company', 'created_at', 'updated_at']
 
     def get_api_key_masked(self, obj):
         return obj.masked_key()
@@ -94,14 +95,18 @@ class AIProviderConfigSerializer(serializers.ModelSerializer):
         # Activating this provider deactivates any other active provider for the same capability
         if validated_data.get('is_active'):
             AIProviderConfig.objects.filter(
+                company=validated_data['company'],
                 capability=validated_data['capability'], is_active=True
             ).update(is_active=False)
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
-        if validated_data.get('is_active') and not instance.is_active:
+        will_be_active = validated_data.get('is_active', instance.is_active)
+        capability = validated_data.get('capability', instance.capability)
+        if will_be_active:
             AIProviderConfig.objects.filter(
-                capability=instance.capability, is_active=True
+                company=instance.company,
+                capability=capability, is_active=True
             ).exclude(pk=instance.pk).update(is_active=False)
         return super().update(instance, validated_data)
 
@@ -131,9 +136,9 @@ class KiwiRouterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = KiwiRouter
-        fields = ['id', 'name', 'description', 'capability', 'strategy', 'default_request_timeout_seconds',
+        fields = ['id', 'company', 'name', 'description', 'capability', 'strategy', 'default_request_timeout_seconds',
                   'is_active', 'members', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'company', 'created_at', 'updated_at']
 
     def validate_members(self, members):
         priorities = [member['priority'] for member in members]
@@ -143,9 +148,15 @@ class KiwiRouterSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         capability = attrs.get('capability', getattr(self.instance, 'capability', ''))
+        company = attrs.get('company', getattr(self.instance, 'company', None))
+        request = self.context.get('request')
+        if company is None and request:
+            company = default_company_for_user(request.user)
         for member in attrs.get('members', []):
             if member['provider_config'].capability != capability:
                 raise serializers.ValidationError({'members': 'Every member must match the router capability.'})
+            if company and member['provider_config'].company_id != company.pk:
+                raise serializers.ValidationError({'members': 'Every member must belong to the router company.'})
         return attrs
 
     def create(self, validated_data):

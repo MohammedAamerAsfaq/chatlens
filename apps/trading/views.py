@@ -97,8 +97,6 @@ def _visible_product_or_none(user, product_id):
 
 def _visible_rule_queryset(user, qs=None):
     qs = qs if qs is not None else AutomationRule.objects.all()
-    if user.is_superuser:
-        return qs
     visible_account_ids = visible_accounts_queryset(user).values('pk')
     return qs.filter(
         Q(sources__contact__account__in=visible_account_ids) |
@@ -1370,7 +1368,9 @@ class InquiryViewSet(viewsets.GenericViewSet,
                         try:
                             from pgvector import Vector
                             from apps.ai_providers.manager import ai_manager
-                            query_vec_text = Vector(ai_manager.embed(query_text)).to_text()
+                            query_vec_text = Vector(
+                                ai_manager.embed(query_text, company=inquiry.company)
+                            ).to_text()
                             with _db_conn.cursor() as cursor:
                                 cursor.execute(
                                     """
@@ -1511,7 +1511,9 @@ class InquiryViewSet(viewsets.GenericViewSet,
                         try:
                             from pgvector import Vector
                             from apps.ai_providers.manager import ai_manager
-                            query_vec_text = Vector(ai_manager.embed(query_text)).to_text()
+                            query_vec_text = Vector(
+                                ai_manager.embed(query_text, company=inquiry.company)
+                            ).to_text()
                             with _db_conn.cursor() as cursor:
                                 cursor.execute(
                                     """
@@ -2065,7 +2067,9 @@ class InquiryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixi
             return Response({'results': []})
 
         try:
-            query_vec = ai_manager.embed(query)
+            query_vec = ai_manager.embed(
+                query, company=default_company_for_user(request.user),
+            )
             query_vec_text = Vector(query_vec).to_text()
             with _db_conn.cursor() as cursor:
                 cursor.execute(
@@ -2295,7 +2299,9 @@ class NonInventoryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin,
             return Response({'results': []})
 
         try:
-            query_vec = ai_manager.embed(query)
+            query_vec = ai_manager.embed(
+                query, company=default_company_for_user(request.user),
+            )
             query_vec_text = Vector(query_vec).to_text()
             with _db_conn.cursor() as cursor:
                 cursor.execute(
@@ -2487,7 +2493,10 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
     def agent_options(self, request):
         from apps.ai_providers.models import AIProviderConfig as APC
 
-        configs = APC.objects.filter(capability=APC.CAPABILITY_AGENT).order_by('-is_active', 'display_name')
+        company = default_company_for_user(request.user)
+        configs = APC.objects.filter(
+            company=company, capability=APC.CAPABILITY_AGENT,
+        ).order_by('-is_active', 'display_name')
         return Response([
             {
                 'id': config.pk,
@@ -2504,6 +2513,7 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
         from apps.ai_providers.models import KiwiRouter
 
         routers = KiwiRouter.objects.filter(
+            company=default_company_for_user(request.user),
             capability='agent', is_active=True,
         ).order_by('name')
         return Response([
@@ -2517,7 +2527,11 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
         from apps.ai_providers.models import AIProviderConfig as APC
 
         try:
-            config = APC.objects.get(capability=APC.CAPABILITY_AGENT, is_active=True)
+            config = APC.objects.get(
+                company=default_company_for_user(request.user),
+                capability=APC.CAPABILITY_AGENT,
+                is_active=True,
+            )
         except APC.DoesNotExist:
             return Response({'error': 'No active agent provider configured.'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -2563,7 +2577,8 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
         if 'kiwi_router' in request.data and request.data.get('kiwi_router') not in ('', None):
             from apps.ai_providers.models import KiwiRouter
             kiwi_router = KiwiRouter.objects.filter(
-                pk=request.data.get('kiwi_router'), capability='agent', is_active=True,
+                pk=request.data.get('kiwi_router'), company=company,
+                capability='agent', is_active=True,
             ).first()
             if not kiwi_router:
                 return Response({'error': 'Selected KiwiRouter is invalid or inactive.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -2574,6 +2589,7 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
             from apps.ai_providers.models import AIProviderConfig as APC
             agent_config = APC.objects.filter(
                 pk=request.data.get('agent_config'),
+                company=company,
                 capability=APC.CAPABILITY_AGENT,
             ).first()
             if not agent_config:
@@ -2604,7 +2620,9 @@ class AgentCallLogViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        qs = AgentCallLog.objects.all()
+        qs = AgentCallLog.objects.filter(
+            company=default_company_for_user(self.request.user),
+        )
         p  = self.request.query_params
         if purpose := p.get('purpose'):
             qs = qs.filter(purpose=purpose)
@@ -2619,7 +2637,9 @@ class AgentCallLogViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
         # Resolve pricing for cost calculation
         input_price = output_price = None
         try:
-            config = ai_manager.active_config('agent')
+            config = ai_manager.active_config(
+                'agent', company=default_company_for_user(request.user),
+            )
             if config:
                 extra = config.extra_config or {}
                 input_price  = extra.get('input_price_per_1m')

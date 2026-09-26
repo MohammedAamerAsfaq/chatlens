@@ -13,8 +13,6 @@ from .runtime_settings import get_task_runtime_settings
 
 def _visible_tasks(user):
     tasks = BackgroundTask.objects.select_related('company', 'created_by')
-    if user.is_superuser:
-        return tasks
     from apps.tenancy.services.access import default_company_for_user
     company = default_company_for_user(user)
     return tasks.filter(Q(company=company) | Q(company__isnull=True)) if company else tasks.filter(company__isnull=True)

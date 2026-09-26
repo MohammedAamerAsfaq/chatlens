@@ -179,6 +179,13 @@ class DurableTaskQueueTests(TestCase):
 
     def test_task_api_returns_task_and_event_feedback(self):
         user = User.objects.create_user(username='queue-viewer', password='pw')
+        from apps.tenancy.models import Company, CompanyMembership
+        control = Company.objects.get(company_type=Company.TYPE_CONTROL)
+        CompanyMembership.objects.create(
+            company=control,
+            user=user,
+            role=CompanyMembership.ROLE_VIEWER,
+        )
         task = enqueue_task(task_key='tests.success', payload={'version': 1, 'value': 'visible'}, idempotency_key='visible')
         self.client.force_login(user)
         response = self.client.get('/api/task-queue/tasks/', {'page': 1, 'page_size': 25})

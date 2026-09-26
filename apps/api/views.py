@@ -15,7 +15,7 @@ from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.db.models import Count, Q
-from django.utils.dateparse import parse_datetime
+from django.utils.dateparse import parse_date, parse_datetime
 from django.utils.timezone import now
 from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
 from rest_framework import mixins, viewsets, status
@@ -287,6 +287,7 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         account = self.get_object()
+        communication_account = account.communication_account
         # Soft-disconnect from worker (best-effort, don't block delete)
         try:
             requests.post(
@@ -295,7 +296,10 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
             )
         except Exception:
             pass
-        account.delete()  # cascades to chats, messages, contacts, sync_logs
+        with transaction.atomic():
+            account.delete()  # cascades to chats, messages, contacts, sync_logs
+            if communication_account:
+                communication_account.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['patch'], url_path='update-settings')
@@ -1932,6 +1936,9 @@ def _serialize_auth_user(user):
             'company_type': current_company.company_type,
             'industry_type': current_company.industry_type,
             'ai_parsing_enabled': current_company.ai_parsing_enabled,
+            'enforce_validity_period': current_company.enforce_validity_period,
+            'validity_status': current_company.validity_status,
+            'access_is_valid': current_company.access_is_valid,
             'role': current_membership.role if current_membership else ('super_user' if user.is_superuser else ''),
         }
 
@@ -1950,6 +1957,9 @@ def _serialize_auth_user(user):
                     'company_type': company.company_type,
                     'industry_type': company.industry_type,
                     'ai_parsing_enabled': company.ai_parsing_enabled,
+                    'enforce_validity_period': company.enforce_validity_period,
+                    'validity_status': company.validity_status,
+                    'access_is_valid': company.access_is_valid,
                 },
                 'role': memberships[company.pk].role if company.pk in memberships else ('super_user' if user.is_superuser else ''),
             }
@@ -1983,6 +1993,9 @@ def _serialize_company(company):
         'default_classification_version': company.default_classification_version,
         'ai_parsing_enabled': company.ai_parsing_enabled,
         'is_active': company.is_active,
+        'enforce_validity_period': company.enforce_validity_period,
+        'validity_status': company.validity_status,
+        'access_is_valid': company.access_is_valid,
         'valid_from': company.valid_from.isoformat() if company.valid_from else None,
         'valid_until': company.valid_until.isoformat() if company.valid_until else None,
         'notes': company.notes,
@@ -2056,7 +2069,7 @@ def auth_select_company_view(request):
     return Response(_serialize_auth_user(request.user))
 
 
-@api_view(['PATCH'])
+@api_view(['PATCH', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def auth_current_company_settings_view(request):
     company = default_company_for_user(request.user)
@@ -2115,6 +2128,21 @@ def admin_company_detail_view(request, company_id):
     except Company.DoesNotExist:
         return Response({'detail': 'Company not found'}, status=status.HTTP_404_NOT_FOUND)
 
+    if request.method == 'DELETE':
+        if company.company_type == Company.TYPE_CONTROL:
+            return Response({'detail': 'The control company cannot be deleted.'}, status=status.HTTP_400_BAD_REQUEST)
+        if request.data.get('confirm_name') != company.name:
+            return Response({'detail': 'confirm_name must exactly match the company name.'}, status=status.HTTP_400_BAD_REQUEST)
+        user_ids = list(company.memberships.values_list('user_id', flat=True))
+        company.delete()
+        User.objects.filter(
+            pk__in=user_ids,
+            company_memberships__isnull=True,
+            is_staff=False,
+            is_superuser=False,
+        ).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     update_fields = []
     if 'default_classification_version' in request.data:
         version = request.data.get('default_classification_version')
@@ -2132,6 +2160,54 @@ def admin_company_detail_view(request, company_id):
             return Response({'detail': error}, status=status.HTTP_400_BAD_REQUEST)
         company.ai_parsing_enabled = enabled
         update_fields.append('ai_parsing_enabled')
+
+    choices = {
+        'industry_type': {choice[0] for choice in Company.INDUSTRY_TYPE_CHOICES},
+        'company_type': {choice[0] for choice in Company.COMPANY_TYPE_CHOICES},
+    }
+    for field, allowed in choices.items():
+        if field in request.data:
+            value = request.data.get(field)
+            if value not in allowed:
+                return Response({'detail': f'{field} is invalid'}, status=status.HTTP_400_BAD_REQUEST)
+            setattr(company, field, value)
+            update_fields.append(field)
+
+    for field in ('is_active', 'enforce_validity_period'):
+        if field in request.data:
+            enabled, error = _parse_bool_param(request.data.get(field), field)
+            if error:
+                return Response({'detail': error}, status=status.HTTP_400_BAD_REQUEST)
+            setattr(company, field, enabled)
+            update_fields.append(field)
+
+    if company.company_type == Company.TYPE_CONTROL and not company.is_active:
+        return Response({'detail': 'The control company cannot be deactivated.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    for field in ('valid_from', 'valid_until'):
+        if field in request.data:
+            raw = request.data.get(field)
+            value = parse_date(raw) if raw else None
+            if raw and value is None:
+                return Response({'detail': f'{field} must use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
+            setattr(company, field, value)
+            update_fields.append(field)
+
+    if 'name' in request.data:
+        name = str(request.data.get('name') or '').strip()
+        if not name:
+            return Response({'detail': 'name is required'}, status=status.HTTP_400_BAD_REQUEST)
+        if Company.objects.exclude(pk=company.pk).filter(name=name).exists():
+            return Response({'detail': 'A company with this name already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+        company.name = name
+        update_fields.append('name')
+
+    if 'notes' in request.data:
+        company.notes = str(request.data.get('notes') or '')
+        update_fields.append('notes')
+
+    if company.valid_from and company.valid_until and company.valid_from > company.valid_until:
+        return Response({'detail': 'valid_from cannot be after valid_until'}, status=status.HTTP_400_BAD_REQUEST)
 
     if update_fields:
         company.save(update_fields=update_fields + ['updated_at'])
@@ -2182,7 +2258,7 @@ def admin_company_users_view(request):
 
     if request.method == 'GET':
         company_id = request.query_params.get('company_id')
-        memberships = CompanyMembership.objects.select_related('company', 'user').filter(is_active=True)
+        memberships = CompanyMembership.objects.select_related('company', 'user').all()
         if company_id:
             memberships = memberships.filter(company_id=company_id)
         memberships = memberships.order_by('company__name', 'user__username')
@@ -2212,3 +2288,68 @@ def admin_company_users_view(request):
 
     membership = CompanyMembership.objects.select_related('company', 'user').get(pk=result.membership_id)
     return Response(_serialize_membership(membership), status=status.HTTP_201_CREATED)
+
+
+@api_view(['PATCH', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def admin_company_user_detail_view(request, membership_id):
+    denied = _require_control_admin(request)
+    if denied:
+        return denied
+    membership = CompanyMembership.objects.select_related('company', 'user').filter(
+        pk=membership_id,
+    ).first()
+    if not membership:
+        return Response({'detail': 'Membership not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'DELETE':
+        if (
+            membership.role == CompanyMembership.ROLE_SUPER_USER
+            and membership.company.memberships.filter(
+                role=CompanyMembership.ROLE_SUPER_USER, is_active=True,
+            ).count() <= 1
+        ):
+            return Response({'detail': 'A company must retain an active super user.'}, status=status.HTTP_400_BAD_REQUEST)
+        membership.is_active = False
+        membership.save(update_fields=['is_active'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    last_super_user = (
+        membership.role == CompanyMembership.ROLE_SUPER_USER
+        and membership.is_active
+        and membership.company.memberships.filter(
+            role=CompanyMembership.ROLE_SUPER_USER, is_active=True,
+        ).count() <= 1
+    )
+    requested_role = request.data.get('role', membership.role)
+    requested_active = request.data.get('is_active', membership.is_active)
+    if isinstance(requested_active, str):
+        requested_active = requested_active.lower() in {'true', '1'}
+    if last_super_user and (
+        requested_role != CompanyMembership.ROLE_SUPER_USER or not requested_active
+    ):
+        return Response({'detail': 'A company must retain an active super user.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if 'role' in request.data:
+        role = request.data.get('role')
+        if role not in {choice[0] for choice in CompanyMembership.ROLE_CHOICES}:
+            return Response({'detail': 'role is invalid'}, status=status.HTTP_400_BAD_REQUEST)
+        membership.role = role
+    if 'is_active' in request.data:
+        enabled, error = _parse_bool_param(request.data.get('is_active'), 'is_active')
+        if error:
+            return Response({'detail': error}, status=status.HTTP_400_BAD_REQUEST)
+        membership.is_active = enabled
+    if 'email' in request.data:
+        email = str(request.data.get('email') or '').strip()
+        if not email:
+            return Response({'detail': 'email is required'}, status=status.HTTP_400_BAD_REQUEST)
+        if User.objects.exclude(pk=membership.user_id).filter(email=email).exists():
+            return Response({'detail': 'Email is already in use.'}, status=status.HTTP_400_BAD_REQUEST)
+        membership.user.email = email
+        membership.user.save(update_fields=['email'])
+    if request.data.get('password'):
+        membership.user.set_password(request.data['password'])
+        membership.user.save(update_fields=['password'])
+    membership.save(update_fields=['role', 'is_active'])
+    return Response(_serialize_membership(membership))
