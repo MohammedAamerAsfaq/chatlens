@@ -60,6 +60,39 @@ def _sync_participants(account, group, participants):
 
 
 @transaction.atomic
+def reconcile_group_snapshot(account, active_group_ids):
+    """Deactivate groups absent from one complete participating-group snapshot."""
+    active_ids = {
+        str(group_id or '').strip()
+        for group_id in active_group_ids
+        if str(group_id or '').strip().endswith('@g.us')
+    }
+    missing = WhatsAppGroup.objects.select_for_update().filter(
+        account=account,
+        account_is_participant=True,
+    ).exclude(wa_group_id__in=active_ids)
+    missing_ids = list(missing.values_list('pk', flat=True))
+    if not missing_ids:
+        return {'deactivated': 0, 'active': len(active_ids)}
+
+    now = timezone.now()
+    WhatsAppGroupParticipant.objects.filter(
+        group_id__in=missing_ids,
+        is_active=True,
+    ).update(is_active=False, updated_at=now)
+    WhatsAppGroup.objects.filter(pk__in=missing_ids).update(
+        account_is_participant=False,
+        account_participant_role='',
+        can_send=False,
+        send_block_reason='not_a_group_participant',
+        participant_count=0,
+        metadata_refreshed_at=now,
+        updated_at=now,
+    )
+    return {'deactivated': len(missing_ids), 'active': len(active_ids)}
+
+
+@transaction.atomic
 def upsert_group_metadata(account, payload):
     group_id = (payload.get('group_id') or '').strip()
     if not group_id.endswith('@g.us'):

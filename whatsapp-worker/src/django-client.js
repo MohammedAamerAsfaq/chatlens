@@ -412,6 +412,14 @@ class DjangoClient {
     }
   }
 
+  async reconcileGroups(sessionId, groupIds) {
+    const response = await this.http.post('/api/internal/whatsapp/group-reconcile/', {
+      worker_session_id: sessionId,
+      group_ids: groupIds,
+    });
+    return response.data;
+  }
+
   async sendGroupParticipantsUpdate(sessionId, groupId, action, participants) {
     const payload = {
       worker_session_id: sessionId,

@@ -85,6 +85,11 @@ urlpatterns = [
         name='internal-group-update',
     ),
     path(
+        'api/internal/whatsapp/group-reconcile/',
+        views.internal_group_reconcile,
+        name='internal-group-reconcile',
+    ),
+    path(
         'api/internal/whatsapp/group-participants-update/',
         views.internal_group_participants_update,
         name='internal-group-participants-update',

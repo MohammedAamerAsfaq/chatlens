@@ -95,6 +95,45 @@ test('group preflight falls back to the participating-group list', async () => {
   assert.equal(result.group_metadata.can_send, true);
 });
 
+test('full group sync reconciles the authoritative participating-group list', async () => {
+  const djangoClient = makeDjangoClient({
+    sendGroupUpdate: test.mock.fn(async () => {}),
+    reconcileGroups: test.mock.fn(async () => ({ deactivated: 1, active: 2 })),
+  });
+  const { sm, session } = makeSessionManager({ djangoClient });
+  session.accountIdentity = { lid: '45617082548317:14@lid' };
+  session.sock = {
+    user: { id: '45617082548317:14@lid' },
+    groupFetchAllParticipating: test.mock.fn(async () => ({
+      '120010@g.us': { id: '120010@g.us', subject: 'First', participants: [] },
+      '120011@g.us': { id: '120011@g.us', subject: 'Second', participants: [] },
+    })),
+  };
+
+  const count = await sm.syncAllGroups(SESSION_ID);
+
+  assert.equal(count, 2);
+  assert.equal(djangoClient.sendGroupUpdate.mock.callCount(), 2);
+  assert.deepEqual(djangoClient.reconcileGroups.mock.calls[0].arguments, [
+    SESSION_ID,
+    ['120010@g.us', '120011@g.us'],
+  ]);
+});
+
+test('failed full group fetch never triggers reconciliation', async () => {
+  const djangoClient = makeDjangoClient({
+    sendGroupUpdate: test.mock.fn(async () => {}),
+    reconcileGroups: test.mock.fn(async () => ({})),
+  });
+  const { sm, session } = makeSessionManager({ djangoClient });
+  session.sock = {
+    groupFetchAllParticipating: async () => { throw new Error('rate-overlimit'); },
+  };
+
+  await assert.rejects(sm.syncAllGroups(SESSION_ID), /rate-overlimit/);
+  assert.equal(djangoClient.reconcileGroups.mock.callCount(), 0);
+});
+
 // --- A. Existing inbound phone JID ---------------------------------------
 test('A. inbound phone-JID message ingests normally, no unresolved record', async () => {
   const { sm, djangoClient } = makeSessionManager();

@@ -101,6 +101,27 @@ test('metadata update failures are written to local fallback reports', async () 
   assert.equal(records[3].payload.cap.status, 'unavailable');
 });
 
+test('group reconciliation posts an authoritative group id snapshot', async () => {
+  const { client } = makeClient();
+  client.http.post = test.mock.fn(async () => ({
+    data: { success: true, active: 2, deactivated: 1 },
+  }));
+
+  const result = await client.reconcileGroups(
+    'session-1',
+    ['120010@g.us', '120011@g.us'],
+  );
+
+  assert.deepEqual(result, { success: true, active: 2, deactivated: 1 });
+  assert.deepEqual(client.http.post.mock.calls[0].arguments, [
+    '/api/internal/whatsapp/group-reconcile/',
+    {
+      worker_session_id: 'session-1',
+      group_ids: ['120010@g.us', '120011@g.us'],
+    },
+  ]);
+});
+
 test('fallback replay posts replay-safe metadata records and removes the file on success', async () => {
   const { client, logsDir } = makeClient();
   const filePath = path.join(logsDir, 'failed-reports.ndjson');

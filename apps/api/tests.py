@@ -658,6 +658,32 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(response.json()['destination_type'], 'standard_group')
         self.assertEqual(response.json()['new_chat_state'], 'not_applicable')
 
+    def test_group_list_hides_departed_groups_but_preserves_detail_access(self):
+        active = WhatsAppGroup.objects.create(
+            account=self.account_a,
+            wa_group_id='120363000000000092@g.us',
+            name='Active group',
+            account_is_participant=True,
+            can_send=True,
+            metadata_refreshed_at=now(),
+        )
+        departed = WhatsAppGroup.objects.create(
+            account=self.account_a,
+            wa_group_id='120363000000000093@g.us',
+            name='Departed group',
+            account_is_participant=False,
+            can_send=False,
+            send_block_reason='not_a_group_participant',
+            metadata_refreshed_at=now(),
+        )
+        self.client.force_authenticate(self.user_a)
+
+        response = self.client.get('/api/groups/', {'account': self.account_a.pk})
+        ids = {row['id'] for row in response.json()['results']}
+        self.assertIn(active.pk, ids)
+        self.assertNotIn(departed.pk, ids)
+        self.assertEqual(self.client.get(f'/api/groups/{departed.pk}/').status_code, 200)
+
     def test_direct_send_without_local_history_still_requires_confirmation(self):
         self.account_a.outbound_sending_enabled = True
         self.account_a.direct_sending_enabled = True

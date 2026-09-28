@@ -940,6 +940,7 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
         account_id = self.request.query_params.get('account')
         if account_id:
             qs = qs.filter(account=_visible_account_or_none(self.request.user, account_id))
+
         search = self.request.query_params.get('search')
         if search:
             qs = qs.filter(
@@ -1831,6 +1832,9 @@ class GroupViewSet(viewsets.ReadOnlyModelViewSet):
         if account_id:
             qs = qs.filter(account=_visible_account_or_none(self.request.user, account_id))
 
+        if self.action == 'list' and self.request.query_params.get('include_inactive') != 'true':
+            qs = qs.filter(account_is_participant=True)
+
         group_type = self.request.query_params.get('type')
         if group_type == 'community':
             qs = qs.filter(is_community=True)
@@ -1862,6 +1866,8 @@ class GroupViewSet(viewsets.ReadOnlyModelViewSet):
         qs = scope_queryset_to_visible_accounts(WhatsAppGroup.objects.all(), request.user, account_field='account')
         if account_id:
             qs = qs.filter(account=_visible_account_or_none(request.user, account_id))
+        if request.query_params.get('include_inactive') != 'true':
+            qs = qs.filter(account_is_participant=True)
         return Response({
             'total':       qs.count(),
             'communities': qs.filter(is_community=True).count(),

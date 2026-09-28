@@ -500,6 +500,38 @@ def internal_group_update(request):
 
 @csrf_exempt
 @require_POST
+def internal_group_reconcile(request):
+    """Apply one complete participating-group snapshot for an account."""
+    from .services.group_metadata_service import reconcile_group_snapshot
+
+    if not _verify_internal_token(request):
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    worker_session_id = payload.get('worker_session_id')
+    group_ids = payload.get('group_ids')
+    if not worker_session_id or not isinstance(group_ids, list):
+        return JsonResponse({'error': 'worker_session_id and group_ids are required'}, status=400)
+    if len(group_ids) > 10000 or any(
+        not isinstance(group_id, str) or not group_id.strip().endswith('@g.us')
+        for group_id in group_ids
+    ):
+        return JsonResponse({'error': 'group_ids must contain valid group JIDs'}, status=400)
+
+    try:
+        account = WhatsAppAccount.objects.get(pk=worker_session_id)
+    except WhatsAppAccount.DoesNotExist:
+        return JsonResponse({'error': 'Account not found'}, status=404)
+
+    result = reconcile_group_snapshot(account, group_ids)
+    return JsonResponse({'success': True, **result})
+
+
+@csrf_exempt
+@require_POST
 def internal_group_participants_update(request):
     """Handle incremental participant change events (add/remove/promote/demote)."""
     if not _verify_internal_token(request):

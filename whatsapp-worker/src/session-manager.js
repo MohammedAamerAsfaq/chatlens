@@ -552,6 +552,10 @@ class SessionManager {
       );
       if (meta.id && meta.subject) this.groupNameCache.set(meta.id, meta.subject);
     }
+    await this.djangoClient.reconcileGroups(
+      sessionId,
+      groupList.filter(meta => meta?.id).map(meta => meta.id),
+    );
     return groupList.length;
   }
 
@@ -1148,6 +1152,10 @@ class SessionManager {
           // Also warm the name cache
           if (meta.id && meta.subject) this.groupNameCache.set(meta.id, meta.subject);
         }
+        await this.djangoClient.reconcileGroups(
+          sessionId,
+          groupList.filter(meta => meta?.id).map(meta => meta.id),
+        );
       } catch (err) {
         this.logger.warn({ sessionId, error: err.message }, 'groupFetchAllParticipating failed');
       }

@@ -10,10 +10,11 @@ from apps.tenancy.models import CommunicationAccount, Company, ConnectionProvide
 from apps.task_management.models import BackgroundTask
 from .models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppContact, WhatsAppMessage,
-    WhatsAppAccountCapacity, WhatsAppGroup, WhatsAppUnresolvedMessage, ResolutionStatus,
+    WhatsAppAccountCapacity, WhatsAppGroup, WhatsAppGroupParticipant,
+    WhatsAppUnresolvedMessage, ResolutionStatus,
 )
 from .services.destination_policy import classify_destination, evaluate_destination
-from .services.group_metadata_service import upsert_group_metadata
+from .services.group_metadata_service import reconcile_group_snapshot, upsert_group_metadata
 from .services.ingestion_service import IngestionService, _classify_skip_reason
 
 INTERNAL_HEADERS = {'HTTP_X_INTERNAL_TOKEN': 'test-token'}
@@ -633,6 +634,33 @@ class DestinationPolicyTests(TestCase):
         self.assertTrue(group.announce)
         self.assertTrue(group.can_send)
         self.assertEqual(group.metadata_refreshed_at, refreshed_at)
+
+    def test_complete_snapshot_deactivates_groups_that_are_no_longer_participating(self):
+        active = upsert_group_metadata(self.account, {
+            'group_id': '120006@g.us',
+            'account_is_participant': True,
+            'metadata_complete': True,
+        })
+        departed = upsert_group_metadata(self.account, {
+            'group_id': '120007@g.us',
+            'account_is_participant': True,
+            'metadata_complete': True,
+            'participants': [{'jid': '971500000099@s.whatsapp.net'}],
+        })
+
+        result = reconcile_group_snapshot(self.account, [active.wa_group_id])
+
+        active.refresh_from_db()
+        departed.refresh_from_db()
+        self.assertEqual(result, {'deactivated': 1, 'active': 1})
+        self.assertTrue(active.account_is_participant)
+        self.assertFalse(departed.account_is_participant)
+        self.assertFalse(departed.can_send)
+        self.assertEqual(departed.send_block_reason, 'not_a_group_participant')
+        self.assertEqual(departed.participant_count, 0)
+        self.assertFalse(
+            WhatsAppGroupParticipant.objects.get(group=departed).is_active,
+        )
 
 
 class UnresolvedMessageEndpointTests(TestCase):
