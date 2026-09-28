@@ -1,20 +1,27 @@
+from datetime import timedelta
+
 from django.db.models import F
 from django.utils import timezone
 
 from .inquiry_forwarding_formatter import build_forwarding_message
-from .inquiry_forwarding_policy import ineligible_reason, source_destination_reason
+from .inquiry_forwarding_policy import formation_state, ineligible_reason, source_destination_reason
 
 
 def enqueue_inquiry_forwarding(inquiry_ids, source_message_id):
-    """Enqueue only inquiry cards that already have deterministic product evidence."""
+    """Enqueue only inquiries whose complete processing pipeline has finished."""
     from apps.queue_management.services import enqueue_task
     from apps.trading.models import Inquiry, InquiryForwardingRule
+    from apps.whatsapp_bridge.models import WhatsAppMessage
 
     inquiries = Inquiry.objects.filter(
         pk__in=inquiry_ids, products__isnull=False,
     ).exclude(products=[]).select_related('company')
+    source = WhatsAppMessage.objects.filter(pk=source_message_id).first()
     tasks = []
     for inquiry in inquiries:
+        state, _ = formation_state(inquiry, source)
+        if state != 'ready':
+            continue
         rule = InquiryForwardingRule.objects.filter(
             company=inquiry.company, inquiry_type=inquiry.inquiry_type, is_active=True,
         ).first()
@@ -37,6 +44,7 @@ def enqueue_inquiry_forwarding(inquiry_ids, source_message_id):
 
 
 def process_inquiry_forwarding(inquiry_id, source_message_id):
+    from apps.queue_management.services import TaskDeferred
     from apps.trading.models import Inquiry, InquiryForwardingRule, InquiryForwardingRun
 
     inquiry = Inquiry.objects.select_related('company', 'contact').get(pk=inquiry_id)
@@ -50,12 +58,21 @@ def process_inquiry_forwarding(inquiry_id, source_message_id):
         return {'forwarded': 0, 'skipped': True, 'reason': 'rule_inactive_or_missing'}
 
     source = _source_message(inquiry, source_message_id)
+    formation, formation_reason = formation_state(inquiry, source)
+    if formation == 'pending':
+        raise TaskDeferred(
+            timezone.now() + timedelta(seconds=5),
+            'Inquiry processing is not complete; forwarding deferred.',
+            {'inquiry_id': inquiry.pk, 'reason': formation_reason},
+        )
     run, created = InquiryForwardingRun.objects.get_or_create(
         rule=rule, inquiry=inquiry,
         defaults={'source_message': source},
     )
     if not created and run.finished_at:
         return _run_result(run)
+    if formation != 'ready':
+        return _finish_skipped(rule, run, formation_reason)
 
     reason = ineligible_reason(rule, inquiry, source)
     if reason:

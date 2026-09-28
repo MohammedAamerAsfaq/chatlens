@@ -13,6 +13,7 @@ from apps.trading.models import (
     InquiryForwardingRun,
     InquiryForwardingTarget,
     InquiryMessage,
+    AiParseV2Log,
     MessageClassification,
     Product,
 )
@@ -193,6 +194,67 @@ class InquiryForwardingTests(TestCase):
 
         self.assertEqual(tasks, [])
         enqueue.assert_not_called()
+
+    @patch('apps.queue_management.services.enqueue_task')
+    def test_v2_forwarding_is_not_enqueued_until_all_linked_passes_complete(self, enqueue):
+        classification = self.message.classification
+        classification.classification_version = 'v2'
+        classification.save(update_fields=['classification_version'])
+        self.inquiry.classification_version = 'v2'
+        self.inquiry.product_match_status = Inquiry.CLASSIFICATION_MATCH_COMPLETE
+        self.inquiry.save(update_fields=['classification_version', 'product_match_status'])
+        AiParseV2Log.objects.create(
+            message=self.message, account=self.account, chat=self.chat,
+            classification=classification, inquiry_ids=[self.inquiry.pk],
+            status=AiParseV2Log.STATUS_COMPLETE,
+        )
+        second_message = WhatsAppMessage.objects.create(
+            account=self.account, chat=self.chat, contact=self.source_contact,
+            provider_message_id='source-2', sender_number=self.source_contact.phone_number,
+            direction='inbound', message_type='text', message_text='WTB Phone X 10 pcs',
+            message_time=timezone.now(),
+        )
+        second_classification = MessageClassification.objects.create(
+            message=second_message, products=self.inquiry.products,
+            is_inquiry=True, inquiry_type='buy', classification_version='v2',
+        )
+        InquiryMessage.objects.create(inquiry=self.inquiry, message=second_message)
+        second_log = AiParseV2Log.objects.create(
+            message=second_message, account=self.account, chat=self.chat,
+            classification=second_classification, inquiry_ids=[self.inquiry.pk],
+            status=AiParseV2Log.STATUS_PASS2_STARTED,
+        )
+
+        self.assertEqual(enqueue_inquiry_forwarding([self.inquiry.pk], self.message.pk), [])
+        enqueue.assert_not_called()
+
+        second_log.status = AiParseV2Log.STATUS_COMPLETE
+        second_log.save(update_fields=['status'])
+        enqueue.return_value = SimpleNamespace(pk=503)
+
+        self.assertEqual(len(enqueue_inquiry_forwarding([self.inquiry.pk], self.message.pk)), 1)
+        enqueue.assert_called_once()
+
+    def test_handler_defers_when_v2_inquiry_is_not_fully_formed(self):
+        from apps.queue_management.services import TaskDeferred
+
+        classification = self.message.classification
+        classification.classification_version = 'v2'
+        classification.save(update_fields=['classification_version'])
+        self.inquiry.classification_version = 'v2'
+        self.inquiry.product_match_status = Inquiry.CLASSIFICATION_MATCH_PENDING
+        self.inquiry.save(update_fields=['classification_version', 'product_match_status'])
+        AiParseV2Log.objects.create(
+            message=self.message, account=self.account, chat=self.chat,
+            classification=classification, inquiry_ids=[self.inquiry.pk],
+            status=AiParseV2Log.STATUS_PASS2_STARTED,
+        )
+
+        with self.assertRaises(TaskDeferred):
+            process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        self.assertFalse(InquiryForwardingRun.objects.exists())
+        self.assertFalse(OutboundMessage.objects.exists())
 
     def test_non_inquiry_classification_fails_closed(self):
         classification = self.message.classification
