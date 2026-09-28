@@ -47,6 +47,13 @@ from .buying_inquiry import (
 )
 from .price_list import FormattedPriceList
 from .automation_rule import AutomationRule, AutomationRuleSource, AutomatedPriceCapture
+from .inquiry_forwarding import (
+    InquiryForwardingDelivery,
+    InquiryForwardingExclusion,
+    InquiryForwardingRule,
+    InquiryForwardingRun,
+    InquiryForwardingTarget,
+)
 from .selling_offer import (
     SellingOffer,
     SellingOfferCustomer,
@@ -90,6 +97,8 @@ __all__ = [
     'SupplierQuote', 'SupplierQuoteStatus',
     'FormattedPriceList',
     'AutomationRule', 'AutomationRuleSource', 'AutomatedPriceCapture',
+    'InquiryForwardingRule', 'InquiryForwardingTarget',
+    'InquiryForwardingExclusion', 'InquiryForwardingRun', 'InquiryForwardingDelivery',
     'SellingOffer', 'SellingOfferCustomer', 'SellingOfferCustomerSource',
     'SellingOfferGroup',
     'SellingOfferProduct', 'SellingOfferStatus',

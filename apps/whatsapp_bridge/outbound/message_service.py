@@ -56,7 +56,8 @@ def create_outbound_message(*, account, destination_jid, text, requested_by, ass
         requested_by=requested_by,
         eligible_at=timezone.now(),
     )
-    record_event(message, 'requested', actor=f'user:{requested_by.pk}')
+    actor = f'user:{requested_by.pk}' if requested_by else 'system:automation'
+    record_event(message, 'requested', actor=actor)
     permission = json.loads(json.dumps(evaluate_outbound(message), cls=DjangoJSONEncoder))
     message.permission_snapshot = permission
     message.destination_type = permission['destination_type']
@@ -68,10 +69,10 @@ def create_outbound_message(*, account, destination_jid, text, requested_by, ass
             'permission_snapshot', 'destination_type', 'status', 'status_reason',
             'finished_at', 'updated_at',
         ])
-        record_event(message, 'preflight_blocked', actor=f'user:{requested_by.pk}', metadata=permission)
+        record_event(message, 'preflight_blocked', actor=actor, metadata=permission)
         return message, True
     message.save(update_fields=['permission_snapshot', 'destination_type', 'updated_at'])
-    record_event(message, 'preflight_passed', actor=f'user:{requested_by.pk}', metadata=permission)
+    record_event(message, 'preflight_passed', actor=actor, metadata=permission)
     task = enqueue_task(
         task_key='whatsapp.send_message',
         payload={'version': 1, 'outbound_message_id': message.pk},

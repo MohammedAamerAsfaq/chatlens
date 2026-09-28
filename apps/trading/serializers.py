@@ -5,6 +5,7 @@ from .models import (
     AiParsingLog, AiParseV2Log, BuyingInquiry, BuyingInquiryProduct,
     BuyingInquiryGroup, BuyingInquirySupplier, SupplierQuote,
     AutomationRule, AutomationRuleSource, AutomatedPriceCapture,
+    InquiryForwardingRule,
     SellingOffer, SellingOfferCustomer, SellingOfferGroup, SellingOfferProduct,
 )
 
@@ -657,6 +658,52 @@ class AutomationRuleSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'sources', 'last_triggered_at', 'trigger_count', 'created_at', 'updated_at']
+
+
+class InquiryForwardingRuleSerializer(serializers.ModelSerializer):
+    targets = serializers.SerializerMethodField()
+    exclusions = serializers.SerializerMethodField()
+    recent_runs = serializers.SerializerMethodField()
+
+    class Meta:
+        model = InquiryForwardingRule
+        fields = [
+            'id', 'inquiry_type', 'name', 'is_active',
+            'include_original_message', 'include_summary', 'include_stock_suggestions',
+            'include_sender_link', 'include_inquiry_id',
+            'targets', 'exclusions', 'recent_runs', 'last_triggered_at',
+            'forwarded_count', 'skipped_count', 'created_at', 'updated_at',
+        ]
+        read_only_fields = [
+            'id', 'targets', 'exclusions', 'recent_runs', 'last_triggered_at',
+            'forwarded_count', 'skipped_count', 'created_at', 'updated_at',
+        ]
+
+    def get_targets(self, obj):
+        return [self._endpoint(row.target_type, row.contact, row.group) for row in obj.targets.all()]
+
+    def get_exclusions(self, obj):
+        return [self._endpoint(row.exclusion_type, row.contact, row.group) for row in obj.exclusions.all()]
+
+    def get_recent_runs(self, obj):
+        return [{
+            'id': run.pk, 'inquiry': run.inquiry_id, 'status': run.status,
+            'reason': run.reason, 'destination_count': run.destination_count,
+            'queued_count': run.queued_count, 'blocked_count': run.blocked_count,
+            'created_at': run.created_at, 'finished_at': run.finished_at,
+        } for run in obj.runs.all()[:10]]
+
+    @staticmethod
+    def _endpoint(kind, contact, group):
+        item = contact or group
+        account = item.account
+        return {
+            'type': kind,
+            'contact_id': contact.pk if contact else None,
+            'group_id': group.pk if group else None,
+            'name': _contact_label(contact) if contact else (group.name or group.wa_group_id),
+            'account_name': _account_label(account),
+        }
 
 
 class AutomatedPriceCaptureSerializer(serializers.ModelSerializer):

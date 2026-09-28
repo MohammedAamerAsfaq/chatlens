@@ -850,6 +850,7 @@ def classify_message(message, *, propagate_errors=False) -> bool:
                 [inquiry.pk for inquiry in inquiries],
                 classification.products or [],
             )
+            _enqueue_inquiry_forwarding_safely(message, [inquiry.pk for inquiry in inquiries])
         except Exception:
             logger.exception('classify_message | inquiry processing failed | message_id=%s', msg_id)
             raise
@@ -1006,6 +1007,18 @@ def _enqueue_v2_pass2(message, classification_id: int, inquiry_ids: list[int]):
         correlation_id=f'whatsapp-message:{message.pk}',
         company=company_for_message(message),
     )
+
+
+def _enqueue_inquiry_forwarding_safely(message, inquiry_ids):
+    """Forwarding is downstream work and must never invalidate classification."""
+    try:
+        from apps.trading.services.inquiry_forwarding_service import enqueue_inquiry_forwarding
+        enqueue_inquiry_forwarding(inquiry_ids, message.pk)
+    except Exception:
+        logger.exception(
+            'classification | inquiry forwarding enqueue failed | message_id=%s | inquiries=%s',
+            message.pk, inquiry_ids,
+        )
 
 
 def run_v2_pass2(message_id: int, classification_id: int, inquiry_ids: list[int]) -> None:
@@ -1271,6 +1284,7 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
             len(updated_products),
             inquiry_ids,
         )
+        _enqueue_inquiry_forwarding_safely(message, inquiry_ids)
         return
 
     pass2_batches = _build_v2_match_batches(
@@ -1471,3 +1485,4 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
         len(updated_products),
         inquiry_ids,
     )
+    _enqueue_inquiry_forwarding_safely(message, inquiry_ids)

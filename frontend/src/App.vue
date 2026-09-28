@@ -58,7 +58,7 @@ const isListsActive = computed(() => LIST_ROUTES.includes(route.name))
 const CAMPAIGN_ROUTES = ['buying-inquiries', 'selling-offers', 'group-buying-inquiries', 'group-selling-offers']
 const isCampaignsActive = computed(() => CAMPAIGN_ROUTES.includes(route.name))
 
-const SETTINGS_ROUTES = ['sessions', 'storage', 'ai-providers', 'kiwi-router', 'ai-instructions', 'v2-settings', 'v2-match-training', 'task-queues', 'tenant-admin']
+const SETTINGS_ROUTES = ['sessions', 'storage', 'ai-providers', 'kiwi-router', 'ai-instructions', 'v2-settings', 'v2-match-training', 'inquiry-forwarding', 'task-queues', 'tenant-admin']
 const isSettingsActive = computed(() => SETTINGS_ROUTES.includes(route.name))
 
 async function handleLogout() {
@@ -156,6 +156,7 @@ async function handleCompanySwitch(event) {
           <RouterLink to="/ai-instructions" class="dropdown-item" active-class="dropdown-item-active">AI Instructions</RouterLink>
           <RouterLink to="/v2-settings"     class="dropdown-item" active-class="dropdown-item-active">V2 Settings</RouterLink>
           <RouterLink to="/v2-match-training" class="dropdown-item" active-class="dropdown-item-active">V2 Match Training</RouterLink>
+          <RouterLink to="/inquiry-forwarding" class="dropdown-item" active-class="dropdown-item-active">Inquiry Forwarding</RouterLink>
           <RouterLink to="/task-queues"     class="dropdown-item" active-class="dropdown-item-active">Task &amp; Queues</RouterLink>
           <RouterLink v-if="auth.canManageTenants" to="/tenant-admin" class="dropdown-item" active-class="dropdown-item-active">Tenant Admin</RouterLink>
         </div>

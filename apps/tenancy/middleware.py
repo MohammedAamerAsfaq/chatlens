@@ -47,6 +47,7 @@ class TenantRoleMiddleware:
         '/api/prompts/',
         '/api/trading-settings/',
         '/api/automation-rules/',
+        '/api/inquiry-forwarding-rules/',
         '/api/product-price-update/',
     )
 

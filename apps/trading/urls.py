@@ -18,6 +18,7 @@ router.register('reports',          views.ReportViewSet,              basename='
 router.register('trading-settings', views.TradingSettingsViewSet,     basename='trading-settings')
 router.register('product-price-update', views.ProductPriceUpdateViewSet, basename='product-price-update')
 router.register('automation-rules', views.AutomationRuleViewSet, basename='automation-rules')
+router.register('inquiry-forwarding-rules', views.InquiryForwardingRuleViewSet, basename='inquiry-forwarding-rules')
 router.register('automated-price-captures', views.AutomatedPriceCaptureViewSet, basename='automated-price-captures')
 router.register('v2-match-training', views.V2MatchTrainingViewSet, basename='v2-match-training')
 

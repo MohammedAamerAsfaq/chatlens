@@ -3,6 +3,7 @@ from .registry import (
     task_handler, validate_any_v1_payload, validate_recovery_payload,
     validate_automation_payload, validate_v2_pass2_payload,
     validate_versioned_message_payload, validate_outbound_payload,
+    validate_inquiry_forwarding_payload,
 )
 
 
@@ -24,6 +25,16 @@ def process_automation_rules(payload, context):
     else:
         processed = process_automation_rule(message, rule_id)
     return {'message_id': message.pk, 'rule_id': rule_id, 'automation_processed': processed}
+
+
+@task_handler(
+    key='trading.forward_inquiry', default_queue='automation',
+    payload_validator=validate_inquiry_forwarding_payload, retry_safe=True,
+)
+def forward_inquiry(payload, context):
+    from apps.trading.services.inquiry_forwarding_service import process_inquiry_forwarding
+
+    return process_inquiry_forwarding(payload['inquiry_id'], payload['source_message_id'])
 
 
 @task_handler(

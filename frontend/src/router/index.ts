@@ -39,6 +39,7 @@ import V2MatchTrainingView from '../views/V2MatchTrainingView.vue'
 import TaskOperationsView from '../views/TaskOperationsView.vue'
 import TaskQueueSettingsView from '../views/TaskQueueSettingsView.vue'
 import KiwiRouterView from '../views/KiwiRouterView.vue'
+import InquiryForwardingView from '../views/InquiryForwardingView.vue'
 
 const APP_TITLE = 'ChatLens'
 
@@ -84,6 +85,7 @@ const router = createRouter({
     { path: '/task-operations', name: 'task-operations', component: TaskOperationsView, meta: { title: 'Task Operations' } },
     { path: '/task-queues', name: 'task-queues', component: TaskQueueSettingsView, meta: { title: 'Task & Queues' } },
     { path: '/kiwi-router', name: 'kiwi-router', component: KiwiRouterView, meta: { title: 'KiwiRouter' } },
+    { path: '/inquiry-forwarding', name: 'inquiry-forwarding', component: InquiryForwardingView, meta: { title: 'Inquiry Forwarding' } },
   ],
 })
 

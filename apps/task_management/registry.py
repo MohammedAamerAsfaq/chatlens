@@ -95,6 +95,14 @@ def validate_outbound_payload(payload):
         raise UnsupportedTaskPayload('outbound_message_id must be a positive integer.')
 
 
+def validate_inquiry_forwarding_payload(payload):
+    if not isinstance(payload, dict) or payload.get('version') != 1:
+        raise UnsupportedTaskPayload('Payload version 1 is required.')
+    for key in ('inquiry_id', 'source_message_id'):
+        if not isinstance(payload.get(key), int) or payload[key] <= 0:
+            raise UnsupportedTaskPayload(f'{key} must be a positive integer.')
+
+
 def validate_recovery_payload(payload):
     if not isinstance(payload, dict) or payload.get('version') != 1:
         raise UnsupportedTaskPayload('Payload version 1 is required.')

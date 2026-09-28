@@ -20,7 +20,7 @@ from apps.tenancy.services.access import (
     scope_queryset_to_visible_companies,
     visible_accounts_queryset,
 )
-from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, NonInventoryProduct, NonInventoryProductMention, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_GATE_V2_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, BuyingInquiryGroup, BuyingInquiryProduct, BuyingInquirySupplier, BuyingInquirySupplierSource, BuyingInquiryStatus, CampaignAudience, CampaignMessageMode, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture, SellingOffer, SellingOfferCustomer, SellingOfferCustomerSource, SellingOfferGroup, SellingOfferProduct, SellingOfferStatus
+from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, NonInventoryProduct, NonInventoryProductMention, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_GATE_V2_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, BuyingInquiryGroup, BuyingInquiryProduct, BuyingInquirySupplier, BuyingInquirySupplierSource, BuyingInquiryStatus, CampaignAudience, CampaignMessageMode, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture, InquiryForwardingExclusion, InquiryForwardingRule, InquiryForwardingTarget, SellingOffer, SellingOfferCustomer, SellingOfferCustomerSource, SellingOfferGroup, SellingOfferProduct, SellingOfferStatus
 from .serializers import (
     ProductSerializer,
     ProductAliasSerializer,
@@ -40,7 +40,9 @@ from .serializers import (
     SellingOfferSerializer,
     AutomationRuleSerializer,
     AutomatedPriceCaptureSerializer,
+    InquiryForwardingRuleSerializer,
 )
+from apps.tenancy.permissions import TenantRolePermission
 from .services.product_cache import invalidate as invalidate_product_cache
 
 logger = logging.getLogger(__name__)
@@ -4700,12 +4702,12 @@ class AutomationRuleViewSet(viewsets.ModelViewSet):
         valid_types = dict(AutomationRuleSource.SOURCE_TYPE_CHOICES)
         rule.sources.all().delete()
         objs = []
-        for s in sources_data:
-            source_type = s.get('source_type')
+        for source in sources_data:
+            source_type = source.get('source_type')
             if source_type not in valid_types:
                 continue
-            contact_id = s.get('contact_id')
-            group_id = s.get('group_id')
+            contact_id = source.get('contact_id')
+            group_id = source.get('group_id')
             if source_type == AutomationRuleSource.SOURCE_CONTACT and not contact_id:
                 continue
             if source_type == AutomationRuleSource.SOURCE_GROUP and not group_id:
@@ -4713,25 +4715,19 @@ class AutomationRuleViewSet(viewsets.ModelViewSet):
             if source_type == AutomationRuleSource.SOURCE_CONTACT_IN_GROUP and not (contact_id and group_id):
                 continue
             if contact_id and not scope_queryset_to_visible_accounts(
-                WhatsAppContact.objects.filter(pk=contact_id),
-                self.request.user,
-                account_field='account',
+                WhatsAppContact.objects.filter(pk=contact_id), self.request.user,
             ).exists():
                 raise ValidationError({'sources': f'Contact {contact_id} is not visible to this user.'})
             if group_id and not scope_queryset_to_visible_accounts(
-                WhatsAppGroup.objects.filter(pk=group_id),
-                self.request.user,
-                account_field='account',
+                WhatsAppGroup.objects.filter(pk=group_id), self.request.user,
             ).exists():
                 raise ValidationError({'sources': f'Group {group_id} is not visible to this user.'})
             objs.append(AutomationRuleSource(
-                rule=rule,
-                source_type=source_type,
+                rule=rule, source_type=source_type,
                 contact_id=contact_id if source_type != AutomationRuleSource.SOURCE_GROUP else None,
                 group_id=group_id if source_type != AutomationRuleSource.SOURCE_CONTACT else None,
             ))
-        if objs:
-            AutomationRuleSource.objects.bulk_create(objs)
+        AutomationRuleSource.objects.bulk_create(objs)
 
     @action(detail=True, methods=['post'], url_path='toggle')
     def toggle(self, request, pk=None):
@@ -4739,6 +4735,89 @@ class AutomationRuleViewSet(viewsets.ModelViewSet):
         rule.is_active = not rule.is_active
         rule.save(update_fields=['is_active', 'updated_at'])
         return Response(AutomationRuleSerializer(rule).data)
+
+
+class InquiryForwardingRuleViewSet(viewsets.ModelViewSet):
+    serializer_class = InquiryForwardingRuleSerializer
+    permission_classes = [TenantRolePermission]
+    queryset = InquiryForwardingRule.objects.none()
+
+    def get_queryset(self):
+        return scope_queryset_to_visible_companies(
+            InquiryForwardingRule.objects.prefetch_related(
+                'targets__contact__account', 'targets__group__account',
+                'exclusions__contact__account', 'exclusions__group__account',
+            ),
+            self.request.user,
+        )
+
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        company = default_company_for_user(request.user)
+        inquiry_type = request.data.get('inquiry_type')
+        if InquiryForwardingRule.objects.filter(company=company, inquiry_type=inquiry_type).exists():
+            raise ValidationError({'inquiry_type': 'This company already has a rule for this inquiry type.'})
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        rule = serializer.save(company=company, created_by=request.user)
+        self._sync_endpoints(rule, request.data)
+        return Response(self.get_serializer(rule).data, status=status.HTTP_201_CREATED)
+
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        rule = self.get_object()
+        serializer = self.get_serializer(rule, data=request.data, partial=kwargs.pop('partial', False))
+        serializer.is_valid(raise_exception=True)
+        rule = serializer.save()
+        self._sync_endpoints(rule, request.data)
+        return Response(self.get_serializer(rule).data)
+
+    def _sync_endpoints(self, rule, data):
+        if 'targets' in data:
+            rule.targets.all().delete()
+            self._create_endpoints(rule, data.get('targets') or [], target=True)
+        if 'exclusions' in data:
+            rule.exclusions.all().delete()
+            self._create_endpoints(rule, data.get('exclusions') or [], target=False)
+
+    def _create_endpoints(self, rule, rows, *, target):
+        from apps.whatsapp_bridge.models import WhatsAppContact, WhatsAppGroup
+
+        model = InquiryForwardingTarget if target else InquiryForwardingExclusion
+        type_field = 'target_type' if target else 'exclusion_type'
+        objects = []
+        seen = set()
+        for row in rows:
+            kind = row.get('type')
+            endpoint_key = (kind, row.get('contact_id') or row.get('group_id'))
+            if endpoint_key in seen:
+                continue
+            seen.add(endpoint_key)
+            contact = group = None
+            if kind == model.CONTACT:
+                contact = scope_queryset_to_visible_accounts(
+                    WhatsAppContact.objects.select_related('account__communication_account'),
+                    self.request.user,
+                ).filter(pk=row.get('contact_id')).first()
+                if not contact or company_for_whatsapp_account(contact.account) != rule.company:
+                    raise ValidationError({'targets' if target else 'exclusions': 'Invalid company contact.'})
+            elif kind == model.GROUP:
+                groups = scope_queryset_to_visible_accounts(
+                    WhatsAppGroup.objects.select_related('account__communication_account'),
+                    self.request.user,
+                )
+                group = groups.filter(pk=row.get('group_id')).first()
+                if not group or company_for_whatsapp_account(group.account) != rule.company:
+                    raise ValidationError({'targets' if target else 'exclusions': 'Invalid company group.'})
+                if target and not (
+                    group.can_send and group.account_is_participant and not group.is_community
+                    and not group.is_community_announcement and not group.announce
+                ):
+                    raise ValidationError({'targets': 'Group destinations must currently allow sending.'})
+            else:
+                raise ValidationError({'targets' if target else 'exclusions': 'Invalid endpoint type.'})
+            objects.append(model(rule=rule, contact=contact, group=group, **{type_field: kind}))
+        model.objects.bulk_create(objects)
 
 
 class AutomatedPriceCapturePagination(PageNumberPagination):
