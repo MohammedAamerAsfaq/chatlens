@@ -17,6 +17,7 @@ class InquiryForwardingRule(models.Model):
     include_summary = models.BooleanField(default=True)
     include_stock_suggestions = models.BooleanField(default=True)
     include_sender_link = models.BooleanField(default=True)
+    prefill_sender_link_products = models.BooleanField(default=True)
     include_inquiry_id = models.BooleanField(default=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,

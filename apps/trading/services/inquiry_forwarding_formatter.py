@@ -1,15 +1,19 @@
 import re
+from urllib.parse import quote
 
 
 def product_name(row):
     return str(row.get('canonical_name') or row.get('raw_text') or '').strip()
 
 
-def sender_link(source):
+def sender_link(source, prefill_text=''):
     raw = getattr(source.contact, 'phone_number', '') if source.contact_id else ''
     raw = raw or source.sender_number or ''
     digits = re.sub(r'\D', '', raw)
-    return f'https://wa.me/{digits}' if digits else ''
+    if not digits:
+        return ''
+    link = f'https://wa.me/{digits}'
+    return f'{link}?text={quote(prefill_text, safe="")}' if prefill_text else link
 
 
 def build_forwarding_message(rule, inquiry, source):
@@ -31,7 +35,23 @@ def build_forwarding_message(rule, inquiry, source):
     if suggestions:
         lines.extend(['', 'In-stock exact matches:', *suggestions])
     if rule.include_sender_link:
-        lines.extend(['', f'Direct chat: {sender_link(source)}'])
+        prefill = _product_prefill(label, products) if rule.prefill_sender_link_products else ''
+        lines.extend(['', f'Direct chat: {sender_link(source, prefill)}'])
+    return '\n'.join(lines)
+
+
+def _product_prefill(label, products):
+    lines = [label]
+    for product in products:
+        details = [product_name(product)]
+        quantity = product.get('quantity')
+        if quantity is not None:
+            details.append(f'Qty {quantity}')
+        price = product.get('price')
+        if price is not None:
+            currency = str(product.get('currency') or '').strip()
+            details.append(f'{currency} {price}'.strip())
+        lines.append(f'- {" | ".join(details)}')
     return '\n'.join(lines)
 
 

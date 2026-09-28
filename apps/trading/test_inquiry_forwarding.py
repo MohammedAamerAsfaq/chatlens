@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 from datetime import timedelta
+from urllib.parse import parse_qs, urlparse
 
 from django.contrib.auth.models import User
 from django.test import TestCase
@@ -111,9 +112,27 @@ class InquiryForwardingTests(TestCase):
         self.assertIn(f'Inquiry ID: #{self.inquiry.pk}', text)
         self.assertIn('Summary:\nBuying Phone X', text)
         self.assertIn('https://wa.me/971500000001', text)
+        chat_link = next(line.removeprefix('Direct chat: ') for line in text.splitlines() if line.startswith('Direct chat: '))
+        prefill = parse_qs(urlparse(chat_link).query)['text'][0]
+        self.assertIn('WTB\n- Phone X | Qty 10', prefill)
+        self.assertIn('- Phone X maybe', prefill)
         self.assertIn('Phone X Exact | Qty 4 | AED 900.00', text)
         self.assertNotIn('Phone X Near | Qty 8', text)
         enqueue.assert_called_once()
+
+    @patch('apps.whatsapp_bridge.outbound.message_service.enqueue_task')
+    @patch('apps.whatsapp_bridge.outbound.policy.capacity_snapshot')
+    def test_product_prefill_can_be_disabled_without_removing_chat_link(self, capacity, enqueue):
+        capacity.return_value = {'reachout': {'is_active': False}, 'cap': {}}
+        enqueue.return_value = SimpleNamespace(pk=505)
+        self.rule.prefill_sender_link_products = False
+        self.rule.save(update_fields=['prefill_sender_link_products'])
+
+        process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        text = OutboundMessage.objects.get().content_payload['text']
+        self.assertIn('Direct chat: https://wa.me/971500000001', text)
+        self.assertNotIn('https://wa.me/971500000001?text=', text)
 
     @patch('apps.whatsapp_bridge.outbound.message_service.enqueue_task')
     @patch('apps.whatsapp_bridge.outbound.policy.capacity_snapshot')
@@ -314,6 +333,7 @@ class InquiryForwardingTests(TestCase):
             f'/api/inquiry-forwarding-rules/{self.rule.pk}/',
             {
                 'name': 'Strict WTB forwarding',
+                'prefill_sender_link_products': False,
                 'targets': [{'type': 'contact', 'contact_id': self.destination.pk}],
                 'exclusions': [{'type': 'contact', 'contact_id': self.source_contact.pk}],
             },
@@ -322,5 +342,6 @@ class InquiryForwardingTests(TestCase):
 
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()['name'], 'Strict WTB forwarding')
+        self.assertFalse(response.json()['prefill_sender_link_products'])
         self.assertEqual(response.json()['targets'][0]['contact_id'], self.destination.pk)
         self.assertEqual(response.json()['exclusions'][0]['contact_id'], self.source_contact.pk)

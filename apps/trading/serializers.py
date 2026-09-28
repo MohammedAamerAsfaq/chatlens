@@ -670,7 +670,7 @@ class InquiryForwardingRuleSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'inquiry_type', 'name', 'is_active',
             'include_original_message', 'include_summary', 'include_stock_suggestions',
-            'include_sender_link', 'include_inquiry_id',
+            'include_sender_link', 'prefill_sender_link_products', 'include_inquiry_id',
             'targets', 'exclusions', 'recent_runs', 'last_triggered_at',
             'forwarded_count', 'skipped_count', 'created_at', 'updated_at',
         ]

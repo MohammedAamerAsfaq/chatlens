@@ -20,6 +20,7 @@ function blankRule(type) {
     id: null, inquiry_type: type, name: type === 'buy' ? 'WTB forwarding' : 'WTS forwarding',
     is_active: false, include_original_message: true,
     include_summary: true, include_stock_suggestions: true, include_sender_link: true,
+    prefill_sender_link_products: true,
     include_inquiry_id: true,
     targets: [], exclusions: [], recent_runs: [], forwarded_count: 0, skipped_count: 0,
   }
@@ -60,6 +61,7 @@ async function save(rule) {
     include_summary: rule.include_summary,
     include_stock_suggestions: rule.include_stock_suggestions,
     include_sender_link: rule.include_sender_link,
+    prefill_sender_link_products: rule.prefill_sender_link_products,
     include_inquiry_id: rule.include_inquiry_id,
     targets: rule.targets.map(endpointPayload), exclusions: rule.exclusions.map(endpointPayload),
   }
@@ -178,6 +180,7 @@ onMounted(load)
           <label><input v-model="rules[definition.type].include_summary" type="checkbox"> Summary</label>
           <label><input v-model="rules[definition.type].include_stock_suggestions" type="checkbox"> Stock suggestions</label>
           <label><input v-model="rules[definition.type].include_sender_link" type="checkbox"> WA link</label>
+          <label><input v-model="rules[definition.type].prefill_sender_link_products" type="checkbox" :disabled="!rules[definition.type].include_sender_link"> Prefill products in WA link</label>
           <label><input v-model="rules[definition.type].include_inquiry_id" type="checkbox"> Inquiry ID</label>
         </div>
 
