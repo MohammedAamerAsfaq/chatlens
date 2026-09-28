@@ -826,6 +826,38 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(group.account_participant_role, 'admin')
         self.assertIsNotNone(group.metadata_refreshed_at)
 
+    def test_message_preflight_reports_worker_group_rate_limit(self):
+        self.account_a.outbound_sending_enabled = True
+        self.account_a.group_sending_enabled = True
+        self.account_a.save(update_fields=['outbound_sending_enabled', 'group_sending_enabled'])
+        WhatsAppGroup.objects.create(
+            account=self.account_a,
+            wa_group_id='120100@g.us',
+            name='Rate limited group',
+            account_is_participant=True,
+            can_send=True,
+            metadata_refreshed_at=now(),
+        )
+
+        class _WorkerResponse:
+            status_code = 502
+
+            def json(self):
+                return {'error': 'rate-overlimit'}
+
+        self.client.force_authenticate(self.user_a)
+        with patch('apps.api.views.requests.post', return_value=_WorkerResponse()):
+            resp = self.client.post(
+                f'/api/accounts/{self.account_a.pk}/message-preflight/',
+                {'destination_jid': '120100@g.us'},
+                format='json',
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.json()['allowed'])
+        self.assertEqual(resp.json()['reason'], 'group_metadata_rate_limited')
+        self.assertEqual(resp.json()['live_check_error'], 'rate-overlimit')
+
     def test_message_capacity_refresh_persists_worker_telemetry(self):
         class _WorkerResponse:
             status_code = 200

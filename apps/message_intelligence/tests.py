@@ -6,11 +6,13 @@ from apps.queue_management.runtime_settings import get_task_runtime_settings
 from apps.queue_management.services import TaskWorker
 from apps.task_management.models import BackgroundTask
 from apps.task_management.registry import task_registry
+from apps.tenancy.models import Company
 
 
 class EmbeddingQueueDispatchTests(TestCase):
     def setUp(self):
         self.runtime = get_task_runtime_settings()
+        self.company = Company.objects.get(company_type=Company.TYPE_CONTROL)
 
     def test_queue_mode_creates_idempotent_message_task(self):
         self.runtime.embedding_mode = 'db_queue'
@@ -18,11 +20,12 @@ class EmbeddingQueueDispatchTests(TestCase):
 
         with patch('apps.queue_management.services.enqueue_task') as enqueue:
             from apps.message_intelligence.services.embedding_dispatch import enqueue_embedding
-            self.assertTrue(enqueue_embedding('message', 42))
+            self.assertTrue(enqueue_embedding('message', 42, company=self.company))
 
         self.assertEqual(enqueue.call_args.kwargs['task_key'], 'whatsapp.embed_message')
         self.assertEqual(enqueue.call_args.kwargs['payload'], {'version': 1, 'object_id': 42})
         self.assertEqual(enqueue.call_args.kwargs['idempotency_key'], 'embedding:message:42')
+        self.assertEqual(enqueue.call_args.kwargs['company'], self.company)
 
     def test_message_lineage_overrides_default_embedding_correlation(self):
         self.runtime.embedding_mode = 'db_queue'
@@ -30,7 +33,10 @@ class EmbeddingQueueDispatchTests(TestCase):
 
         with patch('apps.queue_management.services.enqueue_task') as enqueue:
             from apps.message_intelligence.services.embedding_dispatch import enqueue_embedding
-            enqueue_embedding('message', 42, correlation_id='whatsapp-message:42')
+            enqueue_embedding(
+                'message', 42, company=self.company,
+                correlation_id='whatsapp-message:42',
+            )
 
         self.assertEqual(enqueue.call_args.kwargs['correlation_id'], 'whatsapp-message:42')
 
@@ -62,7 +68,7 @@ class EmbeddingQueueDispatchTests(TestCase):
         self.runtime.save(update_fields=['embedding_mode', 'updated_at'])
         from apps.message_intelligence.services.embedding_dispatch import enqueue_embedding
 
-        enqueue_embedding('product', 9)
+        enqueue_embedding('product', 9, company=self.company)
         task = BackgroundTask.objects.get(task_key='embedding.product')
         worker = TaskWorker(['embeddings'], worker_id='embedding-test-worker')
         worker.start()

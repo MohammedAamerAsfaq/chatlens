@@ -1,21 +1,38 @@
 from django.db import transaction
-from django.db.models import Count, Min, Q
+from django.db.models import Count, Min
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
 from apps.task_management.models import BackgroundTask, BackgroundTaskSchedule
+from apps.tenancy.models import Company
+from apps.tenancy.services.access import default_company_for_user, is_control_company_admin
 from .models import BackgroundWorker, QueueDefinition
 from .runtime_settings import get_task_runtime_settings
 
 
 def _visible_tasks(user):
     tasks = BackgroundTask.objects.select_related('company', 'created_by')
-    from apps.tenancy.services.access import default_company_for_user
     company = default_company_for_user(user)
-    return tasks.filter(Q(company=company) | Q(company__isnull=True)) if company else tasks.filter(company__isnull=True)
+    return tasks.filter(company=company) if company else tasks.none()
+
+
+def _visible_schedules(user):
+    company = default_company_for_user(user)
+    return BackgroundTaskSchedule.objects.filter(company=company) if company else BackgroundTaskSchedule.objects.none()
+
+
+def _can_view_shared_infrastructure(user):
+    company = default_company_for_user(user)
+    return bool(company and company.company_type == Company.TYPE_CONTROL)
+
+
+def _require_control_admin(user):
+    if not is_control_company_admin(user):
+        raise PermissionDenied('Shared task infrastructure can only be managed from the control workspace.')
 
 
 def _task_data(task, include_events=False):
@@ -45,12 +62,8 @@ def _task_data(task, include_events=False):
 def queue_overview(request):
     now = timezone.now()
     visible_tasks = _visible_tasks(request.user)
-    if request.user.is_superuser:
-        visible_schedules = BackgroundTaskSchedule.objects.all()
-    else:
-        from apps.tenancy.services.access import default_company_for_user
-        company = default_company_for_user(request.user)
-        visible_schedules = BackgroundTaskSchedule.objects.filter(Q(company=company) | Q(company__isnull=True)) if company else BackgroundTaskSchedule.objects.filter(company__isnull=True)
+    visible_schedules = _visible_schedules(request.user)
+    infrastructure_visible = _can_view_shared_infrastructure(request.user)
     queues = []
     for queue in QueueDefinition.objects.all():
         tasks = visible_tasks.filter(queue_name=queue.name)
@@ -67,10 +80,14 @@ def queue_overview(request):
             'average_runtime_seconds': average_runtime_seconds,
         })
     return Response({
+        'infrastructure_visible': infrastructure_visible,
         'queues': queues,
         'workers': list(BackgroundWorker.objects.filter(
             status__in=[BackgroundWorker.STATUS_RUNNING, BackgroundWorker.STATUS_STOPPING],
-        ).values('worker_id', 'status', 'hostname', 'process_id', 'queue_names', 'started_at', 'last_heartbeat_at')),
+        ).values(
+            'worker_id', 'status', 'hostname', 'process_id', 'queue_names',
+            'started_at', 'last_heartbeat_at',
+        )) if infrastructure_visible else [],
         'schedules': list(visible_schedules.values('id', 'name', 'task_key', 'queue_name', 'is_active', 'next_run_at', 'last_enqueued_at', 'last_error')),
     })
 
@@ -78,6 +95,8 @@ def queue_overview(request):
 @api_view(['GET', 'PATCH'])
 @permission_classes([IsAdminUser])
 def queue_settings(request):
+    _require_control_admin(request.user)
+
     def data():
         runtime = get_task_runtime_settings()
         return {'queues': [
@@ -133,6 +152,7 @@ def queue_settings(request):
 @permission_classes([IsAdminUser])
 def request_worker_stop(request, worker_id):
     """Ask a worker to drain its active futures and stop claiming new tasks."""
+    _require_control_admin(request.user)
     with transaction.atomic():
         worker = BackgroundWorker.objects.select_for_update().filter(worker_id=worker_id).first()
         if not worker:

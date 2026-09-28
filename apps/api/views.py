@@ -397,8 +397,16 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
             wa_group_id=destination_jid,
         ).first()
         result = evaluate_destination(account, destination_jid, group)
-        if live_check != 'checked' and result['allowed']:
-            reason = 'session_disconnected' if live_check == 'session_disconnected' else 'live_preflight_unavailable'
+        refresh_failure_reasons = {'', 'group_metadata_stale', 'group_metadata_unavailable'}
+        if live_check != 'checked' and (result['allowed'] or result['reason'] in refresh_failure_reasons):
+            if live_check == 'session_disconnected':
+                reason = 'session_disconnected'
+            elif live_error == 'rate-overlimit':
+                reason = 'group_metadata_rate_limited'
+            elif live_error == 'forbidden':
+                reason = 'group_metadata_forbidden'
+            else:
+                reason = 'live_preflight_unavailable'
             result.update(allowed=False, reason=reason)
         elif live_result.get('recipient_registered') is False:
             result.update(allowed=False, reason='recipient_not_registered')

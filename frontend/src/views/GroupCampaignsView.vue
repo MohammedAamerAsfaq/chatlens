@@ -292,6 +292,8 @@ async function sendGroup(campaign, recipient) {
     if (!preflight.data.allowed) {
       const labels = {
         group_metadata_stale: 'Group metadata could not be refreshed.',
+        group_metadata_rate_limited: 'WhatsApp temporarily limited group checks. Wait before retrying.',
+        group_metadata_forbidden: 'WhatsApp denied access to this group. Confirm the account is still a participant.',
         session_disconnected: 'WhatsApp session is disconnected.',
         live_preflight_unavailable: 'WhatsApp worker preflight is unavailable.',
         group_sending_disabled: 'Group sending is disabled for this account.',

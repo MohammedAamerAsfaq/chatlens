@@ -16,7 +16,7 @@ const {
   reachoutEvent,
 } = require('./outbound/capacity-telemetry');
 const { OutboundMessageSender } = require('./outbound/message-sender');
-const { fetchGroupMetadata } = require('./outbound/group-metadata');
+const { fetchGroupMetadata, fetchParticipatingGroups } = require('./outbound/group-metadata');
 
 const SESSION_STATUS = {
   STARTING:      'starting',
@@ -540,7 +540,7 @@ class SessionManager {
     const s = this.sessions.get(sessionId);
     if (!s?.sock) return null;
 
-    const allGroups = await s.sock.groupFetchAllParticipating();
+    const allGroups = await fetchParticipatingGroups(s.sock, { force: true });
     const groupList = Object.values(allGroups || {});
     this.logger.info({ sessionId, count: groupList.length }, 'syncAllGroups: pushing to Django');
 
@@ -1140,7 +1140,7 @@ class SessionManager {
     sock.ev.on('connection.update', async (update) => {
       if (update.connection !== 'open') return;
       try {
-        const allGroups = await sock.groupFetchAllParticipating();
+        const allGroups = await fetchParticipatingGroups(sock, { force: true });
         const groupList = Object.values(allGroups || {});
         this.logger.info({ sessionId, count: groupList.length }, 'Syncing all group metadata on connect');
         for (const meta of groupList) {

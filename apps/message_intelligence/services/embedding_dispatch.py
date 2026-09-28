@@ -20,6 +20,36 @@ def uses_embedding_queue() -> bool:
     return get_task_runtime_settings().embedding_mode == 'db_queue'
 
 
+def _company_for_embedding(kind: str, object_id: int):
+    """Resolve task ownership from the durable object being embedded."""
+    if kind == 'message':
+        from apps.tenancy.services.access import company_for_message
+        from apps.whatsapp_bridge.models import WhatsAppMessage
+
+        message = WhatsAppMessage.objects.select_related(
+            'account__communication_account__company', 'account__owner',
+        ).filter(pk=object_id).first()
+        return company_for_message(message)
+
+    from apps.trading.models import InquiryProduct, NonInventoryProduct, Product, ProductAlias
+
+    lookups = {
+        'product': lambda: Product.objects.filter(pk=object_id).values_list('company_id', flat=True).first(),
+        'product_alias': lambda: ProductAlias.objects.filter(pk=object_id).values_list('product__company_id', flat=True).first(),
+        'inquiry_product': lambda: InquiryProduct.objects.filter(pk=object_id).values_list('company_id', flat=True).first(),
+        'non_inventory_product': lambda: NonInventoryProduct.objects.filter(pk=object_id).values_list('company_id', flat=True).first(),
+    }
+    try:
+        company_id = lookups[kind]()
+    except KeyError as exc:
+        raise ValueError(f'Unsupported embedding kind: {kind}') from exc
+    if not company_id:
+        return None
+
+    from apps.tenancy.models import Company
+    return Company.objects.filter(pk=company_id).first()
+
+
 def enqueue_embedding(kind: str, object_id: int, *, company=None, correlation_id=None) -> bool:
     """Create one idempotent embedding task when database queue mode is enabled.
 
@@ -32,6 +62,10 @@ def enqueue_embedding(kind: str, object_id: int, *, company=None, correlation_id
         task_key = TASK_KEYS[kind]
     except KeyError as exc:
         raise ValueError(f'Unsupported embedding kind: {kind}') from exc
+
+    company = company or _company_for_embedding(kind, object_id)
+    if company is None:
+        raise ValueError(f'Embedding task has no company owner: kind={kind} object_id={object_id}')
 
     from apps.queue_management.services import enqueue_task
 

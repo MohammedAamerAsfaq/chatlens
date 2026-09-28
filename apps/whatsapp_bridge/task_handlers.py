@@ -71,6 +71,7 @@ def persist_history_batch(payload, context):
                 idempotency_key=idempotency_key,
             ).exclude(status__in=[BackgroundTask.STATUS_FAILED, BackgroundTask.STATUS_CANCELLED]).first()
             if post_task is None:
+                parent_task = BackgroundTask.objects.select_related('company').get(pk=context.task_id)
                 post_task = enqueue_task(
                     task_key='whatsapp.dispatch_history_embeddings',
                     payload={
@@ -80,6 +81,7 @@ def persist_history_batch(payload, context):
                     },
                     idempotency_key=idempotency_key,
                     correlation_id=context.correlation_id,
+                    company=parent_task.company,
                 )
             post_task_id = post_task.pk
     return {**result, 'history_embedding_task_id': post_task_id}

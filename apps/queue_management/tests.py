@@ -186,7 +186,10 @@ class DurableTaskQueueTests(TestCase):
             user=user,
             role=CompanyMembership.ROLE_VIEWER,
         )
-        task = enqueue_task(task_key='tests.success', payload={'version': 1, 'value': 'visible'}, idempotency_key='visible')
+        task = enqueue_task(
+            task_key='tests.success', payload={'version': 1, 'value': 'visible'},
+            idempotency_key='visible', company=control,
+        )
         self.client.force_login(user)
         response = self.client.get('/api/task-queue/tasks/', {'page': 1, 'page_size': 25})
         self.assertEqual(response.status_code, 200)
@@ -198,3 +201,68 @@ class DurableTaskQueueTests(TestCase):
         detail = self.client.get(f'/api/task-queue/tasks/{task.pk}/')
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()['events'][0]['event_type'], BackgroundTaskEvent.EVENT_ENQUEUED)
+
+    def test_task_operations_are_strictly_scoped_to_active_company(self):
+        from apps.tenancy.models import Company, CompanyMembership
+
+        first = Company.objects.create(name='Queue Tenant One', slug='queue-tenant-one')
+        second = Company.objects.create(name='Queue Tenant Two', slug='queue-tenant-two')
+        user = User.objects.create_user(username='tenant-queue-viewer', password='pw')
+        CompanyMembership.objects.create(
+            company=first, user=user, role=CompanyMembership.ROLE_VIEWER,
+        )
+        own_task = enqueue_task(
+            task_key='tests.success', payload={'version': 1, 'value': 'own'},
+            idempotency_key='tenant-own', company=first,
+        )
+        other_task = enqueue_task(
+            task_key='tests.success', payload={'version': 1, 'value': 'other'},
+            idempotency_key='tenant-other', company=second,
+        )
+        global_task = enqueue_task(
+            task_key='tests.success', payload={'version': 1, 'value': 'global'},
+            idempotency_key='tenant-global',
+        )
+        BackgroundTaskSchedule.objects.create(
+            name='tenant one schedule', task_key='tests.success', queue_name='default',
+            payload={'version': 1}, schedule_type=BackgroundTaskSchedule.TYPE_INTERVAL,
+            interval_seconds=60, next_run_at=timezone.now(), company=first,
+        )
+        BackgroundTaskSchedule.objects.create(
+            name='tenant two schedule', task_key='tests.success', queue_name='default',
+            payload={'version': 1}, schedule_type=BackgroundTaskSchedule.TYPE_INTERVAL,
+            interval_seconds=60, next_run_at=timezone.now(), company=second,
+        )
+        BackgroundWorker.objects.create(
+            worker_id='shared-worker', hostname='worker-host', process_id=123,
+            queue_names=['default'], status=BackgroundWorker.STATUS_RUNNING,
+            started_at=timezone.now(), last_heartbeat_at=timezone.now(),
+        )
+
+        self.client.force_login(user)
+        response = self.client.get('/api/task-queue/tasks/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([row['id'] for row in response.json()['results']], [own_task.pk])
+        self.assertEqual(self.client.get(f'/api/task-queue/tasks/{other_task.pk}/').status_code, 404)
+        self.assertEqual(self.client.get(f'/api/task-queue/tasks/{global_task.pk}/').status_code, 404)
+
+        overview = self.client.get('/api/task-queue/overview/')
+        self.assertEqual(overview.status_code, 200)
+        self.assertFalse(overview.json()['infrastructure_visible'])
+        self.assertEqual(overview.json()['workers'], [])
+        self.assertEqual(
+            [schedule['name'] for schedule in overview.json()['schedules']],
+            ['tenant one schedule'],
+        )
+
+        superuser = User.objects.create_superuser(
+            username='tenant-scoped-superuser', email='admin@example.com', password='pw',
+        )
+        self.client.force_login(superuser)
+        session = self.client.session
+        session['active_company_id'] = first.pk
+        session.save()
+        overview = self.client.get('/api/task-queue/overview/')
+        self.assertFalse(overview.json()['infrastructure_visible'])
+        self.assertEqual(overview.json()['workers'], [])
+        self.assertEqual(self.client.get('/api/task-queue/settings/').status_code, 403)
