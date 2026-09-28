@@ -114,7 +114,7 @@ class InquiryForwardingTests(TestCase):
         self.assertIn('https://wa.me/971500000001', text)
         chat_link = next(line.removeprefix('Direct chat: ') for line in text.splitlines() if line.startswith('Direct chat: '))
         prefill = parse_qs(urlparse(chat_link).query)['text'][0]
-        self.assertIn('WTB\n- Phone X | Qty 10', prefill)
+        self.assertIn('WTS\n- Phone X | Qty 10', prefill)
         self.assertIn('- Phone X maybe', prefill)
         self.assertIn('Phone X Exact | Qty 4 | AED 900.00', text)
         self.assertNotIn('Phone X Near | Qty 8', text)
@@ -133,6 +133,26 @@ class InquiryForwardingTests(TestCase):
         text = OutboundMessage.objects.get().content_payload['text']
         self.assertIn('Direct chat: https://wa.me/971500000001', text)
         self.assertNotIn('https://wa.me/971500000001?text=', text)
+
+    @patch('apps.whatsapp_bridge.outbound.message_service.enqueue_task')
+    @patch('apps.whatsapp_bridge.outbound.policy.capacity_snapshot')
+    def test_wts_inquiry_prefills_wtb_reply(self, capacity, enqueue):
+        capacity.return_value = {'reachout': {'is_active': False}, 'cap': {}}
+        enqueue.return_value = SimpleNamespace(pk=506)
+        classification = self.message.classification
+        classification.inquiry_type = 'sell'
+        classification.save(update_fields=['inquiry_type'])
+        self.inquiry.inquiry_type = 'sell'
+        self.inquiry.save(update_fields=['inquiry_type'])
+        self.rule.inquiry_type = 'sell'
+        self.rule.save(update_fields=['inquiry_type'])
+
+        process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        text = OutboundMessage.objects.get().content_payload['text']
+        chat_link = next(line.removeprefix('Direct chat: ') for line in text.splitlines() if line.startswith('Direct chat: '))
+        prefill = parse_qs(urlparse(chat_link).query)['text'][0]
+        self.assertIn('WTB\n- Phone X | Qty 10', prefill)
 
     @patch('apps.whatsapp_bridge.outbound.message_service.enqueue_task')
     @patch('apps.whatsapp_bridge.outbound.policy.capacity_snapshot')

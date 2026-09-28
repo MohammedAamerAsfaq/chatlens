@@ -35,7 +35,8 @@ def build_forwarding_message(rule, inquiry, source):
     if suggestions:
         lines.extend(['', 'In-stock exact matches:', *suggestions])
     if rule.include_sender_link:
-        prefill = _product_prefill(label, products) if rule.prefill_sender_link_products else ''
+        reply_label = 'WTS' if inquiry.inquiry_type == 'buy' else 'WTB'
+        prefill = _product_prefill(reply_label, products) if rule.prefill_sender_link_products else ''
         lines.extend(['', f'Direct chat: {sender_link(source, prefill)}'])
     return '\n'.join(lines)
 
