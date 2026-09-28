@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 from unittest.mock import patch
+from datetime import timedelta
 
 from django.contrib.auth.models import User
 from django.test import TestCase
@@ -172,6 +173,46 @@ class InquiryForwardingTests(TestCase):
         self.assertEqual(delivery.status, 'skipped')
         self.assertEqual(delivery.reason, 'source_group_is_destination')
         create_outbound.assert_not_called()
+
+    @patch('apps.whatsapp_bridge.outbound.message_service.enqueue_task')
+    @patch('apps.whatsapp_bridge.services.live_group_metadata.requests.post')
+    @patch('apps.whatsapp_bridge.outbound.policy.capacity_snapshot')
+    def test_stale_target_group_is_refreshed_before_forwarding(self, capacity, post, enqueue):
+        capacity.return_value = {'reachout': {'is_active': False}, 'cap': {}}
+        enqueue.return_value = SimpleNamespace(pk=504)
+        self.account.group_sending_enabled = True
+        self.account.save(update_fields=['group_sending_enabled'])
+        group = WhatsAppGroup.objects.create(
+            account=self.account, wa_group_id='120000000001@g.us', name='Forward Group',
+            account_is_participant=True, can_send=True,
+            metadata_refreshed_at=timezone.now() - timedelta(hours=1),
+        )
+        self.target.delete()
+        InquiryForwardingTarget.objects.create(
+            rule=self.rule, target_type='group', group=group,
+        )
+        post.return_value = SimpleNamespace(
+            status_code=200,
+            json=lambda: {
+                'group_metadata': {
+                    'group_id': group.wa_group_id,
+                    'name': group.name,
+                    'account_is_participant': True,
+                    'account_participant_role': 'member',
+                    'metadata_complete': True,
+                    'participants': [],
+                },
+            },
+        )
+
+        result = process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        self.assertEqual(result['status'], InquiryForwardingRun.STATUS_COMPLETE)
+        self.assertEqual(post.call_count, 1)
+        self.assertIn('/destinations/preflight', post.call_args.args[0])
+        group.refresh_from_db()
+        self.assertGreater(group.metadata_refreshed_at, timezone.now() - timedelta(minutes=1))
+        self.assertEqual(OutboundMessage.objects.get().status, OutboundMessage.STATUS_QUEUED)
 
     @patch('apps.trading.services.inquiry_forwarding_service._send_target')
     def test_source_contact_exclusion_skips_entire_rule(self, send_target):

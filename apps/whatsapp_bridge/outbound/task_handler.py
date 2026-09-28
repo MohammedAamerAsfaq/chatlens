@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from apps.queue_management.services import TaskDeferred
 from apps.whatsapp_bridge.models import OutboundMessage
+from apps.whatsapp_bridge.services.live_group_metadata import refresh_group_metadata_if_stale
 from .events import record_event
 from .policy import evaluate_outbound, settings_snapshot
 from .throttle import OutboundDeferred, release, reserve
@@ -43,6 +44,7 @@ def execute_outbound_message(outbound_message_id, context):
         message.settings_snapshot = settings_snapshot(message.whatsapp_account)
         message.save(update_fields=['attempt_count', 'settings_snapshot', 'updated_at'])
 
+    refresh_group_metadata_if_stale(message.whatsapp_account, message.destination_jid)
     permission = _json_safe(evaluate_outbound(message))
     message.permission_snapshot = permission
     message.destination_type = permission['destination_type']

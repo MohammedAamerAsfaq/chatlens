@@ -8,17 +8,33 @@ from django.utils import timezone
 from apps.queue_management.services import enqueue_task
 from apps.whatsapp_bridge.models import OutboundMessage
 from apps.whatsapp_bridge.services.destination_policy import classify_destination
+from apps.whatsapp_bridge.services.live_group_metadata import refresh_group_metadata_if_stale
 from .events import record_event
 from .policy import evaluate_outbound, new_chat_snapshot, settings_snapshot
 
 
-@transaction.atomic
 def create_outbound_message(*, account, destination_jid, text, requested_by, asset=None,
                             idempotency_key=None, confirm_new_chat=False):
+    key = str(idempotency_key or uuid.uuid4())[:255]
+    existing = OutboundMessage.objects.filter(
+        company=account.communication_account.company, idempotency_key=key,
+    ).first()
+    if existing:
+        return existing, False
+    refresh_group_metadata_if_stale(account, destination_jid)
+    return _create_outbound_message(
+        account=account, destination_jid=destination_jid, text=text,
+        requested_by=requested_by, asset=asset, key=key,
+        confirm_new_chat=confirm_new_chat,
+    )
+
+
+@transaction.atomic
+def _create_outbound_message(*, account, destination_jid, text, requested_by, asset,
+                             key, confirm_new_chat):
     company = account.communication_account.company
     if asset and asset.company_id != company.pk:
         raise ValueError('asset_company_mismatch')
-    key = str(idempotency_key or uuid.uuid4())[:255]
     existing = OutboundMessage.objects.filter(company=company, idempotency_key=key).first()
     if existing:
         return existing, False
