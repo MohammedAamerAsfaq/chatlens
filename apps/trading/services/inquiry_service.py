@@ -2,7 +2,6 @@ import logging
 from datetime import timedelta
 
 from django.db import transaction
-from django.utils.timezone import now
 
 logger = logging.getLogger(__name__)
 
@@ -52,19 +51,20 @@ def _resolve_contact(message):
     return None
 
 
-def _layer1_match(account, contact, dedup_key: str, inquiry_type: str):
+def _layer1_match(account, contact, dedup_key: str, inquiry_type: str, message_time):
     """Exact dedup_key lookup within the time window."""
     if not dedup_key:
         return None
     from apps.trading.models import Inquiry, InquiryStatus
 
-    window = now() - timedelta(hours=DEDUP_WINDOW_HOURS)
+    window_start = message_time - timedelta(hours=DEDUP_WINDOW_HOURS)
+    window_end = message_time + timedelta(hours=DEDUP_WINDOW_HOURS)
     qs = Inquiry.objects.filter(
         account=account,
         contact=contact,
         dedup_key=dedup_key,
         status=InquiryStatus.OPEN,
-        first_seen_at__gte=window,
+        first_seen_at__range=(window_start, window_end),
     )
     if inquiry_type in ('buy', 'sell'):
         qs = qs.filter(inquiry_type=inquiry_type)
@@ -82,12 +82,13 @@ def _layer2_match(account, contact, message, inquiry_type: str):
         if not new_emb_row or new_emb_row.embedding is None:
             return None
 
-        window = now() - timedelta(hours=DEDUP_WINDOW_HOURS)
+        window_start = message.message_time - timedelta(hours=DEDUP_WINDOW_HOURS)
+        window_end = message.message_time + timedelta(hours=DEDUP_WINDOW_HOURS)
         recent = Inquiry.objects.filter(
             account=account,
             contact=contact,
             status=InquiryStatus.OPEN,
-            first_seen_at__gte=window,
+            first_seen_at__range=(window_start, window_end),
         )
         if inquiry_type in ('buy', 'sell'):
             recent = recent.filter(inquiry_type=inquiry_type)
@@ -128,7 +129,9 @@ def process_inquiry(message, classification) -> None:
         inquiry_type = classification.inquiry_type
         match_inquiry_type = inquiry_type
 
-        existing = _layer1_match(account, contact, dedup_key, match_inquiry_type)
+        existing = _layer1_match(
+            account, contact, dedup_key, match_inquiry_type, message.message_time,
+        )
         if not existing:
             existing = _layer2_match(account, contact, message, match_inquiry_type)
 

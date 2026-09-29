@@ -123,10 +123,23 @@ def dispatch_history_embeddings(payload, context):
 )
 def persist_live_message(payload, context):
     from django.db import connection, transaction
+    from django.utils.dateparse import parse_datetime
 
+    from apps.queue_management.models import BackgroundWorker
     from apps.whatsapp_bridge.services.ingestion_service import (
         IngestionService, dispatch_queued_live_message,
     )
+
+    worker = BackgroundWorker.objects.filter(worker_id=getattr(context, 'worker_id', '')).first()
+    message_time = parse_datetime(payload['message']['message_time'])
+    if worker and message_time:
+        cutoff = worker.started_at.replace(microsecond=0)
+        if message_time < cutoff:
+            return {
+                'dropped': True,
+                'reason': 'predates_worker_start',
+                'worker_started_at': worker.started_at.isoformat(),
+            }
 
     with transaction.atomic():
         with connection.cursor() as cursor:

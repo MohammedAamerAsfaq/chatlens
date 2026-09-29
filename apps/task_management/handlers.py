@@ -11,6 +11,19 @@ def _not_migrated(payload, context):
     raise RuntimeError('This task is registered but has not been migrated to durable execution yet.')
 
 
+def _queued_classification_skip_reason(message):
+    """Recheck mutable routing controls when queued AI work actually executes."""
+    from apps.trading.models import AiParsingLog
+    from apps.whatsapp_bridge.services.ingestion_service import _classify_skip_reason
+
+    reason = _classify_skip_reason(message)
+    if reason:
+        AiParsingLog.objects.filter(message=message).update(
+            status='skipped', skip_reason=reason, classification_version='',
+        )
+    return reason
+
+
 @task_handler(key='whatsapp.process_automation_rules', default_queue='automation', payload_validator=validate_automation_payload)
 def process_automation_rules(payload, context):
     from apps.whatsapp_bridge.models import WhatsAppMessage
@@ -52,6 +65,9 @@ def classify_message_v1(payload, context):
     from apps.whatsapp_bridge.models import WhatsAppMessage
     from apps.trading.services.classification_service import classify_message
     message = WhatsAppMessage.objects.select_related('account', 'chat', 'contact').get(pk=payload['message_id'])
+    reason = _queued_classification_skip_reason(message)
+    if reason:
+        return {'message_id': message.pk, 'classified': False, 'skip_reason': reason}
     classify_message(message, propagate_errors=True)
     return {'message_id': message.pk, 'classified': True}
 
@@ -63,6 +79,9 @@ def classify_message_task(payload, context):
     from apps.trading.services.classification_service import classify_message
 
     message = WhatsAppMessage.objects.select_related('account', 'chat', 'contact').get(pk=payload['message_id'])
+    reason = _queued_classification_skip_reason(message)
+    if reason:
+        return {'message_id': message.pk, 'classified': False, 'skip_reason': reason}
     classify_message(message, propagate_errors=True)
     return {'message_id': message.pk, 'classified': True}
 
@@ -73,13 +92,33 @@ def classify_message_v2_pass1(payload, context):
     from apps.trading.services.classification_service import classify_message_v2
 
     message = WhatsAppMessage.objects.select_related('account', 'chat', 'contact').get(pk=payload['message_id'])
+    reason = _queued_classification_skip_reason(message)
+    if reason:
+        return {'message_id': message.pk, 'pass1_complete': False, 'skip_reason': reason}
     classify_message_v2(message)
     return {'message_id': message.pk, 'pass1_complete': True}
 
 
 @task_handler(key='trading.classify_message_v2_pass2', default_queue='v2_pass2', payload_validator=validate_v2_pass2_payload)
 def classify_message_v2_pass2(payload, context):
+    from apps.whatsapp_bridge.models import WhatsAppMessage
     from apps.trading.services.classification_service import run_v2_pass2
+
+    message = WhatsAppMessage.objects.select_related('account', 'chat', 'contact').get(
+        pk=payload['message_id'],
+    )
+    reason = _queued_classification_skip_reason(message)
+    if reason:
+        from apps.trading.models import Inquiry
+
+        Inquiry.objects.filter(
+            pk__in=payload['inquiry_ids'],
+            product_match_status=Inquiry.CLASSIFICATION_MATCH_PENDING,
+        ).update(
+            product_match_status=Inquiry.CLASSIFICATION_MATCH_ERROR,
+            product_match_error=f'Pass 2 skipped: {reason}.',
+        )
+        return {'message_id': message.pk, 'pass2_complete': False, 'skip_reason': reason}
 
     run_v2_pass2(
         payload['message_id'],

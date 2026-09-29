@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.utils import timezone
 from apps.whatsapp_bridge.models import (
     WhatsAppAccount, WhatsAppChat, WhatsAppMessage, WhatsAppContact, SyncLog, DroppedMessage,
     WhatsAppGroup, WhatsAppGroupParticipant, WorkerAlert, StuckReceipt, WhatsAppUnresolvedMessage,
@@ -67,6 +68,15 @@ class WhatsAppAccountSettingsSerializer(serializers.ModelSerializer):
             'recipient_interval_ms', 'account_interval_ms',
             'allow_concurrent_sends', 'max_concurrent_sends', 'unknown_new_chat_policy',
         ]
+
+    def update(self, instance, validated_data):
+        if 'ai_parsing_enabled' in validated_data:
+            enabled = validated_data['ai_parsing_enabled']
+            if enabled and not instance.ai_parsing_enabled:
+                validated_data['ai_parsing_enabled_at'] = timezone.now()
+            elif not enabled:
+                validated_data['ai_parsing_enabled_at'] = None
+        return super().update(instance, validated_data)
 
 
 class OutboundMessageSerializer(serializers.ModelSerializer):

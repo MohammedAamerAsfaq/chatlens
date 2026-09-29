@@ -48,7 +48,9 @@ class ClassificationQueueTests(TestCase):
         message = SimpleNamespace(pk=3)
         with patch('apps.whatsapp_bridge.models.WhatsAppMessage.objects.select_related') as select, patch(
             'apps.trading.services.classification_service.classify_message',
-        ) as classify:
+        ) as classify, patch(
+            'apps.task_management.handlers._queued_classification_skip_reason', return_value=None,
+        ):
             select.return_value.get.return_value = message
             result = definition.handler(payload, None)
 
@@ -62,6 +64,8 @@ class ClassificationQueueTests(TestCase):
         with patch('apps.whatsapp_bridge.models.WhatsAppMessage.objects.select_related') as select, patch(
             'apps.trading.services.classification_service.classify_message',
             side_effect=RuntimeError('classification failed'),
+        ), patch(
+            'apps.task_management.handlers._queued_classification_skip_reason', return_value=None,
         ):
             select.return_value.get.return_value = SimpleNamespace(pk=9)
             with self.assertRaisesMessage(RuntimeError, 'classification failed'):
@@ -74,7 +78,9 @@ class ClassificationQueueTests(TestCase):
         message = SimpleNamespace(pk=14)
         with patch('apps.whatsapp_bridge.models.WhatsAppMessage.objects.select_related') as select, patch(
             'apps.trading.services.classification_service.classify_message_v2',
-        ) as classify:
+        ) as classify, patch(
+            'apps.task_management.handlers._queued_classification_skip_reason', return_value=None,
+        ):
             select.return_value.get.return_value = message
             result = definition.handler({'version': 1, 'message_id': 14}, None)
 
@@ -92,7 +98,13 @@ class ClassificationQueueTests(TestCase):
             'classification_id': 21,
             'inquiry_ids': [31, 32],
         }
-        with patch('apps.trading.services.classification_service.run_v2_pass2') as run_pass2:
+        message = SimpleNamespace(pk=15)
+        with patch('apps.whatsapp_bridge.models.WhatsAppMessage.objects.select_related') as select, patch(
+            'apps.trading.services.classification_service.run_v2_pass2',
+        ) as run_pass2, patch(
+            'apps.task_management.handlers._queued_classification_skip_reason', return_value=None,
+        ):
+            select.return_value.get.return_value = message
             result = definition.handler(payload, None)
 
         self.assertEqual(definition.default_queue, 'v2_pass2')

@@ -60,6 +60,7 @@ class WhatsAppAccount(models.Model):
     idle_disconnect_minutes = models.IntegerField(default=0)   # 0 = disabled
     auto_download_media = models.BooleanField(default=True)
     ai_parsing_enabled = models.BooleanField(default=False)
+    ai_parsing_enabled_at = models.DateTimeField(null=True, blank=True)
     outbound_sending_enabled = models.BooleanField(default=False)
     direct_sending_enabled = models.BooleanField(default=False)
     group_sending_enabled = models.BooleanField(default=False)

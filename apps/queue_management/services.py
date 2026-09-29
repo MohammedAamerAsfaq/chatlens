@@ -44,6 +44,17 @@ class WorkerStopRequested(RuntimeError):
     pass
 
 
+TRANSIENT_LIVE_TASK_KEYS = (
+    'whatsapp.persist_live_message',
+    'whatsapp.process_automation_rules',
+    'trading.classify_message',
+    'trading.classify_message_v1',
+    'trading.classify_message_v2_pass1',
+    'trading.classify_message_v2_pass2',
+    'trading.forward_inquiry',
+)
+
+
 def run_ai_call_with_deadline(callable_func):
     """Execute AI work in the bounded task worker, never a nested thread."""
     if task_deadline.get() is not None and task_deadline.get() <= time.monotonic():
@@ -125,6 +136,48 @@ def enqueue_task(*, task_key, payload, queue_name=None, priority=100, idempotenc
             return task
         _event(task, BackgroundTaskEvent.EVENT_ENQUEUED, message='Task durably enqueued.')
     return task
+
+
+def discard_pre_start_live_tasks(queue_names, cutoff):
+    """Cancel real-time work left behind before this worker came online."""
+    cancelled = 0
+    with transaction.atomic():
+        tasks = list(
+            BackgroundTask.objects.select_for_update(skip_locked=True).filter(
+                queue_name__in=queue_names,
+                task_key__in=TRANSIENT_LIVE_TASK_KEYS,
+                status__in=BackgroundTask.ACTIVE_STATUSES,
+                created_at__lt=cutoff,
+            )
+        )
+        for task in tasks:
+            task.status = BackgroundTask.STATUS_CANCELLED
+            task.finished_at = cutoff
+            task.locked_at = None
+            task.locked_by = ''
+            task.heartbeat_at = None
+            task.last_error = 'Discarded at worker startup; real-time backlog processing is disabled.'
+            task.save(update_fields=[
+                'status', 'finished_at', 'locked_at', 'locked_by',
+                'heartbeat_at', 'last_error', 'updated_at',
+            ])
+            _event(
+                task, BackgroundTaskEvent.EVENT_CANCELLED,
+                message='Discarded because the task predates the active worker startup.',
+                metadata={'cutoff': cutoff.isoformat()},
+            )
+            if task.task_key == 'trading.classify_message_v2_pass2':
+                from apps.trading.models import Inquiry
+
+                Inquiry.objects.filter(
+                    pk__in=task.payload.get('inquiry_ids', []),
+                    product_match_status=Inquiry.CLASSIFICATION_MATCH_PENDING,
+                ).update(
+                    product_match_status=Inquiry.CLASSIFICATION_MATCH_ERROR,
+                    product_match_error='Pass 2 discarded at task-worker startup.',
+                )
+            cancelled += 1
+    return cancelled
 
 
 def claim_tasks(queue_name, worker_id, limit=1):
@@ -358,11 +411,12 @@ class TaskWorker:
                     stopped_at=now,
                     last_heartbeat_at=now,
                 )
+        discarded = discard_pre_start_live_tasks(self.queue_names, now)
         self._worker, _ = BackgroundWorker.objects.update_or_create(
             worker_id=self.worker_id,
             defaults={'hostname': socket.gethostname(), 'process_id': __import__('os').getpid(), 'queue_names': self.queue_names,
                       'status': BackgroundWorker.STATUS_RUNNING, 'version': self.version, 'started_at': now,
-                      'metadata': {'concurrency': self.concurrency},
+                      'metadata': {'concurrency': self.concurrency, 'startup_discarded_tasks': discarded},
                       'last_heartbeat_at': now, 'stopped_at': None},
         )
 

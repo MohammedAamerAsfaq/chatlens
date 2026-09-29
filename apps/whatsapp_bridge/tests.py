@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -415,6 +416,30 @@ class LiveIngestionQueueTests(TestCase):
         ingest_message.assert_called_once_with(payload, dispatch_downstream=False)
         dispatch.assert_called_once_with(777)
         self.assertEqual(result, {'message_id': 777, 'downstream_dispatched': True})
+
+    @patch('apps.whatsapp_bridge.services.ingestion_service.IngestionService.ingest_message')
+    def test_live_handler_drops_payload_older_than_worker_start(self, ingest_message):
+        from apps.queue_management.models import BackgroundWorker
+        from .task_handlers import persist_live_message
+
+        started_at = timezone.now()
+        BackgroundWorker.objects.create(
+            worker_id='new-live-worker', hostname='test', process_id=1,
+            queue_names=['live_ingestion'], status='running',
+            started_at=started_at, last_heartbeat_at=started_at,
+        )
+        payload = self._payload()
+        payload['message_time'] = (started_at - timedelta(minutes=1)).isoformat()
+        payload.pop('transport_key')
+
+        result = persist_live_message(
+            {'version': 1, 'account_id': self.account.pk, 'message': payload},
+            SimpleNamespace(worker_id='new-live-worker'),
+        )
+
+        self.assertTrue(result['dropped'])
+        self.assertEqual(result['reason'], 'predates_worker_start')
+        ingest_message.assert_not_called()
 
 
 class AccountSettingsEndpointTests(TestCase):
@@ -955,3 +980,72 @@ class CompanyAiParsingGateTests(TestCase):
         )
 
         self.assertEqual(_classify_skip_reason(message), 'company_disabled')
+
+    def test_message_before_company_enable_cutoff_is_skipped(self):
+        owner = User.objects.create_user(username='company-ai-cutoff-owner')
+        provider = ConnectionProvider.objects.get(key='baileys')
+        cutoff = timezone.now()
+        company = Company.objects.create(
+            name='AI Cutoff Company', slug='ai-cutoff-company',
+            ai_parsing_enabled=True, ai_parsing_enabled_at=cutoff,
+        )
+        communication_account = CommunicationAccount.objects.create(
+            company=company, provider=provider, channel='whatsapp', name='AI Cutoff WhatsApp',
+        )
+        account = WhatsAppAccount.objects.create(
+            owner=owner, communication_account=communication_account,
+            ai_parsing_enabled=True, ai_parsing_enabled_at=cutoff,
+        )
+        contact = WhatsAppContact.objects.create(
+            account=account, wa_contact_id='971500000333@s.whatsapp.net',
+        )
+        chat = WhatsAppChat.objects.create(
+            account=account, contact=contact, wa_chat_id=contact.wa_contact_id,
+            chat_type='individual',
+        )
+        message = WhatsAppMessage.objects.create(
+            account=account, chat=chat, contact=contact,
+            provider_message_id='BEFORE_AI_CUTOFF', direction='inbound',
+            message_type='text', message_text='WTB iPhone',
+            message_time=cutoff - timedelta(seconds=1),
+        )
+
+        self.assertEqual(_classify_skip_reason(message), 'before_ai_enabled')
+
+
+class GroupBroadcastDeduplicationTests(TestCase):
+    def test_exact_same_sender_copy_is_detected_without_embedding(self):
+        from .services.ingestion_service import _is_duplicate_group_broadcast
+        from .services.message_fingerprint import message_text_fingerprint
+
+        account = _make_account(phone_number='971500000444', worker_session_id='dedup-session')
+        contact = WhatsAppContact.objects.create(
+            account=account, wa_contact_id='971500000555@s.whatsapp.net',
+            phone_number='971500000555',
+        )
+        first_chat = WhatsAppChat.objects.create(
+            account=account, wa_chat_id='120363000000000001@g.us', chat_type='group',
+        )
+        second_chat = WhatsAppChat.objects.create(
+            account=account, wa_chat_id='120363000000000002@g.us', chat_type='group',
+        )
+        sent_at = timezone.now()
+        text = '*WTS*\n\niPhone 18 Pro Max 256GB\nQuantity 10'
+        fingerprint = message_text_fingerprint(text)
+        first = WhatsAppMessage.objects.create(
+            account=account, chat=first_chat, contact=contact,
+            provider_message_id='GROUP_COPY_1', sender_number=contact.phone_number,
+            direction='inbound', message_type='text', message_text=text,
+            content_fingerprint=fingerprint, message_time=sent_at,
+        )
+        second = WhatsAppMessage.objects.create(
+            account=account, chat=second_chat, contact=contact,
+            provider_message_id='GROUP_COPY_2', sender_number=contact.phone_number,
+            direction='inbound', message_type='text',
+            message_text=text.replace('*', ''),
+            content_fingerprint=message_text_fingerprint(text.replace('*', '')),
+            message_time=sent_at + timedelta(seconds=10),
+        )
+
+        self.assertFalse(_is_duplicate_group_broadcast(first))
+        self.assertTrue(_is_duplicate_group_broadcast(second))

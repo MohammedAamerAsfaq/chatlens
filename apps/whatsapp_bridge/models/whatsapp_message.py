@@ -41,6 +41,7 @@ class WhatsAppMessage(models.Model):
     direction = models.CharField(max_length=20, choices=MessageDirection.choices)
     message_type = models.CharField(max_length=50, choices=MessageType.choices)
     message_text = models.TextField(blank=True)
+    content_fingerprint = models.CharField(max_length=64, blank=True, db_index=True)
     message_time = models.DateTimeField()
     has_media = models.BooleanField(default=False)
     media_mime_type = models.CharField(max_length=255, blank=True)

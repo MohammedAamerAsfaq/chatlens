@@ -425,7 +425,19 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.company_a.refresh_from_db()
         self.assertFalse(self.company_a.ai_parsing_enabled)
+        self.assertIsNone(self.company_a.ai_parsing_enabled_at)
         self.assertEqual(resp.json()['current_company']['ai_parsing_enabled'], False)
+
+        enabled_at = now()
+        resp = self.client.patch(
+            '/api/auth/current-company-settings/',
+            {'ai_parsing_enabled': True},
+            format='json',
+        )
+        self.company_a.refresh_from_db()
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(self.company_a.ai_parsing_enabled)
+        self.assertGreaterEqual(self.company_a.ai_parsing_enabled_at, enabled_at)
 
     def test_company_toggle_rejects_non_admin_member(self):
         CompanyMembership.objects.filter(company=self.company_b, user=self.user_a).update(role=CompanyMembership.ROLE_USER)

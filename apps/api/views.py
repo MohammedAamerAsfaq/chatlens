@@ -54,6 +54,21 @@ from .serializers import (
 WORKER_BASE_URL = getattr(settings, 'WORKER_BASE_URL', 'http://localhost:3001')
 ACTIVE_COMPANY_SESSION_KEY = 'active_company_id'
 logger = logging.getLogger(__name__)
+
+
+def _apply_chat_ai_parsing(chat, value):
+    """Apply the tri-state toggle and establish a fresh ON boundary."""
+    if value in (True, 'true', '1', 1):
+        if chat.ai_parsing is not True:
+            chat.ai_parsing_enabled_at = now()
+        chat.ai_parsing = True
+    elif value in (False, 'false', '0', 0):
+        chat.ai_parsing = False
+        chat.ai_parsing_enabled_at = None
+    else:
+        chat.ai_parsing = None
+        chat.ai_parsing_enabled_at = None
+    chat.save(update_fields=['ai_parsing', 'ai_parsing_enabled_at'])
 WORKER_HEARTBEAT_STALE_SECONDS = 90
 
 
@@ -1118,14 +1133,7 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=['patch'], url_path='set-ai-parsing')
     def set_ai_parsing(self, request, pk=None):
         chat = self.get_object()
-        val = request.data.get('ai_parsing', 'inherit')
-        if val in (True, 'true', '1', 1):
-            chat.ai_parsing = True
-        elif val in (False, 'false', '0', 0):
-            chat.ai_parsing = False
-        else:
-            chat.ai_parsing = None  # inherit from account
-        chat.save(update_fields=['ai_parsing'])
+        _apply_chat_ai_parsing(chat, request.data.get('ai_parsing', 'inherit'))
         return Response(ChatSerializer(chat, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=['post'], url_path='mark-read')
@@ -1786,14 +1794,7 @@ class ContactViewSet(viewsets.ModelViewSet):
         chat = contact.chats.first()
         if not chat:
             return Response({'detail': 'No chat found for this contact'}, status=status.HTTP_404_NOT_FOUND)
-        val = request.data.get('ai_parsing', 'inherit')
-        if val in (True, 'true', '1', 1):
-            chat.ai_parsing = True
-        elif val in (False, 'false', '0', 0):
-            chat.ai_parsing = False
-        else:
-            chat.ai_parsing = None
-        chat.save(update_fields=['ai_parsing'])
+        _apply_chat_ai_parsing(chat, request.data.get('ai_parsing', 'inherit'))
         contact.refresh_from_db()
         return Response(self.get_serializer(contact).data)
 
@@ -1905,14 +1906,7 @@ class GroupViewSet(viewsets.ReadOnlyModelViewSet):
         chat = WhatsAppChat.objects.filter(account=group.account, wa_chat_id=group.wa_group_id).first()
         if not chat:
             return Response({'detail': 'No chat found for this group — messages must exist first'}, status=status.HTTP_404_NOT_FOUND)
-        val = request.data.get('ai_parsing', 'inherit')
-        if val in (True, 'true', '1', 1):
-            chat.ai_parsing = True
-        elif val in (False, 'false', '0', 0):
-            chat.ai_parsing = False
-        else:
-            chat.ai_parsing = None
-        chat.save(update_fields=['ai_parsing'])
+        _apply_chat_ai_parsing(chat, request.data.get('ai_parsing', 'inherit'))
         return Response(GroupSerializer(group).data)
 
 
@@ -2109,6 +2103,12 @@ def auth_current_company_settings_view(request):
         enabled, error = _parse_bool_param(request.data.get('ai_parsing_enabled'), 'ai_parsing_enabled')
         if error:
             return Response({'detail': error}, status=status.HTTP_400_BAD_REQUEST)
+        if enabled and not company.ai_parsing_enabled:
+            company.ai_parsing_enabled_at = now()
+            update_fields.append('ai_parsing_enabled_at')
+        elif not enabled:
+            company.ai_parsing_enabled_at = None
+            update_fields.append('ai_parsing_enabled_at')
         company.ai_parsing_enabled = enabled
         update_fields.append('ai_parsing_enabled')
 
@@ -2172,6 +2172,12 @@ def admin_company_detail_view(request, company_id):
         enabled, error = _parse_bool_param(request.data.get('ai_parsing_enabled'), 'ai_parsing_enabled')
         if error:
             return Response({'detail': error}, status=status.HTTP_400_BAD_REQUEST)
+        if enabled and not company.ai_parsing_enabled:
+            company.ai_parsing_enabled_at = now()
+            update_fields.append('ai_parsing_enabled_at')
+        elif not enabled:
+            company.ai_parsing_enabled_at = None
+            update_fields.append('ai_parsing_enabled_at')
         company.ai_parsing_enabled = enabled
         update_fields.append('ai_parsing_enabled')
 

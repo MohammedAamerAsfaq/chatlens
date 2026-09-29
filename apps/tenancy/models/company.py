@@ -47,6 +47,7 @@ class Company(models.Model):
         default=CLASSIFICATION_V1,
     )
     ai_parsing_enabled = models.BooleanField(default=True)
+    ai_parsing_enabled_at = models.DateTimeField(default=timezone.now, null=True, blank=True)
     is_active = models.BooleanField(default=True)
     enforce_validity_period = models.BooleanField(
         default=False,

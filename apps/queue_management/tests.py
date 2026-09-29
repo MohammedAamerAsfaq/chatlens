@@ -111,6 +111,34 @@ class DurableTaskQueueTests(TestCase):
             first.run_once()
         second.stop()
 
+    def test_start_discards_pending_live_backlog(self):
+        task = enqueue_task(
+            task_key='whatsapp.persist_live_message',
+            payload={
+                'version': 1,
+                'account_id': 44,
+                'message': {
+                    'worker_session_id': 44,
+                    'provider_message_id': 'old-live-message',
+                    'chat_id': '120363000000000000@g.us',
+                    'direction': 'inbound',
+                    'message_time': (timezone.now() - timedelta(minutes=5)).isoformat(),
+                },
+            },
+            idempotency_key='old-live-message',
+        )
+
+        worker = TaskWorker(['live_ingestion'], worker_id='fresh-live-worker')
+        worker.start()
+        worker.stop()
+
+        task.refresh_from_db()
+        self.assertEqual(task.status, BackgroundTask.STATUS_CANCELLED)
+        self.assertEqual(
+            task.events.last().event_type,
+            BackgroundTaskEvent.EVENT_CANCELLED,
+        )
+
     def test_handler_failure_schedules_retry_then_final_failure(self):
         task = enqueue_task(task_key='tests.failure', payload={'version': 1}, idempotency_key='failure', max_attempts=2)
         worker = TaskWorker(['default'], worker_id='failing-worker')

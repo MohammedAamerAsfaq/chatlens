@@ -42,27 +42,40 @@ DUPLICATE_BROADCAST_SAME_CHAT_WINDOW_SECONDS = 60
 
 
 def _is_duplicate_group_broadcast(message) -> bool:
-    """
-    Traders often post the identical WTB/WTS list to many different WhatsApp groups
-    within minutes of each other — each one otherwise triggers its own AI classification
-    call and its own Inquiry row to triage separately, even though it's the same ask.
-
-    If a message from ANY group (not just this one, not scoped to the same contact —
-    a repost from a different sender/group still counts) already produced a genuine
-    inquiry (is_inquiry=True) via AI classification within the last hour, and this
-    message's embedding is a close semantic match, skip classifying this one again.
-    A same-chat match is held to a much tighter time window — see
-    DUPLICATE_BROADCAST_SAME_CHAT_WINDOW_SECONDS above.
-
-    Only applies to GROUP chats — direct 1:1 messages are never dropped this way, and
-    if this message has no embedding yet (embedding provider lagged/failed), we fail
-    open (return False) rather than risk silently dropping a real inquiry.
-    """
-    from django.utils.timezone import now
+    """Skip deterministic same-sender copies, then semantic near-duplicates."""
     from datetime import timedelta
 
     if message.chat.chat_type != ChatType.GROUP:
         return False
+
+    window_start = message.message_time - timedelta(minutes=DUPLICATE_BROADCAST_WINDOW_MINUTES)
+    window_end = message.message_time + timedelta(minutes=DUPLICATE_BROADCAST_WINDOW_MINUTES)
+    if message.content_fingerprint:
+        exact = WhatsAppMessage.objects.filter(
+            account_id=message.account_id,
+            chat__chat_type=ChatType.GROUP,
+            direction='inbound',
+            content_fingerprint=message.content_fingerprint,
+            message_time__range=(window_start, window_end),
+            pk__lt=message.pk,
+        )
+        sender_identity = Q()
+        if message.contact_id:
+            sender_identity |= Q(contact_id=message.contact_id)
+        if message.sender_number:
+            sender_identity |= Q(sender_number=message.sender_number)
+        if not sender_identity:
+            return False
+        exact = exact.filter(sender_identity)
+        candidate = exact.order_by('pk').first()
+        if candidate:
+            gap = abs((message.message_time - candidate.message_time).total_seconds())
+            if candidate.chat_id != message.chat_id or gap <= DUPLICATE_BROADCAST_SAME_CHAT_WINDOW_SECONDS:
+                logger.info(
+                    'duplicate_group_broadcast | exact message_id=%s matches earlier message_id=%s',
+                    message.pk, candidate.pk,
+                )
+                return True
 
     try:
         from apps.message_intelligence.models import MessageEmbedding
@@ -72,17 +85,16 @@ def _is_duplicate_group_broadcast(message) -> bool:
         if not my_emb or my_emb.embedding is None:
             return False
 
-        window = now() - timedelta(minutes=DUPLICATE_BROADCAST_WINDOW_MINUTES)
         candidate = (
             MessageEmbedding.objects
             .filter(
                 message__account_id=message.account_id,
                 message__chat__chat_type=ChatType.GROUP,
                 message__classification__is_inquiry=True,
-                message__message_time__gte=window,
+                message__message_time__range=(window_start, window_end),
+                message_id__lt=message.pk,
                 embedding__isnull=False,
             )
-            .exclude(message_id=message.pk)
             .select_related('message')
             .annotate(distance=CosineDistance('embedding', my_emb.embedding))
             .order_by('distance')
@@ -138,15 +150,25 @@ def _classify_skip_reason(message) -> str | None:
     company = company_for_message(message)
     if company and not getattr(company, 'ai_parsing_enabled', True):
         return 'company_disabled'
+    company_cutoff = getattr(company, 'ai_parsing_enabled_at', None) if company else None
+    if company_cutoff and message.message_time < company_cutoff:
+        return 'before_ai_enabled'
 
     # Tri-state: per-chat setting takes priority over account global.
     chat_override = getattr(message.chat, 'ai_parsing', None)
     if chat_override is False:
         return 'chat_disabled'
-    if chat_override is None:
+    if chat_override is True:
+        chat_cutoff = getattr(message.chat, 'ai_parsing_enabled_at', None)
+        if chat_cutoff and message.message_time < chat_cutoff:
+            return 'before_ai_enabled'
+    else:
         account_enabled = getattr(message.account, 'ai_parsing_enabled', True)
         if not account_enabled:
             return 'account_disabled'
+        account_cutoff = getattr(message.account, 'ai_parsing_enabled_at', None)
+        if account_cutoff and message.message_time < account_cutoff:
+            return 'before_ai_enabled'
 
     # Cross-group broadcast dedup — checked last since it's the most expensive check
     # (a DB similarity query), so cheaper/cheaper-to-decide skip reasons short-circuit first.
@@ -843,7 +865,10 @@ class IngestionService:
         contact: WhatsAppContact,
         payload: dict,
     ) -> WhatsAppMessage:
+        from .message_fingerprint import message_text_fingerprint
+
         message_time = parse_datetime(payload['message_time'])
+        fingerprint = message_text_fingerprint(payload.get('message_text', ''))
 
         message, created = WhatsAppMessage.objects.get_or_create(
             account=account,
@@ -855,6 +880,7 @@ class IngestionService:
                 'direction': payload['direction'],
                 'message_type': payload.get('message_type', 'text'),
                 'message_text': payload.get('message_text', ''),
+                'content_fingerprint': fingerprint,
                 'message_time': message_time,
                 'has_media': payload.get('has_media', False),
                 'media_mime_type': payload.get('media_mime_type', ''),
@@ -868,7 +894,11 @@ class IngestionService:
         if not created and not message.message_text and payload.get('message_text'):
             message.message_text = payload['message_text']
             message.message_type = payload.get('message_type', message.message_type)
-            update_fields += ['message_text', 'message_type']
+            message.content_fingerprint = fingerprint
+            update_fields += ['message_text', 'message_type', 'content_fingerprint']
+        elif not created and not message.content_fingerprint and fingerprint:
+            message.content_fingerprint = fingerprint
+            update_fields.append('content_fingerprint')
         if not created and not message.media_url and payload.get('media_url'):
             message.media_url = payload['media_url']
             update_fields.append('media_url')
