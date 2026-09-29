@@ -113,15 +113,16 @@ class InquiryForwardingTests(TestCase):
         self.assertIn(f'Inquiry ID: #{self.inquiry.pk}', text)
         self.assertIn('Summary:\nBuying Phone X', text)
         self.assertIn('https://wa.me/971500000001', text)
-        chat_link = next(line.removeprefix('Direct chat: ') for line in text.splitlines() if line.startswith('Direct chat: '))
+        link_prefix = 'Direct Chat (Source): '
+        chat_link = next(line.removeprefix(link_prefix) for line in text.splitlines() if line.startswith(link_prefix))
         prefill = parse_qs(urlparse(chat_link).query)['text'][0]
         self.assertIn('WTS\n- Phone X | Qty 10', prefill)
         self.assertIn('- Phone X maybe', prefill)
         self.assertIn('Phone X Exact | Qty 4 | AED 900.00', text)
         self.assertNotIn('Phone X Near | Qty 8', text)
         self.assertTrue(text.endswith(f'WTB inquiry\nInquiry ID: #{self.inquiry.pk}'))
-        self.assertLess(text.index('In-stock exact matches:'), text.index('Direct chat:'))
-        self.assertLess(text.index('Direct chat:'), text.index('WTB inquiry'))
+        self.assertLess(text.index('In-stock exact matches:'), text.index('Direct Chat (Source):'))
+        self.assertLess(text.index('Direct Chat (Source):'), text.index('WTB inquiry'))
         enqueue.assert_called_once()
 
     @patch('apps.whatsapp_bridge.outbound.message_service.enqueue_task')
@@ -135,7 +136,7 @@ class InquiryForwardingTests(TestCase):
         process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
 
         text = OutboundMessage.objects.get().content_payload['text']
-        self.assertIn('Direct chat: https://wa.me/971500000001', text)
+        self.assertIn('Direct Chat (Source): https://wa.me/971500000001', text)
         self.assertNotIn('https://wa.me/971500000001?text=', text)
 
     @patch('apps.whatsapp_bridge.outbound.message_service.enqueue_task')
@@ -154,7 +155,8 @@ class InquiryForwardingTests(TestCase):
         process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
 
         text = OutboundMessage.objects.get().content_payload['text']
-        chat_link = next(line.removeprefix('Direct chat: ') for line in text.splitlines() if line.startswith('Direct chat: '))
+        link_prefix = 'Direct Chat (Source): '
+        chat_link = next(line.removeprefix(link_prefix) for line in text.splitlines() if line.startswith(link_prefix))
         prefill = parse_qs(urlparse(chat_link).query)['text'][0]
         self.assertIn('WTB\n- Phone X | Qty 10', prefill)
 

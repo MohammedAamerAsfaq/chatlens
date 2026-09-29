@@ -16,6 +16,15 @@ def sender_link(source, prefill_text=''):
     return f'{link}?text={quote(prefill_text, safe="")}' if prefill_text else link
 
 
+def sender_name(source):
+    contact = source.contact if source.contact_id else None
+    if contact:
+        name = contact.display_name or contact.push_name or contact.phone_number
+        if name:
+            return str(name).strip()
+    return str(source.sender_number or '').strip()
+
+
 def build_forwarding_message(rule, inquiry, source):
     label = 'WTB' if inquiry.inquiry_type == 'buy' else 'WTS'
     sections = []
@@ -35,7 +44,9 @@ def build_forwarding_message(rule, inquiry, source):
     if rule.include_sender_link:
         reply_label = 'WTS' if inquiry.inquiry_type == 'buy' else 'WTB'
         prefill = _product_prefill(reply_label, products) if rule.prefill_sender_link_products else ''
-        sections.append(f'Direct chat: {sender_link(source, prefill)}')
+        party = sender_name(source)
+        link_label = f'Direct Chat ({party})' if party else 'Direct Chat'
+        sections.append(f'{link_label}: {sender_link(source, prefill)}')
     footer = [f'{label} inquiry']
     if rule.include_inquiry_id:
         footer.append(f'Inquiry ID: #{inquiry.pk}')
