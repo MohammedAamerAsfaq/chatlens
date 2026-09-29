@@ -108,7 +108,8 @@ class InquiryForwardingTests(TestCase):
         self.assertEqual(result['status'], InquiryForwardingRun.STATUS_COMPLETE)
         outbound = OutboundMessage.objects.get()
         text = outbound.content_payload['text']
-        self.assertIn('Original message:\nWTB Phone X 10 pcs', text)
+        self.assertTrue(text.startswith('WTB Phone X 10 pcs\n'))
+        self.assertNotIn('Original message:', text)
         self.assertIn(f'Inquiry ID: #{self.inquiry.pk}', text)
         self.assertIn('Summary:\nBuying Phone X', text)
         self.assertIn('https://wa.me/971500000001', text)
@@ -118,6 +119,9 @@ class InquiryForwardingTests(TestCase):
         self.assertIn('- Phone X maybe', prefill)
         self.assertIn('Phone X Exact | Qty 4 | AED 900.00', text)
         self.assertNotIn('Phone X Near | Qty 8', text)
+        self.assertTrue(text.endswith(f'WTB inquiry\nInquiry ID: #{self.inquiry.pk}'))
+        self.assertLess(text.index('In-stock exact matches:'), text.index('Direct chat:'))
+        self.assertLess(text.index('Direct chat:'), text.index('WTB inquiry'))
         enqueue.assert_called_once()
 
     @patch('apps.whatsapp_bridge.outbound.message_service.enqueue_task')

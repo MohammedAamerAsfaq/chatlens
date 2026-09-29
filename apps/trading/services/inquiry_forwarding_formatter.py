@@ -18,27 +18,29 @@ def sender_link(source, prefill_text=''):
 
 def build_forwarding_message(rule, inquiry, source):
     label = 'WTB' if inquiry.inquiry_type == 'buy' else 'WTS'
-    lines = [f'{label} inquiry']
-    if rule.include_inquiry_id:
-        lines.extend(['', f'Inquiry ID: #{inquiry.pk}'])
+    sections = []
     if rule.include_original_message:
         text = (source.message_text or '').strip()
         if not text:
             return ''
-        lines.extend(['', 'Original message:', text])
+        sections.append(text)
 
     products = [row for row in inquiry.products if isinstance(row, dict) and product_name(row)]
     if rule.include_summary and (inquiry.summary or '').strip():
-        lines.extend(['', 'Summary:', inquiry.summary.strip()])
+        sections.append(f'Summary:\n{inquiry.summary.strip()}')
 
     suggestions = _stock_suggestions(inquiry, products) if rule.include_stock_suggestions else []
     if suggestions:
-        lines.extend(['', 'In-stock exact matches:', *suggestions])
+        sections.append('\n'.join(['In-stock exact matches:', *suggestions]))
     if rule.include_sender_link:
         reply_label = 'WTS' if inquiry.inquiry_type == 'buy' else 'WTB'
         prefill = _product_prefill(reply_label, products) if rule.prefill_sender_link_products else ''
-        lines.extend(['', f'Direct chat: {sender_link(source, prefill)}'])
-    return '\n'.join(lines)
+        sections.append(f'Direct chat: {sender_link(source, prefill)}')
+    footer = [f'{label} inquiry']
+    if rule.include_inquiry_id:
+        footer.append(f'Inquiry ID: #{inquiry.pk}')
+    sections.append('\n'.join(footer))
+    return '\n\n'.join(sections)
 
 
 def _product_prefill(label, products):
