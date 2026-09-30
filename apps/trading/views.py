@@ -81,6 +81,21 @@ def _campaign_message_mode(value):
     return mode
 
 
+def _campaign_image_asset(request, company):
+    from apps.whatsapp_bridge.models import OutboundAsset
+
+    asset_id = request.data.get('image_asset')
+    if asset_id in (None, ''):
+        return None
+    try:
+        asset = OutboundAsset.objects.filter(pk=asset_id, company=company).first()
+    except (TypeError, ValueError):
+        asset = None
+    if not asset:
+        raise ValidationError({'image_asset': 'Image was not found for this company.'})
+    return asset
+
+
 def _visible_account_or_none(user, account_id):
     if not account_id:
         return None
@@ -2945,7 +2960,7 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = (
             BuyingInquiry.objects
-            .select_related('company', 'created_by')
+            .select_related('company', 'created_by', 'image_asset')
             .prefetch_related(
                 'products__product',
                 'suppliers__contact__account',
@@ -3136,6 +3151,9 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
                     value = (value or '').strip()
                 setattr(inquiry, field, value)
                 update_fields.append(field)
+        if 'image_asset' in request.data:
+            inquiry.image_asset = _campaign_image_asset(request, inquiry.company)
+            update_fields.append('image_asset')
         if inquiry.message_mode == CampaignMessageMode.DIRECT and not inquiry.direct_message:
             return Response({'direct_message': 'Direct message is required.'}, status=status.HTTP_400_BAD_REQUEST)
         if 'status' in request.data:
@@ -3535,7 +3553,7 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = (
             SellingOffer.objects
-            .select_related('company', 'created_by')
+            .select_related('company', 'created_by', 'image_asset')
             .prefetch_related(
                 'products__product',
                 'products__product__attribute_set',
@@ -3792,6 +3810,9 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
                     value = (value or '').strip()
                 setattr(offer, field, value)
                 update_fields.append(field)
+        if 'image_asset' in request.data:
+            offer.image_asset = _campaign_image_asset(request, offer.company)
+            update_fields.append('image_asset')
         if offer.message_mode == CampaignMessageMode.DIRECT and not offer.direct_message:
             return Response({'direct_message': 'Direct message is required.'}, status=status.HTTP_400_BAD_REQUEST)
         if 'status' in request.data:

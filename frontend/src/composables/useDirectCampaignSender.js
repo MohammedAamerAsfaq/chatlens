@@ -23,7 +23,7 @@ function requestKey(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-export function useDirectCampaignSender({ kind, markClick, updateRecipient }) {
+export function useDirectCampaignSender({ kind, markClick, persistAsset, updateRecipient }) {
   const images = reactive({})
   const assetIds = reactive({})
   const feedback = reactive({})
@@ -31,31 +31,44 @@ export function useDirectCampaignSender({ kind, markClick, updateRecipient }) {
 
   const rowKey = (campaignId, recipientId) => `${campaignId}:${recipientId}`
   const characterCount = text => [...String(text || '')].length
-  const messageLimit = campaignId => images[campaignId] ? MAX_CAPTION_LENGTH : MAX_TEXT_LENGTH
-  const messageTooLong = (campaignId, text) => characterCount(text) > messageLimit(campaignId)
+  const hasImage = campaign => Boolean(images[campaign.id] || campaign.image_asset)
+  const messageLimit = campaign => hasImage(campaign) ? MAX_CAPTION_LENGTH : MAX_TEXT_LENGTH
+  const messageTooLong = (campaign, text) => characterCount(text) > messageLimit(campaign)
 
-  function selectImage(campaignId, event) {
+  async function selectImage(campaignId, event) {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return ''
     if (!IMAGE_TYPES.includes(file.type) || file.size > MAX_IMAGE_BYTES) {
       return 'Select a JPEG, PNG, or WebP image no larger than 10 MB.'
     }
-    images[campaignId] = file
-    delete assetIds[campaignId]
-    return ''
+    try {
+      const { data: asset } = await outboundAssetsApi.upload(file)
+      await persistAsset(campaignId, asset.id)
+      images[campaignId] = file
+      assetIds[campaignId] = asset.id
+      return ''
+    } catch (exc) {
+      return exc.response?.data?.detail || exc.response?.data?.image_asset?.join?.(' ') || 'Unable to save the campaign image.'
+    }
   }
 
-  function removeImage(campaignId) {
-    delete images[campaignId]
-    delete assetIds[campaignId]
+  async function removeImage(campaignId) {
+    try {
+      await persistAsset(campaignId, null)
+      delete images[campaignId]
+      delete assetIds[campaignId]
+      return ''
+    } catch (exc) {
+      return exc.response?.data?.detail || 'Unable to remove the campaign image.'
+    }
   }
 
   async function queue(campaign, recipient, text, confirmNewChat, idempotencyKey) {
     const payload = {
       destination_jid: recipient.destination_jid,
       text,
-      asset_id: assetIds[campaign.id] || null,
+      asset_id: assetIds[campaign.id] || campaign.image_asset || null,
       idempotency_key: idempotencyKey,
       confirm_new_chat: confirmNewChat,
     }
@@ -76,8 +89,8 @@ export function useDirectCampaignSender({ kind, markClick, updateRecipient }) {
       if (!recipient.account_id || !recipient.destination_jid) {
         throw new Error('This contact has no sendable WhatsApp destination.')
       }
-      if (messageTooLong(campaign.id, text)) {
-        throw new Error(images[campaign.id]
+      if (messageTooLong(campaign, text)) {
+        throw new Error(hasImage(campaign)
           ? `Image captions cannot exceed ${MAX_CAPTION_LENGTH} characters.`
           : `Text messages cannot exceed ${MAX_TEXT_LENGTH} characters.`)
       }
@@ -89,12 +102,6 @@ export function useDirectCampaignSender({ kind, markClick, updateRecipient }) {
       if (!preflight.data.allowed) {
         throw new Error(PREFLIGHT_REASONS[preflight.data.reason] || preflight.data.reason || 'Sending is blocked for this contact.')
       }
-      if (images[campaign.id] && !assetIds[campaign.id]) {
-        feedback[key] = { state: 'uploading', message: 'Uploading image...' }
-        const { data: asset } = await outboundAssetsApi.upload(images[campaign.id])
-        assetIds[campaign.id] = asset.id
-      }
-
       feedback[key] = { state: 'queueing', message: 'Queueing message...' }
       const { data } = await queue(
         campaign,
@@ -111,7 +118,7 @@ export function useDirectCampaignSender({ kind, markClick, updateRecipient }) {
           || 'Outbound message was blocked.',
         )
       }
-      feedback[key] = { state: 'queued', message: images[campaign.id] ? 'Image and caption queued.' : 'Message queued.' }
+      feedback[key] = { state: 'queued', message: hasImage(campaign) ? 'Image and caption queued.' : 'Message queued.' }
     } catch (exc) {
       feedback[key] = {
         state: 'failed',

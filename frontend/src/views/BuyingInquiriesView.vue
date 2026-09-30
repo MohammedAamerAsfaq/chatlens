@@ -386,10 +386,11 @@
             <CampaignAttachmentPanel
               class="campaign-attachment"
               :file="directSender.images[inquiry.id]"
+              :asset="inquiry"
               :message="inquiryAttachmentMessage(inquiry)"
               description="The image and supplier message will be queued only when you use ChatLens Send."
               @select="selectCampaignImage(inquiry.id, $event)"
-              @remove="directSender.removeImage(inquiry.id)"
+              @remove="removeCampaignImage(inquiry.id)"
             />
 
             <div class="supplier-list-title">
@@ -447,7 +448,7 @@
                   </a>
                   <button
                     class="chatlens-btn"
-                    :disabled="directSender.busy[directSender.rowKey(inquiry.id, supplier.id)] || directSender.messageTooLong(inquiry.id, inquiryPreview(inquiry))"
+                    :disabled="directSender.busy[directSender.rowKey(inquiry.id, supplier.id)] || directSender.messageTooLong(inquiry, inquiryPreview(inquiry))"
                     @click="sendViaChatLens(inquiry, supplier)"
                   >
                     {{ directSender.busy[directSender.rowKey(inquiry.id, supplier.id)] ? 'Working...' : 'ChatLens Send' }}
@@ -528,6 +529,10 @@ const draft = reactive({
 const directSender = useDirectCampaignSender({
   kind: 'buying-inquiry',
   markClick: tradingApi.markBuyingInquirySupplierChatLensClick,
+  persistAsset: async (inquiryId, assetId) => {
+    const { data } = await tradingApi.updateBuyingInquiry(inquiryId, { image_asset: assetId })
+    replaceInquiry(data)
+  },
   updateRecipient: updateSupplier,
 })
 
@@ -908,8 +913,12 @@ function updateSupplier(inquiryId, supplier) {
   if (index !== -1) inquiry.suppliers[index] = supplier
 }
 
-function selectCampaignImage(inquiryId, event) {
-  error.value = directSender.selectImage(inquiryId, event)
+async function selectCampaignImage(inquiryId, event) {
+  error.value = await directSender.selectImage(inquiryId, event)
+}
+
+async function removeCampaignImage(inquiryId) {
+  error.value = await directSender.removeImage(inquiryId)
 }
 
 function sendViaChatLens(inquiry, supplier) {

@@ -404,10 +404,11 @@
             <CampaignAttachmentPanel
               class="campaign-attachment"
               :file="directSender.images[offer.id]"
+              :asset="offer"
               :message="offerAttachmentMessage(offer)"
               description="The image and customer message will be queued only when you use ChatLens Send."
               @select="selectCampaignImage(offer.id, $event)"
-              @remove="directSender.removeImage(offer.id)"
+              @remove="removeCampaignImage(offer.id)"
             />
 
             <div class="customer-list-title">
@@ -461,7 +462,7 @@
                   </a>
                   <button
                     class="chatlens-btn"
-                    :disabled="directSender.busy[directSender.rowKey(offer.id, customer.id)] || directSender.messageTooLong(offer.id, offerPreview(offer))"
+                    :disabled="directSender.busy[directSender.rowKey(offer.id, customer.id)] || directSender.messageTooLong(offer, offerPreview(offer))"
                     @click="sendViaChatLens(offer, customer)"
                   >
                     {{ directSender.busy[directSender.rowKey(offer.id, customer.id)] ? 'Working...' : 'ChatLens Send' }}
@@ -566,6 +567,10 @@ const draft = reactive({
 const directSender = useDirectCampaignSender({
   kind: 'selling-offer',
   markClick: tradingApi.markSellingOfferCustomerChatLensClick,
+  persistAsset: async (offerId, assetId) => {
+    const { data } = await tradingApi.updateSellingOffer(offerId, { image_asset: assetId })
+    replaceOffer(data)
+  },
   updateRecipient: updateCustomer,
 })
 
@@ -902,8 +907,12 @@ function updateCustomer(offerId, customer) {
   if (index !== -1) offer.customers[index] = customer
 }
 
-function selectCampaignImage(offerId, event) {
-  error.value = directSender.selectImage(offerId, event)
+async function selectCampaignImage(offerId, event) {
+  error.value = await directSender.selectImage(offerId, event)
+}
+
+async function removeCampaignImage(offerId) {
+  error.value = await directSender.removeImage(offerId)
 }
 
 function sendViaChatLens(offer, customer) {

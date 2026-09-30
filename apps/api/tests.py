@@ -23,6 +23,7 @@ from apps.whatsapp_bridge.models import (
     ContactRoleTag,
     WhatsAppGroup,
     WhatsAppMessage,
+    OutboundAsset,
     OutboundMessage,
 )
 
@@ -400,6 +401,56 @@ class TenantScopedApiTests(TestCase):
         )
         self.assertEqual(invalid_response.status_code, 400)
         self.assertEqual(invalid_response.json()['direct_message'], 'Direct message is required.')
+
+    def test_campaign_image_attachment_is_persistent_and_company_scoped(self):
+        self.client.force_authenticate(self.user_a)
+        inquiry = BuyingInquiry.objects.create(company=self.company_a, name='Image inquiry')
+        offer = SellingOffer.objects.create(company=self.company_a, name='Image offer')
+        asset = OutboundAsset.objects.create(
+            company=self.company_a,
+            uploaded_by=self.user_a,
+            file=SimpleUploadedFile('campaign.png', b'campaign-image', content_type='image/png'),
+            original_filename='campaign.png',
+            mime_type='image/png',
+            size_bytes=14,
+            sha256='a' * 64,
+        )
+        foreign_asset = OutboundAsset.objects.create(
+            company=self.company_b,
+            uploaded_by=self.user_b,
+            file=SimpleUploadedFile('foreign.png', b'foreign-image', content_type='image/png'),
+            original_filename='foreign.png',
+            mime_type='image/png',
+            size_bytes=13,
+            sha256='b' * 64,
+        )
+        self.addCleanup(asset.file.delete, save=False)
+        self.addCleanup(foreign_asset.file.delete, save=False)
+
+        inquiry_update = self.client.patch(
+            f'/api/buying-inquiries/{inquiry.pk}/', {'image_asset': asset.pk}, format='json',
+        )
+        offer_update = self.client.patch(
+            f'/api/selling-offers/{offer.pk}/', {'image_asset': asset.pk}, format='json',
+        )
+        self.assertEqual(inquiry_update.status_code, 200)
+        self.assertEqual(offer_update.status_code, 200)
+        self.assertEqual(inquiry_update.json()['image_asset'], asset.pk)
+        self.assertEqual(inquiry_update.json()['image_filename'], 'campaign.png')
+        self.assertIn('/media/', inquiry_update.json()['image_url'])
+        self.assertEqual(offer_update.json()['image_asset'], asset.pk)
+
+        persisted = self.client.get(f'/api/buying-inquiries/{inquiry.pk}/')
+        self.assertEqual(persisted.json()['image_asset'], asset.pk)
+        rejected = self.client.patch(
+            f'/api/buying-inquiries/{inquiry.pk}/', {'image_asset': foreign_asset.pk}, format='json',
+        )
+        self.assertEqual(rejected.status_code, 400)
+        cleared = self.client.patch(
+            f'/api/buying-inquiries/{inquiry.pk}/', {'image_asset': None}, format='json',
+        )
+        self.assertEqual(cleared.status_code, 200)
+        self.assertIsNone(cleared.json()['image_asset'])
 
     def test_auth_me_exposes_current_company_context(self):
         self.client.force_authenticate(self.user_a)

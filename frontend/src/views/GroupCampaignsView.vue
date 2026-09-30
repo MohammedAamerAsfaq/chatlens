@@ -279,14 +279,14 @@ function attachmentMessage(campaign) {
 }
 
 function messageLimit(campaign) {
-  return campaignImages[campaign.id] ? MAX_CAPTION_LENGTH : MAX_TEXT_LENGTH
+  return campaignImages[campaign.id] || campaign.image_asset ? MAX_CAPTION_LENGTH : MAX_TEXT_LENGTH
 }
 
 function messageTooLong(campaign) {
   return [...message(campaign)].length > messageLimit(campaign)
 }
 
-function selectCampaignImage(campaign, event) {
+async function selectCampaignImage(campaign, event) {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (!file) return
@@ -294,13 +294,34 @@ function selectCampaignImage(campaign, event) {
     error.value = 'Select a JPEG, PNG, or WebP image no larger than 10 MB.'
     return
   }
-  campaignImages[campaign.id] = file
-  delete campaignAssetIds[campaign.id]
+  busy.value = `image-${campaign.id}`
+  error.value = ''
+  try {
+    const { data: asset } = await outboundAssetsApi.upload(file)
+    const { data: updated } = await apiFor('update')(campaign.id, { image_asset: asset.id })
+    replaceCampaign(updated)
+    campaignImages[campaign.id] = file
+    campaignAssetIds[campaign.id] = asset.id
+  } catch (exc) {
+    error.value = exc.response?.data?.detail || exc.response?.data?.image_asset?.join?.(' ') || 'Unable to save the campaign image.'
+  } finally {
+    busy.value = ''
+  }
 }
 
-function removeCampaignImage(campaign) {
-  delete campaignImages[campaign.id]
-  delete campaignAssetIds[campaign.id]
+async function removeCampaignImage(campaign) {
+  busy.value = `image-${campaign.id}`
+  error.value = ''
+  try {
+    const { data: updated } = await apiFor('update')(campaign.id, { image_asset: null })
+    replaceCampaign(updated)
+    delete campaignImages[campaign.id]
+    delete campaignAssetIds[campaign.id]
+  } catch (exc) {
+    error.value = exc.response?.data?.detail || 'Unable to remove the campaign image.'
+  } finally {
+    busy.value = ''
+  }
 }
 
 async function sendGroup(campaign, recipient) {
@@ -309,7 +330,7 @@ async function sendGroup(campaign, recipient) {
   sendFeedback[recipient.id] = { state: 'checking', message: 'Checking group permission...' }
   try {
     if (messageTooLong(campaign)) {
-      throw new Error(campaignImages[campaign.id]
+      throw new Error(campaignImages[campaign.id] || campaign.image_asset
         ? `Image captions cannot exceed ${MAX_CAPTION_LENGTH} characters.`
         : `Text messages cannot exceed ${MAX_TEXT_LENGTH} characters.`)
     }
@@ -330,15 +351,11 @@ async function sendGroup(campaign, recipient) {
       }
       throw new Error(labels[preflight.data.reason] || preflight.data.reason || 'Group sending is blocked.')
     }
-    if (campaignImages[campaign.id] && !campaignAssetIds[campaign.id]) {
-      const { data: asset } = await outboundAssetsApi.upload(campaignImages[campaign.id])
-      campaignAssetIds[campaign.id] = asset.id
-    }
     sendFeedback[recipient.id] = { state: 'queueing', message: 'Queueing message...' }
     const { data } = await accountsApi.sendMessage(recipient.account_id, {
       destination_jid: recipient.wa_group_id,
       text: message(campaign),
-      asset_id: campaignAssetIds[campaign.id] || null,
+      asset_id: campaignAssetIds[campaign.id] || campaign.image_asset || null,
       idempotency_key: `${props.kind}-group-${campaign.id}-${recipient.id}-${Date.now()}`,
     })
     if (['blocked', 'preflight_blocked', 'failed'].includes(data.status)) {
@@ -410,6 +427,7 @@ onMounted(async () => {
           <CampaignAttachmentPanel
             class="attachment"
             :file="campaignImages[campaign.id]"
+            :asset="campaign"
             :message="attachmentMessage(campaign)"
             description="The same image and message will be queued for each group you send to."
             @select="selectCampaignImage(campaign, $event)"

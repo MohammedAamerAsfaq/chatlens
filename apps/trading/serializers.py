@@ -474,16 +474,22 @@ class BuyingInquirySerializer(serializers.ModelSerializer):
     groups = serializers.SerializerMethodField()
     supplier_count = serializers.SerializerMethodField()
     notified_count = serializers.SerializerMethodField()
+    image_filename = serializers.CharField(source='image_asset.original_filename', read_only=True)
+    image_mime_type = serializers.CharField(source='image_asset.mime_type', read_only=True)
+    image_size_bytes = serializers.IntegerField(source='image_asset.size_bytes', read_only=True)
+    image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = BuyingInquiry
         fields = [
-            'id', 'company', 'name', 'audience_type', 'message_mode', 'direct_message', 'status', 'header_template',
+            'id', 'company', 'name', 'audience_type', 'message_mode', 'direct_message', 'image_asset',
+            'image_filename', 'image_mime_type', 'image_size_bytes', 'image_url', 'status', 'header_template',
             'product_line_template', 'footer_template', 'products', 'suppliers',
             'groups', 'supplier_count', 'notified_count', 'closed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'company', 'products', 'suppliers', 'supplier_count',
+            'id', 'company', 'image_asset', 'image_filename', 'image_mime_type',
+            'image_size_bytes', 'image_url', 'products', 'suppliers', 'supplier_count',
             'notified_count', 'closed_at', 'created_at', 'updated_at',
         ]
 
@@ -501,6 +507,12 @@ class BuyingInquirySerializer(serializers.ModelSerializer):
 
     def get_groups(self, obj):
         return GroupCampaignRecipientSerializer(obj.groups.all(), many=True).data
+
+    def get_image_url(self, obj):
+        if not obj.image_asset_id or not obj.image_asset.file:
+            return ''
+        request = self.context.get('request')
+        return request.build_absolute_uri(obj.image_asset.file.url) if request else obj.image_asset.file.url
 
 
 class SellingOfferProductSerializer(serializers.ModelSerializer):
@@ -565,17 +577,23 @@ class SellingOfferSerializer(serializers.ModelSerializer):
     groups = serializers.SerializerMethodField()
     customer_count = serializers.SerializerMethodField()
     notified_count = serializers.SerializerMethodField()
+    image_filename = serializers.CharField(source='image_asset.original_filename', read_only=True)
+    image_mime_type = serializers.CharField(source='image_asset.mime_type', read_only=True)
+    image_size_bytes = serializers.IntegerField(source='image_asset.size_bytes', read_only=True)
+    image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = SellingOffer
         fields = [
-            'id', 'company', 'name', 'audience_type', 'message_mode', 'direct_message', 'status', 'header_template',
+            'id', 'company', 'name', 'audience_type', 'message_mode', 'direct_message', 'image_asset',
+            'image_filename', 'image_mime_type', 'image_size_bytes', 'image_url', 'status', 'header_template',
             'product_line_template', 'footer_template', 'send_flag', 'flag_position',
             'send_color', 'color_position', 'products', 'customers', 'groups',
             'customer_count', 'notified_count', 'closed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'company', 'products', 'customers', 'customer_count',
+            'id', 'company', 'image_asset', 'image_filename', 'image_mime_type',
+            'image_size_bytes', 'image_url', 'products', 'customers', 'customer_count',
             'notified_count', 'closed_at', 'created_at', 'updated_at',
         ]
 
@@ -593,6 +611,12 @@ class SellingOfferSerializer(serializers.ModelSerializer):
 
     def get_groups(self, obj):
         return GroupCampaignRecipientSerializer(obj.groups.all(), many=True).data
+
+    def get_image_url(self, obj):
+        if not obj.image_asset_id or not obj.image_asset.file:
+            return ''
+        request = self.context.get('request')
+        return request.build_absolute_uri(obj.image_asset.file.url) if request else obj.image_asset.file.url
 
 
 def _contact_label(contact) -> str:

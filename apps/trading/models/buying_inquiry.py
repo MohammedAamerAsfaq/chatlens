@@ -52,6 +52,13 @@ class BuyingInquiry(models.Model):
         default=CampaignMessageMode.FORMATTED,
     )
     direct_message = models.TextField(blank=True)
+    image_asset = models.ForeignKey(
+        'whatsapp_bridge.OutboundAsset',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='buying_campaigns',
+    )
     product_name = models.CharField(max_length=255, blank=True)
     quantity = models.CharField(max_length=100, blank=True)
     notes = models.TextField(blank=True)

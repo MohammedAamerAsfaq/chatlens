@@ -32,6 +32,13 @@ class SellingOffer(models.Model):
         default=CampaignMessageMode.FORMATTED,
     )
     direct_message = models.TextField(blank=True)
+    image_asset = models.ForeignKey(
+        'whatsapp_bridge.OutboundAsset',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='selling_campaigns',
+    )
     status = models.CharField(
         max_length=20,
         choices=SellingOfferStatus.choices,
