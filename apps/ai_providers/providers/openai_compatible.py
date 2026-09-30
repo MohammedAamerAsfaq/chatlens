@@ -54,8 +54,8 @@ class OpenRouterChatProvider(OpenAIChatProvider):
                 input_cost = output_cost = None
             rows.append({
                 'id': model_id,
-                'input_cost_per_million': input_cost,
-                'output_cost_per_million': output_cost,
+                'input_cost_per_million': round(input_cost, 4) if input_cost is not None else None,
+                'output_cost_per_million': round(output_cost, 4) if output_cost is not None else None,
             })
         return sorted(rows, key=lambda row: row['id'])
 
