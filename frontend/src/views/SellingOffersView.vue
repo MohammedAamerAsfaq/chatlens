@@ -401,20 +401,14 @@
               </div>
             </div>
 
-            <div class="campaign-attachment">
-              <div>
-                <h3>Optional image</h3>
-                <p>The image and message will be queued only when you use ChatLens Send.</p>
-              </div>
-              <div class="attachment-actions">
-                <span v-if="directSender.images[offer.id]">{{ directSender.images[offer.id].name }}</span>
-                <label class="image-picker">
-                  Choose image
-                  <input type="file" accept="image/jpeg,image/png,image/webp" @change="selectCampaignImage(offer.id, $event)" />
-                </label>
-                <button v-if="directSender.images[offer.id]" class="link-btn danger" @click="directSender.removeImage(offer.id)">Remove image</button>
-              </div>
-            </div>
+            <CampaignAttachmentPanel
+              class="campaign-attachment"
+              :file="directSender.images[offer.id]"
+              :message="offerAttachmentMessage(offer)"
+              description="The image and customer message will be queued only when you use ChatLens Send."
+              @select="selectCampaignImage(offer.id, $event)"
+              @remove="directSender.removeImage(offer.id)"
+            />
 
             <div class="customer-list-title">
               <div>
@@ -467,7 +461,7 @@
                   </a>
                   <button
                     class="chatlens-btn"
-                    :disabled="directSender.busy[directSender.rowKey(offer.id, customer.id)]"
+                    :disabled="directSender.busy[directSender.rowKey(offer.id, customer.id)] || directSender.messageTooLong(offer.id, offerPreview(offer))"
                     @click="sendViaChatLens(offer, customer)"
                   >
                     {{ directSender.busy[directSender.rowKey(offer.id, customer.id)] ? 'Working...' : 'ChatLens Send' }}
@@ -499,6 +493,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons'
 import { contactsApi, tradingApi } from '@/api'
+import CampaignAttachmentPanel from '@/components/CampaignAttachmentPanel.vue'
 import { useDirectCampaignSender } from '@/composables/useDirectCampaignSender'
 
 const DEFAULT_HEADER = 'Hello, available stock offer:'
@@ -1080,6 +1075,22 @@ function offerPreview(offer) {
   return formatOfferMessage(offer)
 }
 
+function offerAttachmentMessage(offer) {
+  if (editingOfferId.value !== offer.id) return offerPreview(offer)
+  return formatOfferMessage({
+    ...offer,
+    message_mode: editDraft.message_mode,
+    direct_message: editDraft.direct_message,
+    header_template: editDraft.header_template,
+    product_line_template: editDraft.product_line_template,
+    footer_template: editDraft.footer_template,
+    send_flag: editDraft.send_flag,
+    flag_position: editDraft.flag_position,
+    send_color: editDraft.send_color,
+    color_position: editDraft.color_position,
+  })
+}
+
 function whatsappUrl(phone, text = '') {
   const params = new URLSearchParams()
   if (phone) params.set('phone', phone)
@@ -1641,21 +1652,8 @@ pre {
   justify-content: flex-end;
 }
 .campaign-attachment {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
   margin-top: 16px;
-  padding: 13px;
-  border: 1px solid #dbe4ee;
-  border-radius: 12px;
-  background: #fff;
 }
-.campaign-attachment p { margin-top: 4px; color: #64748b; font-size: 0.8rem; }
-.attachment-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.attachment-actions > span { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #475569; font-size: 0.8rem; }
-.image-picker { display: block; border: 1px solid #cbd5e1; border-radius: 10px; padding: 8px 12px; color: #334155; cursor: pointer; font-size: 0.78rem; font-weight: 850; }
-.image-picker input { display: none; }
 .notify-state { display: grid; justify-items: start; gap: 4px; }
 .notify-pill.chatlens.sent { background: #dcfce7; color: #15803d; }
 .send-feedback { max-width: 230px; color: #64748b; font-size: 0.72rem; font-weight: 750; }
@@ -1690,7 +1688,6 @@ pre {
   .section-title-row,
   .offer-summary,
   .customer-row,
-  .campaign-attachment,
   .form-actions {
     align-items: stretch;
     flex-direction: column;
@@ -1709,7 +1706,6 @@ pre {
   .offer-right {
     flex-wrap: wrap;
   }
-  .attachment-actions,
   .row-actions {
     justify-content: flex-start;
   }

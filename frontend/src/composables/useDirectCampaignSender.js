@@ -4,6 +4,7 @@ import { accountsApi, outboundAssetsApi } from '@/api'
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 const MAX_CAPTION_LENGTH = 1024
+const MAX_TEXT_LENGTH = 10000
 const PREFLIGHT_REASONS = {
   direct_sending_disabled: 'Direct-message sending is disabled for this account.',
   live_preflight_unavailable: 'WhatsApp worker preflight is unavailable.',
@@ -29,6 +30,9 @@ export function useDirectCampaignSender({ kind, markClick, updateRecipient }) {
   const busy = reactive({})
 
   const rowKey = (campaignId, recipientId) => `${campaignId}:${recipientId}`
+  const characterCount = text => [...String(text || '')].length
+  const messageLimit = campaignId => images[campaignId] ? MAX_CAPTION_LENGTH : MAX_TEXT_LENGTH
+  const messageTooLong = (campaignId, text) => characterCount(text) > messageLimit(campaignId)
 
   function selectImage(campaignId, event) {
     const file = event.target.files?.[0]
@@ -72,8 +76,10 @@ export function useDirectCampaignSender({ kind, markClick, updateRecipient }) {
       if (!recipient.account_id || !recipient.destination_jid) {
         throw new Error('This contact has no sendable WhatsApp destination.')
       }
-      if (images[campaign.id] && text.length > MAX_CAPTION_LENGTH) {
-        throw new Error(`Image captions cannot exceed ${MAX_CAPTION_LENGTH} characters.`)
+      if (messageTooLong(campaign.id, text)) {
+        throw new Error(images[campaign.id]
+          ? `Image captions cannot exceed ${MAX_CAPTION_LENGTH} characters.`
+          : `Text messages cannot exceed ${MAX_TEXT_LENGTH} characters.`)
       }
 
       const clickResponse = await markClick(campaign.id, recipient.id)
@@ -109,12 +115,12 @@ export function useDirectCampaignSender({ kind, markClick, updateRecipient }) {
     } catch (exc) {
       feedback[key] = {
         state: 'failed',
-        message: exc.response?.data?.detail || exc.message || 'Unable to queue message.',
+        message: exc.response?.data?.detail || exc.response?.data?.text?.join?.(' ') || exc.message || 'Unable to queue message.',
       }
     } finally {
       delete busy[key]
     }
   }
 
-  return { assetIds, busy, feedback, images, removeImage, rowKey, selectImage, send }
+  return { assetIds, busy, feedback, images, messageLimit, messageTooLong, removeImage, rowKey, selectImage, send }
 }

@@ -383,20 +383,14 @@
               </div>
             </div>
 
-            <div class="campaign-attachment">
-              <div>
-                <h3>Optional image</h3>
-                <p>The image and message will be queued only when you use ChatLens Send.</p>
-              </div>
-              <div class="attachment-actions">
-                <span v-if="directSender.images[inquiry.id]">{{ directSender.images[inquiry.id].name }}</span>
-                <label class="image-picker">
-                  Choose image
-                  <input type="file" accept="image/jpeg,image/png,image/webp" @change="selectCampaignImage(inquiry.id, $event)" />
-                </label>
-                <button v-if="directSender.images[inquiry.id]" class="link-btn danger" @click="directSender.removeImage(inquiry.id)">Remove image</button>
-              </div>
-            </div>
+            <CampaignAttachmentPanel
+              class="campaign-attachment"
+              :file="directSender.images[inquiry.id]"
+              :message="inquiryAttachmentMessage(inquiry)"
+              description="The image and supplier message will be queued only when you use ChatLens Send."
+              @select="selectCampaignImage(inquiry.id, $event)"
+              @remove="directSender.removeImage(inquiry.id)"
+            />
 
             <div class="supplier-list-title">
               <div>
@@ -453,7 +447,7 @@
                   </a>
                   <button
                     class="chatlens-btn"
-                    :disabled="directSender.busy[directSender.rowKey(inquiry.id, supplier.id)]"
+                    :disabled="directSender.busy[directSender.rowKey(inquiry.id, supplier.id)] || directSender.messageTooLong(inquiry.id, inquiryPreview(inquiry))"
                     @click="sendViaChatLens(inquiry, supplier)"
                   >
                     {{ directSender.busy[directSender.rowKey(inquiry.id, supplier.id)] ? 'Working...' : 'ChatLens Send' }}
@@ -485,6 +479,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons'
 import { contactsApi, tradingApi } from '@/api'
+import CampaignAttachmentPanel from '@/components/CampaignAttachmentPanel.vue'
 import { useDirectCampaignSender } from '@/composables/useDirectCampaignSender'
 
 const DEFAULT_HEADER = 'Hello, looking to buy:'
@@ -1045,6 +1040,18 @@ function inquiryPreview(inquiry) {
   return formatInquiryMessage(inquiry)
 }
 
+function inquiryAttachmentMessage(inquiry) {
+  if (editingInquiryId.value !== inquiry.id) return inquiryPreview(inquiry)
+  return formatInquiryMessage({
+    ...inquiry,
+    message_mode: editDraft.message_mode,
+    direct_message: editDraft.direct_message,
+    header_template: editDraft.header_template,
+    product_line_template: editDraft.product_line_template,
+    footer_template: editDraft.footer_template,
+  })
+}
+
 function whatsappUrl(phone, text = '') {
   const params = new URLSearchParams()
   if (phone) params.set('phone', phone)
@@ -1402,21 +1409,8 @@ pre {
   justify-content: flex-end;
 }
 .campaign-attachment {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
   margin-top: 16px;
-  padding: 13px;
-  border: 1px solid #dbe4ee;
-  border-radius: 12px;
-  background: #fff;
 }
-.campaign-attachment p { margin-top: 4px; color: #64748b; font-size: 0.8rem; }
-.attachment-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.attachment-actions > span { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #475569; font-size: 0.8rem; }
-.image-picker { display: block; border: 1px solid #cbd5e1; border-radius: 10px; padding: 8px 12px; color: #334155; cursor: pointer; font-size: 0.78rem; font-weight: 850; }
-.image-picker input { display: none; }
 .notify-state { display: grid; justify-items: start; gap: 4px; }
 .notify-pill.chatlens.sent { background: #dcfce7; color: #15803d; }
 .send-feedback { max-width: 230px; color: #64748b; font-size: 0.72rem; font-weight: 750; }
@@ -1573,7 +1567,6 @@ button:disabled {
   .section-title-row,
   .inquiry-summary,
   .supplier-row,
-  .campaign-attachment,
   .form-actions {
     align-items: stretch;
     flex-direction: column;
@@ -1592,7 +1585,6 @@ button:disabled {
   .inquiry-right {
     flex-wrap: wrap;
   }
-  .attachment-actions,
   .row-actions {
     justify-content: flex-start;
   }
