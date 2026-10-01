@@ -4,6 +4,9 @@ from .company import Company
 from .company_contact import CompanyContact
 from .company_contact_identity import CompanyContactIdentity
 from .membership import CompanyMembership
+from .permission import CompanyRolePermission, PermissionDefinition
+from .role import CompanyRole, MembershipRoleAssignment
+from .authorization_audit import AuthorizationAuditEvent
 from .connection_provider import ConnectionProvider
 
 __all__ = [
@@ -13,6 +16,10 @@ __all__ = [
     'CompanyContact',
     'CompanyContactIdentity',
     'CompanyMembership',
+    'CompanyRole',
+    'CompanyRolePermission',
+    'MembershipRoleAssignment',
+    'PermissionDefinition',
+    'AuthorizationAuditEvent',
     'ConnectionProvider',
 ]
-

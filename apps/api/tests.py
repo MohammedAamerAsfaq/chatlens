@@ -462,6 +462,9 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(payload['current_company']['name'], 'Company A')
         self.assertEqual(payload['current_company']['ai_parsing_enabled'], True)
         self.assertEqual(payload['current_company']['role'], CompanyMembership.ROLE_SUPER_USER)
+        self.assertEqual(payload['membership']['roles'][0]['key'], CompanyMembership.ROLE_SUPER_USER)
+        self.assertEqual(payload['permissions']['users.roles.manage'], 'all')
+        self.assertGreaterEqual(payload['authorization_version'], 1)
         self.assertEqual({m['company']['id'] for m in payload['memberships']}, {self.company_a.id, self.company_b.id})
 
     def test_company_admin_can_toggle_current_company_ai_parsing(self):

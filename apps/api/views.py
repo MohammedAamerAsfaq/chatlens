@@ -41,6 +41,7 @@ from apps.tenancy.services.access import (
     visible_accounts_queryset,
 )
 from apps.tenancy.services.enrollment_service import CompanyEnrollmentService
+from apps.tenancy.services.authorization import effective_permission_grants
 from apps.tenancy.services.provider_service import ProviderService
 from apps.whatsapp_bridge.services.ingestion_service import IngestionService
 from .serializers import (
@@ -1922,19 +1923,22 @@ def _serialize_auth_user(user):
             company__is_active=True,
         ).select_related('company')
     }
-
-
-def _serialize_auth_user(user):
-    current_company = default_company_for_user(user)
-    visible_companies = available_companies_queryset(user)
-    memberships = {
-        membership.company_id: membership
-        for membership in user.company_memberships.filter(
-            is_active=True,
-            company__is_active=True,
-        ).select_related('company')
-    }
     company_payload = None
+    grants, effective_membership = effective_permission_grants(user, current_company)
+    effective_roles = []
+    if effective_membership:
+        effective_roles = [
+            {'id': assignment.role_id, 'key': assignment.role.key, 'name': assignment.role.name}
+            for assignment in effective_membership.role_assignments.select_related('role').filter(
+                role__is_active=True,
+            ).order_by('role__name')
+        ]
+        if not effective_roles:
+            effective_roles = [{
+                'id': None,
+                'key': effective_membership.role,
+                'name': effective_membership.get_role_display(),
+            }]
     if current_company:
         current_membership = memberships.get(current_company.pk)
         company_payload = {
@@ -1948,6 +1952,7 @@ def _serialize_auth_user(user):
             'validity_status': current_company.validity_status,
             'access_is_valid': current_company.access_is_valid,
             'role': current_membership.role if current_membership else ('super_user' if user.is_superuser else ''),
+            'roles': effective_roles,
         }
 
     return {
@@ -1956,6 +1961,13 @@ def _serialize_auth_user(user):
         'email': user.email,
         'is_superuser': user.is_superuser,
         'current_company': company_payload,
+        'membership': {
+            'id': effective_membership.pk if effective_membership else None,
+            'status': 'active' if effective_membership and effective_membership.is_active else 'unavailable',
+            'roles': effective_roles,
+        },
+        'permissions': grants,
+        'authorization_version': effective_membership.authorization_version if effective_membership else 0,
         'memberships': [
             {
                 'company': {

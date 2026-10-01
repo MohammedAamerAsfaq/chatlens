@@ -40,6 +40,12 @@ import TaskOperationsView from '../views/TaskOperationsView.vue'
 import TaskQueueSettingsView from '../views/TaskQueueSettingsView.vue'
 import KiwiRouterView from '../views/KiwiRouterView.vue'
 import InquiryForwardingView from '../views/InquiryForwardingView.vue'
+import CompanyUsersView from '../views/CompanyUsersView.vue'
+import CompanyRolesView from '../views/CompanyRolesView.vue'
+import ClientPulseDirectoryView from '../views/ClientPulseDirectoryView.vue'
+import ClientPulseProfileView from '../views/ClientPulseProfileView.vue'
+import ClientPulseSettingsView from '../views/ClientPulseSettingsView.vue'
+import ClientPulseRemindersView from '../views/ClientPulseRemindersView.vue'
 
 const APP_TITLE = 'ChatLens'
 
@@ -86,6 +92,12 @@ const router = createRouter({
     { path: '/task-queues', name: 'task-queues', component: TaskQueueSettingsView, meta: { title: 'Task & Queues' } },
     { path: '/kiwi-router', name: 'kiwi-router', component: KiwiRouterView, meta: { title: 'KiwiRouter' } },
     { path: '/inquiry-forwarding', name: 'inquiry-forwarding', component: InquiryForwardingView, meta: { title: 'Inquiry Forwarding' } },
+    { path: '/company-users', name: 'company-users', component: CompanyUsersView, meta: { title: 'Users', permission: 'users.memberships.view' } },
+    { path: '/company-roles', name: 'company-roles', component: CompanyRolesView, meta: { title: 'Roles & Permissions', permission: 'users.roles.view' } },
+    { path: '/clientpulse', name: 'clientpulse', component: ClientPulseDirectoryView, meta: { title: 'ClientPulse', permission: 'clientpulse.clients.view' } },
+    { path: '/clientpulse/:id', name: 'clientpulse-profile', component: ClientPulseProfileView, meta: { title: 'Client Profile', permission: 'clientpulse.clients.view' } },
+    { path: '/clientpulse-settings', name: 'clientpulse-settings', component: ClientPulseSettingsView, meta: { title: 'ClientPulse Settings', permission: 'settings.company.view' } },
+    { path: '/clientpulse-reminders', name: 'clientpulse-reminders', component: ClientPulseRemindersView, meta: { title: 'ClientPulse Reminders', permission: 'clientpulse.reminders.view' } },
   ],
 })
 
@@ -94,6 +106,9 @@ router.beforeEach(async (to) => {
   const auth = useAuthStore()
   if (!auth.ready) await auth.init()
   if (!auth.user) return { name: 'login' }
+  if (typeof to.meta.permission === 'string' && !auth.hasPermission(to.meta.permission)) {
+    return { name: 'sessions' }
+  }
 })
 
 router.afterEach((to) => {

@@ -450,6 +450,14 @@ def dispatch_queued_live_message(message_id: int):
         .select_related('account', 'chat', 'contact')
         .get(pk=message_id)
     )
+    try:
+        from apps.clientpulse.services.activity_projection import enqueue_message_projection
+        enqueue_message_projection(message)
+    except Exception:
+        logger.warning(
+            'ClientPulse activity dispatch failed for message_id=%s; continuing',
+            message_id, exc_info=True,
+        )
     if message.message_text:
         try:
             from apps.message_intelligence.services.embedding_dispatch import enqueue_embedding

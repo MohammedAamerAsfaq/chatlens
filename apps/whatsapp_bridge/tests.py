@@ -295,6 +295,8 @@ class HistoryIngestionQueueTests(TestCase):
     def test_persistence_handler_enqueues_history_embedding_task(self, ingest_batch):
         from .task_handlers import persist_history_batch
 
+        response = self._post_batch(transport_key='handler-batch')
+        parent_task = BackgroundTask.objects.get(pk=response.json()['task_id'])
         ingest_batch.return_value = {
             'total': 2,
             'created': 2,
@@ -310,7 +312,10 @@ class HistoryIngestionQueueTests(TestCase):
             'is_latest': False,
             'received': 2,
             'batch_key': 'batch-1',
-        }, SimpleNamespace(task_id=900, correlation_id='ingestion-correlation'))
+        }, SimpleNamespace(
+            task_id=parent_task.pk,
+            correlation_id=parent_task.correlation_id,
+        ))
 
         ingest_batch.assert_called_once_with(
             self.account.pk, [{}, {}], is_latest=False, received=2,

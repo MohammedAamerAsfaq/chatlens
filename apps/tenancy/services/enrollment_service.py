@@ -7,6 +7,7 @@ from django.utils.text import slugify
 
 from apps.tenancy.models import Company, CompanyMembership
 from apps.tenancy.services.company_bootstrap import seed_required_company_settings
+from apps.tenancy.services.role_seed import seed_company_roles, sync_legacy_membership_role
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,12 @@ class CompanyEnrollmentService:
                 is_active=True,
             )
             seed_required_company_settings(company)
+            from apps.clientpulse.models import ClientPulseSettings
+            ClientPulseSettings.objects.get_or_create(company=company)
+            from apps.clientpulse.services.scheduling import ensure_company_reminder_schedule
+            ensure_company_reminder_schedule(company)
+            seed_company_roles(company)
+            sync_legacy_membership_role(membership)
             logger.info(
                 'Company enrolled | company_id=%s user_id=%s membership_id=%s',
                 company.pk, user.pk, membership.pk,
@@ -123,6 +130,8 @@ class CompanyEnrollmentService:
                 role=role,
                 is_active=True,
             )
+            seed_company_roles(company)
+            sync_legacy_membership_role(membership)
             logger.info(
                 'Company user created | company_id=%s user_id=%s membership_id=%s role=%s',
                 company.pk, user.pk, membership.pk, role,

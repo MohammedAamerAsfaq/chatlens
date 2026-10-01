@@ -35,6 +35,47 @@ export const authApi = {
   updateCurrentCompanySettings: (data) => http.patch('/auth/current-company-settings/', data),
 }
 
+export const companyAccessApi = {
+  users: () => http.get('/company/users/'),
+  createUser: (data) => http.post('/company/users/', data),
+  updateUser: (id, data) => http.patch(`/company/users/${id}/`, data),
+  roles: () => http.get('/company/roles/'),
+  createRole: (data) => http.post('/company/roles/', data),
+  updateRole: (id, data) => http.patch(`/company/roles/${id}/`, data),
+  permissions: () => http.get('/company/permissions/'),
+}
+
+export const clientPulseApi = {
+  clients: (params = {}) => http.get('/clientpulse/clients/', { params }),
+  createClient: (data) => http.post('/clientpulse/clients/', data),
+  client: (id) => http.get(`/clientpulse/clients/${id}/`),
+  updateClient: (id, data) => http.patch(`/clientpulse/clients/${id}/`, data),
+  archiveClient: (id) => http.post(`/clientpulse/clients/${id}/archive/`),
+  timeline: (id) => http.get(`/clientpulse/clients/${id}/timeline/`),
+  notes: (id) => http.get(`/clientpulse/clients/${id}/notes/`),
+  addNote: (id, data) => http.post(`/clientpulse/clients/${id}/notes/`, data),
+  updateNote: (id, noteId, data) => http.patch(`/clientpulse/notes/${noteId}/`, data),
+  deleteNote: (id, noteId) => http.delete(`/clientpulse/notes/${noteId}/`),
+  consents: (id) => http.get(`/clientpulse/clients/${id}/consents/`),
+  saveConsent: (id, data) => http.put(`/clientpulse/clients/${id}/consents/`, data),
+  addIdentity: (id, data) => http.post(`/clientpulse/clients/${id}/identities/`, data),
+  deleteIdentity: (id, identityId) => http.delete(`/clientpulse/clients/${id}/identities/${identityId}/`),
+  tags: () => http.get('/clientpulse/tags/'),
+  createTag: (data) => http.post('/clientpulse/tags/', data),
+  options: () => http.get('/clientpulse/options/'),
+  settings: () => http.get('/clientpulse/settings/'),
+  updateSettings: (data) => http.patch('/clientpulse/settings/', data),
+  dashboard: () => http.get('/clientpulse/dashboard/'),
+  reminders: (params = {}) => http.get('/clientpulse/reminders/', { params }),
+  createReminder: (data) => http.post('/clientpulse/reminders/', data),
+  updateReminder: (id, data) => http.patch(`/clientpulse/reminders/${id}/`, data),
+  completeReminder: (id) => http.post(`/clientpulse/reminders/${id}/complete/`),
+  snoozeReminder: (id, snoozed_until) => http.post(`/clientpulse/reminders/${id}/snooze/`, { snoozed_until }),
+  cancelReminder: (id) => http.post(`/clientpulse/reminders/${id}/cancel/`),
+  notifications: () => http.get('/clientpulse/notifications/'),
+  readNotification: (id) => http.post(`/clientpulse/notifications/${id}/read/`),
+}
+
 export const taskQueueApi = {
   overview: () => http.get('/task-queue/overview/'),
   settings: () => http.get('/task-queue/settings/'),

@@ -7,6 +7,11 @@ from .models import (
     CompanyContact,
     CompanyContactIdentity,
     CompanyMembership,
+    CompanyRole,
+    CompanyRolePermission,
+    MembershipRoleAssignment,
+    PermissionDefinition,
+    AuthorizationAuditEvent,
     ConnectionProvider,
 )
 
@@ -23,6 +28,25 @@ class CompanyMembershipAdmin(admin.ModelAdmin):
     list_display = ('company', 'user', 'role', 'is_active', 'joined_at')
     search_fields = ('company__name', 'user__username', 'user__email')
     list_filter = ('role', 'is_active')
+
+
+@admin.register(PermissionDefinition)
+class PermissionDefinitionAdmin(admin.ModelAdmin):
+    list_display = ('code', 'area', 'supports_scope', 'is_sensitive', 'is_active')
+    search_fields = ('code', 'label')
+    list_filter = ('area', 'supports_scope', 'is_sensitive', 'is_active')
+
+
+@admin.register(CompanyRole)
+class CompanyRoleAdmin(admin.ModelAdmin):
+    list_display = ('name', 'company', 'key', 'is_system_role', 'is_owner_role', 'is_active')
+    search_fields = ('name', 'key', 'company__name')
+    list_filter = ('is_system_role', 'is_owner_role', 'is_active')
+
+
+admin.site.register(CompanyRolePermission)
+admin.site.register(MembershipRoleAssignment)
+admin.site.register(AuthorizationAuditEvent)
 
 
 @admin.register(ConnectionProvider)
@@ -49,11 +73,13 @@ class AccountEndpointAdmin(admin.ModelAdmin):
 class CompanyContactIdentityInline(admin.TabularInline):
     model = CompanyContactIdentity
     extra = 0
+    exclude = ('company', 'normalized_value', 'source_reference')
+    readonly_fields = ('created_at', 'updated_at')
 
 
 @admin.register(CompanyContact)
 class CompanyContactAdmin(admin.ModelAdmin):
-    list_display = ('display_name', 'company', 'category', 'is_company', 'is_active')
+    list_display = ('display_name', 'company', 'contact_type', 'category', 'is_active')
     search_fields = ('display_name', 'legal_name', 'company__name')
-    list_filter = ('category', 'is_company', 'is_active')
+    list_filter = ('contact_type', 'category', 'is_active')
     inlines = [CompanyContactIdentityInline]

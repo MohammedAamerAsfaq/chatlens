@@ -29,6 +29,7 @@ class CompanyMembership(models.Model):
     )
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
     is_active = models.BooleanField(default=True)
+    authorization_version = models.PositiveIntegerField(default=1)
     joined_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -43,4 +44,3 @@ class CompanyMembership(models.Model):
 
     def __str__(self):
         return f'{self.company} -> {self.user} ({self.role})'
-

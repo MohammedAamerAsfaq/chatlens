@@ -57,8 +57,9 @@ const isListsActive = computed(() => LIST_ROUTES.includes(route.name))
 
 const CAMPAIGN_ROUTES = ['buying-inquiries', 'selling-offers', 'group-buying-inquiries', 'group-selling-offers']
 const isCampaignsActive = computed(() => CAMPAIGN_ROUTES.includes(route.name))
+const isClientPulseActive = computed(() => ['clientpulse', 'clientpulse-profile', 'clientpulse-reminders'].includes(route.name))
 
-const SETTINGS_ROUTES = ['sessions', 'storage', 'ai-providers', 'kiwi-router', 'ai-instructions', 'v2-settings', 'v2-match-training', 'inquiry-forwarding', 'task-queues', 'tenant-admin']
+const SETTINGS_ROUTES = ['sessions', 'storage', 'ai-providers', 'kiwi-router', 'ai-instructions', 'v2-settings', 'v2-match-training', 'inquiry-forwarding', 'task-queues', 'tenant-admin', 'company-users', 'company-roles', 'clientpulse-settings']
 const isSettingsActive = computed(() => SETTINGS_ROUTES.includes(route.name))
 
 async function handleLogout() {
@@ -91,6 +92,7 @@ async function handleCompanySwitch(event) {
         </div>
       </div>
       <RouterLink to="/conversations"   class="nav-link" active-class="nav-link-active">Conversations</RouterLink>
+      <div v-if="auth.hasPermission('clientpulse.clients.view')" class="relative group"><button type="button" class="nav-link flex items-center gap-1" :class="{'nav-link-active':isClientPulseActive}">ClientPulse <span>⌄</span></button><div class="absolute left-0 top-full hidden group-hover:block bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[180px] z-50"><RouterLink to="/clientpulse" class="dropdown-item" active-class="dropdown-item-active">Customers</RouterLink><RouterLink v-if="auth.hasPermission('clientpulse.reminders.view')" to="/clientpulse-reminders" class="dropdown-item" active-class="dropdown-item-active">Reminders</RouterLink></div></div>
       <RouterLink to="/trading"            class="nav-link" active-class="nav-link-active">Trading</RouterLink>
       <div class="relative group">
         <button type="button" class="nav-link flex items-center gap-1" :class="{ 'nav-link-active': isCampaignsActive }">
@@ -158,6 +160,9 @@ async function handleCompanySwitch(event) {
           <RouterLink to="/v2-match-training" class="dropdown-item" active-class="dropdown-item-active">V2 Match Training</RouterLink>
           <RouterLink to="/inquiry-forwarding" class="dropdown-item" active-class="dropdown-item-active">Inquiry Forwarding</RouterLink>
           <RouterLink to="/task-queues"     class="dropdown-item" active-class="dropdown-item-active">Task &amp; Queues</RouterLink>
+          <RouterLink v-if="auth.hasPermission('settings.company.view')" to="/clientpulse-settings" class="dropdown-item" active-class="dropdown-item-active">ClientPulse</RouterLink>
+          <RouterLink v-if="auth.hasPermission('users.memberships.view')" to="/company-users" class="dropdown-item" active-class="dropdown-item-active">Users</RouterLink>
+          <RouterLink v-if="auth.hasPermission('users.roles.view')" to="/company-roles" class="dropdown-item" active-class="dropdown-item-active">Roles &amp; Permissions</RouterLink>
           <RouterLink v-if="auth.canManageTenants" to="/tenant-admin" class="dropdown-item" active-class="dropdown-item-active">Tenant Admin</RouterLink>
         </div>
       </div>
