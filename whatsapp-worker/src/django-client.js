@@ -83,6 +83,10 @@ class DjangoClient {
       await this.http.post('/api/internal/whatsapp/stuck-receipt/', payload);
       return { status: 'replayed' };
     }
+    if (record.kind === 'outbound_receipt') {
+      await this.http.post('/api/internal/whatsapp/outbound-receipt/', payload);
+      return { status: 'replayed' };
+    }
     return { status: 'retained', reason: 'unknown_fallback_kind' };
   }
 
@@ -349,6 +353,19 @@ class DjangoClient {
         },
         'sendBaileysEvent failed - event was not persisted',
       );
+    }
+  }
+
+  async sendOutboundReceipt(sessionId, fields) {
+    const payload = { worker_session_id: sessionId, ...fields };
+    try {
+      await this.http.post('/api/internal/whatsapp/outbound-receipt/', payload);
+    } catch (err) {
+      this.logger.warn(
+        { sessionId, msgId: fields.provider_message_id, err: err.message },
+        'Outbound receipt persistence failed - falling back to local file',
+      );
+      this._writeFallback('outbound_receipt', payload);
     }
   }
 

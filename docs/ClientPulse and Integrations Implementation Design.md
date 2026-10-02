@@ -1,6 +1,6 @@
 # ClientPulse and Integrations Implementation Design
 
-> **Status:** Approved design; Phases 0-3 implemented through durable reminders and activity projection.
+> **Status:** Approved design; Phases 0-4 implemented through manual WhatsApp follow-up.
 > **Prepared:** 2026-10-01
 > **Purpose:** Define the concrete implementation of the ClientPulse CRM module and the Integrations module used to connect external contact providers such as Google Contacts.
 
@@ -42,6 +42,8 @@ Phase 1 adds the `clientpulse` and `integrations` module boundaries, enriches ca
 Phase 2 adds company-scoped ClientPulse profiles, ownership, lifecycle and priority, reusable tags, editable notes with append-only audit activities, contact consent, do-not-contact controls, linked identity visibility, server-paginated directory/profile APIs and UI, and safe company defaults.
 
 Phase 3 adds company-scoped durable reminders, recurrence, snoozing, in-app notifications, dashboard metrics, the `clientpulse` queue and per-company scheduler, and idempotent WhatsApp activity projection. Reminder delivery never creates an outbound customer message. Automated follow-up remains disabled.
+
+Phase 4 adds permission-scoped manual WhatsApp follow-up from a ClientPulse profile. It resolves only company-owned linked WhatsApp contacts, enforces CRM suppression and configured consent policy, performs live destination preflight, and delegates text or image messages to the existing outbound queue. Timeline entries reference the outbound ledger and expose its live queued, sent, delivered, read, blocked, or failed state. Baileys receipt callbacks advance delivery state monotonically and use the worker fallback journal when Django is unavailable.
 
 ---
 
@@ -802,6 +804,7 @@ GET        /api/clientpulse/clients/{id}/timeline/
 GET/POST   /api/clientpulse/clients/{id}/notes/
 GET/POST   /api/clientpulse/clients/{id}/reminders/
 POST       /api/clientpulse/clients/{id}/link-whatsapp-contact/
+POST       /api/clientpulse/clients/{id}/follow-up/
 POST       /api/clientpulse/clients/{id}/enroll-sequence/
 
 GET/POST   /api/clientpulse/reminders/
@@ -1554,6 +1557,8 @@ Exit criteria:
 - no reminder sends a customer message.
 
 ### Phase 4 - Manual customer contact
+
+**Implemented 2026-10-02.**
 
 - Add manual WhatsApp follow-up actions.
 - Use existing preflight and outbound queues.

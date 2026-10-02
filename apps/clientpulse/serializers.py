@@ -92,3 +92,20 @@ class ClientReminderInputSerializer(serializers.Serializer):
 
 class SnoozeInputSerializer(serializers.Serializer):
     snoozed_until = serializers.DateTimeField()
+
+
+class ManualFollowUpSerializer(serializers.Serializer):
+    whatsapp_contact_id = serializers.IntegerField()
+    text = serializers.CharField(required=False, allow_blank=True, max_length=10000)
+    asset_id = serializers.IntegerField(required=False, allow_null=True)
+    confirm_new_chat = serializers.BooleanField(required=False, default=False)
+    idempotency_key = serializers.CharField(max_length=255)
+
+    def validate(self, attrs):
+        text = attrs.get('text', '').strip()
+        attrs['text'] = text
+        if not text and not attrs.get('asset_id'):
+            raise serializers.ValidationError({'text': 'Enter text or select an image.'})
+        if attrs.get('asset_id') and len(text) > 1024:
+            raise serializers.ValidationError({'text': 'Image captions cannot exceed 1024 characters.'})
+        return attrs

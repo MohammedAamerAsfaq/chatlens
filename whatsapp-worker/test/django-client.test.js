@@ -101,6 +101,20 @@ test('metadata update failures are written to local fallback reports', async () 
   assert.equal(records[3].payload.cap.status, 'unavailable');
 });
 
+test('outbound receipt failures are retained for replay', async () => {
+  const { client, logsDir } = makeClient();
+  client.http.post = test.mock.fn(async () => { throw new Error('django unreachable'); });
+
+  await client.sendOutboundReceipt('session-1', {
+    provider_message_id: 'outbound-77', status: 'delivered',
+  });
+
+  const records = readFallbackRecords(logsDir);
+  assert.equal(records[0].kind, 'outbound_receipt');
+  assert.equal(records[0].payload.provider_message_id, 'outbound-77');
+  assert.equal(records[0].payload.status, 'delivered');
+});
+
 test('group reconciliation posts an authoritative group id snapshot', async () => {
   const { client } = makeClient();
   client.http.post = test.mock.fn(async () => ({

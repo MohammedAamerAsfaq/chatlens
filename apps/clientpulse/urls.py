@@ -5,6 +5,7 @@ from .api_engagement import (
     client_consents_view, client_note_detail_view, client_notes_view, client_timeline_view,
 )
 from .api_identities import client_identities_view, client_identity_detail_view
+from .api_follow_up import manual_follow_up_view
 from .api_dashboard import (
     clientpulse_dashboard_view, read_reminder_notification_view, reminder_notifications_view,
 )
@@ -19,6 +20,7 @@ urlpatterns = [
     path('clientpulse/clients/<int:profile_id>/', client_detail_view, name='clientpulse-client-detail'),
     path('clientpulse/clients/<int:profile_id>/archive/', archive_client_view, name='clientpulse-client-archive'),
     path('clientpulse/clients/<int:profile_id>/timeline/', client_timeline_view, name='clientpulse-client-timeline'),
+    path('clientpulse/clients/<int:profile_id>/follow-up/', manual_follow_up_view, name='clientpulse-manual-follow-up'),
     path('clientpulse/clients/<int:profile_id>/notes/', client_notes_view, name='clientpulse-client-notes'),
     path('clientpulse/clients/<int:profile_id>/consents/', client_consents_view, name='clientpulse-client-consents'),
     path('clientpulse/clients/<int:profile_id>/identities/', client_identities_view, name='clientpulse-client-identities'),

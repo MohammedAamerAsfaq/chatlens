@@ -70,6 +70,11 @@ urlpatterns = [
         name='internal-baileys-event',
     ),
     path(
+        'api/internal/whatsapp/outbound-receipt/',
+        views.internal_outbound_receipt,
+        name='internal-outbound-receipt',
+    ),
+    path(
         'api/internal/whatsapp/worker-alert/',
         views.internal_worker_alert,
         name='internal-worker-alert',

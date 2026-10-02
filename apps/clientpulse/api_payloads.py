@@ -54,8 +54,14 @@ def profile_payload(profile, *, detail=False):
                 'id': item.pk,
                 'display_name': item.display_name,
                 'phone_number': item.phone_number,
+                'wa_contact_id': item.wa_contact_id,
+                'is_existing_chat': item.is_existing_chat,
                 'account_id': item.account_id,
                 'account_name': item.account.display_name,
+                'session_status': item.account.session_status,
+                'sending_enabled': item.account.outbound_sending_enabled,
+                'direct_sending_enabled': item.account.direct_sending_enabled,
+                'image_sending_enabled': item.account.image_sending_enabled,
             } for item in contact.whatsapp_contacts.select_related('account')],
         })
     return data
@@ -69,11 +75,23 @@ def note_payload(note):
     }
 
 
-def activity_payload(activity):
-    return {
+def activity_payload(activity, outbound=None):
+    data = {
         'id': activity.pk, 'activity_type': activity.activity_type,
         'occurred_at': activity.occurred_at, 'title': activity.title,
         'summary': activity.summary, 'channel': activity.channel,
         'direction': activity.direction, 'metadata': activity.metadata,
         'created_by': user_payload(activity.created_by),
     }
+    if outbound:
+        data['outbound'] = {
+            'id': outbound.pk, 'status': outbound.status,
+            'status_reason': outbound.status_reason,
+            'content_type': outbound.content_type,
+            'account_name': outbound.whatsapp_account.display_name or outbound.whatsapp_account.phone_number,
+            'requested_at': outbound.requested_at,
+            'provider_accepted_at': outbound.provider_accepted_at,
+            'delivered_at': outbound.delivered_at,
+            'read_at': outbound.read_at,
+        }
+    return data

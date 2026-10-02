@@ -18,8 +18,21 @@ def client_timeline_view(request, profile_id):
     profile = profile_or_none(request, profile_id)
     if not profile:
         return Response({'detail': 'Client not found.'}, status=404)
-    rows = profile.activities.select_related('created_by')[:100]
-    return Response([activity_payload(row) for row in rows])
+    rows = list(profile.activities.select_related('created_by')[:100])
+    outbound_ids = [
+        int(row.source_id) for row in rows
+        if row.source_model == 'outbound_message' and row.source_id.isdigit()
+    ]
+    from apps.whatsapp_bridge.models import OutboundMessage
+    outbound = {
+        item.pk: item for item in OutboundMessage.objects.select_related('whatsapp_account').filter(
+            company=profile.company, pk__in=outbound_ids,
+        )
+    }
+    return Response([
+        activity_payload(row, outbound.get(int(row.source_id)) if row.source_id.isdigit() else None)
+        for row in rows
+    ])
 
 
 @api_view(['GET', 'POST'])

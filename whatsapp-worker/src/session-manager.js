@@ -17,6 +17,7 @@ const {
 } = require('./outbound/capacity-telemetry');
 const { OutboundMessageSender } = require('./outbound/message-sender');
 const { fetchGroupMetadata, fetchParticipatingGroups } = require('./outbound/group-metadata');
+const { normalizeReceiptStatus } = require('./outbound/receipt-status');
 
 const SESSION_STATUS = {
   STARTING:      'starting',
@@ -947,6 +948,18 @@ class SessionManager {
 
     sock.ev.on('message-capping.update', async (update) => {
       await this.djangoClient.sendAccountCapacity(sessionId, capEvent(update));
+    });
+
+    sock.ev.on('messages.update', async (updates) => {
+      for (const item of updates || []) {
+        if (!item?.key?.fromMe || !item.key.id) continue;
+        const status = normalizeReceiptStatus(item.update?.status)
+        if (!status) continue;
+        await this.djangoClient.sendOutboundReceipt(sessionId, {
+          provider_message_id: item.key.id,
+          status,
+        });
+      }
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {

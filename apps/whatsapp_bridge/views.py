@@ -753,6 +753,28 @@ def internal_baileys_event(request):
 
 @csrf_exempt
 @require_POST
+def internal_outbound_receipt(request):
+    if not _verify_internal_token(request):
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+    try:
+        payload = json.loads(request.body)
+        account_id = int(payload.get('worker_session_id'))
+        provider_message_id = str(payload.get('provider_message_id') or '').strip()
+        receipt_status = str(payload.get('status') or '').strip().lower()
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return JsonResponse({'error': 'Invalid receipt payload'}, status=400)
+    if not provider_message_id:
+        return JsonResponse({'error': 'provider_message_id is required'}, status=400)
+    from apps.whatsapp_bridge.outbound.receipts import apply_outbound_receipt
+    try:
+        result = apply_outbound_receipt(account_id, provider_message_id, receipt_status)
+    except ValueError as exc:
+        return JsonResponse({'error': str(exc)}, status=400)
+    return JsonResponse(result)
+
+
+@csrf_exempt
+@require_POST
 def internal_worker_alert(request):
     """
     Root-cause fix for silent worker-side failures (decrypt errors, handshake
