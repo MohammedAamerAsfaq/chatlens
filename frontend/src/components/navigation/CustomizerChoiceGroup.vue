@@ -8,11 +8,7 @@ defineProps({
   busy: Boolean,
 })
 defineEmits(['select'])
-const previewModules = import.meta.glob('../../assets/inspinia-previews/*.png', {
-  eager: true,
-  query: '?url',
-  import: 'default',
-})
+const previewBase = `${import.meta.env.BASE_URL}inspinia-previews/`
 const previewPrefixes = {
   skin: 'skin',
   color_scheme: 'theme',
@@ -30,8 +26,7 @@ function previewUrl(setting, value) {
   const prefix = previewPrefixes[setting]
   if (!prefix) return ''
   const filename = `${prefix}-${String(value).replaceAll('_', '-')}.png`
-  const path = Object.keys(previewModules).find(item => item.endsWith(`/${filename}`))
-  return path ? previewModules[path] : ''
+  return `${previewBase}${filename}`
 }
 </script>
 

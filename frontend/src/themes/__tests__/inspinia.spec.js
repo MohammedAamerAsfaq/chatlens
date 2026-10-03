@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { mount } from '@vue/test-utils'
+import CustomizerChoiceGroup from '@/components/navigation/CustomizerChoiceGroup.vue'
 import { DEFAULT_INSPINIA_CONFIG, inspiniaClasses, normalizeInspiniaConfig } from '../inspinia.js'
 
 describe('Inspinia configuration', () => {
@@ -17,5 +19,12 @@ describe('Inspinia configuration', () => {
     })
     expect(classes).toContain('sidenav-size-on-hover')
     expect(classes).toContainEqual({ 'sidebar-user-hidden': true })
+  })
+
+  it('uses stable public URLs for customizer previews', () => {
+    const wrapper = mount(CustomizerChoiceGroup, {
+      props: { title: 'Select Skin', setting: 'skin', values: ['galaxy'], selected: 'galaxy' },
+    })
+    expect(wrapper.get('img').attributes('src')).toBe('/inspinia-previews/skin-galaxy.png')
   })
 })
