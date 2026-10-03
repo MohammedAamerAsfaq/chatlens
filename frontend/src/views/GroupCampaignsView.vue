@@ -1,10 +1,16 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { accountsApi, groupsApi, outboundAssetsApi, tradingApi } from '@/api'
-import CampaignAttachmentPanel from '@/components/CampaignAttachmentPanel.vue'
-
-const MAX_CAPTION_LENGTH = 1024
-const MAX_TEXT_LENGTH = 10000
+import {
+  CampaignAttachmentPanel,
+  CampaignMessagePreview,
+  CampaignModeSelector,
+  MAX_CAPTION_LENGTH,
+  MAX_TEXT_LENGTH,
+  campaignCharacterCount,
+  campaignImageError,
+  campaignMessageLimit,
+} from '@/features/campaigns'
 
 const props = defineProps({ kind: { type: String, required: true } })
 const isBuying = computed(() => props.kind === 'buying')
@@ -279,19 +285,20 @@ function attachmentMessage(campaign) {
 }
 
 function messageLimit(campaign) {
-  return campaignImages[campaign.id] || campaign.image_asset ? MAX_CAPTION_LENGTH : MAX_TEXT_LENGTH
+  return campaignMessageLimit(Boolean(campaignImages[campaign.id] || campaign.image_asset))
 }
 
 function messageTooLong(campaign) {
-  return [...message(campaign)].length > messageLimit(campaign)
+  return campaignCharacterCount(message(campaign)) > messageLimit(campaign)
 }
 
 async function selectCampaignImage(campaign, event) {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (!file) return
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) {
-    error.value = 'Select a JPEG, PNG, or WebP image no larger than 10 MB.'
+  const validationError = campaignImageError(file)
+  if (validationError) {
+    error.value = validationError
     return
   }
   busy.value = `image-${campaign.id}`
@@ -391,10 +398,7 @@ onMounted(async () => {
     <div v-if="error" class="error">{{ error }}</div>
     <section class="panel composer">
       <label>Name<input v-model="draft.name" placeholder="Campaign name" /></label>
-      <div class="mode-picker">
-        <button :class="{ active: draft.messageMode === 'formatted' }" @click="draft.messageMode = 'formatted'"><strong>Preformatted Products</strong><span>Build the message from selected inventory and templates.</span></button>
-        <button :class="{ active: draft.messageMode === 'direct' }" @click="draft.messageMode = 'direct'"><strong>Direct Message</strong><span>Write one message to send to every selected group.</span></button>
-      </div>
+      <CampaignModeSelector v-model="draft.messageMode" formatted-description="Build the message from selected inventory and templates." direct-description="Write one message to send to every selected group." />
       <template v-if="draft.messageMode === 'formatted'">
         <label>Product search<div class="inline"><input v-model="draft.productSearch" @keydown.enter.prevent="searchProducts" /><button @click="searchProducts">Search</button></div></label>
         <div v-if="productOptions.length" class="options"><button v-for="row in productOptions" :key="row.id" @click="addProduct(row)"><strong>{{ row.brand }} {{ row.name }}</strong><span>Qty {{ row.qty }}</span></button></div>
@@ -413,17 +417,14 @@ onMounted(async () => {
           <div class="edit-toolbar"><button v-if="editingId !== campaign.id" @click="startEdit(campaign)">Edit {{ isBuying ? 'Inquiry' : 'Offer' }}</button><template v-else><button class="primary" :disabled="busy === `save-${campaign.id}`" @click="saveEdit(campaign)">{{ busy === `save-${campaign.id}` ? 'Saving...' : 'Save Changes' }}</button><button @click="cancelEdit">Cancel</button></template></div>
           <div v-if="editingId === campaign.id" class="edit-panel">
             <label>Name<input v-model="editDraft.name" /></label>
-            <div class="mode-picker">
-              <button :class="{ active: editDraft.messageMode === 'formatted' }" @click="editDraft.messageMode = 'formatted'"><strong>Preformatted Products</strong><span>Use products and templates.</span></button>
-              <button :class="{ active: editDraft.messageMode === 'direct' }" @click="editDraft.messageMode = 'direct'"><strong>Direct Message</strong><span>Use one campaign message.</span></button>
-            </div>
+            <CampaignModeSelector v-model="editDraft.messageMode" formatted-description="Use products and templates." direct-description="Use one campaign message." />
             <template v-if="editDraft.messageMode === 'formatted'">
               <div class="templates"><label>Header<textarea v-model="editDraft.header" rows="2" /></label><label>Product line<textarea v-model="editDraft.line" rows="2" /></label><label>Footer<textarea v-model="editDraft.footer" rows="2" /></label></div>
               <div class="edit-products"><h3>Products</h3><div class="inline"><input v-model="editDraft.productSearch" placeholder="Search product to add..." @keydown.enter.prevent="searchEditProducts(campaign)" /><button @click="searchEditProducts(campaign)">Search</button></div><div v-if="editProductOptions.length" class="options"><button v-for="product in editProductOptions" :key="product.id" @click="addEditProduct(campaign, product)"><strong>{{ product.brand }} {{ product.name }}</strong><span>Qty {{ product.qty }}</span></button></div><div class="edit-product-list"><div v-for="row in campaign.products" :key="row.id"><span>{{ row.product_name }}</span><button class="danger" :disabled="busy === `remove-product-${campaign.id}-${row.product}`" @click="removeEditProduct(campaign, row)">Remove</button></div></div></div>
             </template>
             <label v-else>Direct message<textarea v-model="editDraft.directMessage" rows="6" /></label>
           </div>
-          <div v-else class="preview"><h3>Message preview</h3><pre>{{ message(campaign) }}</pre></div>
+          <CampaignMessagePreview v-else title="Message preview" :message="message(campaign)" />
           <CampaignAttachmentPanel
             class="attachment"
             :file="campaignImages[campaign.id]"
@@ -450,4 +451,23 @@ onMounted(async () => {
 .mode-picker{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:16px 0}.mode-picker button{padding:14px;text-align:left}.mode-picker button.active{border-color:#168447;background:#edf8f1;box-shadow:inset 0 0 0 1px #168447}.mode-picker strong,.mode-picker span{display:block}.mode-picker span{margin-top:4px;color:#64748b;font-size:.78rem}@media(max-width:800px){.mode-picker{grid-template-columns:1fr}}
 .account-filter{margin:12px 0;padding:12px;border:1px solid #dfe7e2;border-radius:12px;background:#fff}.account-filter-head{display:flex;align-items:center;justify-content:space-between}.account-filter-head button{padding:5px 9px}.account-options{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}.account-options label{display:grid;grid-template-columns:auto 1fr;column-gap:7px;align-items:center;padding:8px 10px;border:1px solid #dfe7e2;border-radius:9px;text-transform:none;cursor:pointer}.account-options label:has(input:checked){border-color:#168447;background:#edf8f1}.account-options input{grid-row:1/3;margin:0}.account-options small{font-weight:400}
 .attachment{grid-column:1/-1}
+.campaign-page{padding:var(--ui-page-padding);background:radial-gradient(circle at top right,var(--ui-primary-soft),transparent 32%),var(--ui-bg);color:var(--ui-text);font-family:var(--ui-font-sans)}
+.eyebrow,.press-count.sent,.send-feedback.queued{color:var(--ui-success)}
+h1{color:var(--ui-text-strong);font-family:var(--ui-font-display)}
+header p,.section-head p,.options span,.recipient span,small,.press-count,.mode-picker span{color:var(--ui-text-muted)}
+.panel,.edit-panel,.account-filter,button{background:var(--ui-surface);color:var(--ui-text);border-color:var(--ui-border)}
+.panel{border-radius:var(--ui-radius-lg);box-shadow:var(--ui-shadow-card)}
+label{color:var(--ui-text-muted)}
+input,textarea{border-color:var(--ui-border-strong);border-radius:var(--ui-radius-sm);background:var(--ui-surface);color:var(--ui-text)}
+input:focus,textarea:focus{border-color:var(--ui-primary);outline:0;box-shadow:var(--ui-focus-ring)}
+.primary,.send{background:var(--ui-primary);color:var(--ui-on-primary);border-color:var(--ui-primary)}
+.primary:hover,.send:hover{background:var(--ui-primary-hover)}
+.tokens span,.mode-picker button.active,.account-options label:has(input:checked){background:var(--ui-primary-soft);border-color:var(--ui-primary)}
+.campaign,.edit-product-list>div,.recipient,.account-filter,.account-options label{border-color:var(--ui-border)}
+.details,.preview pre{background:var(--ui-surface-muted)}
+.send-feedback.checking,.send-feedback.queueing{color:var(--ui-warning)}
+.send-feedback.failed,.danger{color:var(--ui-danger)}
+.danger{border-color:color-mix(in srgb,var(--ui-danger) 30%,var(--ui-border))}
+.error{background:var(--ui-danger-soft);color:var(--ui-danger)}
+.empty{color:var(--ui-text-subtle)}
 </style>

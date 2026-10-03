@@ -13,6 +13,7 @@ from .models import (
     PermissionDefinition,
     AuthorizationAuditEvent,
     ConnectionProvider,
+    UserCompanyPreference,
 )
 
 
@@ -28,6 +29,13 @@ class CompanyMembershipAdmin(admin.ModelAdmin):
     list_display = ('company', 'user', 'role', 'is_active', 'joined_at')
     search_fields = ('company__name', 'user__username', 'user__email')
     list_filter = ('role', 'is_active')
+
+
+@admin.register(UserCompanyPreference)
+class UserCompanyPreferenceAdmin(admin.ModelAdmin):
+    list_display = ('user', 'company', 'ui_theme', 'updated_at')
+    search_fields = ('user__username', 'company__name')
+    list_filter = ('ui_theme',)
 
 
 @admin.register(PermissionDefinition)

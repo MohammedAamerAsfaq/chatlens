@@ -2,6 +2,13 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { tenantAdminApi } from '@/api'
 import { useAuthStore } from '@/stores/auth.js'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiCard from '@/components/ui/UiCard.vue'
+import UiEmptyState from '@/components/ui/UiEmptyState.vue'
+import UiNotice from '@/components/ui/UiNotice.vue'
+import UiPage from '@/components/ui/UiPage.vue'
+import UiPageHeader from '@/components/ui/UiPageHeader.vue'
+import UiTableFrame from '@/components/ui/UiTableFrame.vue'
 
 const auth = useAuthStore()
 
@@ -243,28 +250,21 @@ async function removeMembership(membership) {
 </script>
 
 <template>
-  <div class="tenant-admin-view">
-    <div class="header">
-      <div>
-        <h1>Tenant Admin</h1>
-        <p>Enroll companies and create company users from the control workspace.</p>
-      </div>
-    </div>
+  <UiPage width="full" class="tenant-admin-view">
+    <UiPageHeader eyebrow="Control workspace" title="Tenant Admin" description="Enroll companies and create company users from the control workspace." />
 
-    <div v-if="!auth.canManageTenants" class="locked-card">
+    <UiCard v-if="!auth.canManageTenants" class="locked-card">
       <h2>Control workspace required</h2>
       <p>Switch to the control company workspace with an admin or super user role to manage companies and users.</p>
-    </div>
+    </UiCard>
 
     <template v-else>
-      <div v-if="error" class="message error">{{ error }}</div>
-      <div v-if="companySuccess" class="message success">{{ companySuccess }}</div>
-      <div v-if="userSuccess" class="message success">{{ userSuccess }}</div>
+      <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
+      <UiNotice v-if="companySuccess" tone="success">{{ companySuccess }}</UiNotice>
+      <UiNotice v-if="userSuccess" tone="success">{{ userSuccess }}</UiNotice>
 
       <div class="grid">
-        <section class="card">
-          <h2>Enroll Company</h2>
-          <p class="card-copy">Creates a company and its initial super user.</p>
+        <UiCard title="Enroll Company" subtitle="Creates a company and its initial super user.">
           <form class="form" @submit.prevent="submitCompany">
             <label>
               <span>Company name</span>
@@ -294,15 +294,13 @@ async function removeMembership(membership) {
               <input v-model="companyForm.password" type="password" required />
               <small v-if="companyFieldErrors.password" class="field-error">{{ companyFieldErrors.password }}</small>
             </label>
-            <button class="btn-primary" :disabled="savingCompany">
+            <UiButton variant="primary" type="submit" :disabled="savingCompany">
               {{ savingCompany ? 'Creating…' : 'Create Company' }}
-            </button>
+            </UiButton>
           </form>
-        </section>
+        </UiCard>
 
-        <section class="card">
-          <h2>Create Company User</h2>
-          <p class="card-copy">Adds a new user directly into an existing company.</p>
+        <UiCard title="Create Company User" subtitle="Adds a new user directly into an existing company.">
           <div v-if="!manageableCompanies.length" class="inline-empty-state">
             No customer companies exist yet. Create a company on the left first, then you can add more users here.
           </div>
@@ -342,22 +340,17 @@ async function removeMembership(membership) {
               <input v-model="userForm.password" type="password" required />
               <small v-if="userFieldErrors.password" class="field-error">{{ userFieldErrors.password }}</small>
             </label>
-            <button class="btn-primary" :disabled="savingUser || !manageableCompanies.length">
+            <UiButton variant="primary" type="submit" :disabled="savingUser || !manageableCompanies.length">
               {{ savingUser ? 'Creating…' : 'Create User' }}
-            </button>
+            </UiButton>
           </form>
-        </section>
+        </UiCard>
       </div>
 
       <div class="grid lower">
-        <section class="card">
-          <div class="section-head">
-            <h2>Companies</h2>
-            <span>{{ companies.length }} total</span>
-          </div>
-          <div v-if="loading" class="empty">Loading…</div>
-          <div v-else class="table-scroll">
-            <table class="table">
+        <UiCard title="Companies" :subtitle="`${companies.length} total`">
+          <UiEmptyState v-if="loading" title="Loading companies..." busy />
+          <UiTableFrame v-else compact class="table-scroll">
               <thead>
                 <tr>
                   <th>Name</th>
@@ -441,26 +434,21 @@ async function removeMembership(membership) {
                     </label>
                   </td>
                   <td>
-                    <button
+                    <UiButton
                       v-if="company.company_type !== 'control'"
-                      class="btn-danger"
+                      variant="danger"
+                      size="small"
                       @click="deleteCompany(company)"
-                    >Delete</button>
+                    >Delete</UiButton>
                   </td>
                 </tr>
               </tbody>
-            </table>
-          </div>
-        </section>
+          </UiTableFrame>
+        </UiCard>
 
-        <section class="card">
-          <div class="section-head">
-            <h2>Company Users</h2>
-            <span>{{ memberships.length }} memberships</span>
-          </div>
-          <div v-if="loading" class="empty">Loading…</div>
-          <div v-else class="table-scroll">
-            <table class="table">
+        <UiCard title="Company Users" :subtitle="`${memberships.length} memberships`">
+          <UiEmptyState v-if="loading" title="Loading company users..." busy />
+          <UiTableFrame v-else compact class="table-scroll">
               <thead>
                 <tr>
                   <th>User</th>
@@ -499,15 +487,14 @@ async function removeMembership(membership) {
                       {{ membership.is_active ? 'Active' : 'Inactive' }}
                     </label>
                   </td>
-                  <td><button class="btn-danger" @click="removeMembership(membership)">Remove</button></td>
+                  <td><UiButton variant="danger" size="small" @click="removeMembership(membership)">Remove</UiButton></td>
                 </tr>
               </tbody>
-            </table>
-          </div>
-        </section>
+          </UiTableFrame>
+        </UiCard>
       </div>
     </template>
-  </div>
+  </UiPage>
 </template>
 
 <style scoped>
@@ -605,4 +592,10 @@ async function removeMembership(membership) {
 @media (max-width: 960px) {
   .grid { grid-template-columns: 1fr; }
 }
+:global(.theme-inspinia) .form input,
+:global(.theme-inspinia) .form select,
+:global(.theme-inspinia) .inline-select,
+:global(.theme-inspinia) .inline-input,
+:global(.theme-inspinia) .validity-controls input[type='date'] { border-radius: 4px; }
+:global(.theme-inspinia) .inline-empty-state { border-radius: 4px; }
 </style>

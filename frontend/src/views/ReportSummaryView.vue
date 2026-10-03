@@ -265,4 +265,23 @@ onUnmounted(() => clearInterval(pollTimer))
 .tile-delta.delta-down { color: #dc2626; }
 .tile-delta.delta-flat { color: #9ca3af; }
 .range-note { margin-top: 16px; font-size: 0.8rem; color: #9ca3af; }
+
+/* Semantic theme bridge. */
+.report-view { background: var(--ui-bg); color: var(--ui-text); font-family: var(--ui-font-sans); }
+.report-header { background: var(--ui-surface); border-color: var(--ui-border); }
+.header-left h2, .tile-value { color: var(--ui-text-strong); }
+.last-update, .range-sep, .tile-label, .range-note { color: var(--ui-text-muted); }
+.header-right input, .account-select {
+  background: var(--ui-surface); color: var(--ui-text); border-color: var(--ui-border-strong);
+}
+.header-right input:focus, .account-select:focus {
+  border-color: var(--ui-primary); box-shadow: var(--ui-focus-ring); outline: 0;
+}
+.btn-ghost { background: var(--ui-surface); color: var(--ui-text); border-color: var(--ui-border-strong); }
+.btn-ghost:hover { color: var(--ui-primary); border-color: var(--ui-primary); }
+.section-title { color: var(--ui-text-strong); }
+.tile { background: var(--ui-surface); border-color: var(--ui-border); border-radius: var(--ui-radius-md); box-shadow: var(--ui-shadow-sm); }
+.tile-delta.delta-up { color: var(--ui-success); }
+.tile-delta.delta-down { color: var(--ui-danger); }
+.tile-delta.delta-flat { color: var(--ui-text-subtle); }
 </style>

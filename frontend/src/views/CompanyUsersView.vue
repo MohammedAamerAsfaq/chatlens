@@ -1,6 +1,14 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { companyAccessApi } from '@/api'
+import UiBadge from '@/components/ui/UiBadge.vue'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiCard from '@/components/ui/UiCard.vue'
+import UiEmptyState from '@/components/ui/UiEmptyState.vue'
+import UiFormField from '@/components/ui/UiFormField.vue'
+import UiNotice from '@/components/ui/UiNotice.vue'
+import UiPage from '@/components/ui/UiPage.vue'
+import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 
 const users = ref([])
 const roles = ref([])
@@ -82,36 +90,35 @@ onMounted(load)
 </script>
 
 <template>
-  <main class="access-page">
-    <header><p class="eyebrow">Company access</p><h1>Users</h1><p>Create company users, assign multiple roles, and suspend access without deleting business records.</p></header>
-    <p class="rollout">RBAC is active for user and role administration. Existing application areas will move from legacy role checks to permission codes route by route.</p>
-    <p v-if="error" class="notice error">{{ error }}</p><p v-if="success" class="notice success">{{ success }}</p>
+  <UiPage width="wide">
+    <UiPageHeader eyebrow="Company access" title="Users" description="Create company users, assign multiple roles, and suspend access without deleting business records." />
+    <UiNotice tone="warning">RBAC is active for user and role administration. Existing application areas will move from legacy role checks to permission codes route by route.</UiNotice>
+    <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
+    <UiNotice v-if="success" tone="success">{{ success }}</UiNotice>
 
-    <section class="panel create-panel">
-      <div><h2>Add user</h2><p>A temporary password is required in this implementation phase.</p></div>
-      <form @submit.prevent="createUser">
-        <label>Username<input v-model.trim="form.username" required /></label>
-        <label>Email<input v-model.trim="form.email" type="email" required /></label>
-        <label>Temporary password<input v-model="form.password" type="password" required /></label>
-        <label>Initial role<select v-model="form.role_ids" multiple required><option v-for="role in roles" :key="role.id" :value="role.id">{{ role.name }}</option></select></label>
-        <button class="primary" :disabled="busy === 'create'">{{ busy === 'create' ? 'Creating...' : 'Create user' }}</button>
+    <UiCard title="Add user" subtitle="A temporary password is required in this implementation phase." class="create-card">
+      <form class="create-form" @submit.prevent="createUser">
+        <UiFormField label="Username"><input v-model.trim="form.username" required /></UiFormField>
+        <UiFormField label="Email"><input v-model.trim="form.email" type="email" required /></UiFormField>
+        <UiFormField label="Temporary password"><input v-model="form.password" type="password" required /></UiFormField>
+        <UiFormField label="Initial role"><select v-model="form.role_ids" multiple required><option v-for="role in roles" :key="role.id" :value="role.id">{{ role.name }}</option></select></UiFormField>
+        <UiButton variant="primary" type="submit" :disabled="busy === 'create'">{{ busy === 'create' ? 'Creating...' : 'Create user' }}</UiButton>
       </form>
-    </section>
+    </UiCard>
 
-    <section class="panel">
-      <div class="panel-title"><div><h2>Company users</h2><p>{{ users.length }} memberships in this company</p></div><button @click="load">Refresh</button></div>
-      <p v-if="loading" class="empty">Loading users...</p>
+    <UiCard title="Company users" :subtitle="`${users.length} memberships in this company`" class="users-card">
+      <template #actions><UiButton size="small" @click="load">Refresh</UiButton></template>
+      <UiEmptyState v-if="loading" title="Loading users..." busy />
+      <UiEmptyState v-else-if="users.length === 0" title="No company users" description="Create the first company user above." />
       <div v-else class="user-grid">
         <article v-for="user in users" :key="user.id" :class="['user-card', { inactive: !user.is_active }]">
-          <div class="identity"><div class="avatar">{{ user.user.username.slice(0, 1).toUpperCase() }}</div><div><h3>{{ user.user.username }}</h3><p>{{ user.user.email }}</p></div><span :class="user.is_active ? 'active' : 'suspended'">{{ user.is_active ? 'Active' : 'Suspended' }}</span></div>
+          <div class="identity"><div class="avatar">{{ user.user.username.slice(0, 1).toUpperCase() }}</div><div><h3>{{ user.user.username }}</h3><p>{{ user.user.email }}</p></div><UiBadge :tone="user.is_active ? 'success' : 'neutral'">{{ user.is_active ? 'Active' : 'Suspended' }}</UiBadge></div>
           <div class="roles"><strong>Roles</strong><label v-for="role in roles" :key="role.id"><input type="checkbox" :checked="(roleDrafts[user.id] || []).includes(role.id)" @change="toggleRole(user.id, role.id)" />{{ role.name }}</label></div>
-          <div class="actions"><button class="primary" :disabled="busy === `save-${user.id}` || !(roleDrafts[user.id] || []).length" @click="saveUser(user)">Save roles</button><button v-if="user.is_active" class="danger" :disabled="busy === `active-${user.id}`" @click="setActive(user, false)">Suspend</button><button v-else :disabled="busy === `active-${user.id}`" @click="setActive(user, true)">Reactivate</button></div>
+          <div class="actions"><UiButton variant="primary" size="small" :disabled="busy === `save-${user.id}` || !(roleDrafts[user.id] || []).length" @click="saveUser(user)">Save roles</UiButton><UiButton v-if="user.is_active" variant="danger" size="small" :disabled="busy === `active-${user.id}`" @click="setActive(user, false)">Suspend</UiButton><UiButton v-else size="small" :disabled="busy === `active-${user.id}`" @click="setActive(user, true)">Reactivate</UiButton></div>
         </article>
       </div>
-    </section>
-  </main>
+    </UiCard>
+  </UiPage>
 </template>
 
-<style scoped>
-.access-page{height:100%;overflow-y:auto;padding:28px;background:radial-gradient(circle at 90% 0,#dff7e9,transparent 34%),#f7f9f7;color:#172033}.access-page>header,.panel,.notice,.rollout{max-width:1400px;margin-left:auto;margin-right:auto}.eyebrow{margin:0;color:#167446;text-transform:uppercase;letter-spacing:.16em;font-size:.72rem;font-weight:800}h1{font:700 2.4rem Georgia,serif;margin:5px 0}header>p:last-child,.panel p{color:#667085}.rollout,.notice{padding:12px 15px;border-radius:11px;margin-top:16px}.rollout{background:#fff7d6;color:#795d08;border:1px solid #eadb99}.notice.error{background:#fff0ee;color:#b42318}.notice.success{background:#eaf8ef;color:#14753f}.panel{margin-top:18px;background:#fff;border:1px solid #dfe8e2;border-radius:17px;padding:20px;box-shadow:0 14px 35px #1535250d}.create-panel{display:grid;grid-template-columns:240px 1fr;gap:22px}.create-panel form{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr)) auto;gap:12px;align-items:end}label{display:grid;gap:6px;font-size:.76rem;font-weight:800;color:#52625a}input,select,button{font:inherit;border:1px solid #cfddd4;border-radius:9px;padding:9px 11px;background:#fff}select[multiple]{min-height:78px}button{cursor:pointer;font-weight:750}.primary{background:#157a46;color:#fff;border-color:#157a46}.danger{color:#b42318;border-color:#f1c2bd}.panel-title,.identity,.actions{display:flex;align-items:center;justify-content:space-between;gap:12px}.panel-title h2,.identity h3,.identity p{margin:0}.user-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px;margin-top:16px}.user-card{border:1px solid #dfe8e2;border-radius:13px;padding:15px}.user-card.inactive{opacity:.68}.avatar{display:grid;place-items:center;width:42px;height:42px;border-radius:50%;background:#dff4e8;color:#126c3e;font-weight:900}.identity>span{margin-left:auto;padding:5px 9px;border-radius:20px;font-size:.7rem;font-weight:850}.active{background:#dcf7e5;color:#11723d}.suspended{background:#f2f4f7;color:#667085}.roles{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}.roles>strong{width:100%}.roles label{display:flex;align-items:center;gap:5px;background:#f4f8f5;padding:6px 9px;border-radius:8px}.actions{justify-content:flex-end}.empty{padding:30px;text-align:center}@media(max-width:900px){.access-page{padding:16px}.create-panel{grid-template-columns:1fr}.create-panel form{grid-template-columns:1fr}.user-grid{grid-template-columns:1fr}}
-</style>
+<style scoped src="@/assets/company-users-view.css"></style>

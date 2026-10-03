@@ -1,6 +1,8 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { authApi } from '../api/index.js'
+import { DEFAULT_THEME, normalizeTheme } from '../themes/registry.js'
+import { normalizeInspiniaConfig } from '../themes/inspinia.js'
 
 export const useAuthStore = defineStore('auth', () => {
   const user  = ref(null)
@@ -9,6 +11,10 @@ export const useAuthStore = defineStore('auth', () => {
   const currentRole = computed(() => currentCompany.value?.role ?? '')
   const memberships = computed(() => user.value?.memberships ?? [])
   const permissions = computed(() => user.value?.permissions ?? {})
+  const uiTheme = computed(() => normalizeTheme(user.value?.preferences?.ui_theme || DEFAULT_THEME))
+  const availableThemes = computed(() => user.value?.preferences?.available_themes ?? [])
+  const inspiniaConfig = computed(() => normalizeInspiniaConfig(user.value?.preferences?.inspinia_config))
+  const inspiniaOptions = computed(() => user.value?.preferences?.inspinia_options ?? {})
   const hasMultipleMemberships = computed(() => memberships.value.length > 1)
   const canManageTenants = computed(() => {
     const company = currentCompany.value
@@ -43,6 +49,16 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = data
   }
 
+  async function updateUiTheme(uiTheme) {
+    const { data } = await authApi.updatePreferences({ ui_theme: normalizeTheme(uiTheme) })
+    user.value = data
+  }
+
+  async function updateInspiniaConfig(inspiniaConfig) {
+    const { data } = await authApi.updatePreferences({ inspinia_config: inspiniaConfig })
+    user.value = data
+  }
+
   async function logout() {
     try { await authApi.logout() } catch { /* ignore */ }
     user.value = null
@@ -55,6 +71,10 @@ export const useAuthStore = defineStore('auth', () => {
     currentRole,
     memberships,
     permissions,
+    uiTheme,
+    availableThemes,
+    inspiniaConfig,
+    inspiniaOptions,
     hasMultipleMemberships,
     canManageTenants,
     hasPermission,
@@ -63,6 +83,8 @@ export const useAuthStore = defineStore('auth', () => {
     login,
     selectCompany,
     updateCurrentCompanySettings,
+    updateUiTheme,
+    updateInspiniaConfig,
     logout,
   }
 })

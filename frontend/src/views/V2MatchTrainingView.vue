@@ -325,6 +325,27 @@ const thresholdLines = computed(() => {
 .stats-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
 .stats-table th { text-align: left; padding: 8px 10px; color: #898781; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid #e1e0d9; }
 .stats-table td { padding: 8px 10px; border-bottom: 1px solid #f0efec; }
+
+/* Semantic theme bridge. Chart series retain stable analytical colors. */
+.training-page{background:var(--ui-bg);color:var(--ui-text);font-family:var(--ui-font-sans)}
+.page-header h1,.line-value,.stats-head h2,.candidate-main strong{color:var(--ui-text-strong)}
+.page-header p,.muted,.legend-item{color:var(--ui-text-muted)}
+.pool-tab{border-color:var(--ui-border-strong);background:var(--ui-surface);color:var(--ui-text-muted)}
+.pool-tab:hover{border-color:var(--ui-primary);color:var(--ui-primary)}
+.pool-tab.active{background:var(--ui-primary);border-color:var(--ui-primary);color:var(--ui-on-primary)}
+.alert.error{background:var(--ui-danger-soft);color:var(--ui-danger);border-color:var(--ui-danger)}
+.review-card,.stats-card{background:var(--ui-surface);border-color:var(--ui-border);border-radius:var(--ui-radius-md);box-shadow:var(--ui-shadow-sm)}
+.empty{color:var(--ui-text-subtle)}
+.message-box{background:var(--ui-surface-muted);border-color:var(--ui-border)}
+.message-label,.line-label,.stats-table th{color:var(--ui-text-muted)}
+.ai-correct-btn{border-color:var(--ui-info);background:var(--ui-info-soft);color:var(--ui-info)}
+.candidate-row{background:var(--ui-surface);border-color:var(--ui-border)}
+.candidate-row:hover{border-color:var(--ui-primary);box-shadow:var(--ui-shadow-sm)}
+.rank,.stock-pill.unknown{background:var(--ui-surface-muted);color:var(--ui-text-muted)}
+.stock-pill.in,.correct-btn{background:var(--ui-success-soft);color:var(--ui-success);border-color:var(--ui-success)}
+.stock-pill.out,.none-btn{background:var(--ui-danger-soft);color:var(--ui-danger);border-color:var(--ui-danger)}
+.stats-table th,.stats-table td{border-color:var(--ui-border)}
+.stats-table tbody tr:hover{background:var(--ui-surface-muted)}
 @media (max-width: 800px) {
   .line-meta { grid-template-columns: 1fr; }
 }

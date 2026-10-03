@@ -40,4 +40,25 @@ onMounted(load)
 .toggle{border:1px solid #cbd9ce;background:#fff;border-radius:7px;padding:4px 7px;color:#385346;font-size:.72rem;font-weight:700}
 @media(max-width:1050px){.member{grid-template-columns:repeat(4,minmax(120px,1fr))}}
 @media(max-width:760px){.name-row{flex-wrap:wrap}}
+
+/* Semantic theme bridge. */
+.page{background:var(--ui-bg);color:var(--ui-text);font-family:var(--ui-font-sans)}
+.eyebrow,.link{color:var(--ui-primary)}
+.page>header p,.top p,.card-head p,.muted,.router small,.empty{color:var(--ui-text-muted)}
+.message{background:var(--ui-success-soft);border-color:var(--ui-success);color:var(--ui-success)}
+.message.error{background:var(--ui-danger-soft);border-color:var(--ui-danger);color:var(--ui-danger)}
+aside,.card,.empty-workspace{background:var(--ui-surface);border-color:var(--ui-border);border-radius:var(--ui-radius-md);box-shadow:var(--ui-shadow-sm)}
+.aside-head button,.card-head button,.member-actions button,.toggle{border-color:var(--ui-border-strong);background:var(--ui-surface-muted);color:var(--ui-primary)}
+.aside-head button:hover,.card-head button:hover,.member-actions button:hover:not(:disabled),.toggle:hover{border-color:var(--ui-primary);background:var(--ui-primary-soft)}
+.new-form,.router.selected,.metrics div{background:var(--ui-primary-soft)}
+.new-form input,input,select,.name-input{border-color:var(--ui-border-strong);background:var(--ui-surface);color:var(--ui-text)}
+.new-form input:focus,input:focus,select:focus,.name-input:focus{border-color:var(--ui-primary);box-shadow:var(--ui-focus-ring);outline:0}
+.new-form button,.save,.number{background:var(--ui-primary);color:var(--ui-on-primary)}
+.new-form button:hover,.save:hover{background:var(--ui-primary-hover)}
+.router{color:var(--ui-text)}.router:hover{background:var(--ui-surface-muted)}.router i{background:var(--ui-border-strong)}.router i.on{background:var(--ui-success)}
+.badge{background:var(--ui-surface-muted);color:var(--ui-text-muted)}.badge.active{background:var(--ui-success-soft);color:var(--ui-success)}
+.danger,.member-actions .remove{border-color:var(--ui-danger);background:var(--ui-surface);color:var(--ui-danger)}
+.danger:hover,.member-actions .remove:hover{background:var(--ui-danger-soft)}
+.metrics span{color:var(--ui-text-muted)}.metrics b{color:var(--ui-text-strong)}
+.member{border-color:var(--ui-border)}.empty-workspace{border-style:dashed}
 </style>

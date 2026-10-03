@@ -30,6 +30,8 @@ ENV/
 db.sqlite3
 staticfiles/
 static/frontend/
+static/theme/Inspinia_Vue/
+static/theme/Inspinia_HTML/
 media/
 
 # ─── Node.js (whatsapp-worker) ────────────────────────────────────────────────

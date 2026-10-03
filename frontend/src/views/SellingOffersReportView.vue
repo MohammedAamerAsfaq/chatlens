@@ -270,6 +270,26 @@ tr:last-child td { border-bottom: none; }
 .empty-state { padding: 42px; text-align: center; color: #94a3b8; }
 .error-box { margin-bottom: 14px; border: 1px solid #fecaca; background: #fef2f2; color: #b91c1c; border-radius: 8px; padding: 10px 12px; font-size: 0.86rem; }
 .print-only { display: none; }
+
+/* Semantic screen theme. Print rules below deliberately retain a paper palette. */
+.offers-report { background: var(--ui-bg); color: var(--ui-text); font-family: var(--ui-font-sans); }
+.page-header h1, .summary-card strong, .card-title h2, .primary-text { color: var(--ui-text-strong); }
+.page-header p, .filters label, .summary-card span, .card-title p, .muted { color: var(--ui-text-muted); }
+.filters input, .filters select { background: var(--ui-surface); color: var(--ui-text); border-color: var(--ui-border-strong); }
+.filters input:focus, .filters select:focus { border-color: var(--ui-primary); box-shadow: var(--ui-focus-ring); outline: 0; }
+.primary-btn { background: var(--ui-primary); color: var(--ui-on-primary); border-color: var(--ui-primary); }
+.primary-btn:hover { background: var(--ui-primary-hover); }
+.ghost-btn { background: var(--ui-surface); color: var(--ui-text); border-color: var(--ui-border-strong); }
+.ghost-btn:hover { color: var(--ui-primary); border-color: var(--ui-primary); }
+.summary-card, .report-card { background: var(--ui-surface); border-color: var(--ui-border); border-radius: var(--ui-radius-md); box-shadow: var(--ui-shadow-sm); }
+.card-title, th, td { border-color: var(--ui-border); }
+th { background: var(--ui-surface-muted); color: var(--ui-text-muted); }
+td { color: var(--ui-text); }
+.status-pill.open, .count-pill.wa { background: var(--ui-success-soft); color: var(--ui-success); }
+.status-pill.closed { background: var(--ui-surface-muted); color: var(--ui-text-muted); }
+.count-pill.notified { background: var(--ui-info-soft); color: var(--ui-info); }
+.empty-state { color: var(--ui-text-subtle); }
+.error-box { background: var(--ui-danger-soft); color: var(--ui-danger); border-color: var(--ui-danger); }
 @media (max-width: 1200px) {
   .summary-grid { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
 }
@@ -287,6 +307,7 @@ tr:last-child td { border-bottom: none; }
     overflow: visible;
     padding: 0;
     background: #fff;
+    color: #111827;
   }
   .no-print { display: none !important; }
   .print-only { display: block !important; }
@@ -309,6 +330,8 @@ tr:last-child td { border-bottom: none; }
     border: 1px solid #cbd5e1;
     border-radius: 0;
     padding: 8px 10px;
+    background: #fff;
+    box-shadow: none;
   }
   .summary-card span { font-size: 7.5pt; }
   .summary-card strong { font-size: 15pt; }
@@ -316,9 +339,12 @@ tr:last-child td { border-bottom: none; }
     border: none;
     border-radius: 0;
     overflow: visible;
+    background: #fff;
+    box-shadow: none;
   }
   table { font-size: 8.5pt; }
   th { color: #111827; background: #f1f5f9; }
+  td, .primary-text, .summary-card strong, .card-title h2 { color: #111827; }
   th, td { padding: 5px 6px; }
   tr {
     break-inside: avoid;

@@ -576,4 +576,41 @@ onMounted(async () => {
 .modal-product-meta { display: flex; gap: 8px; flex-wrap: wrap; color: #6b7280; font-size: 0.78rem; }
 .modal-product-mapped { margin-top: 6px; color: #15803d; font-size: 0.8rem; font-weight: 500; }
 .modal-product-actions { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+
+/* Semantic theme bridge. Legacy status colors remain meaningful in both themes. */
+.inquiries-view { background: var(--ui-bg); color: var(--ui-text); font-family: var(--ui-font-sans); }
+.filter-bar, .list-header { background: var(--ui-surface-muted); border-color: var(--ui-border); }
+.filter-group label, .count, .age, .product-count, .time-label,
+.product-detail, .msg-sender, .modal-header p, .modal-product-meta, .modal-state {
+  color: var(--ui-text-muted);
+}
+.filter-group select, .filter-group input, .remarks-input, .status-select {
+  background: var(--ui-surface); color: var(--ui-text); border-color: var(--ui-border-strong);
+  border-radius: var(--ui-radius-sm);
+}
+.filter-group select:focus, .filter-group input:focus, .remarks-input:focus, .status-select:focus {
+  border-color: var(--ui-primary); box-shadow: var(--ui-focus-ring); outline: 0;
+}
+.split-panel, .list-panel, .inquiry-row, .detail-panel { border-color: var(--ui-border); }
+.inquiry-row:hover { background: var(--ui-surface-muted); }
+.inquiry-row.selected { background: var(--ui-primary-soft); border-left-color: var(--ui-primary); }
+.row-summary, .detail-summary, .msg-text, .modal-header h3, .modal-product-name { color: var(--ui-text-strong); }
+.account-badge { background: var(--ui-info-soft); color: var(--ui-info); }
+.source-badge, .msg-type-tag { background: var(--ui-surface-muted); color: var(--ui-text-muted); }
+.empty-state, .detail-empty, .msg-time { color: var(--ui-text-subtle); }
+.section-title { color: var(--ui-text-muted); }
+.message-item, .modal-product-row { background: var(--ui-surface-muted); border-color: var(--ui-border); }
+.goto-chat-btn { background: var(--ui-info-soft); color: var(--ui-info); border-color: var(--ui-info); }
+.goto-chat-btn:hover { background: var(--ui-primary-soft); }
+.btn-action.deal { background: var(--ui-success); color: var(--ui-on-primary); }
+.btn-ghost { background: var(--ui-surface); color: var(--ui-text); border-color: var(--ui-border-strong); }
+.btn-ghost:hover { border-color: var(--ui-primary); color: var(--ui-primary); }
+.modal-backdrop { background: var(--ui-overlay); }
+.product-modal { background: var(--ui-surface-raised); border-color: var(--ui-border); border-radius: var(--ui-radius-lg); box-shadow: var(--ui-shadow-lg); }
+.modal-header { border-color: var(--ui-border); }
+.modal-close { background: var(--ui-surface-muted); color: var(--ui-text); }
+.modal-close:hover { background: var(--ui-border); }
+.modal-error { background: var(--ui-danger-soft); color: var(--ui-danger); border-color: var(--ui-danger); }
+.modal-product-row.mapped { background: var(--ui-success-soft); border-color: var(--ui-success); }
+.modal-product-mapped { color: var(--ui-success); }
 </style>

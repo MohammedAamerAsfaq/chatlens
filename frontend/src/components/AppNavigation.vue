@@ -14,6 +14,7 @@ const router = useRouter()
 const openMenu = ref('')
 const mobileOpen = ref(false)
 const switchingCompany = ref(false)
+const switchingTheme = ref(false)
 const alerts = ref({ worker: 0, receipts: 0, messages: 0 })
 let alertPollTimer = null
 
@@ -67,6 +68,15 @@ async function logout() {
   closeMenus()
   await auth.logout()
   router.push({ name: 'login' })
+}
+
+async function switchTheme(event) {
+  switchingTheme.value = true
+  try {
+    await auth.updateUiTheme(event.target.value)
+  } finally {
+    switchingTheme.value = false
+  }
 }
 
 watch(() => route.fullPath, () => {
@@ -137,6 +147,12 @@ onUnmounted(() => {
           <button type="button" class="user-menu-button" @click.stop="toggleMenu('user')"><span>{{ auth.user?.username?.slice(0, 1)?.toUpperCase() }}</span>{{ auth.user?.username }} <i>⌄</i></button>
           <div v-if="openMenu === 'user'" class="navigation-menu__panel navigation-menu__panel--right user-panel" @click.stop>
             <div><strong>{{ auth.user?.username }}</strong><small>{{ roleLabel }}</small></div>
+            <label class="theme-choice">
+              <span>Interface theme</span>
+              <select :value="auth.uiTheme" :disabled="switchingTheme" @change="switchTheme">
+                <option v-for="theme in auth.availableThemes" :key="theme.key" :value="theme.key">{{ theme.name }}</option>
+              </select>
+            </label>
             <button type="button" @click="logout">Sign out</button>
           </div>
         </div>

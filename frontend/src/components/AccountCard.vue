@@ -2,6 +2,9 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useAccountsStore } from '@/stores/accounts'
 import { accountsApi } from '@/api'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiCheckbox from '@/components/ui/UiCheckbox.vue'
+import UiModal from '@/components/ui/UiModal.vue'
 
 const props = defineProps({ account: Object })
 const emit = defineEmits(['show-qr', 'refresh'])
@@ -273,7 +276,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 flex flex-col gap-3">
+  <div class="account-card bg-white rounded-xl shadow-sm border border-gray-200 p-5 flex flex-col gap-3">
 
     <!-- Header -->
     <div class="flex items-start justify-between gap-2">
@@ -435,7 +438,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Settings panel -->
-    <div v-if="showSettings" class="border-t border-gray-100 pt-3 flex flex-col gap-4">
+    <div v-if="showSettings" class="account-card__settings border-t pt-3 flex flex-col gap-4">
 
       <!-- ── Sync history ───────────────────────── -->
       <div class="flex flex-col gap-2">
@@ -663,44 +666,15 @@ onUnmounted(() => {
     </div>
   </div>
 
-  <!-- Delete confirmation dialog -->
-  <Teleport to="body">
-    <div
-      v-if="showDeleteConfirm"
-      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-      @click.self="showDeleteConfirm = false"
-    >
-      <div class="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 flex flex-col gap-4">
-        <h2 class="text-lg font-semibold text-gray-900">Delete Account</h2>
-        <p class="text-sm text-gray-600">
+  <UiModal :open="showDeleteConfirm" title="Delete Account" size="small" :closeable="!deleting" @close="showDeleteConfirm = false">
+        <p class="account-card__delete-copy">
           This will permanently delete
           <strong>{{ account.display_name || account.phone_number || 'this account' }}</strong>
           and all its chats and messages. This cannot be undone.
         </p>
-
-        <label class="flex items-start gap-3 cursor-pointer">
-          <input v-model="exportBeforeDelete" type="checkbox" class="mt-0.5 w-4 h-4 rounded accent-green-600" />
-          <span class="text-sm text-gray-700">Export chat history as JSON before deleting</span>
-        </label>
-
-        <div class="flex gap-3 mt-2">
-          <button
-            @click="showDeleteConfirm = false"
-            class="flex-1 border border-gray-200 text-gray-700 text-sm py-2 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            @click="confirmDelete"
-            :disabled="deleting"
-            class="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm py-2 rounded-lg transition-colors"
-          >
-            {{ deleting ? (exportBeforeDelete ? 'Exporting…' : 'Deleting…') : 'Delete Account' }}
-          </button>
-        </div>
-      </div>
-    </div>
-  </Teleport>
+        <UiCheckbox v-model="exportBeforeDelete" label="Export chat history as JSON before deleting" />
+        <template #footer><UiButton :disabled="deleting" @click="showDeleteConfirm = false">Cancel</UiButton><UiButton variant="danger" :disabled="deleting" @click="confirmDelete">{{ deleting ? (exportBeforeDelete ? 'Exporting…' : 'Deleting…') : 'Delete Account' }}</UiButton></template>
+  </UiModal>
 </template>
 
 <style scoped>
@@ -713,3 +687,5 @@ onUnmounted(() => {
   animation: sync-slide 1.6s ease-in-out infinite;
 }
 </style>
+
+<style scoped src="@/assets/account-card.css"></style>

@@ -1,10 +1,7 @@
 import { reactive } from 'vue'
 import { accountsApi, outboundAssetsApi } from '@/api'
+import { MAX_CAPTION_LENGTH, MAX_TEXT_LENGTH, campaignCharacterCount, campaignImageError, campaignMessageLimit } from '../constants'
 
-const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024
-const MAX_CAPTION_LENGTH = 1024
-const MAX_TEXT_LENGTH = 10000
 const PREFLIGHT_REASONS = {
   direct_sending_disabled: 'Direct-message sending is disabled for this account.',
   live_preflight_unavailable: 'WhatsApp worker preflight is unavailable.',
@@ -28,20 +25,17 @@ export function useDirectCampaignSender({ kind, markClick, persistAsset, updateR
   const assetIds = reactive({})
   const feedback = reactive({})
   const busy = reactive({})
-
   const rowKey = (campaignId, recipientId) => `${campaignId}:${recipientId}`
-  const characterCount = text => [...String(text || '')].length
   const hasImage = campaign => Boolean(images[campaign.id] || campaign.image_asset)
-  const messageLimit = campaign => hasImage(campaign) ? MAX_CAPTION_LENGTH : MAX_TEXT_LENGTH
-  const messageTooLong = (campaign, text) => characterCount(text) > messageLimit(campaign)
+  const messageLimit = campaign => campaignMessageLimit(hasImage(campaign))
+  const messageTooLong = (campaign, text) => campaignCharacterCount(text) > messageLimit(campaign)
 
   async function selectImage(campaignId, event) {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return ''
-    if (!IMAGE_TYPES.includes(file.type) || file.size > MAX_IMAGE_BYTES) {
-      return 'Select a JPEG, PNG, or WebP image no larger than 10 MB.'
-    }
+    const validationError = campaignImageError(file)
+    if (validationError) return validationError
     try {
       const { data: asset } = await outboundAssetsApi.upload(file)
       await persistAsset(campaignId, asset.id)
@@ -65,13 +59,7 @@ export function useDirectCampaignSender({ kind, markClick, persistAsset, updateR
   }
 
   async function queue(campaign, recipient, text, confirmNewChat, idempotencyKey) {
-    const payload = {
-      destination_jid: recipient.destination_jid,
-      text,
-      asset_id: assetIds[campaign.id] || campaign.image_asset || null,
-      idempotency_key: idempotencyKey,
-      confirm_new_chat: confirmNewChat,
-    }
+    const payload = { destination_jid: recipient.destination_jid, text, asset_id: assetIds[campaign.id] || campaign.image_asset || null, idempotency_key: idempotencyKey, confirm_new_chat: confirmNewChat }
     try {
       return await accountsApi.sendMessage(recipient.account_id, payload)
     } catch (exc) {
@@ -86,44 +74,18 @@ export function useDirectCampaignSender({ kind, markClick, persistAsset, updateR
     busy[key] = true
     feedback[key] = { state: 'checking', message: 'Checking recipient...' }
     try {
-      if (!recipient.account_id || !recipient.destination_jid) {
-        throw new Error('This contact has no sendable WhatsApp destination.')
-      }
-      if (messageTooLong(campaign, text)) {
-        throw new Error(hasImage(campaign)
-          ? `Image captions cannot exceed ${MAX_CAPTION_LENGTH} characters.`
-          : `Text messages cannot exceed ${MAX_TEXT_LENGTH} characters.`)
-      }
-
+      if (!recipient.account_id || !recipient.destination_jid) throw new Error('This contact has no sendable WhatsApp destination.')
+      if (messageTooLong(campaign, text)) throw new Error(hasImage(campaign) ? `Image captions cannot exceed ${MAX_CAPTION_LENGTH} characters.` : `Text messages cannot exceed ${MAX_TEXT_LENGTH} characters.`)
       const clickResponse = await markClick(campaign.id, recipient.id)
       updateRecipient(campaign.id, clickResponse.data)
-
       const preflight = await accountsApi.preflightMessage(recipient.account_id, recipient.destination_jid)
-      if (!preflight.data.allowed) {
-        throw new Error(PREFLIGHT_REASONS[preflight.data.reason] || preflight.data.reason || 'Sending is blocked for this contact.')
-      }
+      if (!preflight.data.allowed) throw new Error(PREFLIGHT_REASONS[preflight.data.reason] || preflight.data.reason || 'Sending is blocked for this contact.')
       feedback[key] = { state: 'queueing', message: 'Queueing message...' }
-      const { data } = await queue(
-        campaign,
-        recipient,
-        text,
-        false,
-        requestKey(`${kind}-${campaign.id}-${recipient.id}`),
-      )
-      if (['blocked', 'preflight_blocked', 'failed'].includes(data.status)) {
-        throw new Error(
-          OUTBOUND_REASONS[data.status_reason]
-          || data.status_reason
-          || data.last_error
-          || 'Outbound message was blocked.',
-        )
-      }
+      const { data } = await queue(campaign, recipient, text, false, requestKey(`${kind}-${campaign.id}-${recipient.id}`))
+      if (['blocked', 'preflight_blocked', 'failed'].includes(data.status)) throw new Error(OUTBOUND_REASONS[data.status_reason] || data.status_reason || data.last_error || 'Outbound message was blocked.')
       feedback[key] = { state: 'queued', message: hasImage(campaign) ? 'Image and caption queued.' : 'Message queued.' }
     } catch (exc) {
-      feedback[key] = {
-        state: 'failed',
-        message: exc.response?.data?.detail || exc.response?.data?.text?.join?.(' ') || exc.message || 'Unable to queue message.',
-      }
+      feedback[key] = { state: 'failed', message: exc.response?.data?.detail || exc.response?.data?.text?.join?.(' ') || exc.message || 'Unable to queue message.' }
     } finally {
       delete busy[key]
     }

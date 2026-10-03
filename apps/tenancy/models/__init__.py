@@ -8,6 +8,7 @@ from .permission import CompanyRolePermission, PermissionDefinition
 from .role import CompanyRole, MembershipRoleAssignment
 from .authorization_audit import AuthorizationAuditEvent
 from .connection_provider import ConnectionProvider
+from .user_company_preference import UserCompanyPreference
 
 __all__ = [
     'AccountEndpoint',
@@ -22,4 +23,5 @@ __all__ = [
     'PermissionDefinition',
     'AuthorizationAuditEvent',
     'ConnectionProvider',
+    'UserCompanyPreference',
 ]

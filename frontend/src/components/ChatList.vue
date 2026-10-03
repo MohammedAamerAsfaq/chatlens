@@ -122,11 +122,11 @@ async function toggleAccountAi() {
 </script>
 
 <template>
-  <div class="flex flex-col bg-white border-r border-gray-200 overflow-hidden">
+  <div class="chat-list flex flex-col overflow-hidden">
 
     <!-- Header -->
-    <div class="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-200">
-      <span class="font-semibold text-gray-800 text-sm">
+    <div class="chat-list__header flex items-center justify-between px-4 py-2.5">
+      <span class="chat-list__title font-semibold text-sm">
         {{ store.selectedAccount?.display_name || store.selectedAccount?.phone_number || 'Chats' }}
       </span>
       <div class="flex items-center gap-2">
@@ -137,7 +137,7 @@ async function toggleAccountAi() {
           :disabled="savingAccountAi"
           :title="store.selectedAccount.ai_parsing_enabled ? 'AI parsing ON for this account — click to disable' : 'AI parsing OFF for this account — click to enable'"
           :class="[
-            'flex items-center gap-1 text-xs font-medium rounded-full px-2 py-0.5 transition-colors',
+            'chat-list__ai-toggle flex items-center gap-1 text-xs font-medium px-2 py-0.5 transition-colors',
             store.selectedAccount.ai_parsing_enabled
               ? 'bg-green-100 text-green-700 hover:bg-green-200'
               : 'bg-gray-200 text-gray-500 hover:bg-gray-300',
@@ -154,7 +154,7 @@ async function toggleAccountAi() {
           v-if="totalUnread > 0"
           @click="store.markAllRead()"
           title="Mark all as read"
-          class="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 font-medium transition-colors"
+          class="chat-list__mark-read flex items-center gap-1 text-xs font-medium transition-colors"
         >
           <!-- Double-tick icon -->
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -163,13 +163,13 @@ async function toggleAccountAi() {
           </svg>
           Mark all read
         </button>
-        <span class="text-xs text-gray-400">{{ store.chats.length }} chats</span>
+        <span class="chat-list__count text-xs">{{ store.chats.length }} chats</span>
       </div>
     </div>
 
     <!-- Search -->
-    <div class="px-3 py-2 border-b border-gray-100">
-      <div class="flex items-center bg-gray-100 rounded-full px-3 py-2 gap-2">
+    <div class="chat-list__search-wrap px-3 py-2">
+      <div class="chat-list__search flex items-center px-3 py-2 gap-2">
         <svg class="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/>
         </svg>
@@ -177,19 +177,19 @@ async function toggleAccountAi() {
           v-model="store.searchQuery"
           type="text"
           placeholder="Search or start new chat"
-          class="bg-transparent text-sm w-full focus:outline-none text-gray-700 placeholder-gray-400"
+          class="chat-list__search-input bg-transparent text-sm w-full focus:outline-none"
         />
       </div>
     </div>
 
     <!-- Filter tabs -->
-    <div class="flex overflow-x-auto border-b border-gray-100 shrink-0">
+    <div class="chat-list__tabs flex overflow-x-auto shrink-0">
       <button
         v-for="tab in tabs"
         :key="tab.key"
         @click="activeFilter = tab.key"
         :class="[
-          'shrink-0 px-3 text-xs py-2.5 font-medium transition-colors border-b-2 flex items-center justify-center gap-1',
+          'chat-list__tab shrink-0 px-3 text-xs py-2.5 font-medium transition-colors flex items-center justify-center gap-1',
           activeFilter === tab.key
             ? 'border-green-500 text-green-600'
             : 'border-transparent text-gray-400 hover:text-gray-600',
@@ -206,7 +206,7 @@ async function toggleAccountAi() {
     </div>
 
     <!-- Chat list -->
-    <div class="flex-1 overflow-y-auto">
+    <div class="chat-list__items flex-1 overflow-y-auto">
       <div v-if="store.loadingChats" class="text-center text-gray-400 py-12 text-sm">
         Loading...
       </div>
@@ -221,7 +221,7 @@ async function toggleAccountAi() {
         :data-chat-id="chat.id"
         @click="store.selectChat(chat.id)"
         :class="[
-          'w-full text-left flex items-center gap-3 px-3 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors',
+          'chat-list__row w-full text-left flex items-center gap-3 px-3 py-3 transition-colors',
           store.selectedChatId === chat.id ? 'bg-gray-100' : '',
         ]"
       >
@@ -320,3 +320,5 @@ async function toggleAccountAi() {
 .ai-auto { background: #f3f4f6; color: #9ca3af; width: 8px; height: 8px; padding: 0; border-radius: 50%; }
 .ai-auto:hover:not(:disabled) { background: #e5e7eb; }
 </style>
+
+<style scoped src="@/assets/chat-list.css"></style>

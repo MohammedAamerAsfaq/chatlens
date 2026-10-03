@@ -23,7 +23,7 @@ onUnmounted(() => store.stopPolling())
 </script>
 
 <template>
-  <div class="flex h-full overflow-hidden">
+  <div class="conversation-workspace flex h-full overflow-hidden">
     <ChatList class="w-80 shrink-0 h-full" />
     <MessagePanel class="flex-1 min-w-0 h-full" @toggle-info="toggleInfo" />
 
@@ -35,3 +35,7 @@ onUnmounted(() => store.stopPolling())
     </div>
   </div>
 </template>
+
+<style scoped>
+.conversation-workspace{background:var(--ui-bg);color:var(--ui-text);font-family:var(--ui-font-sans)}
+</style>

@@ -29,7 +29,10 @@ from apps.whatsapp_bridge.models import (
     StuckReceipt, WhatsAppUnresolvedMessage, ResolutionStatus, ContactRoleTag,
     BaileysEvent, OutboundAsset, OutboundMessage,
 )
-from apps.tenancy.models import AccountEndpoint, CommunicationAccount, Company, CompanyMembership
+from apps.tenancy.models import (
+    AccountEndpoint, CommunicationAccount, Company, CompanyMembership,
+    UserCompanyPreference,
+)
 from apps.tenancy.services.access import (
     active_membership_for_user,
     available_companies_queryset,
@@ -43,6 +46,10 @@ from apps.tenancy.services.access import (
 from apps.tenancy.services.enrollment_service import CompanyEnrollmentService
 from apps.tenancy.services.authorization import effective_permission_grants
 from apps.tenancy.services.provider_service import ProviderService
+from apps.tenancy.ui_preferences import (
+    INSPINIA_OPTIONS,
+    normalize_inspinia_config,
+)
 from apps.whatsapp_bridge.services.ingestion_service import IngestionService
 from .serializers import (
     WhatsAppAccountSerializer, WhatsAppAccountSettingsSerializer, ChatSerializer, MessageSerializer,
@@ -1924,6 +1931,8 @@ def _serialize_auth_user(user):
         ).select_related('company')
     }
     company_payload = None
+    ui_theme = UserCompanyPreference.THEME_CHATLENS
+    inspinia_config = normalize_inspinia_config(None)
     grants, effective_membership = effective_permission_grants(user, current_company)
     effective_roles = []
     if effective_membership:
@@ -1941,6 +1950,12 @@ def _serialize_auth_user(user):
             }]
     if current_company:
         current_membership = memberships.get(current_company.pk)
+        preference = UserCompanyPreference.objects.filter(
+            company=current_company, user=user,
+        ).first()
+        if preference:
+            ui_theme = preference.ui_theme
+            inspinia_config = normalize_inspinia_config(preference.inspinia_config)
         company_payload = {
             'id': current_company.pk,
             'name': current_company.name,
@@ -1968,6 +1983,15 @@ def _serialize_auth_user(user):
         },
         'permissions': grants,
         'authorization_version': effective_membership.authorization_version if effective_membership else 0,
+        'preferences': {
+            'ui_theme': ui_theme,
+            'inspinia_config': inspinia_config,
+            'inspinia_options': INSPINIA_OPTIONS,
+            'available_themes': [
+                {'key': key, 'name': name}
+                for key, name in UserCompanyPreference.THEME_CHOICES
+            ],
+        },
         'memberships': [
             {
                 'company': {
@@ -2086,6 +2110,47 @@ def auth_select_company_view(request):
 
     request.session[ACTIVE_COMPANY_SESSION_KEY] = company_id
     request.user.active_company = available_companies_queryset(request.user).filter(pk=company_id).first()
+    return Response(_serialize_auth_user(request.user))
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def auth_preferences_view(request):
+    company = default_company_for_user(request.user)
+    if not company:
+        return Response({'detail': 'No active company'}, status=status.HTTP_404_NOT_FOUND)
+
+    preference, _ = UserCompanyPreference.objects.get_or_create(
+        company=company, user=request.user,
+    )
+    update_fields = []
+
+    if 'ui_theme' in request.data:
+        ui_theme = str(request.data.get('ui_theme') or '').strip().lower()
+        valid_themes = {key for key, _ in UserCompanyPreference.THEME_CHOICES}
+        if ui_theme not in valid_themes:
+            return Response(
+                {'detail': f'ui_theme must be one of: {", ".join(sorted(valid_themes))}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        preference.ui_theme = ui_theme
+        update_fields.append('ui_theme')
+
+    if 'inspinia_config' in request.data:
+        try:
+            preference.inspinia_config = normalize_inspinia_config(
+                request.data.get('inspinia_config'), strict=True,
+            )
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        update_fields.append('inspinia_config')
+
+    if not update_fields:
+        return Response(
+            {'detail': 'Provide ui_theme or inspinia_config.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    preference.save(update_fields=[*update_fields, 'updated_at'])
     return Response(_serialize_auth_user(request.user))
 
 

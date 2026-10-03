@@ -1,0 +1,113 @@
+:root,
+.theme-chatlens {
+  --ui-font-sans: "Avenir Next", "Segoe UI", sans-serif;
+  --ui-font-display: Georgia, "Times New Roman", serif;
+  --ui-bg: #f7f9f7;
+  --ui-surface: #ffffff;
+  --ui-surface-muted: #f4f8f5;
+  --ui-surface-raised: #ffffff;
+  --ui-text: #172033;
+  --ui-text-strong: #111827;
+  --ui-text-muted: #667085;
+  --ui-text-subtle: #7a8780;
+  --ui-border: #dfe8e2;
+  --ui-border-strong: #cbd8d0;
+  --ui-primary: #16804c;
+  --ui-primary-hover: #116b3f;
+  --ui-primary-soft: #e7f6ed;
+  --ui-on-primary: #ffffff;
+  --ui-info: #176b9c;
+  --ui-info-soft: #e2f0fb;
+  --ui-success: #167746;
+  --ui-success-soft: #def6e7;
+  --ui-warning: #9a5b08;
+  --ui-warning-soft: #fff1d6;
+  --ui-danger: #b42318;
+  --ui-danger-soft: #fee7e7;
+  --ui-overlay: rgb(17 24 39 / 55%);
+  --ui-radius-xs: 6px;
+  --ui-radius-sm: 8px;
+  --ui-radius-md: 11px;
+  --ui-radius-lg: 14px;
+  --ui-radius-pill: 999px;
+  --ui-shadow-card: 0 8px 24px rgb(20 42 28 / 4%);
+  --ui-shadow-popover: 0 16px 40px rgb(20 42 28 / 18%);
+  --ui-focus-ring: 0 0 0 3px rgb(22 128 76 / 14%);
+  --ui-control-height: 38px;
+  --ui-page-padding: 24px;
+  --ui-chat-canvas: #e5ddd5;
+  --ui-chat-outbound: #d9fdd3;
+  --ui-chat-inbound: #ffffff;
+  --ui-code-bg: #172033;
+  --ui-code-text: #d8f3e3;
+}
+
+.theme-inspinia {
+  --ui-font-sans: "Open Sans", "Segoe UI", sans-serif;
+  --ui-font-display: "Open Sans", "Segoe UI", sans-serif;
+  --ui-bg: #f1f2f7;
+  --ui-surface: #ffffff;
+  --ui-surface-muted: #f6f7fb;
+  --ui-surface-raised: #ffffff;
+  --ui-text: #313a46;
+  --ui-text-strong: #29313a;
+  --ui-text-muted: #6c757d;
+  --ui-text-subtle: #8a969c;
+  --ui-border: #e7e9eb;
+  --ui-border-strong: #d5d9dd;
+  --ui-primary: #1ab394;
+  --ui-primary-hover: #15977d;
+  --ui-primary-soft: #e8f7f4;
+  --ui-on-primary: #ffffff;
+  --ui-info: #23c6c8;
+  --ui-info-soft: #e8f8f8;
+  --ui-success: #1ab394;
+  --ui-success-soft: #e8f7f4;
+  --ui-warning: #f8ac59;
+  --ui-warning-soft: #fff6eb;
+  --ui-danger: #ed5565;
+  --ui-danger-soft: #fff0f2;
+  --ui-overlay: rgb(35 48 60 / 58%);
+  --ui-radius-xs: 3px;
+  --ui-radius-sm: 4px;
+  --ui-radius-md: 5px;
+  --ui-radius-lg: 5px;
+  --ui-radius-pill: 999px;
+  --ui-shadow-card: none;
+  --ui-shadow-popover: 0 10px 30px rgb(35 48 60 / 16%);
+  --ui-focus-ring: 0 0 0 3px rgb(26 179 148 / 14%);
+  --ui-control-height: 36px;
+  --ui-page-padding: 20px;
+  --ui-chat-canvas: #eef0f4;
+  --ui-chat-outbound: #dff5ef;
+  --ui-chat-inbound: #ffffff;
+  --ui-code-bg: #29313a;
+  --ui-code-text: #dff5ef;
+}
+
+/* Inspinia skin presets tune the shared semantic system, not individual pages. */
+.theme-inspinia.skin-minimal { --ui-primary:#536170;--ui-primary-hover:#3f4b57;--ui-primary-soft:#eef1f3;--ui-radius-md:2px;--ui-radius-lg:2px; }
+.theme-inspinia.skin-modern { --ui-primary:#3f7ee8;--ui-primary-hover:#2f68c7;--ui-primary-soft:#eaf1fd;--ui-bg:#f3f6fb;--ui-radius-md:10px;--ui-radius-lg:14px;--ui-shadow-card:0 8px 24px rgb(35 48 60 / 6%); }
+.theme-inspinia.skin-material { --ui-primary:#4c84ff;--ui-primary-hover:#356bdc;--ui-primary-soft:#eaf0ff;--ui-radius-sm:2px;--ui-radius-md:3px;--ui-radius-lg:3px;--ui-shadow-card:0 3px 9px rgb(35 48 60 / 14%); }
+.theme-inspinia.skin-saas { --ui-primary:#6658dd;--ui-primary-hover:#5143c5;--ui-primary-soft:#efedff;--ui-bg:#f5f4fb;--ui-radius-md:8px;--ui-radius-lg:12px; }
+.theme-inspinia.skin-flat { --ui-primary:#0acf97;--ui-primary-hover:#08ad7f;--ui-primary-soft:#e6faf3;--ui-shadow-card:none;--ui-radius-xs:0;--ui-radius-sm:0;--ui-radius-md:0;--ui-radius-lg:0; }
+.theme-inspinia.skin-galaxy { --ui-primary:#8b7cf6;--ui-primary-hover:#7565dc;--ui-primary-soft:#292947;--ui-bg:#14172b;--ui-surface:#1d2138;--ui-surface-muted:#242943;--ui-surface-raised:#242943;--ui-text:#d8dded;--ui-text-strong:#f6f7ff;--ui-text-muted:#9ca5bf;--ui-text-subtle:#7f89a7;--ui-border:#303652;--ui-border-strong:#3b4260; }
+.theme-inspinia.skin-luxe { --ui-primary:#a47c48;--ui-primary-hover:#866237;--ui-primary-soft:#f3ece3;--ui-bg:#f5f0e8;--ui-font-display:Georgia,"Times New Roman",serif;--ui-radius-md:1px;--ui-radius-lg:1px; }
+.theme-inspinia.skin-retro { --ui-primary:#bd5d38;--ui-primary-hover:#98482b;--ui-primary-soft:#f7e4d6;--ui-bg:#f6ecd7;--ui-surface:#fffaf0;--ui-surface-muted:#f2e7cf;--ui-border:#d8c7a5;--ui-font-sans:"Courier New",monospace;--ui-radius-md:2px;--ui-radius-lg:2px; }
+.theme-inspinia.skin-neon { --ui-primary:#16f2a4;--ui-primary-hover:#00d68a;--ui-primary-soft:#113c35;--ui-bg:#0c1220;--ui-surface:#131d2e;--ui-surface-muted:#19263a;--ui-surface-raised:#19263a;--ui-text:#d7e6ed;--ui-text-strong:#f2fff9;--ui-text-muted:#87a1ad;--ui-text-subtle:#6d8793;--ui-border:#24364b;--ui-border-strong:#31506a;--ui-on-primary:#07130f;--ui-radius-md:3px;--ui-radius-lg:3px;--ui-shadow-card:0 0 18px rgb(22 242 164 / 8%); }
+.theme-inspinia.skin-pixel { --ui-primary:#386cb0;--ui-primary-hover:#2a548c;--ui-primary-soft:#e4ebf4;--ui-font-sans:"Courier New",monospace;--ui-radius-xs:0;--ui-radius-sm:0;--ui-radius-md:0;--ui-radius-lg:0;--ui-shadow-card:3px 3px 0 #9ba8b4; }
+
+.theme-inspinia.scheme-dark {
+  --ui-bg:#1b222a;--ui-surface:#242d36;--ui-surface-muted:#2b3540;--ui-surface-raised:#303b47;
+  --ui-text:#d8dee5;--ui-text-strong:#f5f7fa;--ui-text-muted:#a7b0ba;--ui-text-subtle:#818c97;
+  --ui-border:#36424d;--ui-border-strong:#465360;--ui-overlay:rgb(5 10 15 / 70%);
+  --ui-chat-canvas:#182129;--ui-chat-outbound:#174c41;--ui-chat-inbound:#29343e;--ui-code-bg:#111820;
+}
+@media (prefers-color-scheme: dark) {
+  .theme-inspinia.scheme-system {
+    --ui-bg:#1b222a;--ui-surface:#242d36;--ui-surface-muted:#2b3540;--ui-surface-raised:#303b47;
+    --ui-text:#d8dee5;--ui-text-strong:#f5f7fa;--ui-text-muted:#a7b0ba;--ui-text-subtle:#818c97;
+    --ui-border:#36424d;--ui-border-strong:#465360;--ui-overlay:rgb(5 10 15 / 70%);
+    --ui-chat-canvas:#182129;--ui-chat-outbound:#174c41;--ui-chat-inbound:#29343e;--ui-code-bg:#111820;
+  }
+}

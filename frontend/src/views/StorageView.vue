@@ -1,6 +1,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { accountsApi, embeddingsApi } from '@/api'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiPage from '@/components/ui/UiPage.vue'
+import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 
 // The <Teleport> below makes this a multi-root template, so Vue can't auto-inherit
 // attrs (e.g. the router's class="h-full") onto a single element — bind them
@@ -279,29 +282,24 @@ async function globalDeleteMedia() {
 </script>
 
 <template>
-  <div class="h-full w-full overflow-y-auto bg-gray-50" v-bind="$attrs">
-    <div class="max-w-4xl mx-auto px-6 py-8">
+  <UiPage width="standard" v-bind="$attrs" class="storage-page">
 
       <!-- ── Page header ── -->
-      <div class="flex items-center justify-between mb-6">
-        <div>
-          <h1 class="text-xl font-semibold text-gray-900">Storage</h1>
-          <p class="text-sm text-gray-500 mt-0.5">Disk space, backups and restore per WhatsApp account</p>
-        </div>
-        <button
+      <UiPageHeader eyebrow="Operations" title="Storage" description="Disk space, backups and restore per WhatsApp account">
+        <template #actions><UiButton
+          variant="primary"
           @click="refreshAll"
           :disabled="loading || Object.values(busy).some(v => v)"
-          class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded-lg transition-colors"
         >
           <svg class="w-4 h-4" :class="{ 'animate-spin': Object.values(busy).some(v => v) }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
           </svg>
           Refresh
-        </button>
-      </div>
+        </UiButton></template>
+      </UiPageHeader>
 
       <!-- ── Global actions ── -->
-      <div class="bg-white rounded-xl border border-red-200 overflow-hidden mb-6">
+      <div class="storage-danger-card bg-white rounded-xl border border-red-200 overflow-hidden mb-6">
         <div class="px-5 py-3 bg-red-50 border-b border-red-100 flex items-center gap-2">
           <svg class="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 24 24">
             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
@@ -385,19 +383,19 @@ async function globalDeleteMedia() {
 
       <!-- ── Summary totals ── -->
       <div v-if="!loading" class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-        <div class="bg-white rounded-xl border border-gray-200 px-4 py-4">
+        <div class="storage-summary-card bg-white rounded-xl border border-gray-200 px-4 py-4">
           <p class="text-xs text-gray-500 font-medium uppercase tracking-wide">Total Messages</p>
           <p class="text-2xl font-bold text-gray-900 mt-1">{{ fmtNum(totals.messages) }}</p>
         </div>
-        <div class="bg-white rounded-xl border border-gray-200 px-4 py-4">
+        <div class="storage-summary-card bg-white rounded-xl border border-gray-200 px-4 py-4">
           <p class="text-xs text-gray-500 font-medium uppercase tracking-wide">Media Files</p>
           <p class="text-2xl font-bold text-gray-900 mt-1">{{ fmtNum(totals.files) }}</p>
         </div>
-        <div class="bg-white rounded-xl border border-gray-200 px-4 py-4">
+        <div class="storage-summary-card bg-white rounded-xl border border-gray-200 px-4 py-4">
           <p class="text-xs text-gray-500 font-medium uppercase tracking-wide">Est. DB Size</p>
           <p class="text-2xl font-bold text-blue-600 mt-1">{{ fmtBytes(totals.dbBytes) }}</p>
         </div>
-        <div class="bg-white rounded-xl border border-gray-200 px-4 py-4">
+        <div class="storage-summary-card bg-white rounded-xl border border-gray-200 px-4 py-4">
           <p class="text-xs text-gray-500 font-medium uppercase tracking-wide">Media on Disk</p>
           <p class="text-2xl font-bold text-green-600 mt-1">{{ fmtBytes(totals.mediaBytes) }}</p>
         </div>
@@ -415,7 +413,7 @@ async function globalDeleteMedia() {
       <!-- ── Per-account cards ── -->
       <div v-else class="space-y-4">
         <div v-for="account in accounts" :key="account.id"
-          class="bg-white rounded-xl border border-gray-200 overflow-hidden"
+          class="storage-account-card bg-white rounded-xl border border-gray-200 overflow-hidden"
         >
           <!-- Card header -->
           <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gray-50">
@@ -656,8 +654,7 @@ async function globalDeleteMedia() {
       <p class="text-xs text-gray-400 mt-6 text-center">
         Database size is an estimate (~2 KB/message, ~0.5 KB/chat and contact). Media size is measured directly from disk.
       </p>
-    </div>
-  </div>
+  </UiPage>
 
   <!-- ── Confirmation modal ── -->
   <Teleport to="body">
@@ -696,3 +693,5 @@ async function globalDeleteMedia() {
     </div>
   </Teleport>
 </template>
+
+<style scoped src="@/assets/storage-view.css"></style>

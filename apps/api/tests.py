@@ -465,7 +465,72 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(payload['membership']['roles'][0]['key'], CompanyMembership.ROLE_SUPER_USER)
         self.assertEqual(payload['permissions']['users.roles.manage'], 'all')
         self.assertGreaterEqual(payload['authorization_version'], 1)
+        self.assertEqual(payload['preferences']['ui_theme'], 'chatlens')
+        self.assertEqual(payload['preferences']['inspinia_config']['skin'], 'default')
+        self.assertIn('pixel', payload['preferences']['inspinia_options']['skin'])
+        self.assertEqual(
+            {item['key'] for item in payload['preferences']['available_themes']},
+            {'chatlens', 'inspinia'},
+        )
         self.assertEqual({m['company']['id'] for m in payload['memberships']}, {self.company_a.id, self.company_b.id})
+
+    def test_theme_preference_is_scoped_to_user_and_company(self):
+        self.client.force_authenticate(self.user_a)
+
+        response = self.client.patch(
+            '/api/auth/preferences/', {'ui_theme': 'inspinia'}, format='json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['preferences']['ui_theme'], 'inspinia')
+
+        self.client.post(
+            '/api/auth/select-company/', {'company_id': self.company_b.id}, format='json',
+        )
+        other_company = self.client.get('/api/auth/me/')
+        self.assertEqual(other_company.json()['preferences']['ui_theme'], 'chatlens')
+
+        self.client.force_authenticate(self.user_b)
+        other_user = self.client.get('/api/auth/me/')
+        self.assertEqual(other_user.json()['preferences']['ui_theme'], 'chatlens')
+
+    def test_theme_preference_rejects_unknown_theme(self):
+        self.client.force_authenticate(self.user_a)
+        response = self.client.patch(
+            '/api/auth/preferences/', {'ui_theme': 'unknown'}, format='json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_inspinia_configuration_is_validated_and_company_scoped(self):
+        self.client.force_authenticate(self.user_a)
+        config = {
+            'skin': 'modern',
+            'color_scheme': 'dark',
+            'topbar_color': 'gradient',
+            'sidenav_color': 'image',
+            'sidenav_size': 'compact',
+            'layout_width': 'boxed',
+            'direction': 'rtl',
+            'layout_position': 'scrollable',
+            'orientation': 'horizontal',
+            'sidebar_user': False,
+        }
+        response = self.client.patch(
+            '/api/auth/preferences/', {'inspinia_config': config}, format='json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['preferences']['inspinia_config'], config)
+
+        invalid = self.client.patch(
+            '/api/auth/preferences/',
+            {'inspinia_config': {**config, 'skin': 'unknown'}}, format='json',
+        )
+        self.assertEqual(invalid.status_code, 400)
+
+        self.client.post(
+            '/api/auth/select-company/', {'company_id': self.company_b.id}, format='json',
+        )
+        other_company = self.client.get('/api/auth/me/').json()
+        self.assertEqual(other_company['preferences']['inspinia_config']['skin'], 'default')
 
     def test_company_admin_can_toggle_current_company_ai_parsing(self):
         self.client.force_authenticate(self.user_a)

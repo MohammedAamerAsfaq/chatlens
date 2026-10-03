@@ -1101,4 +1101,54 @@ onMounted(() => {
 .segmented button { padding: 7px 14px; border: none; background: #f9fafb; color: #6b7280; font-size: 0.78rem; font-weight: 600; cursor: pointer; border-right: 1px solid #d1d5db; }
 .segmented button:last-child { border-right: none; }
 .segmented button.sel { background: #2563eb; color: #fff; }
+
+/* Semantic theme bridge. Kept after legacy declarations so both themes own the final palette. */
+.ppu-view { padding: var(--ui-page-padding); background: var(--ui-bg); color: var(--ui-text); font-family: var(--ui-font-sans); }
+.page-header h2, .section-title-row h3, .form-panel-head h4 { color: var(--ui-text-strong); font-family: var(--ui-font-display); }
+.subtitle, .hint, .section-desc, .muted, .empty-msg, .summary-label, .rule-field-label,
+.chip-kind, .chip-account, .chip .x, .cond-op, .rule-meta, .close-x, .field-hint,
+.search-result-account, .igp-label, .capture-list-toolbar, .feed-dim, .feed-snippet, .feed-meta {
+  color: var(--ui-text-muted);
+}
+.edit-prompt-link, .section-eyebrow span, .summary-num.accent, .chip.group .chip-kind,
+.chip.in-group .chip-kind, .chip .via-group { color: var(--ui-primary); }
+.accent-mark { background: var(--ui-primary); }
+.process-card, .summary-cell, .rule-card, .form-panel, .search-results, .fake-select,
+.filter-chip, .page-size-btn, .pager-btn, .feed-list, .btn-sm, .icon-btn {
+  background: var(--ui-surface); color: var(--ui-text); border-color: var(--ui-border);
+}
+.process-card, .rule-card { border-radius: var(--ui-radius-md); box-shadow: var(--ui-shadow-card); }
+.page-tabs, .tab-bar, .preview-table-wrap, .process-foot, .automation-section, .summary-strip,
+.icon-btn, .chip, .cond-value, .add-rule-btn, .form-actions, .source-option, .watching-row,
+.segmented, .segmented button, .feed-row, .data-table th, .data-table td {
+  border-color: var(--ui-border);
+}
+.page-tab, .tab-btn, .data-table th, .token-pill, .status-pill.off, .chip, .cond-value,
+.source-option, .search-result:hover, .pager-btn:disabled, .segmented button {
+  background: var(--ui-surface-muted); color: var(--ui-text-muted);
+}
+.page-tab.active, .tab-btn.active, .btn-primary, .btn-primary-fake, .filter-chip.sel,
+.page-size-btn.active, .segmented button.sel {
+  background: var(--ui-primary); color: var(--ui-on-primary); border-color: var(--ui-primary);
+}
+.btn-primary:hover:not(:disabled), .btn-primary-fake:hover { background: var(--ui-primary-hover); }
+.btn-ghost, .btn-ghost-fake { border-color: var(--ui-border-strong); color: var(--ui-text); }
+.bulk-textarea, .inline-input, .fake-input-real { border-color: var(--ui-border-strong); background: var(--ui-surface); color: var(--ui-text); }
+.bulk-textarea:focus, .inline-input:focus, .fake-input-real:focus { border-color: var(--ui-primary); background: var(--ui-surface); box-shadow: var(--ui-focus-ring); outline: 0; }
+.form-group label, .preview-header, .field label, .source-option-title, .feed-source, .cond-value { color: var(--ui-text); }
+.bulk-error, .feed-error, .btn-sm.danger { color: var(--ui-danger); }
+.btn-sm.danger { border-color: color-mix(in srgb, var(--ui-danger) 35%, var(--ui-border)); }
+.match-chip, .bulk-result, .status-pill.on, .action-mode.auto, .feed-outcome.applied { background: var(--ui-success-soft); color: var(--ui-success); }
+.status-pill.on .dot { background: var(--ui-success); }
+.no-match-chip, .action-mode.review, .feed-outcome.no_priced_items { background: var(--ui-warning-soft); color: var(--ui-warning); }
+.update-type-pill, .feed-avatar { background: var(--ui-info-soft); color: var(--ui-info); border-color: color-mix(in srgb, var(--ui-info) 30%, var(--ui-border)); }
+.chip.in-group, .cond-item.ai .cond-value, .action-mode.test, .source-option.active, .feed-avatar.group, .feed-outcome.test {
+  background: var(--ui-primary-soft); color: var(--ui-primary); border-color: var(--ui-primary);
+}
+.feed-outcome.ignored { background: var(--ui-surface-muted); color: var(--ui-text-subtle); }
+.feed-outcome.parse_failed, .feed-outcome.apply_failed { background: var(--ui-danger-soft); color: var(--ui-danger); }
+.form-panel, .add-rule-btn:hover { border-color: var(--ui-primary); }
+.add-rule-btn:hover { color: var(--ui-primary); }
+.search-results { box-shadow: var(--ui-shadow-popover); }
+.pager-label { color: var(--ui-text-muted); }
 </style>

@@ -5,6 +5,12 @@ import { useAuthStore } from '@/stores/auth.js'
 import AccountCard from '@/components/AccountCard.vue'
 import CreateAccountModal from '@/components/CreateAccountModal.vue'
 import QRModal from '@/components/QRModal.vue'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiCard from '@/components/ui/UiCard.vue'
+import UiEmptyState from '@/components/ui/UiEmptyState.vue'
+import UiNotice from '@/components/ui/UiNotice.vue'
+import UiPage from '@/components/ui/UiPage.vue'
+import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 
 const store = useAccountsStore()
 const auth = useAuthStore()
@@ -110,38 +116,24 @@ async function toggleCompanyAiParsing() {
 </script>
 
 <template>
-  <div class="h-full w-full overflow-y-auto bg-gray-50 px-6 py-6">
-    <div class="max-w-5xl mx-auto">
-    <div class="workspace-panel">
-      <div>
-        <p class="workspace-eyebrow">Active workspace</p>
-        <h2 class="workspace-name">{{ currentCompany?.name || 'No company selected' }}</h2>
-        <p class="workspace-copy">
-          Session, trading, contacts, and reporting data are scoped to this company.
-        </p>
+  <UiPage width="standard">
+    <UiCard class="workspace-panel">
+      <div class="workspace-layout">
+        <div>
+          <p class="workspace-eyebrow">Active workspace</p>
+          <h2 class="workspace-name">{{ currentCompany?.name || 'No company selected' }}</h2>
+          <p class="workspace-copy">Session, trading, contacts, and reporting data are scoped to this company.</p>
+        </div>
+        <div v-if="auth.hasMultipleMemberships" class="workspace-memberships">
+          <button v-for="membership in auth.memberships" :key="membership.company.id" type="button" class="workspace-pill" :class="{ 'workspace-pill-active': membership.company.id === currentCompany?.id }" :disabled="switchingCompany || membership.company.id === currentCompany?.id" @click="switchCompany(membership.company.id)">
+            <span>{{ membership.company.name }}</span><span class="workspace-pill-role">{{ membership.role.replaceAll('_', ' ') }}</span>
+          </button>
+        </div>
       </div>
-      <div v-if="auth.hasMultipleMemberships" class="workspace-memberships">
-        <button
-          v-for="membership in auth.memberships"
-          :key="membership.company.id"
-          type="button"
-          class="workspace-pill"
-          :class="{ 'workspace-pill-active': membership.company.id === currentCompany?.id }"
-          :disabled="switchingCompany || membership.company.id === currentCompany?.id"
-          @click="switchCompany(membership.company.id)"
-        >
-          <span>{{ membership.company.name }}</span>
-          <span class="workspace-pill-role">{{ membership.role.replaceAll('_', ' ') }}</span>
-        </button>
-      </div>
-    </div>
+    </UiCard>
 
-    <div class="flex items-center justify-between mb-6">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900">Session Manager</h1>
-        <p class="text-sm text-gray-500 mt-1">Manage WhatsApp linked device sessions</p>
-      </div>
-      <div class="session-actions">
+    <UiPageHeader eyebrow="Communication accounts" title="Session Manager" description="Manage WhatsApp linked-device sessions and account-level controls.">
+      <template #actions><div class="session-actions">
         <div class="company-ai-toggle-wrap">
           <button
             type="button"
@@ -155,7 +147,6 @@ async function toggleCompanyAiParsing() {
             <strong>{{ companyAiParsingEnabled ? 'ON' : 'OFF' }}</strong>
             <small>{{ togglingAiParsing ? 'Updating...' : 'Company level' }}</small>
           </button>
-          <p v-if="aiParsingError" class="company-ai-error">{{ aiParsingError }}</p>
         </div>
         <div :class="['worker-status', workerStatus.cls]" :title="`Latest heartbeat: ${formatHeartbeat(workerStatus.latestHeartbeat)}`">
           <span :class="['worker-dot', workerStatus.dot]" />
@@ -164,25 +155,19 @@ async function toggleCompanyAiParsing() {
             <small>{{ workerStatus.detail }}</small>
           </span>
         </div>
-        <button
-          @click="showCreate = true"
-          class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-        >
-          + Add Account
-        </button>
-      </div>
-    </div>
+        <UiButton variant="primary" @click="showCreate = true">+ Add Account</UiButton>
+      </div></template>
+    </UiPageHeader>
 
-    <div v-if="store.loading" class="text-center text-gray-400 py-16">Loading...</div>
+    <UiNotice v-if="aiParsingError" tone="danger">{{aiParsingError}}</UiNotice>
 
-    <div v-else-if="store.error" class="text-center text-red-500 py-16">{{ store.error }}</div>
+    <UiEmptyState v-if="store.loading" title="Loading accounts" description="Checking configured communication sessions." busy />
 
-    <div v-else-if="store.accounts.length === 0" class="text-center text-gray-400 py-16">
-      <p class="text-lg font-medium">No accounts yet</p>
-      <p class="text-sm mt-1">Click "Add Account" to get started.</p>
-    </div>
+    <UiNotice v-else-if="store.error" tone="danger">{{store.error}}</UiNotice>
 
-    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <UiEmptyState v-else-if="store.accounts.length === 0" title="No accounts yet" description="Add an account to connect the first WhatsApp linked device."><UiButton variant="primary" size="small" @click="showCreate=true">Add Account</UiButton></UiEmptyState>
+
+    <div v-else class="session-account-grid">
       <AccountCard
         v-for="account in store.accounts"
         :key="account.id"
@@ -203,200 +188,7 @@ async function toggleCompanyAiParsing() {
       :account-id="qrAccountId"
       @close="onQRClose"
     />
-    </div>
-  </div>
+  </UiPage>
 </template>
 
-<style scoped>
-.workspace-panel {
-  display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  align-items: flex-start;
-  padding: 18px 20px;
-  margin-bottom: 20px;
-  border: 1px solid #d1d5db;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #f8fafc 0%, #eefbf2 100%);
-}
-.workspace-eyebrow {
-  margin: 0 0 6px;
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #6b7280;
-}
-.workspace-name {
-  margin: 0;
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #111827;
-}
-.workspace-copy {
-  margin: 6px 0 0;
-  font-size: 0.92rem;
-  color: #4b5563;
-}
-.workspace-memberships {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 10px;
-}
-.workspace-pill {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  min-width: 180px;
-  padding: 10px 12px;
-  border: 1px solid #cbd5e1;
-  border-radius: 12px;
-  background: #ffffff;
-  color: #111827;
-  cursor: pointer;
-  transition: border-color 0.15s, background-color 0.15s;
-}
-.workspace-pill:hover:enabled {
-  border-color: #16a34a;
-  background: #f0fdf4;
-}
-.workspace-pill:disabled {
-  cursor: default;
-}
-.workspace-pill-active {
-  border-color: #16a34a;
-  background: #dcfce7;
-}
-.workspace-pill-role {
-  font-size: 0.78rem;
-  color: #6b7280;
-  text-transform: capitalize;
-}
-.session-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.company-ai-toggle-wrap {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-}
-.company-ai-toggle {
-  display: inline-grid;
-  grid-template-columns: auto auto;
-  column-gap: 10px;
-  row-gap: 1px;
-  align-items: center;
-  min-width: 156px;
-  padding: 8px 11px;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  background: #ffffff;
-  color: #374151;
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.15s, background-color 0.15s, opacity 0.15s;
-}
-.company-ai-toggle:disabled {
-  cursor: not-allowed;
-  opacity: 0.65;
-}
-.company-ai-toggle strong {
-  justify-self: end;
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-.company-ai-toggle small {
-  grid-column: 1 / -1;
-  font-size: 0.72rem;
-  color: #6b7280;
-}
-.company-ai-label {
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-.company-ai-on {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
-  color: #166534;
-}
-.company-ai-off {
-  border-color: #fecaca;
-  background: #fef2f2;
-  color: #991b1b;
-}
-.company-ai-error {
-  margin: 0;
-  max-width: 230px;
-  font-size: 0.72rem;
-  color: #dc2626;
-  text-align: right;
-}
-.worker-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  min-width: 170px;
-  padding: 8px 11px;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  background: #ffffff;
-  color: #374151;
-}
-.worker-status strong,
-.worker-status small {
-  display: block;
-  line-height: 1.15;
-}
-.worker-status strong {
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-.worker-status small {
-  margin-top: 2px;
-  font-size: 0.72rem;
-  color: #6b7280;
-}
-.worker-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  flex: none;
-}
-.worker-online {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
-  color: #166534;
-}
-.worker-stale {
-  border-color: #fed7aa;
-  background: #fff7ed;
-  color: #9a3412;
-}
-.worker-unknown {
-  border-color: #e5e7eb;
-  background: #f8fafc;
-  color: #475569;
-}
-.dot-online {
-  background: #22c55e;
-  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
-}
-.dot-stale {
-  background: #f97316;
-  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.14);
-}
-.dot-unknown {
-  background: #94a3b8;
-  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.14);
-}
-@media (max-width: 760px) {
-  .session-actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
-}
-</style>
+<style scoped src="@/assets/session-view.css"></style>

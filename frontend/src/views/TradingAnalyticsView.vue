@@ -365,6 +365,27 @@ onUnmounted(() => {
 .legend-dot.wts { background: #f97316; }
 .print-only { display: none; }
 
+/* Semantic screen theme. Print rules below deliberately retain a paper palette. */
+.analytics-view{background:var(--ui-bg);color:var(--ui-text);font-family:var(--ui-font-sans)}
+.analytics-header{background:var(--ui-surface);border-color:var(--ui-border)}
+.header-left h2,.total-col{color:var(--ui-text-strong)}
+.last-update,.range-sep,.section-title,.mini-table th,.backfill-msg,.empty-msg,.slot-label,.chart-legend{color:var(--ui-text-muted)}
+.account-select{background:var(--ui-surface);color:var(--ui-text);border-color:var(--ui-border-strong)}
+.account-select:focus{border-color:var(--ui-primary);box-shadow:var(--ui-focus-ring);outline:0}
+.btn-ghost{background:var(--ui-surface);color:var(--ui-text);border-color:var(--ui-border-strong)}
+.btn-ghost:hover{border-color:var(--ui-primary);color:var(--ui-primary)}
+.btn-retry{border-color:var(--ui-warning);background:var(--ui-warning-soft);color:var(--ui-warning)}
+.section-card{background:var(--ui-surface);border-color:var(--ui-border);border-radius:var(--ui-radius-md);box-shadow:var(--ui-shadow-sm)}
+.mini-table th,.mini-table td,.mc-row{border-color:var(--ui-border)}
+.mini-table tbody tr:hover,.mc-row:hover{background:var(--ui-surface-muted)}
+.classify-chip.total,.badge-no{background:var(--ui-surface-muted);color:var(--ui-text-muted)}
+.classify-chip.inquiry,.badge-yes{background:var(--ui-success-soft);color:var(--ui-success)}
+.classify-chip.warn{background:var(--ui-warning-soft);color:var(--ui-warning)}
+.classify-chip.error,.retry-error{background:var(--ui-danger-soft);color:var(--ui-danger);border-color:var(--ui-danger)}
+.mc-summary{color:var(--ui-text)}
+.wtb-bar,.legend-dot.wtb{background:var(--ui-success)}
+.wts-bar,.legend-dot.wts{background:var(--ui-warning)}
+
 @media print {
   :global(body) {
     background: #fff !important;
@@ -414,6 +435,8 @@ onUnmounted(() => {
     border-radius: 0;
     padding: 10px;
     box-shadow: none;
+    background: #fff;
+    color: #111827;
   }
   .two-col {
     grid-template-columns: 1fr 1fr;
@@ -435,6 +458,7 @@ onUnmounted(() => {
   .mini-table td {
     padding: 4px 6px;
   }
+  .mini-table th, .mini-table td, .total-col, .mc-summary { color: #111827; }
   .chart-wrap {
     height: 80px;
   }

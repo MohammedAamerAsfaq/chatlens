@@ -37,16 +37,11 @@
           </label>
         </div>
 
-        <div class="message-mode-picker">
-          <button :class="{ active: draft.message_mode === 'formatted' }" @click="draft.message_mode = 'formatted'">
-            <strong>Preformatted Products</strong>
-            <span>Build the supplier message from selected inventory products.</span>
-          </button>
-          <button :class="{ active: draft.message_mode === 'direct' }" @click="draft.message_mode = 'direct'">
-            <strong>Direct Message</strong>
-            <span>Write one message for every selected supplier.</span>
-          </button>
-        </div>
+        <CampaignModeSelector
+          v-model="draft.message_mode"
+          formatted-description="Build the supplier message from selected inventory products."
+          direct-description="Write one message for every selected supplier."
+        />
 
         <div v-if="draft.message_mode === 'formatted'" class="section-block">
           <div class="section-title-row">
@@ -121,18 +116,12 @@
       </section>
 
       <aside class="panel preview-panel">
-        <div class="panel-head compact">
-          <div>
-            <h2>Ask Preview</h2>
-            <p>Message users will send manually through WhatsApp.</p>
-          </div>
-        </div>
-        <div class="phone-preview">
-          <pre>{{ draftPreview }}</pre>
-        </div>
-        <div class="hint-box">
-          WhatsApp sending stays manual. The system opens WhatsApp with pre-filled text and records button presses.
-        </div>
+        <CampaignMessagePreview
+          title="Ask Preview"
+          description="Message users will send manually through WhatsApp."
+          :message="draftPreview"
+          note="WhatsApp sending stays manual. The system opens WhatsApp with pre-filled text and records button presses."
+        />
       </aside>
     </div>
 
@@ -230,16 +219,7 @@
                   </select>
                 </label>
               </div>
-              <div class="message-mode-picker edit-mode-picker">
-                <button :class="{ active: editDraft.message_mode === 'formatted' }" @click="editDraft.message_mode = 'formatted'">
-                  <strong>Preformatted Products</strong>
-                  <span>Use products and templates.</span>
-                </button>
-                <button :class="{ active: editDraft.message_mode === 'direct' }" @click="editDraft.message_mode = 'direct'">
-                  <strong>Direct Message</strong>
-                  <span>Use one supplier message.</span>
-                </button>
-              </div>
+              <CampaignModeSelector v-model="editDraft.message_mode" formatted-description="Use products and templates." direct-description="Use one supplier message." />
               <div v-if="editDraft.message_mode === 'formatted'" class="template-grid edit-template-grid">
                 <label>
                   <span>Header</span>
@@ -480,8 +460,12 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons'
 import { contactsApi, tradingApi } from '@/api'
-import CampaignAttachmentPanel from '@/components/CampaignAttachmentPanel.vue'
-import { useDirectCampaignSender } from '@/composables/useDirectCampaignSender'
+import {
+  CampaignAttachmentPanel,
+  CampaignMessagePreview,
+  CampaignModeSelector,
+  useDirectCampaignSender,
+} from '@/features/campaigns'
 
 const DEFAULT_HEADER = 'Hello, looking to buy:'
 const DEFAULT_LINE = '- {product_name} - Qty {qty} - Target {price}'
@@ -1598,4 +1582,36 @@ button:disabled {
     justify-content: flex-start;
   }
 }
+
+/* Semantic campaign layer shared conceptually with SellingOffersView. */
+.buying-inquiries-view { padding: var(--ui-page-padding); background: var(--ui-bg); color: var(--ui-text); font-family: var(--ui-font-sans); }
+h1, h2, h3, .product-row strong, .supplier-main strong, .inquiry-summary strong,
+.option-row strong, .product-token-row strong { color: var(--ui-text-strong); }
+h1, h2 { font-family: var(--ui-font-display); }
+.eyebrow { color: var(--ui-primary); }
+.subtitle, .panel-head p, .section-title-row p, label, .list-meta, .product-row span,
+.supplier-main span, .inquiry-summary span, .option-row span, .product-token-row span, .muted,
+.supplier-list-title p, .send-feedback { color: var(--ui-text-muted); }
+.error-box { border-color: color-mix(in srgb,var(--ui-danger) 30%,var(--ui-border)); background: var(--ui-danger-soft); color: var(--ui-danger); }
+.panel, .message-mode-picker button, input, select, textarea, .option-row, .product-row,
+.supplier-row, .inquiry-card, .product-token-row, .caret-btn, .ghost-btn {
+  border-color: var(--ui-border); background: var(--ui-surface); color: var(--ui-text);
+}
+.panel { border-radius: var(--ui-radius-lg); box-shadow: var(--ui-shadow-card); }
+.panel-head, .section-block, .list-tools, .form-actions, .inquiry-detail, .supplier-list-title { border-color: var(--ui-border); }
+input:focus, select:focus, textarea:focus { border-color: var(--ui-primary); outline: 0; box-shadow: var(--ui-focus-ring); }
+.message-mode-picker button.active { border-color: var(--ui-primary); background: var(--ui-primary-soft); box-shadow: inset 0 0 0 1px var(--ui-primary); }
+.message-mode-picker span { color: var(--ui-text-muted); }
+.phone-preview { border-color: var(--ui-border); background: var(--ui-code-bg); color: var(--ui-code-text); }
+.hint-box, .chat-state-toggle, .progress-pill { border-color: color-mix(in srgb,var(--ui-warning) 30%,var(--ui-border)); background: var(--ui-warning-soft); color: var(--ui-warning); }
+.row-index, .status-chip.closed, .notify-pill { background: var(--ui-surface-muted); color: var(--ui-text-muted); }
+.status-chip.open, .notify-pill.chatlens.sent, .wa-btn, .chat-state-toggle.existing { background: var(--ui-success-soft); color: var(--ui-success); border-color: color-mix(in srgb,var(--ui-success) 30%,var(--ui-border)); }
+.notify-pill.sent, .link-btn { background: var(--ui-info-soft); color: var(--ui-info); }
+.edit-pill, .edit-panel { background: var(--ui-primary-soft); color: var(--ui-primary); border-color: color-mix(in srgb,var(--ui-primary) 25%,var(--ui-border)); }
+.primary-btn, .chatlens-btn { background: var(--ui-primary); color: var(--ui-on-primary); border-color: var(--ui-primary); }
+.primary-btn:hover, .chatlens-btn:hover { background: var(--ui-primary-hover); }
+.link-btn.danger, .ghost-btn.danger { background: var(--ui-danger-soft); color: var(--ui-danger); border-color: color-mix(in srgb,var(--ui-danger) 30%,var(--ui-border)); }
+.send-feedback.queued { color: var(--ui-success); }
+.send-feedback.failed { color: var(--ui-danger); }
+.empty-note { color: var(--ui-text-subtle); }
 </style>

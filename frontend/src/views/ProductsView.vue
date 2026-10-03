@@ -1467,4 +1467,55 @@ onUnmounted(stopProductModalDrag)
 .no-match-chip { background: #fef9c3; color: #92400e; padding: 1px 7px; border-radius: 4px; font-size: 0.75rem; }
 .row-unmatched td:first-child { color: #92400e; }
 
+/* Semantic theme bridge. Kept after legacy declarations so both themes own the final palette. */
+.products-view { padding: var(--ui-page-padding); background: var(--ui-bg); color: var(--ui-text); font-family: var(--ui-font-sans); }
+.header-left h2, .modal h3 { color: var(--ui-text-strong); font-family: var(--ui-font-display); }
+.count-badge, .token-pill, .mention-badge { background: var(--ui-surface-muted); color: var(--ui-text-muted); }
+.pnl-badge.positive, .tracking-toggle, .match-chip, .bulk-result { background: var(--ui-success-soft); color: var(--ui-success); }
+.pnl-badge.negative, .bulk-error, .alias-error, .td-inv .neg, .embed-dot.no { background: var(--ui-danger-soft); color: var(--ui-danger); }
+.embed-badge, .alias-chip, .match-badge { background: var(--ui-info-soft); color: var(--ui-info); }
+.embed-badge.warn, .backfill-btn, .alias-chip.pending, .no-match-chip, .row-unmatched td:first-child, .embed-dot.partial {
+  background: var(--ui-warning-soft); color: var(--ui-warning);
+}
+.backfill-btn { border-color: var(--ui-warning); }
+.smart-search-box { background: var(--ui-primary-soft); border-color: color-mix(in srgb, var(--ui-primary) 28%, var(--ui-border)); }
+.smart-search-icon, .edit-prompt-link, .editable-cell:hover, .btn-inv { color: var(--ui-primary); }
+.smart-results, .editable-cell:hover, .btn-inv { border-color: var(--ui-primary); }
+.smart-results-table, .table-wrap, .modal, .modal-foot, .format-example, .alias-input-box,
+.attribute-key, .attribute-value, .btn-sm, .smart-search-row .search-input {
+  background: var(--ui-surface); color: var(--ui-text);
+}
+.table-wrap, .data-table th, .data-table td, .modal-foot, .modal-actions, .preview-table,
+.tab-bar, .format-hint, .format-example, .preview-table-wrap, .product-modal-head, .card-section,
+.alias-input-box, .mention-row, .attribute-key, .attribute-value, .btn-ghost, .btn-sm {
+  border-color: var(--ui-border);
+}
+.data-table th, .tab-btn, .format-hint, .price-list-preview, .card-section, .modal-close:hover {
+  background: var(--ui-surface-muted); color: var(--ui-text-muted);
+}
+.data-table td { border-bottom-color: var(--ui-border); }
+.search-input, .form-group input, .form-group textarea, .bulk-textarea, .inline-cell-input, .alias-input,
+.attribute-key, .attribute-value { border-color: var(--ui-border-strong); background: var(--ui-surface); color: var(--ui-text); }
+.search-input:focus, .form-group input:focus, .form-group textarea:focus, .bulk-textarea:focus,
+.inline-cell-input:focus, .alias-input-box:focus-within, .attribute-key:focus, .attribute-value:focus {
+  border-color: var(--ui-primary); outline: 0; box-shadow: var(--ui-focus-ring);
+}
+.inline-input:focus { background: var(--ui-primary-soft); }
+.status-dot.active, .embed-dot.yes, .td-inv .pos { color: var(--ui-success); }
+.status-dot.inactive, .empty, .muted, .empty-msg-sm, .product-modal-subtitle, .modal-close,
+.section-label, .mention-empty { color: var(--ui-text-subtle); }
+.btn-primary, .tab-btn.active { background: var(--ui-primary); color: var(--ui-on-primary); border-color: var(--ui-primary); }
+.btn-primary:hover:not(:disabled) { background: var(--ui-primary-hover); }
+.btn-ghost, .btn-sm { color: var(--ui-text); border-color: var(--ui-border-strong); }
+.btn-sm.danger { color: var(--ui-danger); border-color: color-mix(in srgb, var(--ui-danger) 35%, var(--ui-border)); }
+.modal-backdrop { background: var(--ui-overlay); }
+.modal, .product-modal { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); box-shadow: var(--ui-shadow-popover); }
+.product-modal-head { background: var(--ui-surface-muted); }
+.form-group label, .format-hint, .format-example, .preview-header, .mention-text, .tracking-toggle strong,
+.attribute-key, .attribute-value, .th-inv, .td-inv { color: var(--ui-text); }
+.hint, .ai-hint, .price-list-meta, .mention-group-title, .tracking-toggle small, .inv-sub { color: var(--ui-text-muted); }
+.tracking-toggle { border-color: color-mix(in srgb, var(--ui-success) 30%, var(--ui-border)); }
+.btn-inv:hover { background: var(--ui-primary-soft); }
+.bulk-error, .alias-error, .td-inv .neg, .embed-dot.no, .row-unmatched td:first-child, .embed-dot.partial { background: transparent; }
+
 </style>

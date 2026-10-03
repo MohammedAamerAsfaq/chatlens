@@ -269,7 +269,7 @@ watch(() => filters.value.search, () => {
 </script>
 
 <template>
-  <div class="h-full w-full overflow-y-auto bg-gray-50">
+  <div class="inquiry-products-view h-full w-full overflow-y-auto bg-gray-50">
     <div class="max-w-7xl mx-auto px-6 py-6">
       <div class="mb-6 flex items-start justify-between gap-4">
         <div>
@@ -740,15 +740,38 @@ watch(() => filters.value.search, () => {
 
 <style scoped>
 .filter-control {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--ui-border-strong);
   border-radius: 0.5rem;
   padding: 0.375rem 0.75rem;
   font-size: 0.875rem;
-  background: white;
+  background: var(--ui-surface);
+  color: var(--ui-text);
 }
 
 .filter-control:focus {
   outline: none;
-  box-shadow: 0 0 0 2px rgb(34 197 94 / 0.45);
+  border-color: var(--ui-primary);
+  box-shadow: var(--ui-focus-ring);
+}
+
+/* Tailwind utility colors are mapped here so this data-heavy route follows the active theme. */
+.inquiry-products-view { background: var(--ui-bg) !important; color: var(--ui-text); font-family: var(--ui-font-sans); }
+.inquiry-products-view :deep(.bg-white) { background: var(--ui-surface) !important; }
+.inquiry-products-view :deep(.bg-gray-50) { background: var(--ui-surface-muted) !important; }
+.inquiry-products-view :deep(.bg-gray-100) { background: var(--ui-border) !important; }
+.inquiry-products-view :deep(.border-gray-100),
+.inquiry-products-view :deep(.border-gray-200) { border-color: var(--ui-border) !important; }
+.inquiry-products-view :deep(.text-gray-900) { color: var(--ui-text-strong) !important; }
+.inquiry-products-view :deep(.text-gray-700),
+.inquiry-products-view :deep(.text-gray-600) { color: var(--ui-text) !important; }
+.inquiry-products-view :deep(.text-gray-500),
+.inquiry-products-view :deep(.text-gray-400) { color: var(--ui-text-muted) !important; }
+.inquiry-products-view :deep(.shadow-sm) { box-shadow: var(--ui-shadow-sm) !important; }
+.inquiry-products-view :deep(.shadow-xl) { box-shadow: var(--ui-shadow-lg) !important; }
+.inquiry-products-view :deep(input), .inquiry-products-view :deep(select) {
+  background: var(--ui-surface); color: var(--ui-text); border-color: var(--ui-border-strong);
+}
+.inquiry-products-view :deep(input:focus), .inquiry-products-view :deep(select:focus) {
+  border-color: var(--ui-primary); box-shadow: var(--ui-focus-ring); outline: 0;
 }
 </style>

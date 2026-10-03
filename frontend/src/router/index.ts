@@ -69,7 +69,7 @@ const router = createRouter({
     { path: '/ai-parse-v2-log', name: 'ai-parse-v2-log', component: AiParseV2LogView, meta: { title: 'AI Parse V2 Logs' } },
     { path: '/contacts', name: 'contacts', component: ContactsView, meta: { title: 'Contacts' } },
     { path: '/groups', name: 'groups', component: GroupsView, meta: { title: 'Groups' } },
-    { path: '/trading', name: 'trading', component: TradingView, meta: { title: 'Trading' } },
+    { path: '/trading', name: 'trading', component: TradingView, meta: { title: 'Trading Dashboard' } },
     { path: '/selling-offers', name: 'selling-offers', component: SellingOffersView, meta: { title: 'Selling Offers' } },
     { path: '/trading-analytics', name: 'trading-analytics', component: TradingAnalyticsView, meta: { title: 'Trading Analytics' } },
     { path: '/report-summary', name: 'report-summary', component: ReportSummaryView, meta: { title: 'Report Summary' } },

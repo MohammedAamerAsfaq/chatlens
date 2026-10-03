@@ -1,0 +1,95 @@
+.workspace-panel {
+  margin-bottom: 20px;
+  background: linear-gradient(135deg, #f8fafc 0%, #eefbf2 100%);
+}
+.workspace-panel :deep(.ui-card__body) { padding: 18px 20px; }
+.workspace-layout { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; }
+.workspace-eyebrow {
+  margin: 0 0 6px;
+  color: #6b7280;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.workspace-name { margin: 0; color: #111827; font-size: 1.25rem; font-weight: 700; }
+.workspace-copy { margin: 6px 0 0; color: #4b5563; font-size: 0.92rem; }
+.workspace-memberships { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.workspace-pill {
+  display: inline-flex;
+  min-width: 180px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #fff;
+  color: #111827;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.workspace-pill:hover:enabled { border-color: #16a34a; background: #f0fdf4; }
+.workspace-pill:disabled { cursor: default; }
+.workspace-pill-active { border-color: #16a34a; background: #dcfce7; }
+.workspace-pill-role { color: #6b7280; font-size: 0.78rem; text-transform: capitalize; }
+.session-actions { display: flex; align-items: center; gap: 12px; }
+.company-ai-toggle-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.company-ai-toggle {
+  display: inline-grid;
+  min-width: 156px;
+  grid-template-columns: auto auto;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 1px;
+  padding: 8px 11px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  color: #374151;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s, opacity 0.15s;
+}
+.company-ai-toggle:disabled { cursor: not-allowed; opacity: 0.65; }
+.company-ai-toggle strong { justify-self: end; font-size: 0.78rem; font-weight: 800; }
+.company-ai-toggle small { grid-column: 1 / -1; color: #6b7280; font-size: 0.72rem; }
+.company-ai-label { font-size: 0.82rem; font-weight: 700; }
+.company-ai-on { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+.company-ai-off { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+.session-account-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.worker-status {
+  display: inline-flex;
+  min-width: 170px;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  color: #374151;
+}
+.worker-status strong, .worker-status small { display: block; line-height: 1.15; }
+.worker-status strong { font-size: 0.82rem; font-weight: 700; }
+.worker-status small { margin-top: 2px; color: #6b7280; font-size: 0.72rem; }
+.worker-dot { width: 10px; height: 10px; flex: none; border-radius: 999px; }
+.worker-online { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+.worker-stale { border-color: #fed7aa; background: #fff7ed; color: #9a3412; }
+.worker-unknown { border-color: #e5e7eb; background: #f8fafc; color: #475569; }
+.dot-online { background: #22c55e; box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14); }
+.dot-stale { background: #f97316; box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.14); }
+.dot-unknown { background: #94a3b8; box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.14); }
+@media (max-width: 760px) {
+  .workspace-layout { flex-direction: column; }
+  .workspace-memberships { width: 100%; justify-content: flex-start; }
+  .workspace-pill { min-width: min(180px, 100%); }
+  .session-actions { align-items: stretch; flex-direction: column; }
+  .session-account-grid { grid-template-columns: 1fr; }
+}
+@media (min-width: 761px) and (max-width: 1050px) {
+  .session-account-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+:global(.theme-inspinia) .workspace-panel { background: #fff; }
+:global(.theme-inspinia) .workspace-pill { border-radius: 4px; }
+:global(.theme-inspinia) .workspace-pill-active { border-color: var(--in-primary); background: #e8f7f4; }
+:global(.theme-inspinia) .company-ai-toggle,
+:global(.theme-inspinia) .worker-status { border-radius: 5px; }

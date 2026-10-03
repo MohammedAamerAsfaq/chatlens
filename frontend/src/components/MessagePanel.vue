@@ -298,10 +298,10 @@ watch(lightbox, (val) => {
 </script>
 
 <template>
-  <div v-bind="$attrs" class="flex flex-col overflow-hidden bg-[#efeae2] flex-1 min-w-0 h-full">
+  <div v-bind="$attrs" class="message-panel flex flex-col overflow-hidden flex-1 min-w-0 h-full">
 
     <!-- Empty state -->
-    <div v-if="!store.selectedChatId" class="flex-1 flex items-center justify-center bg-[#f0f2f5]">
+    <div v-if="!store.selectedChatId" class="message-panel__empty flex-1 flex items-center justify-center">
       <div class="text-center text-gray-400 select-none">
         <div class="w-20 h-20 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
           <svg class="w-10 h-10 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
@@ -315,7 +315,7 @@ watch(lightbox, (val) => {
 
     <template v-else>
       <!-- Chat header — click avatar/name area to open info panel -->
-      <div class="bg-[#f0f2f5] border-b border-gray-200 px-4 py-2.5 flex items-center gap-3 shrink-0 shadow-sm">
+      <div class="message-panel__header px-4 py-2.5 flex items-center gap-3 shrink-0">
         <button
           @click="emit('toggle-info')"
           class="flex items-center gap-3 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity"
@@ -348,8 +348,7 @@ watch(lightbox, (val) => {
       <div class="flex-1 relative overflow-hidden">
       <div
         ref="messagesEl"
-        class="h-full overflow-y-auto px-4 py-3"
-        style="background-image: url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22><rect width=%2240%22 height=%2240%22 fill=%22%23e5ddd5%22/></svg>')"
+        class="message-panel__messages h-full overflow-y-auto px-4 py-3"
         @scroll.passive="onScroll"
       >
         <!-- Load-older spinner -->
@@ -394,8 +393,8 @@ watch(lightbox, (val) => {
                 :class="[
                   'message-bubble relative max-w-xs lg:max-w-md xl:max-w-lg px-3 pt-1.5 pb-1 rounded-lg shadow-sm text-sm',
                   msg.direction === 'outbound'
-                    ? 'bg-[#d9fdd3] rounded-tr-none'
-                    : 'bg-white rounded-tl-none',
+                    ? 'message-bubble--outbound rounded-tr-none'
+                    : 'message-bubble--inbound rounded-tl-none',
                 ]"
               >
                 <!-- Sender name in groups (inbound only) -->
@@ -593,7 +592,7 @@ watch(lightbox, (val) => {
       </div>
 
       <!-- Durable outbound composer -->
-      <div class="bg-[#f0f2f5] border-t border-gray-200 px-4 py-3 shrink-0">
+      <div class="message-panel__composer px-4 py-3 shrink-0">
         <div v-if="!sendingEnabled" class="bg-white rounded-full px-4 py-2 text-sm text-gray-400 border border-gray-200">
           Sending is disabled for this {{ isGroup ? 'group' : 'account/contact' }}. Enable it in Session Manager settings.
         </div>
@@ -620,13 +619,13 @@ watch(lightbox, (val) => {
             :rows="composerRows"
             :maxlength="imageFile ? 1024 : 10000"
             :disabled="preflightLoading || !preflight?.allowed"
-            class="flex-1 resize-none rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500 disabled:bg-gray-100"
+            class="message-panel__input flex-1 resize-none px-3 py-2 text-sm focus:outline-none disabled:opacity-60"
             :placeholder="preflightLoading ? 'Checking destination…' : preflight?.allowed ? 'Type a message' : 'Sending blocked'"
             @keydown.enter.exact.prevent="sendMessage()"
           />
           <button
             :disabled="!canSend"
-            class="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+            class="message-panel__send px-4 py-2 text-sm font-semibold disabled:opacity-40"
             @click="sendMessage()"
           >{{ sending ? 'Queueing…' : 'Send' }}</button>
         </div>
@@ -688,3 +687,5 @@ watch(lightbox, (val) => {
   50% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0.28); }
 }
 </style>
+
+<style scoped src="@/assets/message-panel.css"></style>

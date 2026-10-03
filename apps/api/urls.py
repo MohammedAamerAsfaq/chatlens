@@ -5,7 +5,8 @@ from .views import (
     ContactViewSet, GroupViewSet, WorkerAlertViewSet, StuckReceiptViewSet,
     UnresolvedMessageViewSet, BaileysEventViewSet, OutboundAssetViewSet, OutboundMessageViewSet,
     message_trace_view, message_trace_list_view,
-    auth_login_view, auth_logout_view, auth_me_view, auth_select_company_view, auth_current_company_settings_view,
+    auth_login_view, auth_logout_view, auth_me_view, auth_select_company_view,
+    auth_preferences_view, auth_current_company_settings_view,
     admin_companies_view, admin_company_detail_view, admin_company_enroll_view,
     admin_company_users_view, admin_company_user_detail_view,
 )
@@ -32,6 +33,7 @@ urlpatterns = [
     path('auth/logout/', auth_logout_view, name='auth-logout'),
     path('auth/me/',     auth_me_view,     name='auth-me'),
     path('auth/select-company/', auth_select_company_view, name='auth-select-company'),
+    path('auth/preferences/', auth_preferences_view, name='auth-preferences'),
     path('auth/current-company-settings/', auth_current_company_settings_view, name='auth-current-company-settings'),
     path('admin/companies/', admin_companies_view, name='admin-companies'),
     path('admin/companies/<int:company_id>/', admin_company_detail_view, name='admin-company-detail'),
