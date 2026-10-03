@@ -354,14 +354,19 @@
                     Clear
                   </button>
                 </div>
-                <div v-if="contactOptions[inquiry.id]?.length" class="option-list">
-                  <div class="select-all-row">
-                    <span class="muted">{{ contactOptions[inquiry.id].length }} search results</span>
-                    <button class="link-btn" :disabled="busyAction === `add-search-results-${inquiry.id}`" @click="addAllSearchedSuppliers(inquiry)">
-                      {{ busyAction === `add-search-results-${inquiry.id}` ? 'Adding...' : 'Add all results' }}
-                    </button>
-                  </div>
-                  <button v-for="contact in contactOptions[inquiry.id]" :key="contact.id" class="option-row" :disabled="busyAction === `add-search-results-${inquiry.id}`" @click="addSupplier(inquiry, contact)">
+                <div v-if="contactPage(inquiry.id).total" class="option-list">
+                  <CampaignSearchActions
+                    :visible-count="contactOptions[inquiry.id].length"
+                    :total-count="contactPage(inquiry.id).total"
+                    :page="contactPage(inquiry.id).page"
+                    :total-pages="contactPage(inquiry.id).totalPages"
+                    :busy="contactBulkBusy(inquiry.id)"
+                    @add-view="addSearchedSuppliersInView(inquiry)"
+                    @add-all="addAllReturnedSuppliers(inquiry)"
+                    @previous="changeContactPage(inquiry, contactPage(inquiry.id).page - 1)"
+                    @next="changeContactPage(inquiry, contactPage(inquiry.id).page + 1)"
+                  />
+                  <button v-for="contact in contactOptions[inquiry.id]" :key="contact.id" class="option-row" :disabled="contactBulkBusy(inquiry.id)" @click="addSupplier(inquiry, contact)">
                     <strong>{{ contactLabel(contact) }}</strong>
                     <span>{{ contact.phone_number || contact.wa_contact_id }} - {{ contact.account_name }}</span>
                   </button>
@@ -470,7 +475,9 @@ import {
   CampaignAttachmentPanel,
   CampaignMessagePreview,
   CampaignModeSelector,
+  CampaignSearchActions,
   addAllCampaignResults,
+  fetchAllPaginatedResults,
   useDirectCampaignSender,
 } from '@/features/campaigns'
 
@@ -483,6 +490,7 @@ const productOptions = ref([])
 const expandedInquiries = reactive(new Set())
 const supplierSearch = reactive({})
 const contactOptions = reactive({})
+const contactPagination = reactive({})
 const editProductSearch = reactive({})
 const editProductOptions = reactive({})
 const inquirySearch = ref('')
@@ -640,15 +648,33 @@ async function autoAddSuppliers(inquiry, productRow) {
   }
 }
 
-async function searchContacts(inquiry) {
+const CONTACT_PAGE_SIZE = 25
+
+function contactPage(inquiryId) {
+  return contactPagination[inquiryId] || { page: 1, total: 0, totalPages: 1 }
+}
+
+function contactBulkBusy(inquiryId) {
+  return busyAction.value.endsWith(`-${inquiryId}`) && busyAction.value.includes('search-results')
+}
+
+async function searchContacts(inquiry, page = 1) {
   const query = supplierSearch[inquiry.id] || ''
   error.value = ''
   try {
-    const { data } = await contactsApi.list({ search: query, type: 'phone', page_size: 10 })
-    contactOptions[inquiry.id] = data.results || data
+    const { data } = await contactsApi.list({ search: query, type: 'phone', page_size: CONTACT_PAGE_SIZE, page })
+    const rows = data.results || data
+    const total = data.count ?? rows.length
+    contactOptions[inquiry.id] = rows
+    contactPagination[inquiry.id] = { page, total, totalPages: Math.max(1, Math.ceil(total / CONTACT_PAGE_SIZE)) }
   } catch (exc) {
     error.value = apiError(exc, 'Contact search failed.')
   }
+}
+
+function changeContactPage(inquiry, page) {
+  if (page < 1 || page > contactPage(inquiry.id).totalPages) return
+  searchContacts(inquiry, page)
 }
 
 async function addSupplier(inquiry, contact) {
@@ -657,16 +683,16 @@ async function addSupplier(inquiry, contact) {
     await tradingApi.addSupplierToInquiry(inquiry.id, contact.id)
     await refreshInquiry(inquiry.id)
     contactOptions[inquiry.id] = []
+    delete contactPagination[inquiry.id]
     supplierSearch[inquiry.id] = ''
   } catch (exc) {
     error.value = apiError(exc, 'Add supplier failed.')
   }
 }
 
-async function addAllSearchedSuppliers(inquiry) {
-  const contacts = [...(contactOptions[inquiry.id] || [])]
+async function addSupplierResults(inquiry, contacts, scope) {
   if (!contacts.length) return
-  busyAction.value = `add-search-results-${inquiry.id}`
+  busyAction.value = `add-search-results-${scope}-${inquiry.id}`
   error.value = ''
   try {
     const result = await addAllCampaignResults(
@@ -675,11 +701,34 @@ async function addAllSearchedSuppliers(inquiry) {
     )
     await refreshInquiry(inquiry.id)
     contactOptions[inquiry.id] = result.failed
-    if (!result.failed.length) supplierSearch[inquiry.id] = ''
+    if (scope === 'all') {
+      contactPagination[inquiry.id] = { page: 1, total: result.failed.length, totalPages: 1 }
+      if (!result.failed.length) supplierSearch[inquiry.id] = ''
+    }
     if (result.failed.length) error.value = `${result.succeeded.length} suppliers added; ${result.failed.length} could not be added.`
   } catch (exc) {
     error.value = apiError(exc, 'Unable to add the searched suppliers.')
   } finally {
+    busyAction.value = ''
+  }
+}
+
+function addSearchedSuppliersInView(inquiry) {
+  return addSupplierResults(inquiry, [...(contactOptions[inquiry.id] || [])], 'view')
+}
+
+async function addAllReturnedSuppliers(inquiry) {
+  const query = supplierSearch[inquiry.id] || ''
+  busyAction.value = `load-search-results-all-${inquiry.id}`
+  try {
+    const contacts = await fetchAllPaginatedResults(async (page, pageSize) => {
+      const { data } = await contactsApi.list({ search: query, type: 'phone', page_size: pageSize, page })
+      return data
+    })
+    if (!contacts.length) busyAction.value = ''
+    await addSupplierResults(inquiry, contacts, 'all')
+  } catch (exc) {
+    error.value = apiError(exc, 'Unable to load all returned suppliers.')
     busyAction.value = ''
   }
 }
@@ -903,6 +952,7 @@ async function removeProductFromInquiry(inquiry, productRow) {
 function clearContactSearch(inquiryId) {
   supplierSearch[inquiryId] = ''
   contactOptions[inquiryId] = []
+  delete contactPagination[inquiryId]
 }
 
 async function markSent(inquiry, supplier) {

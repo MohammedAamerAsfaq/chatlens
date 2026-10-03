@@ -372,14 +372,19 @@
                     Clear
                   </button>
                 </div>
-                <div v-if="contactOptions[offer.id]?.length" class="option-list">
-                  <div class="select-all-row">
-                    <span class="muted">{{ contactOptions[offer.id].length }} search results</span>
-                    <button class="link-btn" :disabled="busyAction === `add-search-results-${offer.id}`" @click="addAllSearchedCustomers(offer)">
-                      {{ busyAction === `add-search-results-${offer.id}` ? 'Adding...' : 'Add all results' }}
-                    </button>
-                  </div>
-                  <button v-for="contact in contactOptions[offer.id]" :key="contact.id" class="option-row" :disabled="busyAction === `add-search-results-${offer.id}`" @click="addCustomer(offer, contact)">
+                <div v-if="contactPage(offer.id).total" class="option-list">
+                  <CampaignSearchActions
+                    :visible-count="contactOptions[offer.id].length"
+                    :total-count="contactPage(offer.id).total"
+                    :page="contactPage(offer.id).page"
+                    :total-pages="contactPage(offer.id).totalPages"
+                    :busy="contactBulkBusy(offer.id)"
+                    @add-view="addSearchedCustomersInView(offer)"
+                    @add-all="addAllReturnedCustomers(offer)"
+                    @previous="changeContactPage(offer, contactPage(offer.id).page - 1)"
+                    @next="changeContactPage(offer, contactPage(offer.id).page + 1)"
+                  />
+                  <button v-for="contact in contactOptions[offer.id]" :key="contact.id" class="option-row" :disabled="contactBulkBusy(offer.id)" @click="addCustomer(offer, contact)">
                     <strong>{{ contactLabel(contact) }}</strong>
                     <span>{{ contact.phone_number || contact.wa_contact_id }} - {{ contact.account_name }}</span>
                   </button>
@@ -484,7 +489,9 @@ import {
   CampaignAttachmentPanel,
   CampaignMessagePreview,
   CampaignModeSelector,
+  CampaignSearchActions,
   addAllCampaignResults,
+  fetchAllPaginatedResults,
   useDirectCampaignSender,
 } from '@/features/campaigns'
 
@@ -512,6 +519,7 @@ const productOptions = ref([])
 const expandedOffers = reactive(new Set())
 const customerSearch = reactive({})
 const contactOptions = reactive({})
+const contactPagination = reactive({})
 const editProductSearch = reactive({})
 const editProductOptions = reactive({})
 const offerSearch = ref('')
@@ -712,15 +720,33 @@ async function autoAddCustomers(offer, productRow) {
   }
 }
 
-async function searchContacts(offer) {
+const CONTACT_PAGE_SIZE = 25
+
+function contactPage(offerId) {
+  return contactPagination[offerId] || { page: 1, total: 0, totalPages: 1 }
+}
+
+function contactBulkBusy(offerId) {
+  return busyAction.value.endsWith(`-${offerId}`) && busyAction.value.includes('search-results')
+}
+
+async function searchContacts(offer, page = 1) {
   const query = customerSearch[offer.id] || ''
   error.value = ''
   try {
-    const { data } = await contactsApi.list({ search: query, type: 'phone', page_size: 10 })
-    contactOptions[offer.id] = data.results || data
+    const { data } = await contactsApi.list({ search: query, type: 'phone', page_size: CONTACT_PAGE_SIZE, page })
+    const rows = data.results || data
+    const total = data.count ?? rows.length
+    contactOptions[offer.id] = rows
+    contactPagination[offer.id] = { page, total, totalPages: Math.max(1, Math.ceil(total / CONTACT_PAGE_SIZE)) }
   } catch (exc) {
     error.value = apiError(exc, 'Contact search failed.')
   }
+}
+
+function changeContactPage(offer, page) {
+  if (page < 1 || page > contactPage(offer.id).totalPages) return
+  searchContacts(offer, page)
 }
 
 async function addCustomer(offer, contact) {
@@ -729,16 +755,16 @@ async function addCustomer(offer, contact) {
     await tradingApi.addSellingOfferCustomer(offer.id, contact.id)
     await refreshOffer(offer.id)
     contactOptions[offer.id] = []
+    delete contactPagination[offer.id]
     customerSearch[offer.id] = ''
   } catch (exc) {
     error.value = apiError(exc, 'Add customer failed.')
   }
 }
 
-async function addAllSearchedCustomers(offer) {
-  const contacts = [...(contactOptions[offer.id] || [])]
+async function addCustomerResults(offer, contacts, scope) {
   if (!contacts.length) return
-  busyAction.value = `add-search-results-${offer.id}`
+  busyAction.value = `add-search-results-${scope}-${offer.id}`
   error.value = ''
   try {
     const result = await addAllCampaignResults(
@@ -747,11 +773,34 @@ async function addAllSearchedCustomers(offer) {
     )
     await refreshOffer(offer.id)
     contactOptions[offer.id] = result.failed
-    if (!result.failed.length) customerSearch[offer.id] = ''
+    if (scope === 'all') {
+      contactPagination[offer.id] = { page: 1, total: result.failed.length, totalPages: 1 }
+      if (!result.failed.length) customerSearch[offer.id] = ''
+    }
     if (result.failed.length) error.value = `${result.succeeded.length} customers added; ${result.failed.length} could not be added.`
   } catch (exc) {
     error.value = apiError(exc, 'Unable to add the searched customers.')
   } finally {
+    busyAction.value = ''
+  }
+}
+
+function addSearchedCustomersInView(offer) {
+  return addCustomerResults(offer, [...(contactOptions[offer.id] || [])], 'view')
+}
+
+async function addAllReturnedCustomers(offer) {
+  const query = customerSearch[offer.id] || ''
+  busyAction.value = `load-search-results-all-${offer.id}`
+  try {
+    const contacts = await fetchAllPaginatedResults(async (page, pageSize) => {
+      const { data } = await contactsApi.list({ search: query, type: 'phone', page_size: pageSize, page })
+      return data
+    })
+    if (!contacts.length) busyAction.value = ''
+    await addCustomerResults(offer, contacts, 'all')
+  } catch (exc) {
+    error.value = apiError(exc, 'Unable to load all returned customers.')
     busyAction.value = ''
   }
 }
@@ -897,6 +946,7 @@ async function removeProductFromOffer(offer, productRow) {
 function clearContactSearch(offerId) {
   customerSearch[offerId] = ''
   contactOptions[offerId] = []
+  delete contactPagination[offerId]
 }
 
 async function markSent(offer, customer) {

@@ -6,6 +6,7 @@ import {
   CampaignAttachmentPanel,
   CampaignMessagePreview,
   CampaignModeSelector,
+  CampaignSearchActions,
   MAX_CAPTION_LENGTH,
   MAX_TEXT_LENGTH,
   campaignCharacterCount,
@@ -23,6 +24,7 @@ const productOptions = ref([])
 const expanded = ref(new Set())
 const groupSearch = reactive({})
 const groupOptions = reactive({})
+const groupPages = reactive({})
 const groupAccountIds = reactive({})
 const loadingGroups = reactive({})
 const sendFeedback = reactive({})
@@ -34,6 +36,7 @@ const draft = reactive({ name: '', messageMode: 'formatted', directMessage: '', 
 const editingId = ref(null)
 const editProductOptions = ref([])
 const editDraft = reactive({ name: '', messageMode: 'formatted', directMessage: '', productSearch: '', header: '', line: '', footer: '' })
+const GROUP_PAGE_SIZE = 25
 
 function defaults() {
   return isBuying.value
@@ -204,6 +207,7 @@ async function searchGroups(campaign) {
     }))
     const selected = new Set(campaign.groups.map(row => row.group))
     groupOptions[campaign.id] = pages.flat().filter(row => !selected.has(row.id))
+    groupPages[campaign.id] = 1
   } finally {
     loadingGroups[campaign.id] = false
   }
@@ -226,21 +230,43 @@ function accountLabel(accountId) {
   return account?.display_name || account?.phone_number || `Account ${accountId}`
 }
 
+function groupPage(campaignId) {
+  return groupPages[campaignId] || 1
+}
+
+function groupTotalPages(campaignId) {
+  return Math.max(1, Math.ceil((groupOptions[campaignId] || []).length / GROUP_PAGE_SIZE))
+}
+
+function visibleGroupOptions(campaignId) {
+  const start = (groupPage(campaignId) - 1) * GROUP_PAGE_SIZE
+  return (groupOptions[campaignId] || []).slice(start, start + GROUP_PAGE_SIZE)
+}
+
+function changeGroupPage(campaignId, page) {
+  if (page < 1 || page > groupTotalPages(campaignId)) return
+  groupPages[campaignId] = page
+}
+
+function clampGroupPage(campaignId) {
+  groupPages[campaignId] = Math.min(groupPage(campaignId), groupTotalPages(campaignId))
+}
+
 async function addGroup(campaign, group) {
   busy.value = `add-${campaign.id}-${group.id}`
   try {
     const { data } = await apiFor('addGroup')(campaign.id, group.id)
     replaceCampaign(data.inquiry || data.offer)
     groupOptions[campaign.id] = (groupOptions[campaign.id] || []).filter(row => row.id !== group.id)
+    clampGroupPage(campaign.id)
   } catch (exc) {
     error.value = exc.response?.data?.group_id || 'Unable to add group.'
   } finally { busy.value = '' }
 }
 
-async function addAllAvailableGroups(campaign) {
-  const available = [...(groupOptions[campaign.id] || [])]
+async function addGroupResults(campaign, available, scope) {
   if (!available.length) return
-  busy.value = `add-all-${campaign.id}`
+  busy.value = `add-${scope}-${campaign.id}`
   error.value = ''
   try {
     const result = await addAllCampaignResults(
@@ -248,13 +274,23 @@ async function addAllAvailableGroups(campaign) {
       group => apiFor('addGroup')(campaign.id, group.id),
     )
     await loadCampaigns()
-    groupOptions[campaign.id] = result.failed
+    const succeeded = new Set(result.succeeded.map(group => group.id))
+    groupOptions[campaign.id] = (groupOptions[campaign.id] || []).filter(group => !succeeded.has(group.id))
+    clampGroupPage(campaign.id)
     if (result.failed.length) error.value = `${result.succeeded.length} groups added; ${result.failed.length} could not be added.`
   } catch (exc) {
     error.value = exc.response?.data?.detail || 'Unable to add the searched groups.'
   } finally {
     busy.value = ''
   }
+}
+
+function addGroupsInView(campaign) {
+  return addGroupResults(campaign, visibleGroupOptions(campaign.id), 'view')
+}
+
+function addAllReturnedGroups(campaign) {
+  return addGroupResults(campaign, [...(groupOptions[campaign.id] || [])], 'all')
 }
 
 async function removeGroup(campaign, recipient) {
@@ -436,10 +472,22 @@ onMounted(async () => {
             @select="selectCampaignImage(campaign, $event)"
             @remove="removeCampaignImage(campaign)"
           />
-          <div class="selector"><div class="selector-head"><div><h3>Available groups</h3><small>Select the WhatsApp accounts whose sendable groups should be listed.</small></div><button :disabled="loadingGroups[campaign.id] || !(groupOptions[campaign.id] || []).length || busy === `add-all-${campaign.id}`" @click="addAllAvailableGroups(campaign)">{{ busy === `add-all-${campaign.id}` ? 'Adding...' : `Add all results (${(groupOptions[campaign.id] || []).length})` }}</button></div>
+          <div class="selector"><div class="selector-head"><div><h3>Available groups</h3><small>Select the WhatsApp accounts whose sendable groups should be listed.</small></div></div>
             <div class="account-filter"><div class="account-filter-head"><strong>Accounts</strong><button @click="selectAllGroupAccounts(campaign)">Select all</button></div><div class="account-options"><label v-for="account in accounts" :key="account.id"><input type="checkbox" :checked="(groupAccountIds[campaign.id] || []).includes(account.id)" @change="toggleGroupAccount(campaign, account.id)" /><span>{{ account.display_name || account.phone_number || `Account ${account.id}` }}</span><small>{{ account.effective_session_status }}</small></label></div><p v-if="!accounts.length" class="empty">No WhatsApp accounts are available.</p></div>
             <div class="inline"><input v-model="groupSearch[campaign.id]" placeholder="Filter available groups..." @keydown.enter.prevent="searchGroups(campaign)" /><button :disabled="loadingGroups[campaign.id]" @click="searchGroups(campaign)">{{ loadingGroups[campaign.id] ? 'Loading...' : 'Refresh' }}</button></div>
-            <div class="options"><button v-for="group in groupOptions[campaign.id] || []" :key="group.id" :disabled="busy === `add-${campaign.id}-${group.id}` || busy === `add-all-${campaign.id}`" @click="addGroup(campaign, group)"><strong>{{ group.name || group.wa_group_id }}</strong><span>{{ group.participant_count }} participants · {{ accountLabel(group.account_id) }}</span></button><p v-if="!loadingGroups[campaign.id] && !(groupOptions[campaign.id] || []).length" class="empty">No additional sendable groups available for the selected accounts.</p></div>
+            <CampaignSearchActions
+              v-if="(groupOptions[campaign.id] || []).length"
+              :visible-count="visibleGroupOptions(campaign.id).length"
+              :total-count="(groupOptions[campaign.id] || []).length"
+              :page="groupPage(campaign.id)"
+              :total-pages="groupTotalPages(campaign.id)"
+              :busy="busy === `add-view-${campaign.id}` || busy === `add-all-${campaign.id}`"
+              @add-view="addGroupsInView(campaign)"
+              @add-all="addAllReturnedGroups(campaign)"
+              @previous="changeGroupPage(campaign.id, groupPage(campaign.id) - 1)"
+              @next="changeGroupPage(campaign.id, groupPage(campaign.id) + 1)"
+            />
+            <div class="options"><button v-for="group in visibleGroupOptions(campaign.id)" :key="group.id" :disabled="busy === `add-${campaign.id}-${group.id}` || busy === `add-view-${campaign.id}` || busy === `add-all-${campaign.id}`" @click="addGroup(campaign, group)"><strong>{{ group.name || group.wa_group_id }}</strong><span>{{ group.participant_count }} participants · {{ accountLabel(group.account_id) }}</span></button><p v-if="!loadingGroups[campaign.id] && !(groupOptions[campaign.id] || []).length" class="empty">No additional sendable groups available for the selected accounts.</p></div>
           </div>
           <div class="recipients"><h3>Groups to message</h3><div v-for="recipient in campaign.groups" :key="recipient.id" class="recipient"><div><strong>{{ recipient.group_name || recipient.wa_group_id }}</strong><span>{{ recipient.account_name }}</span><span :class="['press-count', { sent: recipient.chatlens_click_count > 0 }]">{{ recipient.chatlens_click_count ? `ChatLens clicked ${recipient.chatlens_click_count}x` : 'ChatLens not clicked' }}</span><span v-if="sendFeedback[recipient.id]" :class="['send-feedback', sendFeedback[recipient.id].state]">{{ sendFeedback[recipient.id].message }}</span></div><div><button class="send" :disabled="busy === `send-${campaign.id}-${recipient.id}` || messageTooLong(campaign)" @click="sendGroup(campaign, recipient)">{{ busy === `send-${campaign.id}-${recipient.id}` ? 'Working...' : 'ChatLens Send' }}</button><button class="danger" @click="removeGroup(campaign, recipient)">Remove</button></div></div><p v-if="!campaign.groups.length" class="empty">No groups selected.</p></div>
         </div>

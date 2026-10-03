@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import CampaignAttachmentPanel from '../components/CampaignAttachmentPanel.vue'
 import CampaignModeSelector from '../components/CampaignModeSelector.vue'
+import CampaignSearchActions from '../components/CampaignSearchActions.vue'
 import { campaignCharacterCount, campaignImageError, campaignMessageLimit } from '../constants'
-import { addAllCampaignResults } from '../bulkSelection'
+import { addAllCampaignResults, fetchAllPaginatedResults } from '../bulkSelection'
 
 describe('campaign feature', () => {
   it('uses shared WhatsApp message and image constraints', () => {
@@ -36,5 +37,25 @@ describe('campaign feature', () => {
     ))
     expect(result.succeeded.map(row => row.id)).toEqual([1, 3])
     expect(result.failed.map(row => row.id)).toEqual([2])
+  })
+
+  it('fetches every page of campaign search results', async () => {
+    const pages = [
+      { results: [{ id: 1 }], next: '/contacts/?page=2' },
+      { results: [{ id: 2 }], next: null },
+    ]
+    const rows = await fetchAllPaginatedResults(page => pages[page - 1])
+    expect(rows.map(row => row.id)).toEqual([1, 2])
+  })
+
+  it('offers current-view and complete-result bulk actions', async () => {
+    const wrapper = mount(CampaignSearchActions, {
+      props: { visibleCount: 10, totalCount: 24, page: 2, totalPages: 3 },
+    })
+    expect(wrapper.text()).toContain('24 results')
+    await wrapper.findAll('button')[0].trigger('click')
+    await wrapper.findAll('button')[1].trigger('click')
+    expect(wrapper.emitted('add-view')).toHaveLength(1)
+    expect(wrapper.emitted('add-all')).toHaveLength(1)
   })
 })

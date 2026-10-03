@@ -20,3 +20,16 @@ export async function addAllCampaignResults(items, addItem, concurrency = 5) {
     return result
   }, { succeeded: [], failed: [] })
 }
+
+export async function fetchAllPaginatedResults(loadPage, pageSize = 100) {
+  const rows = []
+  let page = 1
+  let hasNext = true
+  while (hasNext) {
+    const data = await loadPage(page, pageSize)
+    rows.push(...(data.results || data))
+    hasNext = Boolean(data.next)
+    page += 1
+  }
+  return rows
+}
