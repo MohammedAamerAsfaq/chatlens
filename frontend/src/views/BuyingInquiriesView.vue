@@ -355,7 +355,13 @@
                   </button>
                 </div>
                 <div v-if="contactOptions[inquiry.id]?.length" class="option-list">
-                  <button v-for="contact in contactOptions[inquiry.id]" :key="contact.id" class="option-row" @click="addSupplier(inquiry, contact)">
+                  <div class="select-all-row">
+                    <span class="muted">{{ contactOptions[inquiry.id].length }} search results</span>
+                    <button class="link-btn" :disabled="busyAction === `add-search-results-${inquiry.id}`" @click="addAllSearchedSuppliers(inquiry)">
+                      {{ busyAction === `add-search-results-${inquiry.id}` ? 'Adding...' : 'Add all results' }}
+                    </button>
+                  </div>
+                  <button v-for="contact in contactOptions[inquiry.id]" :key="contact.id" class="option-row" :disabled="busyAction === `add-search-results-${inquiry.id}`" @click="addSupplier(inquiry, contact)">
                     <strong>{{ contactLabel(contact) }}</strong>
                     <span>{{ contact.phone_number || contact.wa_contact_id }} - {{ contact.account_name }}</span>
                   </button>
@@ -464,6 +470,7 @@ import {
   CampaignAttachmentPanel,
   CampaignMessagePreview,
   CampaignModeSelector,
+  addAllCampaignResults,
   useDirectCampaignSender,
 } from '@/features/campaigns'
 
@@ -653,6 +660,27 @@ async function addSupplier(inquiry, contact) {
     supplierSearch[inquiry.id] = ''
   } catch (exc) {
     error.value = apiError(exc, 'Add supplier failed.')
+  }
+}
+
+async function addAllSearchedSuppliers(inquiry) {
+  const contacts = [...(contactOptions[inquiry.id] || [])]
+  if (!contacts.length) return
+  busyAction.value = `add-search-results-${inquiry.id}`
+  error.value = ''
+  try {
+    const result = await addAllCampaignResults(
+      contacts,
+      contact => tradingApi.addSupplierToInquiry(inquiry.id, contact.id),
+    )
+    await refreshInquiry(inquiry.id)
+    contactOptions[inquiry.id] = result.failed
+    if (!result.failed.length) supplierSearch[inquiry.id] = ''
+    if (result.failed.length) error.value = `${result.succeeded.length} suppliers added; ${result.failed.length} could not be added.`
+  } catch (exc) {
+    error.value = apiError(exc, 'Unable to add the searched suppliers.')
+  } finally {
+    busyAction.value = ''
   }
 }
 

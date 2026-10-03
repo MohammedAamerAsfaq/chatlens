@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { accountsApi, groupsApi, outboundAssetsApi, tradingApi } from '@/api'
 import {
+  addAllCampaignResults,
   CampaignAttachmentPanel,
   CampaignMessagePreview,
   CampaignModeSelector,
@@ -242,14 +243,15 @@ async function addAllAvailableGroups(campaign) {
   busy.value = `add-all-${campaign.id}`
   error.value = ''
   try {
-    for (const group of available) {
-      const { data } = await apiFor('addGroup')(campaign.id, group.id)
-      replaceCampaign(data.inquiry || data.offer)
-    }
-    groupOptions[campaign.id] = []
-  } catch (exc) {
-    error.value = exc.response?.data?.group_id || 'Unable to add all available groups.'
+    const result = await addAllCampaignResults(
+      available,
+      group => apiFor('addGroup')(campaign.id, group.id),
+    )
     await loadCampaigns()
+    groupOptions[campaign.id] = result.failed
+    if (result.failed.length) error.value = `${result.succeeded.length} groups added; ${result.failed.length} could not be added.`
+  } catch (exc) {
+    error.value = exc.response?.data?.detail || 'Unable to add the searched groups.'
   } finally {
     busy.value = ''
   }
@@ -434,7 +436,7 @@ onMounted(async () => {
             @select="selectCampaignImage(campaign, $event)"
             @remove="removeCampaignImage(campaign)"
           />
-          <div class="selector"><div class="selector-head"><div><h3>Available groups</h3><small>Select the WhatsApp accounts whose sendable groups should be listed.</small></div><button :disabled="loadingGroups[campaign.id] || !(groupOptions[campaign.id] || []).length || busy === `add-all-${campaign.id}`" @click="addAllAvailableGroups(campaign)">{{ busy === `add-all-${campaign.id}` ? 'Adding...' : 'Add all available' }}</button></div>
+          <div class="selector"><div class="selector-head"><div><h3>Available groups</h3><small>Select the WhatsApp accounts whose sendable groups should be listed.</small></div><button :disabled="loadingGroups[campaign.id] || !(groupOptions[campaign.id] || []).length || busy === `add-all-${campaign.id}`" @click="addAllAvailableGroups(campaign)">{{ busy === `add-all-${campaign.id}` ? 'Adding...' : `Add all results (${(groupOptions[campaign.id] || []).length})` }}</button></div>
             <div class="account-filter"><div class="account-filter-head"><strong>Accounts</strong><button @click="selectAllGroupAccounts(campaign)">Select all</button></div><div class="account-options"><label v-for="account in accounts" :key="account.id"><input type="checkbox" :checked="(groupAccountIds[campaign.id] || []).includes(account.id)" @change="toggleGroupAccount(campaign, account.id)" /><span>{{ account.display_name || account.phone_number || `Account ${account.id}` }}</span><small>{{ account.effective_session_status }}</small></label></div><p v-if="!accounts.length" class="empty">No WhatsApp accounts are available.</p></div>
             <div class="inline"><input v-model="groupSearch[campaign.id]" placeholder="Filter available groups..." @keydown.enter.prevent="searchGroups(campaign)" /><button :disabled="loadingGroups[campaign.id]" @click="searchGroups(campaign)">{{ loadingGroups[campaign.id] ? 'Loading...' : 'Refresh' }}</button></div>
             <div class="options"><button v-for="group in groupOptions[campaign.id] || []" :key="group.id" :disabled="busy === `add-${campaign.id}-${group.id}` || busy === `add-all-${campaign.id}`" @click="addGroup(campaign, group)"><strong>{{ group.name || group.wa_group_id }}</strong><span>{{ group.participant_count }} participants · {{ accountLabel(group.account_id) }}</span></button><p v-if="!loadingGroups[campaign.id] && !(groupOptions[campaign.id] || []).length" class="empty">No additional sendable groups available for the selected accounts.</p></div>

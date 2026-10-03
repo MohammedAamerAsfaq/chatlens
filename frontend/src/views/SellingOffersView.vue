@@ -373,7 +373,13 @@
                   </button>
                 </div>
                 <div v-if="contactOptions[offer.id]?.length" class="option-list">
-                  <button v-for="contact in contactOptions[offer.id]" :key="contact.id" class="option-row" @click="addCustomer(offer, contact)">
+                  <div class="select-all-row">
+                    <span class="muted">{{ contactOptions[offer.id].length }} search results</span>
+                    <button class="link-btn" :disabled="busyAction === `add-search-results-${offer.id}`" @click="addAllSearchedCustomers(offer)">
+                      {{ busyAction === `add-search-results-${offer.id}` ? 'Adding...' : 'Add all results' }}
+                    </button>
+                  </div>
+                  <button v-for="contact in contactOptions[offer.id]" :key="contact.id" class="option-row" :disabled="busyAction === `add-search-results-${offer.id}`" @click="addCustomer(offer, contact)">
                     <strong>{{ contactLabel(contact) }}</strong>
                     <span>{{ contact.phone_number || contact.wa_contact_id }} - {{ contact.account_name }}</span>
                   </button>
@@ -478,6 +484,7 @@ import {
   CampaignAttachmentPanel,
   CampaignMessagePreview,
   CampaignModeSelector,
+  addAllCampaignResults,
   useDirectCampaignSender,
 } from '@/features/campaigns'
 
@@ -725,6 +732,27 @@ async function addCustomer(offer, contact) {
     customerSearch[offer.id] = ''
   } catch (exc) {
     error.value = apiError(exc, 'Add customer failed.')
+  }
+}
+
+async function addAllSearchedCustomers(offer) {
+  const contacts = [...(contactOptions[offer.id] || [])]
+  if (!contacts.length) return
+  busyAction.value = `add-search-results-${offer.id}`
+  error.value = ''
+  try {
+    const result = await addAllCampaignResults(
+      contacts,
+      contact => tradingApi.addSellingOfferCustomer(offer.id, contact.id),
+    )
+    await refreshOffer(offer.id)
+    contactOptions[offer.id] = result.failed
+    if (!result.failed.length) customerSearch[offer.id] = ''
+    if (result.failed.length) error.value = `${result.succeeded.length} customers added; ${result.failed.length} could not be added.`
+  } catch (exc) {
+    error.value = apiError(exc, 'Unable to add the searched customers.')
+  } finally {
+    busyAction.value = ''
   }
 }
 

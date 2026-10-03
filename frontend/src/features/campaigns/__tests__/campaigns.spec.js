@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import CampaignAttachmentPanel from '../components/CampaignAttachmentPanel.vue'
 import CampaignModeSelector from '../components/CampaignModeSelector.vue'
 import { campaignCharacterCount, campaignImageError, campaignMessageLimit } from '../constants'
+import { addAllCampaignResults } from '../bulkSelection'
 
 describe('campaign feature', () => {
   it('uses shared WhatsApp message and image constraints', () => {
@@ -26,5 +27,14 @@ describe('campaign feature', () => {
     })
     expect(wrapper.text()).toContain('1,024')
     expect(wrapper.text()).toContain('retained after refresh')
+  })
+
+  it('tracks successful and failed bulk recipient additions', async () => {
+    const rows = [{ id: 1 }, { id: 2 }, { id: 3 }]
+    const result = await addAllCampaignResults(rows, row => (
+      row.id === 2 ? Promise.reject(new Error('blocked')) : Promise.resolve()
+    ))
+    expect(result.succeeded.map(row => row.id)).toEqual([1, 3])
+    expect(result.failed.map(row => row.id)).toEqual([2])
   })
 })
