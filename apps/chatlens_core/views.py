@@ -14,6 +14,7 @@ def _load_frontend_bundle():
             'entry_js_url': None,
             'css_urls': [],
             'favicon_url': f'{dev_server_url}/favicon.ico',
+            'preview_base_url': f'{dev_server_url}/inspinia-previews/',
             'manifest_found': False,
         }
 
@@ -24,6 +25,7 @@ def _load_frontend_bundle():
             'entry_js_url': None,
             'css_urls': [],
             'favicon_url': static('frontend/favicon.ico'),
+            'preview_base_url': static('frontend/inspinia-previews/'),
             'manifest_found': False,
         }
 
@@ -35,6 +37,7 @@ def _load_frontend_bundle():
             'entry_js_url': None,
             'css_urls': [],
             'favicon_url': static('frontend/favicon.ico'),
+            'preview_base_url': static('frontend/inspinia-previews/'),
             'manifest_found': True,
         }
 
@@ -43,6 +46,7 @@ def _load_frontend_bundle():
         'entry_js_url': static('frontend/' + entry['file']),
         'css_urls': [static('frontend/' + css_path) for css_path in entry.get('css', [])],
         'favicon_url': static('frontend/favicon.ico'),
+        'preview_base_url': static('frontend/inspinia-previews/'),
         'manifest_found': True,
     }
 

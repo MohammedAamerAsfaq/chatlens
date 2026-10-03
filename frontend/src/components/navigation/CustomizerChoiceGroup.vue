@@ -8,7 +8,6 @@ defineProps({
   busy: Boolean,
 })
 defineEmits(['select'])
-const previewBase = `${import.meta.env.BASE_URL}inspinia-previews/`
 const previewPrefixes = {
   skin: 'skin',
   color_scheme: 'theme',
@@ -18,6 +17,10 @@ const previewPrefixes = {
   layout_width: 'width',
   direction: 'dir',
 }
+function previewBase() {
+  const configured = document.querySelector('meta[name="chatlens-inspinia-preview-base"]')?.content
+  return configured || `${import.meta.env.BASE_URL}inspinia-previews/`
+}
 function label(value) {
   if (typeof value === 'boolean') return value ? 'Shown' : 'Hidden'
   return String(value).replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase())
@@ -26,7 +29,7 @@ function previewUrl(setting, value) {
   const prefix = previewPrefixes[setting]
   if (!prefix) return ''
   const filename = `${prefix}-${String(value).replaceAll('_', '-')}.png`
-  return `${previewBase}${filename}`
+  return `${previewBase()}${filename}`
 }
 </script>
 

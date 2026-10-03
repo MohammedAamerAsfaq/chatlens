@@ -27,4 +27,16 @@ describe('Inspinia configuration', () => {
     })
     expect(wrapper.get('img').attributes('src')).toBe('/inspinia-previews/skin-galaxy.png')
   })
+
+  it('uses the static preview base supplied by Django', () => {
+    const meta = document.createElement('meta')
+    meta.name = 'chatlens-inspinia-preview-base'
+    meta.content = '/static/frontend/inspinia-previews/'
+    document.head.append(meta)
+    const wrapper = mount(CustomizerChoiceGroup, {
+      props: { title: 'Color Scheme', setting: 'color_scheme', values: ['dark'], selected: 'dark' },
+    })
+    expect(wrapper.get('img').attributes('src')).toBe('/static/frontend/inspinia-previews/theme-dark.png')
+    meta.remove()
+  })
 })
