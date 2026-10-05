@@ -1,10 +1,10 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, watch } from 'vue'
 import { RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
 import AppNavigation from '@/components/AppNavigation.vue'
 import InspiniaNavigation from '@/components/InspiniaNavigation.vue'
-import { inspiniaClasses } from '@/themes/inspinia.js'
+import { inspiniaClasses, inspiniaClassNames } from '@/themes/inspinia.js'
 
 const auth = useAuthStore()
 const rootClasses = computed(() => [
@@ -12,6 +12,23 @@ const rootClasses = computed(() => [
   `theme-${auth.uiTheme}`,
   ...(auth.uiTheme === 'inspinia' ? inspiniaClasses(auth.inspiniaConfig) : []),
 ])
+const bodyThemeClasses = computed(() => [
+  `theme-${auth.uiTheme}`,
+  ...(auth.uiTheme === 'inspinia' ? inspiniaClassNames(auth.inspiniaConfig) : []),
+])
+let appliedBodyClasses = []
+
+watch(bodyThemeClasses, classes => {
+  document.body.classList.remove(...appliedBodyClasses)
+  document.body.classList.add(...classes)
+  document.body.dir = auth.uiTheme === 'inspinia' ? auth.inspiniaConfig.direction : 'ltr'
+  appliedBodyClasses = classes
+}, { immediate: true })
+
+onBeforeUnmount(() => {
+  document.body.classList.remove(...appliedBodyClasses)
+  document.body.dir = 'ltr'
+})
 </script>
 
 <template>

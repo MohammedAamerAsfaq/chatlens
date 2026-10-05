@@ -29,3 +29,10 @@ export function inspiniaClasses(config) {
     { 'sidebar-user-hidden': !value.sidebar_user },
   ]
 }
+
+export function inspiniaClassNames(config) {
+  return inspiniaClasses(config).flatMap(value => {
+    if (typeof value === 'string') return [value]
+    return Object.entries(value).filter(([, enabled]) => enabled).map(([name]) => name)
+  })
+}

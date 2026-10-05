@@ -2,6 +2,7 @@ import './assets/main.css'
 import './assets/theme-tokens.css'
 import './assets/ui-system.css'
 import './assets/ui-controls.css'
+import './assets/inspinia-legacy-bridge.css'
 
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'

@@ -129,22 +129,24 @@ onMounted(loadSettings)
 </template>
 
 <style scoped>
-.v2-settings-page { height: 100%; overflow: auto; padding: 24px; color: #111827; }
+.v2-settings-page { height: 100%; overflow: auto; padding: var(--ui-page-padding); color: var(--ui-text); background: var(--ui-bg); font-family: var(--ui-font-sans); }
 .page-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 18px; }
-.page-header h1 { font-size: 1.5rem; font-weight: 700; margin: 0 0 4px; }
-.page-header p { margin: 0; color: #64748b; }
+.page-header h1 { color: var(--ui-text-strong); font-family: var(--ui-font-display); font-size: 1.5rem; font-weight: 700; margin: 0 0 4px; }
+.page-header p { margin: 0; color: var(--ui-text-muted); }
 .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
-.settings-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 16px; box-shadow: 0 1px 2px rgba(15,23,42,0.04); }
-.settings-card h2 { margin: 0 0 4px; font-size: 1rem; font-weight: 700; }
-.settings-card p { margin: 0; color: #64748b; font-size: 0.88rem; line-height: 1.45; }
+.settings-card { background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); padding: 18px; display: flex; flex-direction: column; gap: 16px; box-shadow: var(--ui-shadow-card); }
+.settings-card h2 { margin: 0 0 4px; color: var(--ui-text-strong); font-size: 1rem; font-weight: 700; }
+.settings-card p { margin: 0; color: var(--ui-text-muted); font-size: 0.88rem; line-height: 1.45; }
 .field { display: flex; flex-direction: column; gap: 6px; }
-.field span { font-size: 0.82rem; font-weight: 600; color: #334155; }
-.field input, .field select { width: 220px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font-size: 0.9rem; background: #fff; }
-.gatepass-card { border-top: 4px solid #0f766e; }
-.field small { color: #64748b; font-size: 0.78rem; line-height: 1.35; }
-.primary-btn { border: 0; background: #16a34a; color: #fff; border-radius: 8px; padding: 9px 14px; font-weight: 700; cursor: pointer; }
+.field span { font-size: 0.82rem; font-weight: 600; color: var(--ui-text); }
+.field input, .field select { width: 220px; border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-sm); padding: 8px 10px; color: var(--ui-text); font-size: 0.9rem; background: var(--ui-surface); }
+.gatepass-card { border-top: 4px solid var(--ui-primary); }
+.field small { color: var(--ui-text-muted); font-size: 0.78rem; line-height: 1.35; }
+.primary-btn { border: 0; background: var(--ui-primary); color: var(--ui-on-primary); border-radius: var(--ui-radius-sm); padding: 9px 14px; font-weight: 700; cursor: pointer; }
 .primary-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-.alert { border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 0.88rem; }
-.alert.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
-.alert.success { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+.alert { border-radius: var(--ui-radius-sm); padding: 10px 12px; margin-bottom: 12px; font-size: 0.88rem; }
+.alert.error { background: var(--ui-danger-soft); color: var(--ui-danger); border: 1px solid color-mix(in srgb,var(--ui-danger) 30%,var(--ui-border)); }
+.alert.success { background: var(--ui-success-soft); color: var(--ui-success); border: 1px solid color-mix(in srgb,var(--ui-success) 30%,var(--ui-border)); }
+:global(.theme-inspinia) .page-header h1 { font-size: 1.35rem; }
+:global(.theme-inspinia) .settings-card { padding: 15px; }
 </style>
