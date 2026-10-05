@@ -4,7 +4,7 @@ defineEmits(['close', 'start-drag', 'select-line', 'select-product', 'update:que
 </script>
 
 <template>
-  <Teleport to="body">
+  <Teleport to="#ui-teleport-host">
     <div v-if="target" class="dialog-backdrop">
       <section class="match-dialog" :style="{ transform: `translate(${drag.x}px, ${drag.y}px)` }" role="dialog" aria-modal="true">
         <header @mousedown="$emit('start-drag', $event)"><strong>Pick the correct product for "{{ activeLine?.name || '' }}"</strong><button type="button" @mousedown.stop @click="$emit('close')">×</button></header>

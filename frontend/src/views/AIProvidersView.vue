@@ -435,7 +435,7 @@ function capabilityBadge(cap) {
     </div>
 
     <!-- Add / Edit Modal -->
-    <Teleport to="body">
+    <Teleport to="#ui-teleport-host">
       <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
         <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
           <!-- Modal header -->

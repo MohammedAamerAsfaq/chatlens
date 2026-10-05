@@ -417,7 +417,7 @@ function metaRows(log) {
   </div>
 
   <!-- Clear confirmation dialog -->
-  <Teleport to="body">
+  <Teleport to="#ui-teleport-host">
     <div
       v-if="showClearConfirm"
       class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"

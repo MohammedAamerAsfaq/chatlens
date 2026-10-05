@@ -638,7 +638,7 @@ watch(lightbox, (val) => {
   </div>
 
   <!-- Lightbox -->
-  <Teleport to="body">
+  <Teleport to="#ui-teleport-host">
     <div
       v-if="lightbox"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm"

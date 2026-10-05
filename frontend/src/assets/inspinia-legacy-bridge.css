@@ -1,40 +1,40 @@
-/* Maps older utility-built routes onto the semantic Inspinia palette. */
-body.theme-inspinia .bg-gray-50{background-color:var(--ui-bg)}
-body.theme-inspinia .bg-white{background-color:var(--ui-surface)}
-body.theme-inspinia .bg-gray-100,body.theme-inspinia .bg-gray-200{background-color:var(--ui-surface-muted)}
-body.theme-inspinia .bg-green-50,body.theme-inspinia .bg-emerald-50{background-color:var(--ui-success-soft)}
-body.theme-inspinia .bg-blue-50,body.theme-inspinia .bg-cyan-50{background-color:var(--ui-info-soft)}
-body.theme-inspinia .bg-amber-50,body.theme-inspinia .bg-yellow-50{background-color:var(--ui-warning-soft)}
-body.theme-inspinia .bg-red-50,body.theme-inspinia .bg-rose-50{background-color:var(--ui-danger-soft)}
-body.theme-inspinia .bg-green-500,body.theme-inspinia .bg-green-600,body.theme-inspinia .bg-emerald-600{background-color:var(--ui-primary)}
-body.theme-inspinia .bg-blue-500,body.theme-inspinia .bg-blue-600{background-color:var(--ui-info)}
-body.theme-inspinia .bg-red-500,body.theme-inspinia .bg-red-600{background-color:var(--ui-danger)}
-body.theme-inspinia .text-gray-900,body.theme-inspinia .text-gray-800,body.theme-inspinia .text-gray-700{color:var(--ui-text-strong)}
-body.theme-inspinia .text-gray-600,body.theme-inspinia .text-gray-500{color:var(--ui-text-muted)}
-body.theme-inspinia .text-gray-400,body.theme-inspinia .text-gray-300{color:var(--ui-text-subtle)}
-body.theme-inspinia .text-green-800,body.theme-inspinia .text-green-700,body.theme-inspinia .text-green-600,body.theme-inspinia .text-emerald-700{color:var(--ui-success)}
-body.theme-inspinia .text-blue-800,body.theme-inspinia .text-blue-700,body.theme-inspinia .text-blue-600{color:var(--ui-info)}
-body.theme-inspinia .text-amber-800,body.theme-inspinia .text-amber-700,body.theme-inspinia .text-amber-600,body.theme-inspinia .text-yellow-700{color:var(--ui-warning)}
-body.theme-inspinia .text-red-800,body.theme-inspinia .text-red-700,body.theme-inspinia .text-red-600,body.theme-inspinia .text-rose-700{color:var(--ui-danger)}
-body.theme-inspinia .border-gray-100,body.theme-inspinia .border-gray-200,body.theme-inspinia .border-gray-300{border-color:var(--ui-border)}
-body.theme-inspinia .border-green-200,body.theme-inspinia .border-green-300{border-color:color-mix(in srgb,var(--ui-success) 35%,var(--ui-border))}
-body.theme-inspinia .border-blue-200,body.theme-inspinia .border-blue-300{border-color:color-mix(in srgb,var(--ui-info) 35%,var(--ui-border))}
-body.theme-inspinia .border-amber-200,body.theme-inspinia .border-yellow-200{border-color:color-mix(in srgb,var(--ui-warning) 35%,var(--ui-border))}
-body.theme-inspinia .border-red-200,body.theme-inspinia .border-red-300{border-color:color-mix(in srgb,var(--ui-danger) 35%,var(--ui-border))}
-body.theme-inspinia .divide-gray-100>:not([hidden])~:not([hidden]),body.theme-inspinia .divide-gray-200>:not([hidden])~:not([hidden]){border-color:var(--ui-border)}
-body.theme-inspinia .rounded,body.theme-inspinia .rounded-md,body.theme-inspinia .rounded-lg{border-radius:var(--ui-radius-sm)}
-body.theme-inspinia .rounded-xl,body.theme-inspinia .rounded-2xl{border-radius:var(--ui-radius-lg)}
-body.theme-inspinia .shadow,body.theme-inspinia .shadow-sm,body.theme-inspinia .shadow-md,body.theme-inspinia .shadow-lg{box-shadow:var(--ui-shadow-card)}
-body.theme-inspinia input:not([type=checkbox]):not([type=radio]),body.theme-inspinia select,body.theme-inspinia textarea{border-color:var(--ui-border-strong);background-color:var(--ui-surface);color:var(--ui-text);font-family:var(--ui-font-sans)}
-body.theme-inspinia input:focus,body.theme-inspinia select:focus,body.theme-inspinia textarea:focus{border-color:var(--ui-primary);outline:0;box-shadow:var(--ui-focus-ring)}
-body.theme-inspinia table{color:var(--ui-text)}
-body.theme-inspinia thead,body.theme-inspinia thead.bg-gray-50{background:var(--ui-surface-muted)}
-body.theme-inspinia .hover\:bg-gray-50:hover,body.theme-inspinia .hover\:bg-gray-100:hover{background-color:var(--ui-surface-muted)}
-body.theme-inspinia .hover\:bg-green-50:hover{background-color:var(--ui-primary-soft)}
-body.theme-inspinia .hover\:bg-green-700:hover{background-color:var(--ui-primary-hover)}
-body.theme-inspinia .focus\:ring-green-500:focus{--tw-ring-color:color-mix(in srgb,var(--ui-primary) 30%,transparent)}
+/* Legacy utilities are bridged only inside routed content and popup content. */
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-gray-50{background-color:var(--ui-bg)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-white{background-color:var(--ui-surface)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-gray-100,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-gray-200{background-color:var(--ui-surface-muted)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-green-50,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-emerald-50{background-color:var(--ui-success-soft)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-blue-50,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-cyan-50{background-color:var(--ui-info-soft)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-amber-50,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-yellow-50{background-color:var(--ui-warning-soft)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-red-50,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-rose-50{background-color:var(--ui-danger-soft)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-green-500,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-green-600,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-emerald-600{background-color:var(--ui-primary)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-blue-500,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-blue-600{background-color:var(--ui-info)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-red-500,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .bg-red-600{background-color:var(--ui-danger)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-gray-900,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-gray-800,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-gray-700{color:var(--ui-text-strong)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-gray-600,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-gray-500{color:var(--ui-text-muted)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-gray-400,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-gray-300{color:var(--ui-text-subtle)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-green-800,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-green-700,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-green-600,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-emerald-700{color:var(--ui-success)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-blue-800,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-blue-700,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-blue-600{color:var(--ui-info)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-amber-800,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-amber-700,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-amber-600,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-yellow-700{color:var(--ui-warning)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-red-800,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-red-700,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-red-600,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .text-rose-700{color:var(--ui-danger)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .border-gray-100,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .border-gray-200,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .border-gray-300{border-color:var(--ui-border)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .border-green-200,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .border-green-300{border-color:color-mix(in srgb,var(--ui-success) 35%,var(--ui-border))}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .border-blue-200,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .border-blue-300{border-color:color-mix(in srgb,var(--ui-info) 35%,var(--ui-border))}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .border-amber-200,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .border-yellow-200{border-color:color-mix(in srgb,var(--ui-warning) 35%,var(--ui-border))}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .border-red-200,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .border-red-300{border-color:color-mix(in srgb,var(--ui-danger) 35%,var(--ui-border))}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .divide-gray-100>:not([hidden])~:not([hidden]),:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .divide-gray-200>:not([hidden])~:not([hidden]){border-color:var(--ui-border)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .rounded,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .rounded-md,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .rounded-lg{border-radius:var(--ui-radius-sm)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .rounded-xl,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .rounded-2xl{border-radius:var(--ui-radius-lg)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .shadow,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .shadow-sm,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .shadow-md,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .shadow-lg{box-shadow:var(--ui-shadow-card)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) input:not([type=checkbox]):not([type=radio]),:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) select,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) textarea{border-color:var(--ui-border-strong);background-color:var(--ui-surface);color:var(--ui-text);font-family:var(--ui-font-sans)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) input:focus,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) select:focus,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) textarea:focus{border-color:var(--ui-primary);outline:0;box-shadow:var(--ui-focus-ring)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) table{color:var(--ui-text)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) thead,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) thead.bg-gray-50{background:var(--ui-surface-muted)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .hover\:bg-gray-50:hover,:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .hover\:bg-gray-100:hover{background-color:var(--ui-surface-muted)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .hover\:bg-green-50:hover{background-color:var(--ui-primary-soft)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .hover\:bg-green-700:hover{background-color:var(--ui-primary-hover)}
+:is(.theme-inspinia .app-view,.ui-teleport-host.theme-inspinia) .focus\:ring-green-500:focus{--tw-ring-color:color-mix(in srgb,var(--ui-primary) 30%,transparent)}
 
-/* Teleported content lives under body rather than .app-view. */
-body.theme-inspinia .ui-modal,body.theme-inspinia .dialog,body.theme-inspinia .match-dialog{font-family:var(--ui-font-sans)}
-body.theme-inspinia .ui-modal>header,body.theme-inspinia .dialog>header,body.theme-inspinia .match-dialog>header{background:var(--ui-surface-muted)}
-body.theme-inspinia .ui-modal>header h2,body.theme-inspinia .dialog>header strong,body.theme-inspinia .match-dialog>header strong{font-family:var(--ui-font-display);font-weight:700}
+/* Dialog typography is themed without exposing the navigation shell. */
+.ui-teleport-host.theme-inspinia :is(.ui-modal,.dialog,.match-dialog){font-family:var(--ui-font-sans)}
+.ui-teleport-host.theme-inspinia :is(.ui-modal,.dialog,.match-dialog)>header{background:var(--ui-surface-muted)}
+.ui-teleport-host.theme-inspinia .ui-modal>header h2,.ui-teleport-host.theme-inspinia :is(.dialog,.match-dialog)>header strong{font-family:var(--ui-font-display);font-weight:700}

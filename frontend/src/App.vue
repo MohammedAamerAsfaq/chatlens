@@ -12,22 +12,25 @@ const rootClasses = computed(() => [
   `theme-${auth.uiTheme}`,
   ...(auth.uiTheme === 'inspinia' ? inspiniaClasses(auth.inspiniaConfig) : []),
 ])
-const bodyThemeClasses = computed(() => [
+const teleportHostClasses = computed(() => [
+  'ui-teleport-host',
   `theme-${auth.uiTheme}`,
   ...(auth.uiTheme === 'inspinia' ? inspiniaClassNames(auth.inspiniaConfig) : []),
 ])
-let appliedBodyClasses = []
+let appliedHostClasses = []
 
-watch(bodyThemeClasses, classes => {
-  document.body.classList.remove(...appliedBodyClasses)
-  document.body.classList.add(...classes)
-  document.body.dir = auth.uiTheme === 'inspinia' ? auth.inspiniaConfig.direction : 'ltr'
-  appliedBodyClasses = classes
+watch(teleportHostClasses, classes => {
+  const host = document.getElementById('ui-teleport-host')
+  if (!host) return
+  host.classList.remove(...appliedHostClasses)
+  host.classList.add(...classes)
+  host.dir = auth.uiTheme === 'inspinia' ? auth.inspiniaConfig.direction : 'ltr'
+  appliedHostClasses = classes
 }, { immediate: true })
 
 onBeforeUnmount(() => {
-  document.body.classList.remove(...appliedBodyClasses)
-  document.body.dir = 'ltr'
+  const host = document.getElementById('ui-teleport-host')
+  host?.classList.remove(...appliedHostClasses)
 })
 </script>
 

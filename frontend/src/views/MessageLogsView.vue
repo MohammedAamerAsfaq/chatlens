@@ -426,7 +426,7 @@ const displayedLogs = computed(() => {
   </div>
 
   <!-- Clear confirmation -->
-  <Teleport to="body">
+  <Teleport to="#ui-teleport-host">
     <div v-if="showClear" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" @click.self="showClear = false">
       <div class="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 flex flex-col gap-4">
         <h2 class="text-lg font-semibold text-gray-900">Clear Message Logs</h2>

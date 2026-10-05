@@ -16,7 +16,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-  <Teleport to="body"><Transition name="ui-modal">
+  <Teleport to="#ui-teleport-host"><Transition name="ui-modal">
     <div v-if="open" class="ui-modal-backdrop" @mousedown.self="close">
       <section class="ui-modal" :class="`ui-modal--${size}`" role="dialog" aria-modal="true" :aria-labelledby="titleId">
         <header><h2 :id="titleId">{{ title }}</h2><button v-if="closeable" type="button" aria-label="Close" @click="close">×</button></header>

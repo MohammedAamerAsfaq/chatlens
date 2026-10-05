@@ -5,6 +5,10 @@ import InquiryCardReview from '../components/InquiryCardReview.vue'
 import InquiryProductsDialog from '../components/InquiryProductsDialog.vue'
 import MatchFixDialog from '../components/MatchFixDialog.vue'
 
+const teleportHost = document.createElement('div')
+teleportHost.id = 'ui-teleport-host'
+document.body.append(teleportHost)
+
 const hint = {
   index: 0,
   name: 'Phone',
