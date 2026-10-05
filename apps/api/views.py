@@ -1023,12 +1023,27 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
 
         contact_data = None
         if chat.contact:
+            clientpulse = None
+            company = getattr(chat.account.communication_account, 'company', None)
+            if company:
+                from apps.clientpulse.api_helpers import scoped_profiles
+                profile = scoped_profiles(request).filter(
+                    company=company, contact_id=chat.contact.company_contact_id,
+                ).first()
+                if profile:
+                    clientpulse = {
+                        'id': profile.pk,
+                        'lifecycle_stage': profile.lifecycle_stage,
+                        'status': profile.status,
+                    }
             contact_data = {
+                'id': chat.contact.pk,
                 'display_name': chat.contact.display_name,
                 'push_name': chat.contact.push_name,
                 'phone_number': chat.contact.phone_number,
                 'is_business': chat.contact.is_business,
                 'wa_contact_id': chat.contact.wa_contact_id,
+                'clientpulse': clientpulse,
             }
 
         return Response({

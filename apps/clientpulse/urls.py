@@ -14,9 +14,15 @@ from .api_reminders import (
     reminders_view, snooze_reminder_view,
 )
 from .api_reference import client_options_view, client_tags_view, clientpulse_settings_view
+from .api_conversion import convert_conversation_contact_view
 
 urlpatterns = [
     path('clientpulse/clients/', clients_view, name='clientpulse-clients'),
+    path(
+        'clientpulse/conversation-contacts/<int:whatsapp_contact_id>/convert/',
+        convert_conversation_contact_view,
+        name='clientpulse-conversation-contact-convert',
+    ),
     path('clientpulse/clients/<int:profile_id>/', client_detail_view, name='clientpulse-client-detail'),
     path('clientpulse/clients/<int:profile_id>/archive/', archive_client_view, name='clientpulse-client-archive'),
     path('clientpulse/clients/<int:profile_id>/timeline/', client_timeline_view, name='clientpulse-client-timeline'),

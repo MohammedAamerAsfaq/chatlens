@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { useConversationsStore } from '@/stores/conversations'
 import { chatsApi } from '@/api'
+import ClientPulseConversionCard from '@/components/ClientPulseConversionCard.vue'
 
 const props = defineProps({ open: Boolean })
 const emit  = defineEmits(['close'])
@@ -34,6 +35,10 @@ function fmtNum(n) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}K`
   return String(n)
+}
+
+function clientPulseConverted(profile) {
+  if (info.value?.contact) info.value.contact.clientpulse = profile
 }
 
 watch(() => [props.open, store.selectedChatId], async ([open, chatId]) => {
@@ -154,6 +159,13 @@ watch(() => [props.open, store.selectedChatId], async ([open, chatId]) => {
           <span class="text-gray-800 font-medium">{{ info.contact.push_name }}</span>
         </div>
       </div>
+
+      <ClientPulseConversionCard
+        v-if="!isGroup && info.contact?.id"
+        :contact-id="info.contact.id"
+        :profile="info.contact.clientpulse"
+        @converted="clientPulseConverted"
+      />
 
       <!-- ── WhatsApp / Group ID ────────────────────────────────── -->
       <div class="px-5 py-4 border-b border-gray-100">
