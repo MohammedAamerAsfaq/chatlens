@@ -160,7 +160,6 @@ td { padding: 12px; border-bottom: 1px solid var(--ui-border); vertical-align: t
 .stock-pill.in { background: var(--ui-success-soft); color: var(--ui-success); }
 .stock-pill.out { background: var(--ui-danger-soft); color: var(--ui-danger); }
 .note { color: var(--ui-text-muted); font-size: 0.78rem; line-height: 1.35; }
-:global(.theme-inspinia) .page-header h1 { font-size: 1.35rem; }
 @media (max-width: 900px) {
   .search-card { grid-template-columns: 1fr; }
 }

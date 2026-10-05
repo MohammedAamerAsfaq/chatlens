@@ -8,7 +8,10 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 
 import App from './App.vue'
+import { ensureTeleportHost } from './bootstrap/teleportHost'
 import router from './router'
+
+ensureTeleportHost()
 
 const app = createApp(App)
 

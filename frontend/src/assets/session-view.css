@@ -88,8 +88,3 @@
 @media (min-width: 761px) and (max-width: 1050px) {
   .session-account-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-:global(.theme-inspinia) .workspace-panel { background: #fff; }
-:global(.theme-inspinia) .workspace-pill { border-radius: 4px; }
-:global(.theme-inspinia) .workspace-pill-active { border-color: var(--in-primary); background: #e8f7f4; }
-:global(.theme-inspinia) .company-ai-toggle,
-:global(.theme-inspinia) .worker-status { border-radius: 5px; }

@@ -592,10 +592,4 @@ async function removeMembership(membership) {
 @media (max-width: 960px) {
   .grid { grid-template-columns: 1fr; }
 }
-:global(.theme-inspinia) .form input,
-:global(.theme-inspinia) .form select,
-:global(.theme-inspinia) .inline-select,
-:global(.theme-inspinia) .inline-input,
-:global(.theme-inspinia) .validity-controls input[type='date'] { border-radius: 4px; }
-:global(.theme-inspinia) .inline-empty-state { border-radius: 4px; }
 </style>

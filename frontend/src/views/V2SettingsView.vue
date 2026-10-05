@@ -147,6 +147,4 @@ onMounted(loadSettings)
 .alert { border-radius: var(--ui-radius-sm); padding: 10px 12px; margin-bottom: 12px; font-size: 0.88rem; }
 .alert.error { background: var(--ui-danger-soft); color: var(--ui-danger); border: 1px solid color-mix(in srgb,var(--ui-danger) 30%,var(--ui-border)); }
 .alert.success { background: var(--ui-success-soft); color: var(--ui-success); border: 1px solid color-mix(in srgb,var(--ui-success) 30%,var(--ui-border)); }
-:global(.theme-inspinia) .page-header h1 { font-size: 1.35rem; }
-:global(.theme-inspinia) .settings-card { padding: 15px; }
 </style>

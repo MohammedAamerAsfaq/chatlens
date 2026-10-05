@@ -90,7 +90,7 @@ onMounted(load)
 </script>
 
 <template>
-  <UiPage width="wide">
+  <UiPage width="wide" class="company-users-page">
     <UiPageHeader eyebrow="Company access" title="Users" description="Create company users, assign multiple roles, and suspend access without deleting business records." />
     <UiNotice tone="warning">RBAC is active for user and role administration. Existing application areas will move from legacy role checks to permission codes route by route.</UiNotice>
     <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>

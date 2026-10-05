@@ -87,7 +87,7 @@ onMounted(load)
 </script>
 
 <template>
-  <UiPage width="wide">
+  <UiPage width="wide" class="company-roles-page">
     <UiPageHeader eyebrow="Authorization control plane" title="Roles & Permissions" description="Define reusable company roles using explicit capability grants and record scopes." />
     <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice><UiNotice v-if="success" tone="success">{{ success }}</UiNotice>
     <UiCard class="create-role" title="Create custom role" subtitle="Add a reusable role, then select its explicit permission grants.">

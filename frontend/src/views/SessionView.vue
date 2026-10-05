@@ -116,7 +116,7 @@ async function toggleCompanyAiParsing() {
 </script>
 
 <template>
-  <UiPage width="standard">
+  <UiPage width="standard" class="session-page">
     <UiCard class="workspace-panel">
       <div class="workspace-layout">
         <div>

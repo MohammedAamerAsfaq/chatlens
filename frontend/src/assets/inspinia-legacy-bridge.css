@@ -38,3 +38,31 @@
 .ui-teleport-host.theme-inspinia :is(.ui-modal,.dialog,.match-dialog){font-family:var(--ui-font-sans)}
 .ui-teleport-host.theme-inspinia :is(.ui-modal,.dialog,.match-dialog)>header{background:var(--ui-surface-muted)}
 .ui-teleport-host.theme-inspinia .ui-modal>header h2,.ui-teleport-host.theme-inspinia :is(.dialog,.match-dialog)>header strong{font-family:var(--ui-font-display);font-weight:700}
+
+/* Page-specific adaptations live outside Vue scoped CSS to avoid leaking onto the theme root. */
+.theme-inspinia .task-queue-settings-page h1,.theme-inspinia .v2-candidate-page .page-header h1,.theme-inspinia .v2-settings-page .page-header h1{font-size:1.35rem}
+.theme-inspinia .task-queue-settings-page article,.theme-inspinia .v2-settings-page .settings-card{padding:15px}
+.theme-inspinia .tenant-admin-view .form input,.theme-inspinia .tenant-admin-view .form select,.theme-inspinia .tenant-admin-view .inline-select,.theme-inspinia .tenant-admin-view .inline-input,.theme-inspinia .tenant-admin-view .validity-controls input[type=date],.theme-inspinia .tenant-admin-view .inline-empty-state{border-radius:4px}
+.theme-inspinia .cp-page .reminder-metrics{gap:10px;margin:14px 0}
+.theme-inspinia .cp-page .reminder-metrics article{padding:12px;border:1px solid var(--ui-border);border-top:3px solid var(--ui-primary);border-radius:var(--ui-radius-md);background:var(--ui-surface);color:var(--ui-text)}
+.theme-inspinia .cp-page .reminder-metrics span{color:var(--ui-text-muted);font-size:.66rem}
+.theme-inspinia .cp-page .reminder-metrics strong{color:var(--ui-text-strong);font:700 1.45rem var(--ui-font-display)}
+.theme-inspinia .cp-page .notification{border-color:var(--ui-border);border-radius:var(--ui-radius-md);background:var(--ui-primary-soft);color:var(--ui-text)}
+.theme-inspinia .account-card__settings :is(.rounded-xl,.rounded-lg,.rounded-md){border-radius:var(--ui-radius-md)}
+.theme-inspinia .chat-list__search{border-radius:var(--ui-radius-sm)}
+.theme-inspinia .company-users-page .user-card{border-color:var(--in-border);border-radius:4px}
+.theme-inspinia .company-users-page .avatar{border-radius:4px;background:#e8f5f1;color:var(--in-primary)}
+.theme-inspinia .company-users-page .roles label{border-radius:3px;background:#f6f7fb}
+.theme-inspinia .company-roles-page :is(.workspace>aside,.permission-editor){border-color:var(--in-border);border-radius:5px;box-shadow:none}
+.theme-inspinia .company-roles-page :is(.workspace>aside>button,.permission-row select){border-radius:4px}
+.theme-inspinia .message-panel__header{box-shadow:none}
+.theme-inspinia .message-bubble{border:1px solid var(--ui-border);box-shadow:none}
+.theme-inspinia .session-page .workspace-panel{background:#fff}
+.theme-inspinia .session-page .workspace-pill{border-radius:4px}
+.theme-inspinia .session-page .workspace-pill-active{border-color:var(--in-primary);background:#e8f7f4}
+.theme-inspinia .session-page :is(.company-ai-toggle,.worker-status){border-radius:5px}
+.theme-inspinia .storage-page :is(.storage-danger-card,.storage-summary-card,.storage-account-card){border-radius:5px;box-shadow:none}
+.theme-inspinia .storage-page .storage-account-card,.theme-inspinia .storage-page .storage-summary-card{border-color:var(--in-border)}
+.theme-inspinia .storage-page .storage-account-card>div:first-child{background:#f6f7fb}
+.theme-inspinia .storage-page .storage-danger-card{border-color:#f1b7b7}
+.theme-inspinia .storage-page .fixed>div{border-radius:5px}
