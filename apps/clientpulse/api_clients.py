@@ -1,5 +1,4 @@
 from django.db.models import Q
-from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
@@ -32,7 +31,9 @@ class ClientPagination(PageNumberPagination):
 
 
 def _related(queryset):
-    return queryset.select_related('contact', 'owner__user').prefetch_related('tag_assignments__tag')
+    return queryset.select_related('contact', 'owner__user').prefetch_related(
+        'tag_assignments__tag', 'contact__whatsapp_contacts__account',
+    )
 
 
 def _validate_relations(company, data):
@@ -129,17 +130,36 @@ def client_detail_view(request, profile_id):
     return Response(profile_payload(profile, detail=True))
 
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def archive_client_view(request, profile_id):
+def _set_client_active_state(request, profile_id, active):
     if response := denied(request, 'clientpulse.clients.archive'):
         return response
     profile = profile_or_none(request, profile_id, 'clientpulse.clients.archive')
     if not profile:
         return Response({'detail': 'Client not found.'}, status=404)
-    profile.status = 'archived'; profile.updated_by = request.user
-    profile.contact.is_active = False; profile.contact.archived_at = timezone.now()
-    profile.contact.updated_by = request.user; profile.contact.save()
-    profile.save()
-    record_activity(profile, request.user, 'Client archived')
-    return Response({'status': 'archived'})
+    profile.status = 'active' if active else 'paused'
+    profile.updated_by = request.user
+    profile.save(update_fields=['status', 'updated_by', 'updated_at'])
+    if active and not profile.contact.is_active:
+        # Repair contacts disabled by the former archive implementation.
+        profile.contact.is_active = True
+        profile.contact.archived_at = None
+        profile.contact.updated_by = request.user
+        profile.contact.save(update_fields=['is_active', 'archived_at', 'updated_by', 'updated_at'])
+    title = 'Client reactivated' if active else 'Client deactivated'
+    record_activity(profile, request.user, title)
+    return Response({'status': profile.status})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def deactivate_client_view(request, profile_id):
+    return _set_client_active_state(request, profile_id, False)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def activate_client_view(request, profile_id):
+    return _set_client_active_state(request, profile_id, True)
+
+
+archive_client_view = deactivate_client_view

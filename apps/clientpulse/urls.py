@@ -1,6 +1,9 @@
 from django.urls import path
 
-from .api_clients import archive_client_view, client_detail_view, clients_view
+from .api_clients import (
+    activate_client_view, archive_client_view, client_detail_view, clients_view,
+    deactivate_client_view,
+)
 from .api_engagement import (
     client_consents_view, client_note_detail_view, client_notes_view, client_timeline_view,
 )
@@ -24,6 +27,8 @@ urlpatterns = [
         name='clientpulse-conversation-contact-convert',
     ),
     path('clientpulse/clients/<int:profile_id>/', client_detail_view, name='clientpulse-client-detail'),
+    path('clientpulse/clients/<int:profile_id>/deactivate/', deactivate_client_view, name='clientpulse-client-deactivate'),
+    path('clientpulse/clients/<int:profile_id>/activate/', activate_client_view, name='clientpulse-client-activate'),
     path('clientpulse/clients/<int:profile_id>/archive/', archive_client_view, name='clientpulse-client-archive'),
     path('clientpulse/clients/<int:profile_id>/timeline/', client_timeline_view, name='clientpulse-client-timeline'),
     path('clientpulse/clients/<int:profile_id>/follow-up/', manual_follow_up_view, name='clientpulse-manual-follow-up'),

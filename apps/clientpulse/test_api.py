@@ -6,6 +6,7 @@ from apps.clientpulse.models import (
     ClientActivity, ClientProfile, ClientPulseSettings, ClientTag, ContactConsent,
 )
 from apps.tenancy.models import Company, CompanyContact, CompanyMembership
+from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppContact
 
 
 class ClientPulseApiTests(TestCase):
@@ -107,3 +108,35 @@ class ClientPulseApiTests(TestCase):
             '/api/clientpulse/clients/', {'display_name': 'Forbidden'}, format='json',
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_deactivate_preserves_contact_and_client_can_be_reactivated(self):
+        profile = self._profile('Retained Contact', owner=self.owner_membership)
+        response = self.client.post(f'/api/clientpulse/clients/{profile.pk}/deactivate/')
+        self.assertEqual(response.status_code, 200, response.data)
+        profile.refresh_from_db(); profile.contact.refresh_from_db()
+        self.assertEqual(profile.status, 'paused')
+        self.assertTrue(profile.contact.is_active)
+        response = self.client.post(f'/api/clientpulse/clients/{profile.pk}/activate/')
+        self.assertEqual(response.status_code, 200, response.data)
+        profile.refresh_from_db()
+        self.assertEqual(profile.status, 'active')
+        self.assertEqual(
+            list(profile.activities.values_list('title', flat=True)),
+            ['Client reactivated', 'Client deactivated'],
+        )
+
+    def test_client_list_includes_linked_communication_accounts(self):
+        profile = self._profile('Account-linked Client', owner=self.owner_membership)
+        account = WhatsAppAccount.objects.create(
+            owner=self.owner_user, display_name='Sales Line', phone_number='971500000001',
+        )
+        WhatsAppContact.objects.create(
+            account=account, company_contact=profile.contact,
+            wa_contact_id='971511111111@s.whatsapp.net', display_name='Buyer',
+        )
+        response = self.client.get('/api/clientpulse/clients/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['results'][0]['communication_accounts'], [{
+            'id': account.pk, 'name': 'Sales Line', 'phone_number': '971500000001',
+            'session_status': account.session_status,
+        }])

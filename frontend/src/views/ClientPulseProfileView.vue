@@ -1,12 +1,12 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { clientPulseApi } from '@/api'
 import { useAuthStore } from '@/stores/auth.js'
 import ClientPulseFollowUpComposer from '@/components/ClientPulseFollowUpComposer.vue'
 import '@/assets/clientpulse.css'
 
-const route = useRoute(), router = useRouter(), auth = useAuthStore()
+const route = useRoute(), auth = useAuthStore()
 const id = Number(route.params.id), client = ref(null), notes = ref([]), timeline = ref([]), consents = ref([]), tags = ref([]), owners = ref([])
 const loading = ref(true), busy = ref(''), error = ref(''), success = ref('')
 const canEdit = computed(() => auth.hasPermission('clientpulse.clients.update'))
@@ -29,13 +29,19 @@ async function removeIdentity(item){if(!confirm(`Remove ${item.value}?`))return;
 async function addNote(){busy.value='note';try{await clientPulseApi.addNote(id,{body:noteBody.value});noteBody.value='';notes.value=(await clientPulseApi.notes(id)).data;timeline.value=(await clientPulseApi.timeline(id)).data}catch(exc){error.value=message(exc,'Unable to add note.')}finally{busy.value=''}}
 async function saveConsent(){busy.value='consent';try{consents.value=(await clientPulseApi.saveConsent(id,{...consent})).data;timeline.value=(await clientPulseApi.timeline(id)).data}catch(exc){error.value=message(exc,'Unable to save consent.')}finally{busy.value=''}}
 async function createTag(){if(!newTag.value.trim())return;try{await clientPulseApi.createTag({name:newTag.value});newTag.value='';tags.value=(await clientPulseApi.tags()).data}catch(exc){error.value=message(exc,'Unable to create tag.')}}
-async function archive(){if(!confirm('Archive this client?'))return;await clientPulseApi.archiveClient(id);router.push('/clientpulse')}
+async function setActive(active){
+  const action=active?'reactivate':'deactivate'
+  if(!confirm(`${action[0].toUpperCase()+action.slice(1)} this ClientPulse contact?`))return
+  busy.value=action;error.value='';success.value=''
+  try{await (active?clientPulseApi.activateClient(id):clientPulseApi.deactivateClient(id));await load();success.value=`Client ${active?'reactivated':'deactivated'}.`}
+  catch(exc){error.value=message(exc,`Unable to ${action} client.`)}finally{busy.value=''}
+}
 async function followUpQueued(){timeline.value=(await clientPulseApi.timeline(id)).data}
 onMounted(load)
 </script>
 
 <template><main class="cp-page"><div class="cp-shell"><RouterLink class="cp-back" to="/clientpulse">← Customer directory</RouterLink><div v-if="loading" class="cp-empty">Loading profile...</div><template v-else-if="client">
-  <header class="cp-hero"><div><p class="cp-eyebrow">Client profile</p><h1 class="cp-title">{{ client.display_name || client.legal_name }}</h1><p class="cp-muted">#{{ client.id }} · {{ client.lifecycle_stage.replaceAll('_',' ') }} · {{ client.owner?.user?.username || 'Unassigned' }}</p></div><button v-if="auth.hasPermission('clientpulse.clients.archive')" class="cp-button cp-danger" @click="archive">Archive</button></header>
+  <header class="cp-hero"><div><p class="cp-eyebrow">Client profile</p><h1 class="cp-title">{{ client.display_name || client.legal_name }}</h1><p class="cp-muted">#{{ client.id }} · {{ client.lifecycle_stage.replaceAll('_',' ') }} · {{ client.owner?.user?.username || 'Unassigned' }} · {{ client.status==='active'?'Active':'Inactive' }}</p></div><button v-if="auth.hasPermission('clientpulse.clients.archive')&&client.status==='active'" class="cp-button cp-danger" :disabled="busy==='deactivate'" @click="setActive(false)">Deactivate</button><button v-else-if="auth.hasPermission('clientpulse.clients.archive')" class="cp-button cp-primary" :disabled="busy==='reactivate'" @click="setActive(true)">Reactivate</button></header>
   <p v-if="error" class="cp-notice error">{{ error }}</p><p v-if="success" class="cp-notice success">{{ success }}</p>
   <div v-if="canEdit" class="cp-actions"><input v-model="newTag" class="cp-input" placeholder="Create a reusable tag" /><button type="button" class="cp-button" @click="createTag">Add tag</button></div>
   <div v-if="auth.hasPermission('clientpulse.reminders.manage')" class="cp-actions"><RouterLink class="cp-button cp-primary" :to="`/clientpulse-reminders?profile_id=${id}&create=1`">Create reminder</RouterLink></div>

@@ -97,3 +97,27 @@ class ClientReminderTests(TestCase):
         )
         self.assertEqual(schedule.queue_name, 'clientpulse')
         self.assertEqual(schedule.payload['company_id'], result.company_id)
+
+    def test_edit_reschedules_due_reminder_and_clears_notification(self):
+        reminder = self._reminder(status='due')
+        ClientReminderNotification.objects.create(
+            company=self.company, reminder=reminder, recipient=self.membership,
+        )
+        new_due = timezone.now() + timedelta(days=1)
+        response = self.client.patch(f'/api/clientpulse/reminders/{reminder.pk}/', {
+            'title': 'Updated follow up', 'due_at': new_due.isoformat(),
+            'priority': 'critical',
+        }, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        reminder.refresh_from_db()
+        self.assertEqual(reminder.title, 'Updated follow up')
+        self.assertEqual(reminder.status, 'pending')
+        self.assertEqual(reminder.priority, 'critical')
+        self.assertFalse(ClientReminderNotification.objects.filter(reminder=reminder).exists())
+
+    def test_completed_reminder_cannot_be_edited(self):
+        reminder = self._reminder(status='completed', completed_at=timezone.now())
+        response = self.client.patch(
+            f'/api/clientpulse/reminders/{reminder.pk}/', {'title': 'Unsafe edit'}, format='json',
+        )
+        self.assertEqual(response.status_code, 400)

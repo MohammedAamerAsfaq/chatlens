@@ -6,7 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.clientpulse.api_helpers import denied, profile_or_none
-from apps.clientpulse.models import ClientReminder
+from apps.clientpulse.models import ClientReminder, ClientReminderNotification
 from apps.clientpulse.serializers import ClientReminderInputSerializer, SnoozeInputSerializer
 from apps.clientpulse.services.profile_service import record_activity
 from apps.clientpulse.services.reminder_service import complete_reminder, snooze_reminder
@@ -131,10 +131,17 @@ def reminder_detail_view(request, reminder_id):
     reminder = _queryset(request, 'clientpulse.reminders.manage').filter(pk=reminder_id).first()
     if not reminder:
         return Response({'detail': 'Reminder not found.'}, status=404)
+    if reminder.status in ('completed', 'cancelled'):
+        return Response({'detail': 'Completed or cancelled reminders cannot be edited.'}, status=400)
     serializer = ClientReminderInputSerializer(data=request.data, partial=True)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
     data = serializer.validated_data
+    if 'profile_id' in data:
+        profile = profile_or_none(request, data.pop('profile_id'), 'clientpulse.reminders.manage')
+        if not profile:
+            return Response({'profile_id': ['Invalid client.']}, status=400)
+        reminder.profile = profile
     if 'assigned_to_id' in data:
         assignee = _assignee(reminder.company, data.pop('assigned_to_id'))
         if request.data.get('assigned_to_id') and not assignee:
@@ -143,10 +150,17 @@ def reminder_detail_view(request, reminder_id):
         if permission_scope(request.user, 'clientpulse.reminders.manage') != 'all' and assignee not in (None, membership):
             return Response({'assigned_to_id': ['You may only assign reminders to yourself.']}, status=403)
         reminder.assigned_to = assignee
+    rescheduled = 'due_at' in data
     for field, value in data.items():
-        if field != 'profile_id':
-            setattr(reminder, field, value)
+        setattr(reminder, field, value)
+    if rescheduled:
+        reminder.status = 'pending'
+        reminder.snoozed_until = None
     reminder.save()
+    if rescheduled:
+        ClientReminderNotification.objects.filter(reminder=reminder).delete()
+    elif 'assigned_to_id' in request.data:
+        ClientReminderNotification.objects.filter(reminder=reminder).update(recipient=reminder.assigned_to)
     record_activity(reminder.profile, request.user, 'Reminder updated', metadata={'reminder_id': reminder.pk})
     return Response(_payload(reminder))
 

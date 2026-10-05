@@ -39,3 +39,4 @@
 .theme-inspinia .cp-image-preview{border-color:var(--ui-border);border-radius:var(--ui-radius-md);background:var(--ui-surface-muted)}
 .theme-inspinia .cp-image-preview img{border-radius:var(--ui-radius-sm)}
 .theme-inspinia .cp-empty{color:var(--ui-text-subtle)}
+.cp-account-list{display:grid;gap:4px}.cp-account{display:grid;line-height:1.2}.cp-account small{color:var(--ui-text-muted,#758179);font-size:.68rem}

@@ -54,6 +54,8 @@ export const clientPulseApi = {
   ),
   client: (id) => http.get(`/clientpulse/clients/${id}/`),
   updateClient: (id, data) => http.patch(`/clientpulse/clients/${id}/`, data),
+  deactivateClient: (id) => http.post(`/clientpulse/clients/${id}/deactivate/`),
+  activateClient: (id) => http.post(`/clientpulse/clients/${id}/activate/`),
   archiveClient: (id) => http.post(`/clientpulse/clients/${id}/archive/`),
   timeline: (id) => http.get(`/clientpulse/clients/${id}/timeline/`),
   sendFollowUp: (id, data) => http.post(`/clientpulse/clients/${id}/follow-up/`, data, { timeout: 15000 }),

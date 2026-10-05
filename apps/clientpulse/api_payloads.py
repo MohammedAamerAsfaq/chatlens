@@ -4,6 +4,19 @@ def user_payload(user):
     }
 
 
+def _communication_accounts(contact):
+    accounts = {}
+    for item in contact.whatsapp_contacts.all():
+        account = item.account
+        accounts[account.pk] = {
+            'id': account.pk,
+            'name': account.display_name or account.phone_number or f'Account #{account.pk}',
+            'phone_number': account.phone_number,
+            'session_status': account.session_status,
+        }
+    return list(accounts.values())
+
+
 def profile_payload(profile, *, detail=False):
     contact = profile.contact
     data = {
@@ -26,6 +39,7 @@ def profile_payload(profile, *, detail=False):
         'last_inbound_at': profile.last_inbound_at,
         'next_follow_up_at': profile.next_follow_up_at,
         'do_not_contact': profile.do_not_contact,
+        'communication_accounts': _communication_accounts(contact),
         'tags': [{
             'id': item.tag_id, 'name': item.tag.name, 'color': item.tag.color,
         } for item in profile.tag_assignments.all()],
