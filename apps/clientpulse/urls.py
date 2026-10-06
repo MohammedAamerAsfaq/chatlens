@@ -16,7 +16,9 @@ from .api_reminders import (
     cancel_reminder_view, complete_reminder_view, reminder_detail_view,
     reminders_view, snooze_reminder_view,
 )
-from .api_reference import client_options_view, client_tags_view, clientpulse_settings_view
+from .api_reference import (
+    client_options_view, client_tag_detail_view, client_tags_view, clientpulse_settings_view,
+)
 from .api_conversion import conversation_contact_candidates_view, convert_conversation_contact_view
 from .api_conversations import client_conversation_history_view
 
@@ -45,6 +47,7 @@ urlpatterns = [
     path('clientpulse/clients/<int:profile_id>/identities/<int:identity_id>/', client_identity_detail_view, name='clientpulse-client-identity-detail'),
     path('clientpulse/notes/<int:note_id>/', client_note_detail_view, name='clientpulse-note-detail'),
     path('clientpulse/tags/', client_tags_view, name='clientpulse-tags'),
+    path('clientpulse/tags/<int:tag_id>/', client_tag_detail_view, name='clientpulse-tag-detail'),
     path('clientpulse/options/', client_options_view, name='clientpulse-options'),
     path('clientpulse/settings/', clientpulse_settings_view, name='clientpulse-settings'),
     path('clientpulse/dashboard/', clientpulse_dashboard_view, name='clientpulse-dashboard'),

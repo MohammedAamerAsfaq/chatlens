@@ -295,6 +295,8 @@ Indexes:
 
 #### `ClientTag`
 
+Tags are company-owned reusable labels managed from the ClientPulse customer profile. The tag API supports list/create and individual read/update/delete operations. Deletion is soft at the definition level, removes active profile assignments, and allows the same normalized name to be reactivated later. The profile UI reports assignment usage before deletion and supports name and color maintenance.
+
 - `company`,
 - `name`,
 - `color`,

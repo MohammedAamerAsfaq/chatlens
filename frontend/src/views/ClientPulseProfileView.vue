@@ -5,6 +5,7 @@ import { clientPulseApi } from '@/api'
 import { useAuthStore } from '@/stores/auth.js'
 import ClientPulseFollowUpComposer from '@/components/ClientPulseFollowUpComposer.vue'
 import ClientConversationHistory from '@/features/clientpulse/components/ClientConversationHistory.vue'
+import ClientTagManager from '@/features/clientpulse/components/ClientTagManager.vue'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCard from '@/components/ui/UiCard.vue'
@@ -20,7 +21,7 @@ const route = useRoute()
 const auth = useAuthStore()
 const id = Number(route.params.id)
 const client = ref(null), notes = ref([]), timeline = ref([]), consents = ref([]), tags = ref([]), owners = ref([])
-const loading = ref(true), busy = ref(''), error = ref(''), success = ref(''), noteBody = ref(''), newTag = ref('')
+const loading = ref(true), busy = ref(''), error = ref(''), success = ref(''), noteBody = ref('')
 const canEdit = computed(() => auth.hasPermission('clientpulse.clients.update'))
 const canNotes = computed(() => auth.hasPermission('clientpulse.notes.manage'))
 const canConsent = computed(() => auth.hasPermission('clientpulse.consent.manage'))
@@ -82,14 +83,7 @@ async function saveConsent() {
   catch (exc) { error.value = apiMessage(exc, 'Unable to save consent.') }
   finally { busy.value = '' }
 }
-async function createTag() {
-  if (!newTag.value.trim()) return
-  try { await clientPulseApi.createTag({ name: newTag.value }); newTag.value = ''; tags.value = (await clientPulseApi.tags()).data }
-  catch (exc) { error.value = apiMessage(exc, 'Unable to create tag.') }
-}
-function toggleTag(tagId, selected) {
-  form.tag_ids = selected ? [...new Set([...form.tag_ids, tagId])] : form.tag_ids.filter(value => value !== tagId)
-}
+async function loadTags() { tags.value = (await clientPulseApi.tags()).data }
 async function setActive(active) {
   const action = active ? 'reactivate' : 'deactivate'
   if (!confirm(`${action[0].toUpperCase() + action.slice(1)} this ClientPulse contact?`)) return
@@ -115,9 +109,7 @@ onMounted(load)
       </UiPageHeader>
       <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
       <UiNotice v-if="success" tone="success">{{ success }}</UiNotice>
-      <UiCard v-if="canEdit" title="Profile tags" subtitle="Create reusable tags and assign them to this relationship.">
-        <div class="client-profile__tag-tools"><UiInput v-model="newTag" placeholder="Create a reusable tag" @keyup.enter="createTag" /><UiButton variant="outline" @click="createTag">Add tag</UiButton></div>
-      </UiCard>
+      <ClientTagManager v-model="form.tag_ids" :tags="tags" :can-edit="canEdit" @tags-changed="loadTags" />
       <ClientPulseFollowUpComposer v-if="auth.hasPermission('clientpulse.messages.send_manual')" :client="client" @queued="followUpQueued" />
       <ClientConversationHistory :profile-id="id" />
 
@@ -185,10 +177,7 @@ onMounted(load)
 .client-profile__subform { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--ui-border); }
 .client-profile__wide { grid-column: 1 / -1; }
 .client-profile__actions { display: flex; justify-content: flex-end; gap: 8px; }
-.client-profile__tag-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
-.client-profile__tags,.client-profile__list,.client-profile__timeline,.client-profile__stack { display: grid; gap: 10px; }
-.client-profile__tags > strong { color: var(--ui-text); font-size: .76rem; }
-.client-profile__tags > div { display: flex; gap: 12px; flex-wrap: wrap; }
+.client-profile__list,.client-profile__timeline,.client-profile__stack { display: grid; gap: 10px; }
 .client-profile__item,.client-profile__timeline-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: var(--ui-surface-muted); }
 .client-profile__item div,.client-profile__timeline-item div { min-width: 0; }
 .client-profile__item strong,.client-profile__timeline-item strong { color: var(--ui-text-strong); font-size: .82rem; }
@@ -196,5 +185,5 @@ onMounted(load)
 .client-profile__item p,.client-profile__timeline-item p { margin: 5px 0 0; color: var(--ui-text-muted); font-size: .78rem; line-height: 1.45; }
 .client-profile__item--block { display: block; }
 @media (max-width: 1050px) { .client-profile__grid { grid-template-columns: 1fr; } }
-@media (max-width: 760px) { .client-profile__form { grid-template-columns: 1fr; } .client-profile__tag-tools { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .client-profile__form { grid-template-columns: 1fr; } }
 </style>
