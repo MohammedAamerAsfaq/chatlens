@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { clientPulseApi } from '@/api'
 import { useAuthStore } from '@/stores/auth.js'
 import ClientPulseFollowUpComposer from '@/components/ClientPulseFollowUpComposer.vue'
+import ClientConversationHistory from '@/features/clientpulse/components/ClientConversationHistory.vue'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCard from '@/components/ui/UiCard.vue'
@@ -14,7 +15,7 @@ import UiInput from '@/components/ui/UiInput.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
 import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
-
+import { channelOptions, consentChannelOptions, consentPurposeOptions, consentStatusOptions, contactTypeOptions, identityTypeOptions, lifecycleOptions, ownerOption, priorityOptions } from '@/features/clientpulse/clientProfileOptions.js'
 const route = useRoute()
 const auth = useAuthStore()
 const id = Number(route.params.id)
@@ -26,18 +27,7 @@ const canConsent = computed(() => auth.hasPermission('clientpulse.consent.manage
 const form = reactive({ display_name: '', legal_name: '', contact_type: 'person', lifecycle_stage: 'lead', priority: 'normal', source: 'manual', owner_id: '', preferred_channel: '', preferred_language: '', timezone: 'Asia/Dubai', do_not_contact: false, do_not_contact_reason: '', tag_ids: [] })
 const identity = reactive({ identity_type: 'phone', value: '', label: '' })
 const consent = reactive({ channel: 'whatsapp', purpose: 'follow_up', status: 'unknown', source: 'manual' })
-
-const option = (value, label) => ({ value, label: label || value.replaceAll('_', ' ') })
-const contactTypeOptions = [option('person', 'Person'), option('organization', 'Organization')]
-const lifecycleOptions = ['lead', 'prospect', 'active_customer', 'dormant', 'lost', 'blocked'].map(value => option(value))
-const priorityOptions = ['low', 'normal', 'high', 'critical'].map(value => option(value))
-const channelOptions = [option('', 'Not set'), ...['whatsapp', 'email', 'phone', 'other'].map(value => option(value))]
-const identityTypeOptions = [option('phone', 'Phone'), option('email', 'Email'), option('whatsapp_jid', 'WhatsApp JID')]
-const consentChannelOptions = ['whatsapp', 'email', 'phone'].map(value => option(value))
-const consentPurposeOptions = ['transactional', 'follow_up', 'marketing'].map(value => option(value))
-const consentStatusOptions = ['unknown', 'granted', 'denied', 'revoked'].map(value => option(value))
-const ownerOptions = computed(() => [option('', 'Unassigned'), ...owners.value.map(owner => option(owner.id, owner.username))])
-
+const ownerOptions = computed(() => [ownerOption('', 'Unassigned'), ...owners.value.map(owner => ownerOption(owner.id, owner.username))])
 function apiMessage(exc, fallback) {
   const data = exc.response?.data
   return data?.detail || (data ? JSON.stringify(data) : fallback)
@@ -111,7 +101,6 @@ async function setActive(active) {
 async function followUpQueued() { timeline.value = (await clientPulseApi.timeline(id)).data }
 onMounted(load)
 </script>
-
 <template>
   <main class="ui-page"><div class="ui-page__inner ui-page__inner--wide client-profile">
     <RouterLink class="client-profile__back" to="/clientpulse">&larr; Customer directory</RouterLink>
@@ -126,11 +115,11 @@ onMounted(load)
       </UiPageHeader>
       <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
       <UiNotice v-if="success" tone="success">{{ success }}</UiNotice>
-
       <UiCard v-if="canEdit" title="Profile tags" subtitle="Create reusable tags and assign them to this relationship.">
         <div class="client-profile__tag-tools"><UiInput v-model="newTag" placeholder="Create a reusable tag" @keyup.enter="createTag" /><UiButton variant="outline" @click="createTag">Add tag</UiButton></div>
       </UiCard>
       <ClientPulseFollowUpComposer v-if="auth.hasPermission('clientpulse.messages.send_manual')" :client="client" @queued="followUpQueued" />
+      <ClientConversationHistory :profile-id="id" />
 
       <div class="client-profile__grid">
         <UiCard title="Relationship profile" subtitle="Core ownership, lifecycle, preferences, and contact policy.">

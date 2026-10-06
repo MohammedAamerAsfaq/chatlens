@@ -1446,6 +1446,7 @@ Implemented behavior:
 - reminders,
 - sequence enrollment,
 - manual contact actions,
+- paginated direct conversation history across linked communication accounts,
 - related inquiries and campaigns.
 
 Implemented behavior:
@@ -1455,6 +1456,7 @@ Implemented behavior:
 - the manual WhatsApp follow-up composer uses the same shared controls,
 - text/image limits, image preview, live preflight, consent, do-not-contact, and outbound queue behavior remain unchanged,
 - activity displays outbound state without sending synchronously from the profile request.
+- conversation history is limited to linked direct chats and account visibility granted to the current user; group messages are excluded.
 
 ### 16.5 Reminder workspace
 

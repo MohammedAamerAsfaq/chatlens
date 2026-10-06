@@ -11,8 +11,8 @@ from apps.clientpulse.models import ClientProfile
 from apps.clientpulse.services.conversation_conversion import (
     ConversationConversionError, convert_conversation_contact, find_conversion_target,
 )
-from apps.tenancy.models import CompanyMembership
-from apps.tenancy.services.access import active_membership_for_user, default_company_for_user
+from apps.clientpulse.services.communication_access import visible_clientpulse_accounts
+from apps.tenancy.services.access import default_company_for_user
 from apps.whatsapp_bridge.models import WhatsAppContact
 
 
@@ -59,14 +59,9 @@ def conversation_contact_candidates_view(request):
         Q(wa_contact_id__endswith='@g.us') | Q(wa_contact_id__endswith='@newsletter')
         | Q(wa_contact_id__endswith='@broadcast'),
     ).order_by('display_name', 'push_name', 'phone_number', 'pk')
-    membership = active_membership_for_user(request.user)
-    is_company_admin = request.user.is_superuser or (
-        membership and membership.role in {
-            CompanyMembership.ROLE_SUPER_USER, CompanyMembership.ROLE_ADMIN,
-        }
+    queryset = queryset.filter(
+        account__in=visible_clientpulse_accounts(request.user, company),
     )
-    if not is_company_admin:
-        queryset = queryset.filter(account__owner=request.user)
     search = request.query_params.get('search', '').strip()
     if search:
         queryset = queryset.filter(

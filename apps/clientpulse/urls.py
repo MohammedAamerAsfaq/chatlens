@@ -18,6 +18,7 @@ from .api_reminders import (
 )
 from .api_reference import client_options_view, client_tags_view, clientpulse_settings_view
 from .api_conversion import conversation_contact_candidates_view, convert_conversation_contact_view
+from .api_conversations import client_conversation_history_view
 
 urlpatterns = [
     path('clientpulse/clients/', clients_view, name='clientpulse-clients'),
@@ -36,6 +37,7 @@ urlpatterns = [
     path('clientpulse/clients/<int:profile_id>/activate/', activate_client_view, name='clientpulse-client-activate'),
     path('clientpulse/clients/<int:profile_id>/archive/', archive_client_view, name='clientpulse-client-archive'),
     path('clientpulse/clients/<int:profile_id>/timeline/', client_timeline_view, name='clientpulse-client-timeline'),
+    path('clientpulse/clients/<int:profile_id>/conversations/', client_conversation_history_view, name='clientpulse-client-conversations'),
     path('clientpulse/clients/<int:profile_id>/follow-up/', manual_follow_up_view, name='clientpulse-manual-follow-up'),
     path('clientpulse/clients/<int:profile_id>/notes/', client_notes_view, name='clientpulse-client-notes'),
     path('clientpulse/clients/<int:profile_id>/consents/', client_consents_view, name='clientpulse-client-consents'),
