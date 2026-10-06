@@ -1,62 +1,102 @@
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { activityApi, accountsApi } from '@/api'
+import { accountsApi, activityApi } from '@/api'
+import UiDataTable from '@/components/ui/UiDataTable.vue'
+import ActivityLogDetail from '@/features/activity/components/ActivityLogDetail.vue'
 
-const route  = useRoute()
+const route = useRoute()
 const router = useRouter()
-
-const logs        = ref([])
-const accounts    = ref([])
-const loading     = ref(false)
-const clearing    = ref(false)
+const logs = ref([])
+const accounts = ref([])
+const loading = ref(false)
+const error = ref('')
+const clearing = ref(false)
 const showClearConfirm = ref(false)
-const expandedId  = ref(null)
-const copiedId    = ref(null)
-
-// Filters
 const filterAccount = ref('all')
-const filterStatus  = ref('all')
-const filterEvent   = ref('all')
-
-// Pagination
-const page            = ref(1)
-const pageSize        = ref(25)
-const totalCount      = ref(0)
-const pageSizeOptions = [10, 25, 50, 100]
-
-const totalPages = computed(() => Math.max(1, Math.ceil(totalCount.value / pageSize.value)))
-const pageStart  = computed(() => totalCount.value === 0 ? 0 : (page.value - 1) * pageSize.value + 1)
-const pageEnd    = computed(() => Math.min(page.value * pageSize.value, totalCount.value))
-
-let pollTimer = null
-
-// message_id filter — set by incoming cross-link from Message Logs page
+const filterStatus = ref('all')
+const filterEvent = ref('all')
 const filterMessageId = ref(route.query.message_id || '')
+const searchText = ref('')
+const sortKey = ref('created_at')
+const sortDirection = ref('desc')
+const page = ref(1)
+const pageSize = ref(25)
+const totalCount = ref(0)
+let pollTimer
 
-function buildParams() {
-  const p = { page: page.value, page_size: pageSize.value }
-  if (filterAccount.value  !== 'all') p.account     = filterAccount.value
-  if (filterStatus.value   !== 'all') p.status       = filterStatus.value
-  if (filterEvent.value    !== 'all') p.event_type   = filterEvent.value
-  if (filterMessageId.value)          p.message_id   = filterMessageId.value
-  return p
+function formatTime(value) {
+  return value ? new Date(value).toLocaleString() : ''
 }
 
-function goToMessageLogs(log) {
-  router.push({
-    name: 'message-logs',
-    query: { account_id: log.account_id, message_id: (log.metadata || {}).provider_message_id },
-  })
+function relativeTime(value) {
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(value)) / 1000))
+  if (seconds < 60) return `${seconds}s ago`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
+  return `${Math.floor(seconds / 86400)}d ago`
+}
+
+function senderDisplay(log) {
+  const sender = log.metadata?.sender_jid
+  return sender ? `+${String(sender).split('@')[0]}` : '-'
+}
+
+function senderName(log) {
+  return log.metadata?.push_name || '-'
+}
+
+function eventLabel(value) {
+  return { message_ingest: 'Ingest', history_sync: 'History', session_status: 'Session' }[value] || value
+}
+
+function metaSummary(log) {
+  const metadata = log.metadata || {}
+  if (log.event_type === 'message_ingest') {
+    const parts = []
+    if (metadata.provider_message_id) parts.push(`msg: ${metadata.provider_message_id.slice(0, 12)}...`)
+    if (metadata.chat_id) parts.push(`chat: ${String(metadata.chat_id).split('@')[0].slice(-8)}`)
+    if (metadata.direction) parts.push(metadata.direction)
+    if (metadata.embedded !== undefined) parts.push(metadata.embedded ? 'embedded' : 'not embedded')
+    if (metadata.error) parts.push(metadata.error)
+    return parts.join(' | ')
+  }
+  if (log.event_type === 'history_sync') {
+    const parts = [`${metadata.created ?? 0} new / ${metadata.skipped ?? 0} skipped`]
+    if (metadata.embedded !== undefined) parts.push(`${metadata.embedded} embedded${metadata.embed_errors ? `, ${metadata.embed_errors} errors` : ''}`)
+    return parts.join(' | ')
+  }
+  if (log.event_type === 'session_status') return metadata.status || log.status
+  return log.message || ''
+}
+
+const columns = [
+  { key: 'created_at', label: 'Time', width: '7rem', sortable: true, exportValue: row => formatTime(row.created_at) },
+  { key: 'event_type', label: 'Event', width: '8rem', sortable: true, exportValue: row => eventLabel(row.event_type) },
+  { key: 'status', label: 'Status', width: '7rem', sortable: true },
+  { key: 'sender_id', label: 'Sender ID', width: '10rem', exportValue: senderDisplay },
+  { key: 'sender_name', label: 'Sender Name', width: '10rem', exportValue: senderName },
+  { key: 'details', label: 'Details', exportValue: metaSummary },
+]
+
+function buildParams() {
+  const params = { page: page.value, page_size: pageSize.value, ordering: `${sortDirection.value === 'desc' ? '-' : ''}${sortKey.value}` }
+  if (filterAccount.value !== 'all') params.account = filterAccount.value
+  if (filterStatus.value !== 'all') params.status = filterStatus.value
+  if (filterEvent.value !== 'all') params.event_type = filterEvent.value
+  if (filterMessageId.value) params.message_id = filterMessageId.value
+  if (searchText.value) params.search = searchText.value
+  return params
 }
 
 async function fetchLogs(showSpinner = false) {
   if (showSpinner) loading.value = true
+  error.value = ''
   try {
     const { data } = await activityApi.list(buildParams())
-    logs.value       = data.results
+    logs.value = data.results
     totalCount.value = data.count
-  } catch {}
+  } catch { error.value = 'Activity records could not be loaded.' }
   finally { loading.value = false }
 }
 
@@ -64,21 +104,8 @@ async function fetchAccounts() {
   try {
     const { data } = await accountsApi.list()
     accounts.value = data.results ?? data
-  } catch {}
+  } catch { accounts.value = [] }
 }
-
-watch([filterAccount, filterStatus, filterEvent, filterMessageId, pageSize], () => {
-  page.value = 1
-  fetchLogs()
-})
-watch(page, () => fetchLogs())
-
-onMounted(() => {
-  fetchAccounts()
-  fetchLogs(true)
-  pollTimer = setInterval(() => fetchLogs(), 8000)
-})
-onUnmounted(() => clearInterval(pollTimer))
 
 async function clearLogs() {
   clearing.value = true
@@ -93,364 +120,84 @@ async function clearLogs() {
   }
 }
 
-function formatTime(dt) {
-  if (!dt) return ''
-  return new Date(dt).toLocaleString()
+function openMessageLogs(log) {
+  router.push({ name: 'message-logs', query: { account_id: log.account_id, message_id: log.metadata?.provider_message_id } })
 }
 
-function relativeTime(dt) {
-  const diff = Math.floor((Date.now() - new Date(dt)) / 1000)
-  if (diff < 60)    return `${diff}s ago`
-  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
-  return `${Math.floor(diff / 86400)}d ago`
-}
+watch([filterAccount, filterStatus, filterEvent, filterMessageId, pageSize, searchText, sortKey, sortDirection], () => {
+  if (page.value !== 1) page.value = 1
+  else fetchLogs()
+})
+watch(page, () => fetchLogs())
 
-const statusStyle = {
-  success: 'bg-green-100 text-green-700',
-  error:   'bg-red-100 text-red-700',
-  warning: 'bg-yellow-100 text-yellow-700',
-}
-const eventStyle = {
-  message_ingest: 'bg-blue-100 text-blue-700',
-  session_status: 'bg-purple-100 text-purple-700',
-  history_sync:   'bg-orange-100 text-orange-700',
-}
-
-function senderDisplay(log) {
-  const m = log.metadata || {}
-  // sender_jid is stored as the raw phone number (digits only, no @suffix)
-  if (!m.sender_jid) return '—'
-  const local = String(m.sender_jid).split('@')[0]
-  return `+${local}`
-}
-
-function senderName(log) {
-  return (log.metadata || {}).push_name || '—'
-}
-
-function metaSummary(log) {
-  const m = log.metadata || {}
-  if (log.event_type === 'message_ingest') {
-    const parts = []
-    if (m.provider_message_id) parts.push(`msg: ${m.provider_message_id.slice(0, 12)}…`)
-    if (m.chat_id) parts.push(`chat: ${String(m.chat_id).split('@')[0].slice(-8)}`)
-    if (m.direction) parts.push(m.direction)
-    if (m.embedded !== undefined) parts.push(m.embedded ? '⬡ embedded' : '○ not embedded')
-    if (m.error) parts.push(`❌ ${m.error}`)
-    return parts.join(' · ')
-  }
-  if (log.event_type === 'history_sync') {
-    const parts = [`${m.created ?? 0} new / ${m.skipped ?? 0} skipped`]
-    if (m.embedded !== undefined) parts.push(`${m.embedded} embedded${m.embed_errors ? `, ${m.embed_errors} err` : ''}`)
-    return parts.join(' · ')
-  }
-  if (log.event_type === 'session_status') return m.status || log.status
-  return log.message || ''
-}
-
-function toggleRow(id) {
-  expandedId.value = expandedId.value === id ? null : id
-}
-
-async function copyPayload(log) {
-  const payload = (log.metadata || {}).raw_payload
-  if (!payload) return
-  try {
-    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
-    copiedId.value = log.id
-    setTimeout(() => { copiedId.value = null }, 1500)
-  } catch {}
-}
-
-function metaRows(log) {
-  const m = log.metadata || {}
-  const known = new Set([
-    'provider_message_id','chat_id','sender_jid','push_name',
-    'message_type','message_text','direction','status',
-    'phone_number','error','raw_payload','group_name',
-    'embedded','embed_errors','total','created','skipped','errors',
-  ])
-  const rows = []
-  if (m.provider_message_id) rows.push({ key: 'Message ID', val: m.provider_message_id })
-  if (m.chat_id)             rows.push({ key: 'Chat JID',   val: m.chat_id })
-  if (m.sender_jid)          rows.push({ key: 'Sender JID', val: m.sender_jid })
-  if (m.push_name)           rows.push({ key: 'Push Name',  val: m.push_name })
-  if (m.message_type)        rows.push({ key: 'Msg Type',   val: m.message_type })
-  if (m.message_text)        rows.push({ key: 'Text',       val: m.message_text })
-  if (m.direction)           rows.push({ key: 'Direction',  val: m.direction })
-  if (m.status)              rows.push({ key: 'Status',     val: m.status })
-  if (m.phone_number)        rows.push({ key: 'Phone',      val: m.phone_number })
-  if (m.group_name)          rows.push({ key: 'Group',      val: m.group_name })
-  if (m.total      !== undefined) rows.push({ key: 'Total msgs',    val: String(m.total) })
-  if (m.created    !== undefined) rows.push({ key: 'Created',       val: String(m.created) })
-  if (m.skipped    !== undefined) rows.push({ key: 'Skipped',       val: String(m.skipped) })
-  if (m.errors     !== undefined) rows.push({ key: 'Ingest errors', val: String(m.errors), isError: m.errors > 0 })
-  if (m.embedded   !== undefined) rows.push({ key: 'Embedded',      val: m.embedded === true ? 'yes' : m.embedded === false ? 'no' : String(m.embedded) })
-  if (m.embed_errors !== undefined) rows.push({ key: 'Embed errors', val: String(m.embed_errors), isError: m.embed_errors > 0 })
-  if (m.error)               rows.push({ key: 'Error',      val: m.error, isError: true })
-  for (const k of Object.keys(m)) {
-    if (!known.has(k)) rows.push({ key: k, val: typeof m[k] === 'object' ? JSON.stringify(m[k], null, 2) : String(m[k]) })
-  }
-  return rows
-}
+onMounted(() => {
+  fetchAccounts()
+  fetchLogs(true)
+  pollTimer = setInterval(() => fetchLogs(), 8000)
+})
+onUnmounted(() => clearInterval(pollTimer))
 </script>
 
 <template>
-  <div class="h-full w-full overflow-y-auto bg-gray-50">
-  <div class="max-w-7xl mx-auto px-6 py-6">
+  <main class="ui-page">
+    <div class="ui-page__inner ui-page__inner--wide">
+      <header class="ui-page-header">
+        <div><p class="ui-eyebrow">System activity</p><h1>Activity Log</h1><p class="ui-page-header__description">Message ingestion and session events</p></div>
+        <div class="ui-page-header__actions"><button class="ui-button ui-button--danger" @click="showClearConfirm = true">{{ filterAccount !== 'all' ? 'Clear account logs' : 'Clear all logs' }}</button></div>
+      </header>
 
-    <!-- Header -->
-    <div class="flex items-center justify-between mb-6">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900">Activity Log</h1>
-        <p class="text-sm text-gray-500 mt-1">Message ingestion and session events</p>
-      </div>
-      <button
-        @click="showClearConfirm = true"
-        class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+      <div v-if="filterMessageId" class="activity-query"><span>Message ID: {{ filterMessageId }}</span><button @click="filterMessageId = ''">Clear</button></div>
+      <div v-if="error" class="ui-notice ui-notice--danger">{{ error }}</div>
+
+      <UiDataTable
+        v-model:page="page" v-model:page-size="pageSize" v-model:search="searchText"
+        v-model:sort-key="sortKey" v-model:sort-direction="sortDirection"
+        :columns="columns" :rows="logs" :loading="loading" :total="totalCount"
+        :row-class="row => row.status === 'error' ? 'is-error' : ''"
+        persist-key="activity-log" export-filename="chatlens-activity-page.csv"
+        search-placeholder="Search message, sender, account..."
+        empty-title="No activity matches these filters" expandable @refresh="fetchLogs(true)"
       >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-        </svg>
-        {{ filterAccount !== 'all' ? 'Clear Account Logs' : 'Clear All Logs' }}
-      </button>
+        <template #filters>
+          <select v-model="filterAccount" aria-label="Communication account"><option value="all">All accounts</option><option v-for="account in accounts" :key="account.id" :value="account.id">{{ account.display_name || account.phone_number || `Account #${account.id}` }}</option></select>
+          <select v-model="filterStatus" aria-label="Activity status"><option value="all">All statuses</option><option value="success">Success</option><option value="warning">Warning</option><option value="error">Error</option></select>
+          <select v-model="filterEvent" aria-label="Event type"><option value="all">All events</option><option value="message_ingest">Message ingest</option><option value="history_sync">History sync</option><option value="session_status">Session status</option></select>
+          <span class="activity-total">{{ totalCount.toLocaleString() }} entries</span>
+        </template>
+        <template #cell-created_at="{ row }"><span class="activity-time" :title="formatTime(row.created_at)">{{ relativeTime(row.created_at) }}</span></template>
+        <template #cell-event_type="{ row }"><span :class="['activity-badge', `event-${row.event_type}`]">{{ eventLabel(row.event_type) }}</span></template>
+        <template #cell-status="{ row }"><span :class="['activity-badge', `status-${row.status}`]">{{ row.status }}</span></template>
+        <template #cell-sender_id="{ row }"><code>{{ senderDisplay(row) }}</code></template>
+        <template #cell-sender_name="{ row }"><span class="activity-sender">{{ senderName(row) }}</span></template>
+        <template #cell-details="{ row }"><span class="activity-summary">{{ metaSummary(row) }}</span></template>
+        <template #expanded="{ row }"><ActivityLogDetail :log="row" @open-message="openMessageLogs" /></template>
+      </UiDataTable>
     </div>
+  </main>
 
-    <!-- Filters + page size -->
-    <div class="flex items-center gap-3 mb-4 flex-wrap">
-
-      <!-- Account selector -->
-      <select
-        v-model="filterAccount"
-        class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[160px]"
-      >
-        <option value="all">All accounts</option>
-        <option v-for="acc in accounts" :key="acc.id" :value="acc.id">
-          {{ acc.display_name || acc.phone_number || `Account #${acc.id}` }}
-        </option>
-      </select>
-
-      <select v-model="filterStatus" class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500">
-        <option value="all">All statuses</option>
-        <option value="success">Success</option>
-        <option value="error">Error</option>
-      </select>
-
-      <select v-model="filterEvent" class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500">
-        <option value="all">All events</option>
-        <option value="message_ingest">Message Ingest</option>
-        <option value="history_sync">History Sync</option>
-        <option value="session_status">Session Status</option>
-      </select>
-
-      <span class="text-sm text-gray-400 flex-1">
-        {{ totalCount.toLocaleString() }} entries
-      </span>
-
-      <!-- Page size -->
-      <div class="flex items-center gap-2 text-sm text-gray-500">
-        <span>Rows:</span>
-        <div class="flex border border-gray-200 rounded-lg overflow-hidden">
-          <button
-            v-for="n in pageSizeOptions"
-            :key="n"
-            @click="pageSize = n"
-            :class="[
-              'px-2.5 py-1 text-xs transition-colors',
-              pageSize === n ? 'bg-green-600 text-white' : 'hover:bg-gray-50 text-gray-600',
-            ]"
-          >{{ n }}</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Log table -->
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-      <div v-if="loading" class="text-center text-gray-400 py-12 text-sm">Loading…</div>
-
-      <div v-else-if="logs.length === 0" class="text-center text-gray-400 py-12 text-sm">
-        No activity yet
-      </div>
-
-      <table v-else class="w-full text-sm">
-        <thead>
-          <tr class="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
-            <th class="text-left px-4 py-3 w-28">Time</th>
-            <th class="text-left px-4 py-3 w-28">Event</th>
-            <th class="text-left px-4 py-3 w-24">Status</th>
-            <th class="text-left px-4 py-3 w-36">Sender ID</th>
-            <th class="text-left px-4 py-3 w-36">Sender Name</th>
-            <th class="text-left px-4 py-3">Details</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-50">
-          <template v-for="log in logs" :key="log.id">
-            <tr
-              @click="toggleRow(log.id)"
-              :class="[
-                'cursor-pointer transition-colors',
-                expandedId === log.id
-                  ? 'bg-gray-100'
-                  : log.status === 'error'
-                    ? 'bg-red-50/40 hover:bg-red-50'
-                    : 'hover:bg-gray-50',
-              ]"
-            >
-              <td class="px-4 py-2.5">
-                <span class="text-gray-500 text-xs" :title="formatTime(log.created_at)">
-                  {{ relativeTime(log.created_at) }}
-                </span>
-              </td>
-              <td class="px-4 py-2.5">
-                <span :class="['text-xs font-medium px-2 py-0.5 rounded-full', eventStyle[log.event_type] || 'bg-gray-100 text-gray-600']">
-                  {{ log.event_type === 'message_ingest' ? 'Ingest' : log.event_type === 'history_sync' ? 'History' : log.event_type === 'session_status' ? 'Session' : log.event_type }}
-                </span>
-              </td>
-              <td class="px-4 py-2.5">
-                <span :class="['text-xs font-medium px-2 py-0.5 rounded-full', statusStyle[log.status] || 'bg-gray-100 text-gray-600']">
-                  {{ log.status }}
-                </span>
-              </td>
-              <td class="px-4 py-2.5">
-                <span class="text-xs font-mono text-gray-700">{{ senderDisplay(log) }}</span>
-              </td>
-              <td class="px-4 py-2.5">
-                <span class="text-xs text-gray-700 truncate block max-w-[140px]">{{ senderName(log) }}</span>
-              </td>
-              <td class="px-4 py-2.5">
-                <div class="flex items-center justify-between gap-2">
-                  <span class="text-gray-500 font-mono text-xs truncate">{{ metaSummary(log) }}</span>
-                  <svg
-                    :class="['w-3.5 h-3.5 text-gray-400 shrink-0 transition-transform', expandedId === log.id ? 'rotate-180' : '']"
-                    fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                  >
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                  </svg>
-                </div>
-              </td>
-            </tr>
-
-            <!-- Expanded detail row -->
-            <tr v-if="expandedId === log.id" :key="`${log.id}-detail`">
-              <td colspan="6" class="px-6 py-4 bg-gray-50 border-t border-gray-100">
-                <div class="grid grid-cols-2 gap-x-8 gap-y-1.5 text-xs max-w-4xl">
-                  <div class="col-span-2 flex items-center gap-4 pb-2 mb-1 border-b border-gray-200 flex-wrap">
-                    <span class="text-gray-500">{{ formatTime(log.created_at) }}</span>
-                    <span class="font-semibold text-gray-800">{{ log.account_name }}</span>
-                    <span :class="['font-medium px-2 py-0.5 rounded-full', eventStyle[log.event_type] || 'bg-gray-100 text-gray-600']">{{ log.event_type }}</span>
-                    <span :class="['font-medium px-2 py-0.5 rounded-full', statusStyle[log.status] || 'bg-gray-100 text-gray-600']">{{ log.status }}</span>
-                    <!-- Cross-link → Message Logs (only for message_ingest events with a message ID) -->
-                    <button
-                      v-if="log.event_type === 'message_ingest' && log.metadata?.provider_message_id"
-                      @click.stop="goToMessageLogs(log)"
-                      class="ml-auto flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-green-200 text-green-700 hover:bg-green-50 transition-colors"
-                      title="View in Message Logs"
-                    >
-                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
-                      </svg>
-                      Message Logs
-                    </button>
-                  </div>
-                  <template v-if="metaRows(log).length">
-                    <div v-for="row in metaRows(log)" :key="row.key" class="contents">
-                      <span class="text-gray-400 font-medium py-0.5 self-start">{{ row.key }}</span>
-                      <span :class="['font-mono break-all py-0.5', row.isError ? 'text-red-600 font-semibold' : 'text-gray-800']">{{ row.val }}</span>
-                    </div>
-                  </template>
-                  <div v-else class="col-span-2 text-gray-400 italic">No metadata</div>
-                  <template v-if="log.message">
-                    <span class="text-gray-400 font-medium py-0.5">Message</span>
-                    <span class="text-gray-700 py-0.5">{{ log.message }}</span>
-                  </template>
-                </div>
-
-                <!-- Raw payload -->
-                <div v-if="log.metadata?.raw_payload" class="mt-4">
-                  <div class="flex items-center justify-between mb-2">
-                    <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Raw Payload</span>
-                    <button
-                      @click.stop="copyPayload(log)"
-                      class="flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-gray-200 hover:bg-white transition-colors text-gray-500"
-                    >
-                      <svg v-if="copiedId !== log.id" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-                      </svg>
-                      <svg v-else class="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                      </svg>
-                      {{ copiedId === log.id ? 'Copied!' : 'Copy' }}
-                    </button>
-                  </div>
-                  <pre class="bg-gray-900 text-green-400 text-xs rounded-lg p-3 overflow-x-auto max-h-80 leading-relaxed">{{ JSON.stringify(log.metadata.raw_payload, null, 2) }}</pre>
-                </div>
-              </td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-
-      <!-- Pagination footer -->
-      <div v-if="totalCount > 0" class="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-gray-50 text-sm text-gray-500">
-        <span>Showing {{ pageStart.toLocaleString() }}–{{ pageEnd.toLocaleString() }} of {{ totalCount.toLocaleString() }}</span>
-        <div class="flex items-center gap-1">
-          <button
-            @click="page--"
-            :disabled="page === 1"
-            class="px-3 py-1.5 rounded-lg border border-gray-200 text-xs disabled:opacity-40 hover:bg-white transition-colors"
-          >
-            ← Prev
-          </button>
-          <span class="px-3 py-1.5 text-xs">Page {{ page }} of {{ totalPages }}</span>
-          <button
-            @click="page++"
-            :disabled="page >= totalPages"
-            class="px-3 py-1.5 rounded-lg border border-gray-200 text-xs disabled:opacity-40 hover:bg-white transition-colors"
-          >
-            Next →
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-  </div>
-
-  <!-- Clear confirmation dialog -->
   <Teleport to="#ui-teleport-host">
-    <div
-      v-if="showClearConfirm"
-      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-      @click.self="showClearConfirm = false"
-    >
-      <div class="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 flex flex-col gap-4">
-        <h2 class="text-lg font-semibold text-gray-900">Clear Activity Logs</h2>
-        <p class="text-sm text-gray-600">
-          <template v-if="filterAccount !== 'all'">
-            This will permanently delete all {{ totalCount.toLocaleString() }} log entries for
-            <strong>{{ accounts.find(a => a.id == filterAccount)?.display_name || accounts.find(a => a.id == filterAccount)?.phone_number || 'this account' }}</strong>.
-          </template>
-          <template v-else>
-            This will permanently delete all {{ totalCount.toLocaleString() }} log entries across all accounts.
-          </template>
-          This cannot be undone.
-        </p>
-        <div class="flex gap-3">
-          <button
-            @click="showClearConfirm = false"
-            class="flex-1 border border-gray-200 text-gray-700 text-sm py-2 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            @click="clearLogs"
-            :disabled="clearing"
-            class="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm py-2 rounded-lg transition-colors"
-          >
-            {{ clearing ? 'Clearing…' : 'Clear Logs' }}
-          </button>
-        </div>
-      </div>
+    <div v-if="showClearConfirm" class="ui-modal-backdrop" @click.self="showClearConfirm = false">
+      <section class="ui-modal activity-confirm">
+        <header><h2>Clear Activity Logs</h2><button aria-label="Close" @click="showClearConfirm = false">&times;</button></header>
+        <div class="ui-modal__body"><p class="ui-confirm-copy">This permanently deletes all activity logs{{ filterAccount !== 'all' ? ' for the selected account' : ' across every visible account' }}. This cannot be undone.</p></div>
+        <footer><button class="ui-button" @click="showClearConfirm = false">Cancel</button><button class="ui-button ui-button--danger" :disabled="clearing" @click="clearLogs">{{ clearing ? 'Clearing...' : 'Clear logs' }}</button></footer>
+      </section>
     </div>
   </Teleport>
 </template>
+
+<style scoped>
+.activity-query { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; padding:9px 12px; border:1px solid var(--ui-info); border-radius:var(--ui-radius-sm); background:var(--ui-info-soft); color:var(--ui-info); font-size:.78rem; }
+.activity-query button { border:0; background:transparent; color:inherit; font-weight:800; cursor:pointer; }
+.activity-total,.activity-time { color:var(--ui-text-subtle); font-size:.72rem; }
+.activity-badge { display:inline-flex; padding:3px 8px; border-radius:var(--ui-radius-pill); background:var(--ui-surface-muted); color:var(--ui-text-muted); font-size:.67rem; font-weight:800; text-transform:capitalize; }
+.status-success { background:var(--ui-success-soft); color:var(--ui-success); }
+.status-warning,.event-history_sync { background:var(--ui-warning-soft); color:var(--ui-warning); }
+.status-error { background:var(--ui-danger-soft); color:var(--ui-danger); }
+.event-message_ingest { background:var(--ui-info-soft); color:var(--ui-info); }
+.event-session_status { background:var(--ui-primary-soft); color:var(--ui-primary); }
+code,.activity-summary { color:var(--ui-text-muted); font-size:.72rem; }
+.activity-summary,.activity-sender { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.activity-confirm { max-width:430px; }
+.ui-modal__body { padding:18px; }
+</style>

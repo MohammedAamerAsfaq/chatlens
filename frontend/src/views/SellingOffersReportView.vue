@@ -81,7 +81,7 @@
       </div>
       <div v-if="loading" class="empty-state">Loading report...</div>
       <div v-else-if="!rows.length" class="empty-state">No selling offers found for this range.</div>
-      <table v-else>
+      <table v-else v-ui-data-table="'selling-offers-report'">
         <thead>
           <tr>
             <th>#</th>
@@ -123,7 +123,7 @@
       </div>
       <div v-if="loading" class="empty-state">Loading product breakdown...</div>
       <div v-else-if="!products.length" class="empty-state">No product rows found for this range.</div>
-      <table v-else>
+      <table v-else v-ui-data-table="'selling-offers-product-breakdown'">
         <thead>
           <tr>
             <th>#</th>

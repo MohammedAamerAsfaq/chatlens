@@ -309,7 +309,7 @@ function candidatesForProduct(product, panelValue) {
     <div class="table-card">
       <div v-if="loading" class="empty">Loading...</div>
       <div v-else-if="!logs.length" class="empty">No V2 parse logs found.</div>
-      <table v-else>
+      <table v-else v-ui-data-table="'ai-v2-parse-log'">
         <thead>
           <tr>
             <th>Time</th>

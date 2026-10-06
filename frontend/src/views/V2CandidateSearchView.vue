@@ -92,7 +92,7 @@ function useInquiryExample() {
       <div v-if="loading" class="empty">Searching...</div>
       <div v-else-if="searched && !results.length" class="empty">No candidates found.</div>
       <div v-else-if="!searched" class="empty">Run a search to inspect V2 candidate ordering.</div>
-      <table v-else>
+      <table v-else v-ui-data-table="'v2-candidate-search'">
         <thead>
           <tr>
             <th>Rank</th>

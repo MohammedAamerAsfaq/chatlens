@@ -350,7 +350,7 @@ async function removeMembership(membership) {
       <div class="grid lower">
         <UiCard title="Companies" :subtitle="`${companies.length} total`">
           <UiEmptyState v-if="loading" title="Loading companies..." busy />
-          <UiTableFrame v-else compact class="table-scroll">
+          <UiTableFrame v-else compact grid-key="tenant-companies" class="table-scroll">
               <thead>
                 <tr>
                   <th>Name</th>
@@ -448,7 +448,7 @@ async function removeMembership(membership) {
 
         <UiCard title="Company Users" :subtitle="`${memberships.length} memberships`">
           <UiEmptyState v-if="loading" title="Loading company users..." busy />
-          <UiTableFrame v-else compact class="table-scroll">
+          <UiTableFrame v-else compact grid-key="tenant-company-users" class="table-scroll">
               <thead>
                 <tr>
                   <th>User</th>

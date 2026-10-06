@@ -61,7 +61,7 @@
     <div class="report-card">
       <div v-if="loading" class="empty-state">Loading report...</div>
       <div v-else-if="!rows.length" class="empty-state">No product mentions found for this range.</div>
-      <table v-else>
+      <table v-else v-ui-data-table="'inventory-product-mentions'">
         <thead>
           <tr>
             <th>Product</th>

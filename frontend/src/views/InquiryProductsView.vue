@@ -421,7 +421,7 @@ watch(() => filters.value.search, () => {
         <div v-if="smartSearched" class="mt-4">
           <div v-if="!smartResults.length" class="text-sm text-gray-400 py-4">No smart matches found.</div>
           <div v-else class="overflow-x-auto rounded-lg border border-gray-100">
-            <table class="w-full text-sm min-w-[980px]">
+            <table v-ui-data-table="'inquiry-product-smart-results'" class="w-full text-sm min-w-[980px]">
               <thead>
                 <tr class="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
                   <th class="text-left px-4 py-3">Product Line</th>
@@ -521,7 +521,7 @@ watch(() => filters.value.search, () => {
         <div v-if="loading" class="text-center text-gray-400 py-12 text-sm">Loading inquiry products...</div>
         <div v-else-if="!rows.length" class="text-center text-gray-400 py-12 text-sm">No inquiry product rows found.</div>
         <div v-else class="overflow-x-auto">
-          <table class="w-full text-sm min-w-[1180px]">
+          <table v-ui-data-table="'inquiry-products'" class="w-full text-sm min-w-[1180px]">
             <thead>
               <tr class="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
                 <th class="text-left px-4 py-3">Product Line</th>

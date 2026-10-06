@@ -74,7 +74,7 @@
         <!-- Source Breakdown -->
         <div class="section-card">
           <div class="section-title">Source Breakdown ({{ selectedRange }})</div>
-          <table class="mini-table">
+          <table v-ui-data-table="'trading-source-analytics'" class="mini-table">
             <thead><tr><th>Source</th><th>WTB</th><th>WTS</th><th>Total</th></tr></thead>
             <tbody>
               <tr v-for="src in ['direct','group','community']" :key="src">
@@ -113,7 +113,7 @@
       <!-- Product Activity -->
       <div class="section-card" v-if="productStats.length">
         <div class="section-title">Product Activity ({{ selectedRange }})</div>
-        <table class="mini-table wide">
+        <table v-ui-data-table="'trading-product-analytics'" class="mini-table wide">
           <thead>
             <tr><th>Product</th><th>WTB</th><th>WTS</th><th>Deals</th><th>Total</th></tr>
           </thead>

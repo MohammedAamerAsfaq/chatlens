@@ -466,7 +466,7 @@ watch(() => filters.value.search, () => {
             No embedding matches found. If records are pending, run Backfill Embeddings first.
           </div>
           <div v-else class="overflow-x-auto rounded-lg border border-indigo-100 bg-white">
-            <table class="w-full text-sm min-w-[960px]">
+          <table v-ui-data-table="'non-inventory-match-results'" class="w-full text-sm min-w-[960px]">
               <thead>
                 <tr class="bg-white border-b border-indigo-100 text-xs text-gray-500 uppercase tracking-wide">
                   <th class="text-left px-4 py-2">Product</th>
@@ -567,7 +567,7 @@ watch(() => filters.value.search, () => {
           No non-inventory products found. Rows will appear here after records are created manually or the resolver is wired in a later phase.
         </div>
         <div v-else class="overflow-x-auto">
-          <table class="w-full text-sm min-w-[1120px]">
+          <table v-ui-data-table="'non-inventory-products'" class="w-full text-sm min-w-[1120px]">
             <thead>
               <tr class="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
                 <th class="text-left px-4 py-3">Product</th>

@@ -185,7 +185,7 @@ async function copyJson(event) {
       <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
         <div v-if="loading" class="text-center text-gray-400 py-12 text-sm">Loading...</div>
         <div v-else-if="!events.length" class="text-center text-gray-400 py-12 text-sm">No Baileys events found.</div>
-        <table v-else class="w-full text-sm">
+        <table v-else v-ui-data-table="'baileys-events'" class="w-full text-sm">
           <thead class="bg-gray-50 text-xs uppercase text-gray-500 border-b border-gray-200">
             <tr>
               <th class="px-4 py-3 text-left font-semibold">Created</th>

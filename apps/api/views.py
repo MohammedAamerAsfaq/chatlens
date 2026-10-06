@@ -1214,7 +1214,7 @@ class SyncLogViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = scope_queryset_to_visible_accounts(
-            SyncLog.objects.select_related('account').order_by('-created_at'),
+            SyncLog.objects.select_related('account'),
             self.request.user,
         )
         account_id = self.request.query_params.get('account')
@@ -1229,7 +1229,27 @@ class SyncLogViewSet(viewsets.ReadOnlyModelViewSet):
         message_id = self.request.query_params.get('message_id')
         if message_id:
             qs = qs.filter(metadata__provider_message_id=message_id)
-        return qs
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(message__icontains=search)
+                | Q(event_type__icontains=search)
+                | Q(status__icontains=search)
+                | Q(account__display_name__icontains=search)
+                | Q(account__phone_number__icontains=search)
+                | Q(metadata__provider_message_id__icontains=search)
+                | Q(metadata__sender_jid__icontains=search)
+                | Q(metadata__push_name__icontains=search)
+                | Q(metadata__message_text__icontains=search)
+            )
+        requested_order = self.request.query_params.get('ordering', '-created_at')
+        descending = requested_order.startswith('-')
+        order_key = requested_order.lstrip('-')
+        allowed_ordering = {'created_at', 'event_type', 'status'}
+        if order_key not in allowed_ordering:
+            order_key, descending = 'created_at', True
+        ordering = f'-{order_key}' if descending else order_key
+        return qs.order_by(ordering, '-id')
 
     @action(detail=False, methods=['post'], url_path='clear-all')
     def clear_all(self, request):

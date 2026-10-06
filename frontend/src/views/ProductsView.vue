@@ -59,7 +59,7 @@
 
       <div v-if="smartSearched" class="smart-results">
         <div v-if="!smartResults.length" class="empty-msg-sm">No matches found</div>
-        <table v-else class="data-table smart-results-table">
+        <table v-else v-ui-data-table="'product-smart-results'" class="data-table smart-results-table">
           <thead>
             <tr>
               <th>Name</th>
@@ -90,7 +90,7 @@
     </div>
 
     <div class="table-wrap">
-      <table class="data-table">
+        <table v-ui-data-table="'products'" class="data-table">
         <thead>
           <tr>
             <th>Name</th>
@@ -249,7 +249,7 @@
               <span>{{ bulk.preview.length }} products found — review before importing:</span>
               <button class="btn-ghost btn-sm" @click="bulk.preview = []">Clear</button>
             </div>
-            <table class="data-table preview-table">
+          <table v-ui-data-table="'product-import-preview'" class="data-table preview-table">
               <thead>
                 <tr><th>Name</th><th>Brand</th><th>Category</th><th></th></tr>
               </thead>
@@ -346,7 +346,7 @@
               <button class="btn-ghost btn-sm" @click="inv.step = 'input'">← Back</button>
             </div>
             <div class="inv-review-wrap">
-              <table class="data-table preview-table">
+            <table v-ui-data-table="'product-automation-preview'" class="data-table preview-table">
                 <thead>
                   <tr>
                     <th>Product</th>

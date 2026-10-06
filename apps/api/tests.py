@@ -25,6 +25,7 @@ from apps.whatsapp_bridge.models import (
     WhatsAppMessage,
     OutboundAsset,
     OutboundMessage,
+    SyncLog,
 )
 
 
@@ -125,6 +126,37 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         ids = {row['id'] for row in resp.json()}
         self.assertEqual(ids, {self.account_a.id})
+
+    def test_activity_grid_search_is_company_scoped(self):
+        SyncLog.objects.create(
+            account=self.account_a,
+            event_type='message_ingest',
+            status='success',
+            metadata={'push_name': 'Needle Contact'},
+        )
+        SyncLog.objects.create(
+            account=self.account_b,
+            event_type='message_ingest',
+            status='success',
+            metadata={'push_name': 'Needle Contact'},
+        )
+        self.client.force_authenticate(self.user_a)
+
+        response = self.client.get('/api/activity/', {'search': 'needle'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['count'], 1)
+        self.assertEqual(response.json()['results'][0]['account_id'], self.account_a.pk)
+
+    def test_activity_grid_applies_whitelisted_ordering(self):
+        SyncLog.objects.create(account=self.account_a, event_type='zeta', status='success')
+        SyncLog.objects.create(account=self.account_a, event_type='alpha', status='success')
+        self.client.force_authenticate(self.user_a)
+
+        response = self.client.get('/api/activity/', {'ordering': 'event_type'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([row['event_type'] for row in response.json()['results']], ['alpha', 'zeta'])
 
     def test_django_superuser_is_limited_to_selected_workspace(self):
         superuser = get_user_model().objects.create_superuser(

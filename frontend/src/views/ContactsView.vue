@@ -362,7 +362,7 @@ async function toggleGlobalAi() {
         No contacts found
       </div>
 
-      <table v-else class="w-full text-sm">
+      <table v-else v-ui-data-table="'contacts'" class="w-full text-sm">
         <thead>
           <tr class="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
             <th class="text-left px-4 py-3 w-12"></th>

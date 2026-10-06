@@ -264,7 +264,7 @@ const thresholdLines = computed(() => {
           <span class="legend-item"><span class="swatch" style="background:#d03b3b" /> Nearest candidate was wrong / no match</span>
         </div>
 
-        <table class="stats-table">
+        <table v-ui-data-table="'v2-match-training-stats'" class="stats-table">
           <thead>
             <tr><th>Best distance</th><th>Nearest candidate correct?</th><th>AI decision matched human?</th></tr>
           </thead>

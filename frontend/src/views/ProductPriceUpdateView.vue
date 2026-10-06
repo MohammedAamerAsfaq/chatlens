@@ -41,7 +41,7 @@
           <button class="btn-ghost btn-sm" @click="qtyCost.step = 'input'">← Back</button>
         </div>
         <div class="preview-table-wrap">
-          <table class="data-table preview-table">
+          <table v-ui-data-table="'quantity-cost-update-preview'" class="data-table preview-table">
             <thead>
               <tr>
                 <th>Product</th>
@@ -125,7 +125,7 @@
           <button class="btn-ghost btn-sm" @click="salePrice.step = 'input'">← Back</button>
         </div>
         <div class="preview-table-wrap">
-          <table class="data-table preview-table">
+          <table v-ui-data-table="'sale-price-update-preview'" class="data-table preview-table">
             <thead>
               <tr>
                 <th>Product</th>

@@ -222,7 +222,7 @@ function jidDisplay(raw_jid) {
         No dropped messages recorded
       </div>
 
-      <table v-else class="w-full text-sm">
+      <table v-else v-ui-data-table="'dropped-messages'" class="w-full text-sm">
         <thead>
           <tr class="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
             <th class="text-left px-4 py-3 w-28">Time</th>

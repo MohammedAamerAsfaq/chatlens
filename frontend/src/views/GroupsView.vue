@@ -330,7 +330,7 @@ watch(selectedAccId, () => {
 
         <!-- Table -->
         <div v-else class="flex-1 overflow-auto">
-          <table class="w-full text-sm">
+          <table v-ui-data-table="'groups'" class="w-full text-sm">
             <thead class="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
               <tr>
                 <th class="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide w-8"></th>
@@ -484,7 +484,7 @@ watch(selectedAccId, () => {
             <div v-if="!selectedGroup.participants?.length" class="p-5 text-sm text-gray-400 text-center">
               No participant data available yet.
             </div>
-            <table v-else class="w-full text-sm">
+            <table v-else v-ui-data-table="'group-participants'" class="w-full text-sm">
               <thead class="bg-gray-50 border-b border-gray-200 sticky top-0">
                 <tr>
                   <th class="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase">Participant</th>

@@ -83,7 +83,7 @@ onMounted(async () => {
     </section>
     <section class="cp-panel cp-grid">
       <div v-if="loading" class="cp-empty">Loading clients...</div>
-      <table v-else class="cp-table"><thead><tr><th>Client</th><th>Communication account</th><th>Lifecycle</th><th>Owner</th><th>Priority</th><th>Tags</th><th>Last contact</th><th>Next follow-up</th></tr></thead><tbody>
+      <table v-else v-ui-data-table="'clientpulse-directory'" class="cp-table"><thead><tr><th>Client</th><th>Communication account</th><th>Lifecycle</th><th>Owner</th><th>Priority</th><th>Tags</th><th>Last contact</th><th>Next follow-up</th></tr></thead><tbody>
         <tr v-for="client in clients" :key="client.id">
           <td><RouterLink class="cp-name" :to="`/clientpulse/${client.id}`">{{ client.display_name || client.legal_name }}</RouterLink><div class="cp-id">#{{ client.id }} · {{ client.source }}</div></td>
           <td><div v-if="client.communication_accounts.length" class="cp-account-list"><span v-for="account in client.communication_accounts" :key="account.id" class="cp-account"><strong>{{ account.name }}</strong><small>{{ account.phone_number || account.session_status }}</small></span></div><span v-else class="cp-muted">Not linked</span></td>
