@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
@@ -6,6 +7,9 @@ from rest_framework.response import Response
 from apps.clientpulse.api_helpers import denied, profile_or_none
 from apps.clientpulse.services.communication_access import visible_clientpulse_accounts
 from apps.whatsapp_bridge.models import ChatType, WhatsAppMessage
+
+
+CONVERSATION_TYPES = {'dm', 'group', 'announcement'}
 
 
 class ClientConversationPagination(PageNumberPagination):
@@ -27,6 +31,8 @@ def _account_payload(account):
 def _message_payload(message):
     account = message.account
     contact = message.chat.contact or message.contact
+    group = getattr(message.chat, 'group', None)
+    is_announcement = bool(group and (group.announce or group.is_community_announcement))
     return {
         'id': message.pk,
         'account_id': account.pk,
@@ -37,6 +43,11 @@ def _message_payload(message):
         'contact_name': (
             (contact.display_name or contact.push_name or contact.phone_number)
             if contact else ''
+        ),
+        'chat_name': message.chat.name or (group.name if group else '') or message.chat.wa_chat_id,
+        'conversation_type': (
+            'dm' if message.chat.chat_type == ChatType.INDIVIDUAL
+            else 'announcement' if is_announcement else 'group'
         ),
         'direction': message.direction,
         'message_type': message.message_type,
@@ -57,6 +68,9 @@ def client_conversation_history_view(request, profile_id):
     profile = profile_or_none(request, profile_id)
     if not profile:
         return Response({'detail': 'Client not found.'}, status=404)
+    conversation_type = request.query_params.get('conversation_type', 'dm').strip().lower()
+    if conversation_type not in CONVERSATION_TYPES:
+        return Response({'conversation_type': ['Choose dm, group, or announcement.']}, status=400)
 
     visible_accounts = visible_clientpulse_accounts(request.user, profile.company)
     linked_accounts = visible_accounts.filter(
@@ -76,12 +90,34 @@ def client_conversation_history_view(request, profile_id):
         account_ids = [account.pk for account in accounts]
 
     messages = WhatsAppMessage.objects.select_related(
-        'account__communication_account', 'chat__contact', 'contact',
+        'account__communication_account', 'chat__contact', 'chat__group', 'contact',
     ).filter(
         account_id__in=account_ids,
-        chat__chat_type=ChatType.INDIVIDUAL,
-        chat__contact__company_contact=profile.contact,
-    ).order_by('-message_time', '-pk')
+    )
+    if conversation_type == 'dm':
+        messages = messages.filter(
+            chat__chat_type=ChatType.INDIVIDUAL,
+            chat__contact__company_contact=profile.contact,
+        )
+    else:
+        messages = messages.filter(
+            chat__chat_type=ChatType.GROUP,
+            contact__company_contact=profile.contact,
+        )
+        announcement = Q(chat__group__announce=True) | Q(
+            chat__group__is_community_announcement=True,
+        )
+        if conversation_type == 'announcement':
+            messages = messages.filter(announcement)
+        else:
+            messages = messages.filter(
+                Q(chat__group__isnull=True) | Q(
+                    chat__group__announce=False,
+                    chat__group__is_community=False,
+                    chat__group__is_community_announcement=False,
+                ),
+            )
+    messages = messages.order_by('-message_time', '-pk')
     paginator = ClientConversationPagination()
     page = paginator.paginate_queryset(messages, request)
     response = paginator.get_paginated_response([_message_payload(message) for message in page])

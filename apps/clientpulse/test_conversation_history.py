@@ -12,7 +12,7 @@ from apps.tenancy.models import (
 )
 from apps.whatsapp_bridge.models import (
     ChatType, MessageDirection, MessageType, WhatsAppAccount, WhatsAppChat,
-    WhatsAppContact, WhatsAppMessage,
+    WhatsAppContact, WhatsAppGroup, WhatsAppMessage,
 )
 
 
@@ -130,3 +130,72 @@ class ClientConversationHistoryTests(TestCase):
 
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data['count'], 2)
+
+    def test_group_and_announcement_sections_only_show_client_messages(self):
+        group_chat = WhatsAppChat.objects.create(
+            account=self.member_account, wa_chat_id='120000000001@g.us',
+            chat_type=ChatType.GROUP, name='Sales Group',
+        )
+        WhatsAppGroup.objects.create(
+            account=self.member_account, chat=group_chat,
+            wa_group_id=group_chat.wa_chat_id, name=group_chat.name,
+        )
+        announcement_chat = WhatsAppChat.objects.create(
+            account=self.member_account, wa_chat_id='120000000002@g.us',
+            chat_type=ChatType.GROUP, name='Sales Announcements',
+        )
+        WhatsAppGroup.objects.create(
+            account=self.member_account, chat=announcement_chat,
+            wa_group_id=announcement_chat.wa_chat_id, name=announcement_chat.name,
+            announce=True,
+        )
+        group_message = WhatsAppMessage.objects.create(
+            account=self.member_account, chat=group_chat, contact=self.member_contact,
+            provider_message_id='client-group-message', direction=MessageDirection.INBOUND,
+            message_type=MessageType.TEXT, message_text='Client group message',
+            message_time=timezone.now(),
+        )
+        announcement_message = WhatsAppMessage.objects.create(
+            account=self.member_account, chat=announcement_chat, contact=self.member_contact,
+            provider_message_id='client-announcement-message', direction=MessageDirection.INBOUND,
+            message_type=MessageType.TEXT, message_text='Client announcement message',
+            message_time=timezone.now(),
+        )
+        unrelated = WhatsAppContact.objects.create(
+            account=self.member_account, wa_contact_id='971500009999@s.whatsapp.net',
+            phone_number='971500009999', display_name='Unrelated Sender',
+        )
+        WhatsAppMessage.objects.create(
+            account=self.member_account, chat=group_chat, contact=unrelated,
+            provider_message_id='unrelated-group-message', direction=MessageDirection.INBOUND,
+            message_type=MessageType.TEXT, message_text='Unrelated group message',
+            message_time=timezone.now(),
+        )
+        self.client.force_authenticate(self.admin)
+
+        groups = self.client.get(
+            f'/api/clientpulse/clients/{self.profile.pk}/conversations/',
+            {'conversation_type': 'group'},
+        )
+        announcements = self.client.get(
+            f'/api/clientpulse/clients/{self.profile.pk}/conversations/',
+            {'conversation_type': 'announcement'},
+        )
+
+        self.assertEqual(groups.status_code, 200, groups.data)
+        self.assertEqual([item['id'] for item in groups.data['results']], [group_message.pk])
+        self.assertEqual(groups.data['results'][0]['chat_name'], 'Sales Group')
+        self.assertEqual(groups.data['results'][0]['conversation_type'], 'group')
+        self.assertEqual(
+            [item['id'] for item in announcements.data['results']],
+            [announcement_message.pk],
+        )
+        self.assertEqual(announcements.data['results'][0]['conversation_type'], 'announcement')
+
+    def test_invalid_conversation_type_is_rejected(self):
+        self.client.force_authenticate(self.admin)
+        response = self.client.get(
+            f'/api/clientpulse/clients/{self.profile.pk}/conversations/',
+            {'conversation_type': 'community'},
+        )
+        self.assertEqual(response.status_code, 400)

@@ -1448,7 +1448,7 @@ Implemented behavior:
 - reminders,
 - sequence enrollment,
 - manual contact actions,
-- paginated direct conversation history across linked communication accounts,
+- collapsible DM, group, and announcement history across linked communication accounts, with older server pages loaded as the user scrolls upward,
 - related inquiries and campaigns.
 
 Implemented behavior:
@@ -1458,7 +1458,7 @@ Implemented behavior:
 - the manual WhatsApp follow-up composer uses the same shared controls,
 - text/image limits, image preview, live preflight, consent, do-not-contact, and outbound queue behavior remain unchanged,
 - activity displays outbound state without sending synchronously from the profile request.
-- conversation history is limited to linked direct chats and account visibility granted to the current user; group messages are excluded.
+- conversation history is limited to account visibility granted to the current user. DM history uses the linked direct chat; group and announcement history only includes messages authored by the linked client, classified from stored group metadata.
 
 ### 16.5 Reminder workspace
 

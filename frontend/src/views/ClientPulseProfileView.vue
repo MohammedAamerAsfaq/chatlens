@@ -96,7 +96,7 @@ async function followUpQueued() { timeline.value = (await clientPulseApi.timelin
 onMounted(load)
 </script>
 <template>
-  <main class="ui-page"><div class="ui-page__inner ui-page__inner--wide client-profile">
+  <main class="ui-page client-profile-page"><div class="ui-page__inner ui-page__inner--wide client-profile">
     <RouterLink class="client-profile__back" to="/clientpulse">&larr; Customer directory</RouterLink>
     <UiEmptyState v-if="loading" title="Loading profile" description="Retrieving relationship and activity data." busy />
     <template v-else-if="client">
@@ -111,7 +111,6 @@ onMounted(load)
       <UiNotice v-if="success" tone="success">{{ success }}</UiNotice>
       <ClientTagManager v-model="form.tag_ids" :tags="tags" :can-edit="canEdit" @tags-changed="loadTags" />
       <ClientPulseFollowUpComposer v-if="auth.hasPermission('clientpulse.messages.send_manual')" :client="client" @queued="followUpQueued" />
-      <ClientConversationHistory :profile-id="id" />
 
       <div class="client-profile__grid">
         <UiCard title="Relationship profile" subtitle="Core ownership, lifecycle, preferences, and contact policy.">
@@ -125,7 +124,6 @@ onMounted(load)
             <UiFormField label="Preferred channel"><UiSelect v-model="form.preferred_channel" :options="channelOptions" :disabled="!canEdit" /></UiFormField>
             <UiFormField label="Language"><UiInput v-model="form.preferred_language" :disabled="!canEdit" /></UiFormField>
             <UiFormField label="Timezone"><UiInput v-model="form.timezone" :disabled="!canEdit" /></UiFormField>
-            <div class="client-profile__wide client-profile__tags"><strong>Tags</strong><div><UiCheckbox v-for="tag in tags" :key="tag.id" :label="tag.name" :model-value="form.tag_ids.includes(tag.id)" :disabled="!canEdit" @update:model-value="toggleTag(tag.id, $event)" /></div></div>
             <div class="client-profile__wide"><UiCheckbox v-model="form.do_not_contact" label="Do not contact" description="Block manual and automated communication for this client." :disabled="!canEdit" /></div>
             <UiFormField v-if="form.do_not_contact" class="client-profile__wide" label="Do-not-contact reason"><UiInput v-model="form.do_not_contact_reason" multiline :rows="3" :disabled="!canEdit" /></UiFormField>
             <div v-if="canEdit" class="client-profile__wide client-profile__actions"><UiButton type="submit" variant="primary" :disabled="busy === 'save'">{{ busy === 'save' ? 'Saving...' : 'Save profile' }}</UiButton></div>
@@ -165,12 +163,15 @@ onMounted(load)
       <UiCard title="Activity timeline" subtitle="Relationship, consent, reminder, and outbound activity.">
         <div class="client-profile__timeline"><article v-for="item in timeline" :key="item.id" class="client-profile__timeline-item"><div><strong>{{ item.title }}</strong><p v-if="item.summary">{{ item.summary }}</p><small>{{ new Date(item.occurred_at).toLocaleString() }} / {{ item.created_by?.username || 'system' }}</small></div><UiBadge v-if="item.outbound" :tone="item.outbound.status === 'sent' ? 'success' : item.outbound.status === 'failed' ? 'danger' : 'info'">{{ item.outbound.status.replaceAll('_', ' ') }}</UiBadge></article><UiEmptyState v-if="!timeline.length" title="No activity recorded" description="Client activity will appear here." /></div>
       </UiCard>
+      <ClientConversationHistory :profile-id="id" />
     </template>
   </div></main>
 </template>
 
 <style scoped>
 .client-profile { display: grid; gap: 16px; }
+.client-profile-page { box-sizing: border-box; height: 100%; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+:global(.theme-inspinia.layout-position-scrollable) .client-profile-page { height: auto; min-height: 0; overflow: visible; }
 .client-profile__back { width: fit-content; color: var(--ui-primary); font-size: .78rem; font-weight: 750; text-decoration: none; }
 .client-profile__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
 .client-profile__form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
