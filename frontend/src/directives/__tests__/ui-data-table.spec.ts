@@ -14,6 +14,7 @@ describe('uiDataTable directive', () => {
     const wrapper = mount(TestGrid, { global: { directives: { uiDataTable } } })
     expect(wrapper.get('.ui-data-table__bridge-tools').text()).toContain('Export CSV')
     expect(wrapper.get('table').classes()).toContain('ui-data-table__native--compact')
+    expect(wrapper.get('table').attributes('data-ui-grid-key')).toBe('test-legacy-grid')
 
     const toggles = wrapper.findAll('.ui-data-table__bridge-menu input')
     await toggles[1]!.setValue(false)

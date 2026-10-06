@@ -1,5 +1,5 @@
 <script setup>
-defineProps({ title: { type: String, default: '' }, subtitle: { type: String, default: '' } })
+defineProps({ title: { type: String, default: '' }, subtitle: { type: String, default: '' }, flush: { type: Boolean, default: false } })
 </script>
 
 <template>
@@ -7,6 +7,6 @@ defineProps({ title: { type: String, default: '' }, subtitle: { type: String, de
     <header v-if="title || subtitle || $slots.actions" class="ui-card__header">
       <div><h2 v-if="title">{{title}}</h2><p v-if="subtitle">{{subtitle}}</p></div><div v-if="$slots.actions"><slot name="actions" /></div>
     </header>
-    <div class="ui-card__body"><slot /></div>
+    <div class="ui-card__body" :class="{ 'ui-card__body--flush': flush }"><slot /></div>
   </section>
 </template>

@@ -39,10 +39,12 @@
 .ui-data-table__bridge-tools details { position: relative; }
 .ui-data-table__bridge-menu { position: absolute; z-index: 30; top: calc(100% + 5px); right: 0; width: 210px; padding: 7px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: var(--ui-surface-raised); box-shadow: var(--ui-shadow-popover); }
 .ui-data-table__bridge-menu label { display: flex; align-items: center; gap: 8px; padding: 7px; color: var(--ui-text); font: 500 .75rem var(--ui-font-sans); cursor: pointer; }
-.ui-data-table__native { width: 100% !important; min-width: 900px; border-collapse: separate !important; border-spacing: 0 !important; color: var(--ui-text); font: 500 .78rem var(--ui-font-sans); }
+.ui-data-table__native { width: 100% !important; min-width: var(--ui-grid-min-width, 900px); border-collapse: separate !important; border-spacing: 0 !important; color: var(--ui-text); font: 500 .78rem var(--ui-font-sans); }
 .ui-data-table__native--compact { min-width: 0; }
 .ui-data-table__legacy-viewport--compact .ui-data-table__bridge-tools { padding-block: 7px; }
 .ui-data-table__native thead { position: sticky; z-index: 5; top: 0; }
 .ui-data-table__native th { padding: 10px 13px !important; border-bottom: 1px solid var(--ui-border) !important; background: var(--ui-surface-muted) !important; color: var(--ui-text-muted) !important; font-size: .64rem !important; letter-spacing: .055em; text-align: left; text-transform: uppercase; white-space: nowrap; }
 .ui-data-table__native td { padding: 10px 13px !important; border-bottom: 1px solid var(--ui-border) !important; background-color: var(--ui-surface); color: var(--ui-text); vertical-align: middle; }
 .ui-data-table__native tbody>tr:hover>td { background-color: var(--ui-surface-muted) !important; }
+.ui-data-table__native[data-ui-grid-key="products"] .col-name { min-width: 240px; }
+.ui-data-table__native[data-ui-grid-key="products"] .col-actions { min-width: 150px; }

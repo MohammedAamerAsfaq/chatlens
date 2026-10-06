@@ -1,6 +1,6 @@
 # ClientPulse and Integrations Implementation Design
 
-> **Status:** Approved design; Phases 0-4 implemented through manual WhatsApp follow-up.
+> **Status:** Approved design; Phases 0-4 implemented through manual WhatsApp follow-up. ClientPulse directory, reminder, and profile screens use the shared Inspinia component system.
 > **Prepared:** 2026-10-01
 > **Purpose:** Define the concrete implementation of the ClientPulse CRM module and the Integrations module used to connect external contact providers such as Google Contacts.
 
@@ -44,6 +44,8 @@ Phase 2 adds company-scoped ClientPulse profiles, ownership, lifecycle and prior
 Phase 3 adds company-scoped durable reminders, recurrence, snoozing, in-app notifications, dashboard metrics, the `clientpulse` queue and per-company scheduler, and idempotent WhatsApp activity projection. Reminder delivery never creates an outbound customer message. Automated follow-up remains disabled.
 
 Phase 4 adds permission-scoped manual WhatsApp follow-up from a ClientPulse profile. It resolves only company-owned linked WhatsApp contacts, enforces CRM suppression and configured consent policy, performs live destination preflight, and delegates text or image messages to the existing outbound queue. Timeline entries reference the outbound ledger and expose its live queued, sent, delivered, read, blocked, or failed state. Baileys receipt callbacks advance delivery state monotonically and use the worker fallback journal when Django is unavailable.
+
+The 2026-10-06 UI and conversion checkpoint adds creation of a ClientPulse profile from an existing WhatsApp contact. The candidate endpoint is company-scoped and permission-protected. Owners, admins, and superusers may search all communication accounts owned by the active company; other users may search only WhatsApp accounts assigned to them. Group, newsletter, and broadcast identities are excluded. The directory uses one remotely searchable contact selector rather than separate account/contact selectors.
 
 ---
 
@@ -1423,6 +1425,15 @@ Settings
 - duplicate warning,
 - create and import actions.
 
+Implemented behavior:
+
+- the grid uses the common data-table treatment and server pagination,
+- filters use shared searchable selects and inputs,
+- the create-client dialog uses the large, tall shared modal,
+- manual creation exposes name, phone, owner, lifecycle, and priority,
+- WhatsApp conversion uses one searchable selector,
+- candidate search is server-side and follows company/user account visibility rules.
+
 ### 16.4 Customer profile
 
 - profile summary,
@@ -1436,6 +1447,14 @@ Settings
 - sequence enrollment,
 - manual contact actions,
 - related inquiries and campaigns.
+
+Implemented behavior:
+
+- all cards, inputs, selects, checkboxes, badges, notices, empty states, and actions use shared UI components,
+- the profile is responsive: two-column cards collapse to one column on narrower screens,
+- the manual WhatsApp follow-up composer uses the same shared controls,
+- text/image limits, image preview, live preflight, consent, do-not-contact, and outbound queue behavior remain unchanged,
+- activity displays outbound state without sending synchronously from the profile request.
 
 ### 16.5 Reminder workspace
 
@@ -1529,10 +1548,14 @@ Exit criteria:
 
 ### Phase 2 - ClientPulse directory and profiles
 
+**Implemented; shared UI migration completed 2026-10-06.**
+
 - Add ClientProfile, tags, notes, consent and ownership.
 - Build customer list and profile UI.
 - Add permissions and company settings.
 - Add audit events.
+- Allow authorized users to create a profile from an existing visible WhatsApp contact.
+- Apply the shared Inspinia component system to the directory and profile workspace.
 
 Exit criteria:
 
@@ -1542,7 +1565,7 @@ Exit criteria:
 
 ### Phase 3 - Timeline and reminders
 
-**Implemented 2026-10-01.**
+**Implemented 2026-10-01; shared UI migration completed 2026-10-06.**
 
 - Add activity projection.
 - Add reminders and in-app notifications.

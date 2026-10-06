@@ -40,11 +40,14 @@ function createTools(table, binding) {
   table.dataset.uiGridReady = 'true'
   const key = storageKey(binding)
   const hidden = readHidden(key)
+  const headerCount = table.querySelectorAll('thead th').length
   table.__uiGridHidden = hidden
+  table.dataset.uiGridKey = binding.value || 'grid'
   table.classList.add('ui-data-table__native')
-  const compact = table.querySelectorAll('thead th').length <= 4
+  const compact = headerCount <= 4
     || table.matches('.mini-table, .stats-table, .ui-table--compact')
   table.classList.toggle('ui-data-table__native--compact', compact)
+  if (!compact) table.style.setProperty('--ui-grid-min-width', `${Math.max(900, headerCount * 120)}px`)
   table.parentElement?.classList.add('ui-data-table__legacy-viewport')
   table.parentElement?.classList.toggle('ui-data-table__legacy-viewport--compact', compact)
 

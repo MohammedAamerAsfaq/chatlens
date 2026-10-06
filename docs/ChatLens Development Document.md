@@ -1,5 +1,14 @@
 # ChatLens Development Document
 
+## Current implementation update - 2026-10-06
+
+- ClientPulse phases 0-4 are implemented, including company-scoped profiles, reminders, in-app notifications, manual WhatsApp follow-up, outbound queue integration, and activity projection.
+- A ClientPulse profile can be created manually or from an existing WhatsApp contact visible to the current user. Company admins may search all company communication accounts; regular users are limited to accounts assigned to them.
+- The Vue application has a reusable Inspinia-compatible UI layer for controls, modals, cards, feedback, and data grids. ClientPulse directory, reminders, profile, and follow-up composer are migrated reference screens.
+- Frontend UI conventions and verification requirements are documented in `docs/Frontend UI Component System.md`.
+
+This update supersedes older statements in this living document that describe the application as read-only or background work as daemon-thread-only. The durable task queues and controlled outbound messaging architecture are documented in the dedicated queue and outbound design documents.
+
 > **Status:** Living document — reflects the system as actually built, not the original plan.
 > Last updated: 2026-07-18 (§17.2 — 6th connection-reliability incident: a third, distinct failure mode identified — silent inbound non-delivery with zero trace anywhere in the pipeline, not a decrypt failure or a logged drop. No fix possible from this codebase; opened as a watch item to track further occurrences)
 >

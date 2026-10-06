@@ -49,6 +49,7 @@ export const companyAccessApi = {
 export const clientPulseApi = {
   clients: (params = {}) => http.get('/clientpulse/clients/', { params }),
   createClient: (data) => http.post('/clientpulse/clients/', data),
+  conversationContacts: (params = {}) => http.get('/clientpulse/conversation-contacts/', { params }),
   convertConversationContact: (contactId, data) => http.post(
     `/clientpulse/conversation-contacts/${contactId}/convert/`, data,
   ),

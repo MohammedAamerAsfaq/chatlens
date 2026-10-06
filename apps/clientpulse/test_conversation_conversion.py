@@ -106,6 +106,75 @@ class ConversationConversionTests(TestCase):
         )
         self.assertEqual(response.status_code, 404)
 
+    def test_candidate_list_is_searchable_and_excludes_non_direct_contacts(self):
+        WhatsAppContact.objects.create(
+            account=self.account, wa_contact_id='120000000000@g.us', display_name='Buyer Group',
+        )
+        WhatsAppContact.objects.create(
+            account=self.account, wa_contact_id='120000000001@newsletter', display_name='Buyer Channel',
+        )
+
+        response = self.client.get('/api/clientpulse/conversation-contacts/?search=Conversation')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['id'], self.whatsapp_contact.pk)
+        self.assertEqual(response.data['results'][0]['account_name'], 'Primary WhatsApp')
+        self.assertIsNone(response.data['results'][0]['profile_id'])
+
+    def test_candidate_list_reports_an_existing_clientpulse_profile(self):
+        created = self._convert('lead')
+        profile_id = created.data['profile']['id']
+
+        response = self.client.get('/api/clientpulse/conversation-contacts/')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['results'][0]['profile_id'], profile_id)
+
+    def test_non_admin_candidate_list_only_includes_owned_accounts(self):
+        member = get_user_model().objects.create_user('conversation-member')
+        CompanyMembership.objects.create(
+            company=self.company, user=member, role=CompanyMembership.ROLE_USER,
+        )
+        communication = CommunicationAccount.objects.create(
+            company=self.company, provider=self.account.communication_account.provider,
+            channel='whatsapp', name='Member WhatsApp',
+        )
+        member_account = WhatsAppAccount.objects.create(
+            owner=member, communication_account=communication,
+        )
+        owned = WhatsAppContact.objects.create(
+            account=member_account, wa_contact_id='971500005555@s.whatsapp.net',
+            display_name='Member Contact',
+        )
+        self.client.force_authenticate(member)
+
+        response = self.client.get('/api/clientpulse/conversation-contacts/')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['id'], owned.pk)
+
+    def test_company_admin_candidate_list_includes_other_users_accounts(self):
+        colleague = get_user_model().objects.create_user('conversation-colleague')
+        communication = CommunicationAccount.objects.create(
+            company=self.company, provider=self.account.communication_account.provider,
+            channel='whatsapp', name='Colleague WhatsApp',
+        )
+        colleague_account = WhatsAppAccount.objects.create(
+            owner=colleague, communication_account=communication,
+        )
+        contact = WhatsAppContact.objects.create(
+            account=colleague_account, wa_contact_id='971500006666@s.whatsapp.net',
+            display_name='Colleague Contact',
+        )
+
+        response = self.client.get('/api/clientpulse/conversation-contacts/?search=Colleague')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['id'], contact.pk)
+
     def test_scoped_user_cannot_update_an_unassigned_profile(self):
         contact = CompanyContact.objects.create(company=self.company, display_name='Owner Client')
         profile = ClientProfile.objects.create(

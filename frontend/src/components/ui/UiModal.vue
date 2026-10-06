@@ -4,7 +4,9 @@ import { onBeforeUnmount, useId, watch } from 'vue'
 const props = defineProps({
   open: { type: Boolean, default: false },
   title: { type: String, required: true },
+  subtitle: { type: String, default: '' },
   size: { type: String, default: 'medium' },
+  tall: { type: Boolean, default: false },
   closeable: { type: Boolean, default: true },
 })
 const emit = defineEmits(['close'])
@@ -18,8 +20,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="#ui-teleport-host"><Transition name="ui-modal">
     <div v-if="open" class="ui-modal-backdrop" @mousedown.self="close">
-      <section class="ui-modal" :class="`ui-modal--${size}`" role="dialog" aria-modal="true" :aria-labelledby="titleId">
-        <header><h2 :id="titleId">{{ title }}</h2><button v-if="closeable" type="button" aria-label="Close" @click="close">×</button></header>
+      <section class="ui-modal" :class="[`ui-modal--${size}`, { 'ui-modal--tall': tall }]" role="dialog" aria-modal="true" :aria-labelledby="titleId">
+        <header><div><h2 :id="titleId">{{ title }}</h2><p v-if="subtitle">{{ subtitle }}</p></div><button v-if="closeable" type="button" aria-label="Close" @click="close">&times;</button></header>
         <div class="ui-modal__body"><slot /></div>
         <footer v-if="$slots.footer"><slot name="footer" /></footer>
       </section>

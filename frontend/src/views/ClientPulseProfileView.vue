@@ -4,51 +4,208 @@ import { useRoute } from 'vue-router'
 import { clientPulseApi } from '@/api'
 import { useAuthStore } from '@/stores/auth.js'
 import ClientPulseFollowUpComposer from '@/components/ClientPulseFollowUpComposer.vue'
-import '@/assets/clientpulse.css'
+import UiBadge from '@/components/ui/UiBadge.vue'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiCard from '@/components/ui/UiCard.vue'
+import UiCheckbox from '@/components/ui/UiCheckbox.vue'
+import UiEmptyState from '@/components/ui/UiEmptyState.vue'
+import UiFormField from '@/components/ui/UiFormField.vue'
+import UiInput from '@/components/ui/UiInput.vue'
+import UiNotice from '@/components/ui/UiNotice.vue'
+import UiPageHeader from '@/components/ui/UiPageHeader.vue'
+import UiSelect from '@/components/ui/UiSelect.vue'
 
-const route = useRoute(), auth = useAuthStore()
-const id = Number(route.params.id), client = ref(null), notes = ref([]), timeline = ref([]), consents = ref([]), tags = ref([]), owners = ref([])
-const loading = ref(true), busy = ref(''), error = ref(''), success = ref('')
+const route = useRoute()
+const auth = useAuthStore()
+const id = Number(route.params.id)
+const client = ref(null), notes = ref([]), timeline = ref([]), consents = ref([]), tags = ref([]), owners = ref([])
+const loading = ref(true), busy = ref(''), error = ref(''), success = ref(''), noteBody = ref(''), newTag = ref('')
 const canEdit = computed(() => auth.hasPermission('clientpulse.clients.update'))
 const canNotes = computed(() => auth.hasPermission('clientpulse.notes.manage'))
 const canConsent = computed(() => auth.hasPermission('clientpulse.consent.manage'))
-const form = reactive({ display_name:'', legal_name:'', contact_type:'person', lifecycle_stage:'lead', priority:'normal', source:'manual', owner_id:null, preferred_channel:'', preferred_language:'', timezone:'Asia/Dubai', do_not_contact:false, do_not_contact_reason:'', tag_ids:[] })
-const identity = reactive({ identity_type:'phone', value:'', label:'' }), noteBody = ref('')
-const consent = reactive({ channel:'whatsapp', purpose:'follow_up', status:'unknown', source:'manual' })
-const newTag = ref('')
-function message(exc, fallback) { const data=exc.response?.data; return data?.detail || (data ? JSON.stringify(data) : fallback) }
-function syncForm() { const c=client.value; Object.assign(form,{ display_name:c.display_name||'',legal_name:c.legal_name||'',contact_type:c.contact_type,lifecycle_stage:c.lifecycle_stage,priority:c.priority,source:c.source,owner_id:c.owner?.id||null,preferred_channel:c.preferred_channel||'',preferred_language:c.preferred_language||'',timezone:c.timezone||'Asia/Dubai',do_not_contact:c.do_not_contact,do_not_contact_reason:c.do_not_contact_reason||'',tag_ids:c.tags.map(t=>t.id) }) }
+const form = reactive({ display_name: '', legal_name: '', contact_type: 'person', lifecycle_stage: 'lead', priority: 'normal', source: 'manual', owner_id: '', preferred_channel: '', preferred_language: '', timezone: 'Asia/Dubai', do_not_contact: false, do_not_contact_reason: '', tag_ids: [] })
+const identity = reactive({ identity_type: 'phone', value: '', label: '' })
+const consent = reactive({ channel: 'whatsapp', purpose: 'follow_up', status: 'unknown', source: 'manual' })
+
+const option = (value, label) => ({ value, label: label || value.replaceAll('_', ' ') })
+const contactTypeOptions = [option('person', 'Person'), option('organization', 'Organization')]
+const lifecycleOptions = ['lead', 'prospect', 'active_customer', 'dormant', 'lost', 'blocked'].map(value => option(value))
+const priorityOptions = ['low', 'normal', 'high', 'critical'].map(value => option(value))
+const channelOptions = [option('', 'Not set'), ...['whatsapp', 'email', 'phone', 'other'].map(value => option(value))]
+const identityTypeOptions = [option('phone', 'Phone'), option('email', 'Email'), option('whatsapp_jid', 'WhatsApp JID')]
+const consentChannelOptions = ['whatsapp', 'email', 'phone'].map(value => option(value))
+const consentPurposeOptions = ['transactional', 'follow_up', 'marketing'].map(value => option(value))
+const consentStatusOptions = ['unknown', 'granted', 'denied', 'revoked'].map(value => option(value))
+const ownerOptions = computed(() => [option('', 'Unassigned'), ...owners.value.map(owner => option(owner.id, owner.username))])
+
+function apiMessage(exc, fallback) {
+  const data = exc.response?.data
+  return data?.detail || (data ? JSON.stringify(data) : fallback)
+}
+function syncForm() {
+  const value = client.value
+  Object.assign(form, {
+    display_name: value.display_name || '', legal_name: value.legal_name || '', contact_type: value.contact_type,
+    lifecycle_stage: value.lifecycle_stage, priority: value.priority, source: value.source, owner_id: value.owner?.id || '',
+    preferred_channel: value.preferred_channel || '', preferred_language: value.preferred_language || '',
+    timezone: value.timezone || 'Asia/Dubai', do_not_contact: value.do_not_contact,
+    do_not_contact_reason: value.do_not_contact_reason || '', tag_ids: value.tags.map(tag => tag.id),
+  })
+}
 async function load() {
-  loading.value=true; error.value=''
-  try { const [c,n,t,co,ta,o]=await Promise.all([clientPulseApi.client(id),clientPulseApi.notes(id),clientPulseApi.timeline(id),clientPulseApi.consents(id),clientPulseApi.tags(),clientPulseApi.options()]); client.value=c.data;notes.value=n.data;timeline.value=t.data;consents.value=co.data;tags.value=ta.data;owners.value=o.data.owners;syncForm() }
-  catch(exc){error.value=message(exc,'Unable to load client.')} finally{loading.value=false}
+  loading.value = true; error.value = ''
+  try {
+    const responses = await Promise.all([clientPulseApi.client(id), clientPulseApi.notes(id), clientPulseApi.timeline(id), clientPulseApi.consents(id), clientPulseApi.tags(), clientPulseApi.options()])
+    client.value = responses[0].data; notes.value = responses[1].data; timeline.value = responses[2].data
+    consents.value = responses[3].data; tags.value = responses[4].data; owners.value = responses[5].data.owners
+    syncForm()
+  } catch (exc) { error.value = apiMessage(exc, 'Unable to load client.') }
+  finally { loading.value = false }
 }
-async function save(){busy.value='save';error.value='';success.value='';try{const{data}=await clientPulseApi.updateClient(id,{...form});client.value=data;syncForm();success.value='Client profile updated.';timeline.value=(await clientPulseApi.timeline(id)).data}catch(exc){error.value=message(exc,'Unable to update client.')}finally{busy.value=''}}
-async function addIdentity(){busy.value='identity';try{await clientPulseApi.addIdentity(id,{...identity});Object.assign(identity,{identity_type:'phone',value:'',label:''});await load()}catch(exc){error.value=message(exc,'Unable to add identity.')}finally{busy.value=''}}
-async function removeIdentity(item){if(!confirm(`Remove ${item.value}?`))return;await clientPulseApi.deleteIdentity(id,item.id);await load()}
-async function addNote(){busy.value='note';try{await clientPulseApi.addNote(id,{body:noteBody.value});noteBody.value='';notes.value=(await clientPulseApi.notes(id)).data;timeline.value=(await clientPulseApi.timeline(id)).data}catch(exc){error.value=message(exc,'Unable to add note.')}finally{busy.value=''}}
-async function saveConsent(){busy.value='consent';try{consents.value=(await clientPulseApi.saveConsent(id,{...consent})).data;timeline.value=(await clientPulseApi.timeline(id)).data}catch(exc){error.value=message(exc,'Unable to save consent.')}finally{busy.value=''}}
-async function createTag(){if(!newTag.value.trim())return;try{await clientPulseApi.createTag({name:newTag.value});newTag.value='';tags.value=(await clientPulseApi.tags()).data}catch(exc){error.value=message(exc,'Unable to create tag.')}}
-async function setActive(active){
-  const action=active?'reactivate':'deactivate'
-  if(!confirm(`${action[0].toUpperCase()+action.slice(1)} this ClientPulse contact?`))return
-  busy.value=action;error.value='';success.value=''
-  try{await (active?clientPulseApi.activateClient(id):clientPulseApi.deactivateClient(id));await load();success.value=`Client ${active?'reactivated':'deactivated'}.`}
-  catch(exc){error.value=message(exc,`Unable to ${action} client.`)}finally{busy.value=''}
+async function save() {
+  busy.value = 'save'; error.value = ''; success.value = ''
+  try {
+    client.value = (await clientPulseApi.updateClient(id, { ...form, owner_id: form.owner_id || null })).data
+    syncForm(); success.value = 'Client profile updated.'; timeline.value = (await clientPulseApi.timeline(id)).data
+  } catch (exc) { error.value = apiMessage(exc, 'Unable to update client.') }
+  finally { busy.value = '' }
 }
-async function followUpQueued(){timeline.value=(await clientPulseApi.timeline(id)).data}
+async function addIdentity() {
+  busy.value = 'identity'
+  try { await clientPulseApi.addIdentity(id, { ...identity }); Object.assign(identity, { identity_type: 'phone', value: '', label: '' }); await load() }
+  catch (exc) { error.value = apiMessage(exc, 'Unable to add identity.') }
+  finally { busy.value = '' }
+}
+async function removeIdentity(item) {
+  if (!confirm(`Remove ${item.value}?`)) return
+  await clientPulseApi.deleteIdentity(id, item.id); await load()
+}
+async function addNote() {
+  busy.value = 'note'
+  try { await clientPulseApi.addNote(id, { body: noteBody.value }); noteBody.value = ''; notes.value = (await clientPulseApi.notes(id)).data; timeline.value = (await clientPulseApi.timeline(id)).data }
+  catch (exc) { error.value = apiMessage(exc, 'Unable to add note.') }
+  finally { busy.value = '' }
+}
+async function saveConsent() {
+  busy.value = 'consent'
+  try { consents.value = (await clientPulseApi.saveConsent(id, { ...consent })).data; timeline.value = (await clientPulseApi.timeline(id)).data }
+  catch (exc) { error.value = apiMessage(exc, 'Unable to save consent.') }
+  finally { busy.value = '' }
+}
+async function createTag() {
+  if (!newTag.value.trim()) return
+  try { await clientPulseApi.createTag({ name: newTag.value }); newTag.value = ''; tags.value = (await clientPulseApi.tags()).data }
+  catch (exc) { error.value = apiMessage(exc, 'Unable to create tag.') }
+}
+function toggleTag(tagId, selected) {
+  form.tag_ids = selected ? [...new Set([...form.tag_ids, tagId])] : form.tag_ids.filter(value => value !== tagId)
+}
+async function setActive(active) {
+  const action = active ? 'reactivate' : 'deactivate'
+  if (!confirm(`${action[0].toUpperCase() + action.slice(1)} this ClientPulse contact?`)) return
+  busy.value = action; error.value = ''; success.value = ''
+  try { await (active ? clientPulseApi.activateClient(id) : clientPulseApi.deactivateClient(id)); await load(); success.value = `Client ${active ? 'reactivated' : 'deactivated'}.` }
+  catch (exc) { error.value = apiMessage(exc, `Unable to ${action} client.`) }
+  finally { busy.value = '' }
+}
+async function followUpQueued() { timeline.value = (await clientPulseApi.timeline(id)).data }
 onMounted(load)
 </script>
 
-<template><main class="cp-page"><div class="cp-shell"><RouterLink class="cp-back" to="/clientpulse">← Customer directory</RouterLink><div v-if="loading" class="cp-empty">Loading profile...</div><template v-else-if="client">
-  <header class="cp-hero"><div><p class="cp-eyebrow">Client profile</p><h1 class="cp-title">{{ client.display_name || client.legal_name }}</h1><p class="cp-muted">#{{ client.id }} · {{ client.lifecycle_stage.replaceAll('_',' ') }} · {{ client.owner?.user?.username || 'Unassigned' }} · {{ client.status==='active'?'Active':'Inactive' }}</p></div><button v-if="auth.hasPermission('clientpulse.clients.archive')&&client.status==='active'" class="cp-button cp-danger" :disabled="busy==='deactivate'" @click="setActive(false)">Deactivate</button><button v-else-if="auth.hasPermission('clientpulse.clients.archive')" class="cp-button cp-primary" :disabled="busy==='reactivate'" @click="setActive(true)">Reactivate</button></header>
-  <p v-if="error" class="cp-notice error">{{ error }}</p><p v-if="success" class="cp-notice success">{{ success }}</p>
-  <div v-if="canEdit" class="cp-actions"><input v-model="newTag" class="cp-input" placeholder="Create a reusable tag" /><button type="button" class="cp-button" @click="createTag">Add tag</button></div>
-  <div v-if="auth.hasPermission('clientpulse.reminders.manage')" class="cp-actions"><RouterLink class="cp-button cp-primary" :to="`/clientpulse-reminders?profile_id=${id}&create=1`">Create reminder</RouterLink></div>
-  <ClientPulseFollowUpComposer v-if="auth.hasPermission('clientpulse.messages.send_manual')" :client="client" style="margin-top:16px" @queued="followUpQueued" />
-  <div class="cp-cards"><section class="cp-panel cp-card"><h2>Relationship profile</h2><form class="cp-form-grid" @submit.prevent="save"><label>Name<input v-model="form.display_name" class="cp-input" :disabled="!canEdit" /></label><label>Legal name<input v-model="form.legal_name" class="cp-input" :disabled="!canEdit" /></label><label>Type<select v-model="form.contact_type" class="cp-select" :disabled="!canEdit"><option value="person">Person</option><option value="organization">Organization</option></select></label><label>Lifecycle<select v-model="form.lifecycle_stage" class="cp-select" :disabled="!canEdit"><option v-for="v in ['lead','prospect','active_customer','dormant','lost','blocked']" :key="v" :value="v">{{ v.replaceAll('_',' ') }}</option></select></label><label>Priority<select v-model="form.priority" class="cp-select" :disabled="!canEdit"><option v-for="v in ['low','normal','high','critical']" :key="v">{{ v }}</option></select></label><label>Owner<select v-model="form.owner_id" class="cp-select" :disabled="!canEdit"><option :value="null">Unassigned</option><option v-for="owner in owners" :key="owner.id" :value="owner.id">{{ owner.username }}</option></select></label><label>Preferred channel<select v-model="form.preferred_channel" class="cp-select" :disabled="!canEdit"><option value="">Not set</option><option v-for="v in ['whatsapp','email','phone','other']" :key="v">{{ v }}</option></select></label><label>Language<input v-model="form.preferred_language" class="cp-input" :disabled="!canEdit" /></label><label>Timezone<input v-model="form.timezone" class="cp-input" :disabled="!canEdit" /></label><div class="wide"><strong>Tags</strong><div class="cp-checks"><label v-for="tag in tags" :key="tag.id"><input v-model="form.tag_ids" type="checkbox" :value="tag.id" :disabled="!canEdit" />{{ tag.name }}</label></div></div><label class="wide"><span><input v-model="form.do_not_contact" type="checkbox" :disabled="!canEdit" /> Do not contact</span><textarea v-if="form.do_not_contact" v-model="form.do_not_contact_reason" class="cp-textarea" placeholder="Required reason" /></label><div v-if="canEdit" class="cp-actions wide"><button class="cp-button cp-primary" :disabled="busy==='save'">{{ busy==='save'?'Saving...':'Save profile' }}</button></div></form></section>
-  <section class="cp-panel cp-card"><h2>Contact identities</h2><div class="cp-list"><div v-for="item in client.identities" :key="item.id" class="cp-item"><strong>{{ item.value }}</strong><p class="cp-muted">{{ item.identity_type }} {{ item.label }}</p><button v-if="canEdit" class="cp-button cp-danger" @click="removeIdentity(item)">Remove</button></div><div v-for="item in client.whatsapp_contacts" :key="`wa-${item.id}`" class="cp-item"><strong>{{ item.display_name || item.phone_number }}</strong><p class="cp-muted">Linked WhatsApp · {{ item.account_name }}</p></div></div><form v-if="canEdit" class="cp-form-grid" style="margin-top:12px" @submit.prevent="addIdentity"><label>Type<select v-model="identity.identity_type" class="cp-select"><option value="phone">Phone</option><option value="email">Email</option><option value="whatsapp_jid">WhatsApp JID</option></select></label><label>Value<input v-model="identity.value" class="cp-input" required /></label><label>Label<input v-model="identity.label" class="cp-input" /></label><div class="cp-actions wide"><button class="cp-button cp-primary">Add identity</button></div></form></section></div>
-  <div class="cp-cards"><section class="cp-panel cp-card"><h2>Notes</h2><form v-if="canNotes" @submit.prevent="addNote"><textarea v-model="noteBody" class="cp-textarea" placeholder="Add relationship context..." required></textarea><div class="cp-actions"><button class="cp-button cp-primary">Add note</button></div></form><div class="cp-list"><article v-for="note in notes" :key="note.id" class="cp-item"><p>{{ note.body }}</p><small class="cp-muted">{{ note.created_by?.username }} · {{ new Date(note.created_at).toLocaleString() }}</small></article><p v-if="!notes.length" class="cp-empty">No notes yet.</p></div></section>
-  <section class="cp-panel cp-card"><h2>Consent</h2><form v-if="canConsent" class="cp-form-grid" @submit.prevent="saveConsent"><label>Channel<select v-model="consent.channel" class="cp-select"><option value="whatsapp">WhatsApp</option><option value="email">Email</option><option value="phone">Phone</option></select></label><label>Purpose<select v-model="consent.purpose" class="cp-select"><option value="transactional">Transactional</option><option value="follow_up">Follow-up</option><option value="marketing">Marketing</option></select></label><label>Status<select v-model="consent.status" class="cp-select"><option v-for="v in ['unknown','granted','denied','revoked']" :key="v">{{ v }}</option></select></label><div class="cp-actions wide"><button class="cp-button cp-primary">Save consent</button></div></form><div class="cp-list"><div v-for="item in consents" :key="item.id" class="cp-item"><strong>{{ item.channel }} · {{ item.purpose }}</strong><p><span class="cp-badge">{{ item.status }}</span></p></div><p v-if="!consents.length" class="cp-empty">No consent records.</p></div></section></div>
-  <section class="cp-panel cp-card" style="margin-top:16px"><h2>Activity timeline</h2><div class="cp-list"><article v-for="item in timeline" :key="item.id" class="cp-item"><strong>{{ item.title }}</strong><span v-if="item.outbound" class="cp-badge" :class="`status-${item.outbound.status}`">{{ item.outbound.status.replaceAll('_',' ') }}</span><p v-if="item.summary">{{ item.summary }}</p><p v-if="item.outbound" class="cp-muted">{{ item.outbound.account_name }}<template v-if="item.outbound.status_reason"> · {{ item.outbound.status_reason }}</template></p><small class="cp-muted">{{ new Date(item.occurred_at).toLocaleString() }} · {{ item.created_by?.username || 'system' }}</small></article><p v-if="!timeline.length" class="cp-empty">No activity recorded.</p></div></section>
-</template></div></main></template>
+<template>
+  <main class="ui-page"><div class="ui-page__inner ui-page__inner--wide client-profile">
+    <RouterLink class="client-profile__back" to="/clientpulse">&larr; Customer directory</RouterLink>
+    <UiEmptyState v-if="loading" title="Loading profile" description="Retrieving relationship and activity data." busy />
+    <template v-else-if="client">
+      <UiPageHeader eyebrow="Client profile" :title="client.display_name || client.legal_name" :description="`#${client.id} / ${client.lifecycle_stage.replaceAll('_', ' ')} / ${client.owner?.user?.username || 'Unassigned'} / ${client.status === 'active' ? 'Active' : 'Inactive'}`">
+        <template #actions>
+          <RouterLink v-if="auth.hasPermission('clientpulse.reminders.manage')" class="ui-button ui-button--primary ui-button--medium" :to="`/clientpulse-reminders?profile_id=${id}&create=1`">Create reminder</RouterLink>
+          <UiButton v-if="auth.hasPermission('clientpulse.clients.archive') && client.status === 'active'" variant="danger" :disabled="busy === 'deactivate'" @click="setActive(false)">Deactivate</UiButton>
+          <UiButton v-else-if="auth.hasPermission('clientpulse.clients.archive')" variant="primary" :disabled="busy === 'reactivate'" @click="setActive(true)">Reactivate</UiButton>
+        </template>
+      </UiPageHeader>
+      <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
+      <UiNotice v-if="success" tone="success">{{ success }}</UiNotice>
+
+      <UiCard v-if="canEdit" title="Profile tags" subtitle="Create reusable tags and assign them to this relationship.">
+        <div class="client-profile__tag-tools"><UiInput v-model="newTag" placeholder="Create a reusable tag" @keyup.enter="createTag" /><UiButton variant="outline" @click="createTag">Add tag</UiButton></div>
+      </UiCard>
+      <ClientPulseFollowUpComposer v-if="auth.hasPermission('clientpulse.messages.send_manual')" :client="client" @queued="followUpQueued" />
+
+      <div class="client-profile__grid">
+        <UiCard title="Relationship profile" subtitle="Core ownership, lifecycle, preferences, and contact policy.">
+          <form class="client-profile__form" @submit.prevent="save">
+            <UiFormField label="Name"><UiInput v-model="form.display_name" :disabled="!canEdit" /></UiFormField>
+            <UiFormField label="Legal name"><UiInput v-model="form.legal_name" :disabled="!canEdit" /></UiFormField>
+            <UiFormField label="Type"><UiSelect v-model="form.contact_type" :options="contactTypeOptions" :disabled="!canEdit" /></UiFormField>
+            <UiFormField label="Lifecycle"><UiSelect v-model="form.lifecycle_stage" :options="lifecycleOptions" :disabled="!canEdit" /></UiFormField>
+            <UiFormField label="Priority"><UiSelect v-model="form.priority" :options="priorityOptions" :disabled="!canEdit" /></UiFormField>
+            <UiFormField label="Owner"><UiSelect v-model="form.owner_id" :options="ownerOptions" :disabled="!canEdit" /></UiFormField>
+            <UiFormField label="Preferred channel"><UiSelect v-model="form.preferred_channel" :options="channelOptions" :disabled="!canEdit" /></UiFormField>
+            <UiFormField label="Language"><UiInput v-model="form.preferred_language" :disabled="!canEdit" /></UiFormField>
+            <UiFormField label="Timezone"><UiInput v-model="form.timezone" :disabled="!canEdit" /></UiFormField>
+            <div class="client-profile__wide client-profile__tags"><strong>Tags</strong><div><UiCheckbox v-for="tag in tags" :key="tag.id" :label="tag.name" :model-value="form.tag_ids.includes(tag.id)" :disabled="!canEdit" @update:model-value="toggleTag(tag.id, $event)" /></div></div>
+            <div class="client-profile__wide"><UiCheckbox v-model="form.do_not_contact" label="Do not contact" description="Block manual and automated communication for this client." :disabled="!canEdit" /></div>
+            <UiFormField v-if="form.do_not_contact" class="client-profile__wide" label="Do-not-contact reason"><UiInput v-model="form.do_not_contact_reason" multiline :rows="3" :disabled="!canEdit" /></UiFormField>
+            <div v-if="canEdit" class="client-profile__wide client-profile__actions"><UiButton type="submit" variant="primary" :disabled="busy === 'save'">{{ busy === 'save' ? 'Saving...' : 'Save profile' }}</UiButton></div>
+          </form>
+        </UiCard>
+
+        <UiCard title="Contact identities" subtitle="Direct identities and linked WhatsApp contacts.">
+          <div class="client-profile__list">
+            <div v-for="item in client.identities" :key="item.id" class="client-profile__item"><div><strong>{{ item.value }}</strong><small>{{ item.identity_type }} {{ item.label }}</small></div><UiButton v-if="canEdit" variant="danger" size="small" @click="removeIdentity(item)">Remove</UiButton></div>
+            <div v-for="item in client.whatsapp_contacts" :key="`wa-${item.id}`" class="client-profile__item"><div><strong>{{ item.display_name || item.phone_number }}</strong><small>Linked WhatsApp / {{ item.account_name }}</small></div><UiBadge tone="success">Linked</UiBadge></div>
+            <UiEmptyState v-if="!client.identities.length && !client.whatsapp_contacts.length" title="No identities linked" description="Add a direct identity below." />
+          </div>
+          <form v-if="canEdit" class="client-profile__form client-profile__subform" @submit.prevent="addIdentity">
+            <UiFormField label="Type"><UiSelect v-model="identity.identity_type" :options="identityTypeOptions" /></UiFormField>
+            <UiFormField label="Value"><UiInput v-model="identity.value" required /></UiFormField>
+            <UiFormField label="Label"><UiInput v-model="identity.label" /></UiFormField>
+            <div class="client-profile__wide client-profile__actions"><UiButton type="submit" variant="primary" :disabled="busy === 'identity'">Add identity</UiButton></div>
+          </form>
+        </UiCard>
+
+        <UiCard title="Notes" subtitle="Internal relationship context and operator observations.">
+          <form v-if="canNotes" class="client-profile__stack" @submit.prevent="addNote"><UiFormField label="New note"><UiInput v-model="noteBody" multiline :rows="4" placeholder="Add relationship context..." required /></UiFormField><div class="client-profile__actions"><UiButton type="submit" variant="primary" :disabled="busy === 'note'">Add note</UiButton></div></form>
+          <div class="client-profile__list"><article v-for="note in notes" :key="note.id" class="client-profile__item client-profile__item--block"><p>{{ note.body }}</p><small>{{ note.created_by?.username }} / {{ new Date(note.created_at).toLocaleString() }}</small></article><UiEmptyState v-if="!notes.length" title="No notes yet" description="Relationship notes will appear here." /></div>
+        </UiCard>
+
+        <UiCard title="Consent" subtitle="Channel and purpose-specific communication consent.">
+          <form v-if="canConsent" class="client-profile__form" @submit.prevent="saveConsent">
+            <UiFormField label="Channel"><UiSelect v-model="consent.channel" :options="consentChannelOptions" /></UiFormField>
+            <UiFormField label="Purpose"><UiSelect v-model="consent.purpose" :options="consentPurposeOptions" /></UiFormField>
+            <UiFormField label="Status"><UiSelect v-model="consent.status" :options="consentStatusOptions" /></UiFormField>
+            <div class="client-profile__wide client-profile__actions"><UiButton type="submit" variant="primary" :disabled="busy === 'consent'">Save consent</UiButton></div>
+          </form>
+          <div class="client-profile__list"><div v-for="item in consents" :key="item.id" class="client-profile__item"><strong>{{ item.channel }} / {{ item.purpose }}</strong><UiBadge :tone="item.status === 'granted' ? 'success' : item.status === 'denied' || item.status === 'revoked' ? 'danger' : 'warning'">{{ item.status }}</UiBadge></div><UiEmptyState v-if="!consents.length" title="No consent records" description="Consent decisions will appear here." /></div>
+        </UiCard>
+      </div>
+
+      <UiCard title="Activity timeline" subtitle="Relationship, consent, reminder, and outbound activity.">
+        <div class="client-profile__timeline"><article v-for="item in timeline" :key="item.id" class="client-profile__timeline-item"><div><strong>{{ item.title }}</strong><p v-if="item.summary">{{ item.summary }}</p><small>{{ new Date(item.occurred_at).toLocaleString() }} / {{ item.created_by?.username || 'system' }}</small></div><UiBadge v-if="item.outbound" :tone="item.outbound.status === 'sent' ? 'success' : item.outbound.status === 'failed' ? 'danger' : 'info'">{{ item.outbound.status.replaceAll('_', ' ') }}</UiBadge></article><UiEmptyState v-if="!timeline.length" title="No activity recorded" description="Client activity will appear here." /></div>
+      </UiCard>
+    </template>
+  </div></main>
+</template>
+
+<style scoped>
+.client-profile { display: grid; gap: 16px; }
+.client-profile__back { width: fit-content; color: var(--ui-primary); font-size: .78rem; font-weight: 750; text-decoration: none; }
+.client-profile__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.client-profile__form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.client-profile__subform { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--ui-border); }
+.client-profile__wide { grid-column: 1 / -1; }
+.client-profile__actions { display: flex; justify-content: flex-end; gap: 8px; }
+.client-profile__tag-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+.client-profile__tags,.client-profile__list,.client-profile__timeline,.client-profile__stack { display: grid; gap: 10px; }
+.client-profile__tags > strong { color: var(--ui-text); font-size: .76rem; }
+.client-profile__tags > div { display: flex; gap: 12px; flex-wrap: wrap; }
+.client-profile__item,.client-profile__timeline-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: var(--ui-surface-muted); }
+.client-profile__item div,.client-profile__timeline-item div { min-width: 0; }
+.client-profile__item strong,.client-profile__timeline-item strong { color: var(--ui-text-strong); font-size: .82rem; }
+.client-profile__item small,.client-profile__timeline-item small { display: block; margin-top: 3px; color: var(--ui-text-subtle); font-size: .7rem; }
+.client-profile__item p,.client-profile__timeline-item p { margin: 5px 0 0; color: var(--ui-text-muted); font-size: .78rem; line-height: 1.45; }
+.client-profile__item--block { display: block; }
+@media (max-width: 1050px) { .client-profile__grid { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .client-profile__form { grid-template-columns: 1fr; } .client-profile__tag-tools { grid-template-columns: 1fr; } }
+</style>

@@ -1,73 +1,46 @@
-# frontend
+# ChatLens Frontend
 
-This template should help get you started developing with Vue 3 in Vite.
+The ChatLens frontend is a Vue 3 application built with Vite. Django serves the generated manifest and hashed assets from `static/frontend/` in production.
 
-## Recommended IDE Setup
+## Setup
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
-
-## Recommended Browser Setup
-
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
-
-## Type Support for `.vue` Imports in TS
-
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
-
-## Customize configuration
-
-See [Vite Configuration Reference](https://vite.dev/config/).
-
-## Project Setup
-
-```sh
+```powershell
+cd frontend
 npm install
 ```
 
-### Compile and Hot-Reload for Development
+## Commands
 
-```sh
+```powershell
+# Development server
 npm run dev
-```
 
-### Type-Check, Compile and Minify for Production
+# Unit tests
+npm run test:unit -- --run
 
-```sh
+# Type-check and production build
 npm run build
 ```
 
-### Run Unit Tests with [Vitest](https://vitest.dev/)
+The production build writes directly to `../static/frontend` as configured in `vite.config.js`. Deploy the generated manifest and assets together so Django does not reference a missing hash.
 
-```sh
-npm run test:unit
-```
+## UI Architecture
 
-### Run End-to-End Tests with [Playwright](https://playwright.dev)
+Application primitives live in `src/components/ui`. Views should compose these controls rather than create feature-specific buttons, inputs, selects, date pickers, modals, panels, or grids.
 
-```sh
-# Install browsers for the first run
-npx playwright install
+Feature components live below `src/features/<feature>/components`. ClientPulse uses this boundary for its client and reminder editor dialogs.
 
-# When testing on CI, must build the project first
-npm run build
+The shared control system uses:
 
-# Runs the end-to-end tests
-npm run test:e2e
-# Runs the tests only on Chromium
-npm run test:e2e -- --project=chromium
-# Runs the tests of a specific file
-npm run test:e2e -- tests/example.spec.ts
-# Runs the tests in debug mode
-npm run test:e2e -- --debug
-```
+- Choices.js for enhanced and searchable selects,
+- Flatpickr for date and datetime selection,
+- CSS variables in `src/assets/ui-system.css` and `src/assets/ui-controls.css` for theme-specific presentation,
+- `UiDataTable` for new grids and `v-ui-data-table` as the migration bridge for existing tables.
 
-### Lint with [ESLint](https://eslint.org/)
+See `../docs/Frontend UI Component System.md` for component rules, modal sizing, migration constraints, and the required verification matrix.
 
-```sh
-npm run lint
-```
+## ClientPulse Reference
+
+The ClientPulse directory, reminders, profile, and manual WhatsApp follow-up composer are the reference implementation for shared controls. Client and reminder editors intentionally use the `full` and `tall` modal configuration so all fields remain visible while the body scrolls independently.
+
+WhatsApp-contact search is remote and permission-scoped. Do not load all contacts into the browser or bypass the backend visibility policy.
