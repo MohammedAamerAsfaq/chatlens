@@ -7,6 +7,7 @@ import ChatInfoPanel from '@/components/ChatInfoPanel.vue'
 
 const store   = useConversationsStore()
 const showInfo = ref(false)
+const clientPulseRevision = ref(0)
 
 function toggleInfo() { showInfo.value = !showInfo.value }
 function closeInfo()  { showInfo.value = false }
@@ -25,13 +26,13 @@ onUnmounted(() => store.stopPolling())
 <template>
   <div class="conversation-workspace flex h-full overflow-hidden">
     <ChatList class="w-80 shrink-0 h-full" />
-    <MessagePanel class="flex-1 min-w-0 h-full" @toggle-info="toggleInfo" />
+    <MessagePanel class="flex-1 min-w-0 h-full" @toggle-info="toggleInfo" @clientpulse-converted="clientPulseRevision += 1" />
 
     <!-- Sliding info panel — width transitions from 0 → 320px -->
     <div
       :class="['h-full overflow-hidden shrink-0 transition-all duration-300', showInfo ? 'w-80' : 'w-0']"
     >
-      <ChatInfoPanel :open="showInfo" @close="closeInfo" />
+      <ChatInfoPanel :key="`${store.selectedChatId}:${clientPulseRevision}`" :open="showInfo" @close="closeInfo" />
     </div>
   </div>
 </template>

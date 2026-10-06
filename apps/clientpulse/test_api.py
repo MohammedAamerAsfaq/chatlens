@@ -47,6 +47,38 @@ class ClientPulseApiTests(TestCase):
         listed = self.client.get('/api/clientpulse/clients/').data
         self.assertEqual(listed['count'], 1)
 
+    def test_business_and_address_fields_persist_and_update(self):
+        response = self.client.post('/api/clientpulse/clients/', {
+            'display_name': 'Mina Buyer',
+            'company_name': 'Mina Trading LLC',
+            'job_title': 'Purchasing Manager',
+            'website': 'https://mina.example',
+            'address_line1': 'Office 1204, Commerce Tower',
+            'address_line2': 'Business Bay',
+            'city': 'Dubai',
+            'state_region': 'Dubai',
+            'postal_code': '00000',
+            'country': 'United Arab Emirates',
+            'notes': 'Prefers WhatsApp follow-up.',
+        }, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data['company_name'], 'Mina Trading LLC')
+        self.assertEqual(response.data['address_line1'], 'Office 1204, Commerce Tower')
+        self.assertEqual(response.data['notes'], 'Prefers WhatsApp follow-up.')
+
+        profile_id = response.data['id']
+        updated = self.client.patch(
+            f'/api/clientpulse/clients/{profile_id}/',
+            {'job_title': 'Head of Procurement', 'city': 'Abu Dhabi'},
+            format='json',
+        )
+        self.assertEqual(updated.status_code, 200, updated.data)
+        self.assertEqual(updated.data['job_title'], 'Head of Procurement')
+        self.assertEqual(updated.data['city'], 'Abu Dhabi')
+
+        search = self.client.get('/api/clientpulse/clients/?search=Mina%20Trading').data
+        self.assertEqual(search['count'], 1)
+
     def test_company_boundary_hides_foreign_profile(self):
         foreign = self._profile('Foreign', company=self.other)
         response = self.client.get(f'/api/clientpulse/clients/{foreign.pk}/')

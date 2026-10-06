@@ -2,6 +2,7 @@
 import { watch, nextTick, ref, computed, onUnmounted } from 'vue'
 import { useConversationsStore } from '@/stores/conversations'
 import { accountsApi, outboundAssetsApi } from '@/api'
+import ClientPulseChatAction from '@/features/clientpulse/components/ClientPulseChatAction.vue'
 
 defineOptions({ inheritAttrs: false })
 
@@ -276,7 +277,7 @@ function senderColor(name) {
 }
 
 // Lightbox
-const emit = defineEmits(['toggle-info'])
+const emit = defineEmits(['toggle-info', 'clientpulse-converted'])
 
 const lightbox = ref(null) // { src, type: 'image'|'video' }
 
@@ -318,7 +319,7 @@ watch(lightbox, (val) => {
       <div class="message-panel__header px-4 py-2.5 flex items-center gap-3 shrink-0">
         <button
           @click="emit('toggle-info')"
-          class="flex items-center gap-3 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity"
+          class="message-panel__identity flex items-center gap-3 min-w-0 text-left hover:opacity-80 transition-opacity"
         >
           <!-- Avatar -->
           <div class="w-10 h-10 rounded-full bg-gray-400 flex items-center justify-center text-white font-semibold shrink-0">
@@ -338,8 +339,15 @@ watch(lightbox, (val) => {
           </div>
         </button>
 
+        <ClientPulseChatAction
+          v-if="!isGroup"
+          :chat-id="store.selectedChatId"
+          class="shrink-0"
+          @converted="emit('clientpulse-converted', $event)"
+        />
+
         <!-- Loaded badge (not part of the clickable area) -->
-        <div class="shrink-0 text-xs text-gray-400 bg-white rounded-full px-2 py-1 border border-gray-200">
+        <div class="ml-auto shrink-0 text-xs text-gray-400 bg-white rounded-full px-2 py-1 border border-gray-200">
           {{ store.messages.length }} loaded
         </div>
       </div>
@@ -676,6 +684,10 @@ watch(lightbox, (val) => {
 </template>
 
 <style scoped>
+.message-panel__identity {
+  max-width: min(48%, 32rem);
+}
+
 .msg-highlight .message-bubble {
   outline: 3px solid #f59e0b;
   outline-offset: 3px;
@@ -685,6 +697,12 @@ watch(lightbox, (val) => {
 @keyframes reference-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.2); }
   50% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0.28); }
+}
+
+@media (max-width: 760px) {
+  .message-panel__identity {
+    max-width: 42%;
+  }
 }
 </style>
 

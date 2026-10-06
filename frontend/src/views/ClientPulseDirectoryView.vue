@@ -15,7 +15,13 @@ const loading = ref(false), creating = ref(false), error = ref(''), showCreate =
 const conversationContacts = ref([]), contactCount = ref(0), contactsLoading = ref(false)
 const page = ref(1), pages = ref(1), count = ref(0)
 const filters = reactive({ search: '', lifecycle_stage: '', owner_id: '', priority: '', status: 'active' })
-const form = reactive({ creation_mode: 'manual', whatsapp_contact_id: '', contact_search: '', display_name: '', phone: '', lifecycle_stage: 'lead', priority: 'normal', owner_id: '' })
+const emptyClientForm = () => ({
+  creation_mode: 'manual', whatsapp_contact_id: '', contact_search: '',
+  display_name: '', company_name: '', job_title: '', phone: '', email: '', website: '',
+  address_line1: '', address_line2: '', city: '', state_region: '', postal_code: '',
+  country: '', notes: '', lifecycle_stage: 'lead', priority: 'normal', owner_id: '',
+})
+const form = reactive(emptyClientForm())
 let searchTimer, contactSearchTimer, contactRequest = 0
 
 const lifecycleOptions = [
@@ -36,7 +42,7 @@ const ownerOptions = computed(() => [
 ])
 
 function message(exc, fallback) { return exc.response?.data?.detail || fallback }
-function resetForm() { Object.assign(form, { creation_mode: 'manual', whatsapp_contact_id: '', contact_search: '', display_name: '', phone: '', lifecycle_stage: 'lead', priority: 'normal', owner_id: '' }) }
+function resetForm() { Object.assign(form, emptyClientForm()) }
 function openCreate() { resetForm(); showCreate.value = true }
 function closeCreate() { if (!creating.value) showCreate.value = false }
 function searchConversationContacts(value) {
@@ -86,8 +92,15 @@ async function createClient() {
   const payload = {
     display_name: form.display_name.trim(), lifecycle_stage: form.lifecycle_stage,
     priority: form.priority, owner_id: form.owner_id || null,
+    company_name: form.company_name.trim(), job_title: form.job_title.trim(),
+    website: form.website.trim(), address_line1: form.address_line1.trim(),
+    address_line2: form.address_line2.trim(), city: form.city.trim(),
+    state_region: form.state_region.trim(), postal_code: form.postal_code.trim(),
+    country: form.country.trim(), notes: form.notes.trim(),
   }
-  if (form.phone.trim()) payload.identities = [{ identity_type: 'phone', value: form.phone.trim(), is_primary: true }]
+  payload.identities = []
+  if (form.phone.trim()) payload.identities.push({ identity_type: 'phone', value: form.phone.trim(), is_primary: true })
+  if (form.email.trim()) payload.identities.push({ identity_type: 'email', value: form.email.trim(), is_primary: !payload.identities.length })
   try {
     const { data } = await clientPulseApi.createClient(payload)
     showCreate.value = false; router.push(`/clientpulse/${data.id}`)

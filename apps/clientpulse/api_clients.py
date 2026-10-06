@@ -20,6 +20,8 @@ CONTACT_FIELDS = {
 PROFILE_FIELDS = {
     'lifecycle_stage', 'status', 'priority', 'source', 'preferred_channel',
     'preferred_language', 'timezone', 'last_contacted_at', 'last_inbound_at',
+    'company_name', 'job_title', 'website', 'address_line1', 'address_line2',
+    'city', 'state_region', 'postal_code', 'country',
     'next_follow_up_at', 'do_not_contact', 'do_not_contact_reason',
 }
 
@@ -86,7 +88,7 @@ def clients_view(request):
     if search:
         queryset = queryset.filter(
             Q(contact__display_name__icontains=search) | Q(contact__legal_name__icontains=search)
-            | Q(contact__identities__value__icontains=search)
+            | Q(contact__identities__value__icontains=search) | Q(company_name__icontains=search)
         ).distinct()
     for key in ('lifecycle_stage', 'priority', 'source'):
         if value := request.query_params.get(key):

@@ -169,6 +169,7 @@ onUnmounted(() => {
     <nav v-if="contextSection || (routeName === 'conversations' && conversations.accounts.length)" class="context-navigation" :aria-label="`${contextSection?.label || 'Conversation'} navigation`">
       <strong>{{ contextSection?.label || 'Accounts' }}</strong>
       <template v-if="routeName === 'conversations'">
+        <RouterLink to="/conversations" class="active">WhatsApp</RouterLink>
         <button v-for="account in conversations.accounts" :key="account.id" type="button" class="account-pill" :class="{ active: conversations.selectedAccountId === account.id }" @click="conversations.switchAccount(account.id)">
           <i :class="{ connected: account.session_status === 'connected' }"></i>{{ account.display_name || account.phone_number || `Account #${account.id}` }}
           <b v-if="account.total_unread">{{ account.total_unread > 99 ? '99+' : account.total_unread }}</b>

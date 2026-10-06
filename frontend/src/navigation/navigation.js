@@ -1,6 +1,9 @@
 export const primaryNavigation = [
   {
-    id: 'conversations', label: 'Conversations', to: '/conversations', routes: ['conversations'],
+    id: 'conversations', label: 'Inbox', to: '/conversations', routes: ['conversations'],
+    children: [
+      { label: 'WhatsApp', to: '/conversations', route: 'conversations' },
+    ],
   },
   {
     id: 'trading', label: 'Trading', to: '/trading',

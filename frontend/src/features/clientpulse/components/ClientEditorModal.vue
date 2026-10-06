@@ -67,9 +67,31 @@ function searchContacts(value) { emit('search-contacts', value) }
       <UiFormField v-if="form.creation_mode === 'manual'" class="wide" label="Client name">
         <UiInput v-model="form.display_name" placeholder="Person or company name" required autofocus />
       </UiFormField>
+      <UiFormField v-if="form.creation_mode === 'manual'" label="Company name">
+        <UiInput v-model="form.company_name" placeholder="Organization or employer" />
+      </UiFormField>
+      <UiFormField v-if="form.creation_mode === 'manual'" label="Job title">
+        <UiInput v-model="form.job_title" placeholder="Role or position" />
+      </UiFormField>
       <UiFormField v-if="form.creation_mode === 'manual'" label="Phone number" hint="Optional. Include the country code when known.">
         <UiInput v-model="form.phone" type="tel" placeholder="e.g. 971501234567" />
       </UiFormField>
+      <UiFormField v-if="form.creation_mode === 'manual'" label="Email address">
+        <UiInput v-model="form.email" type="email" placeholder="name@company.com" />
+      </UiFormField>
+      <UiFormField v-if="form.creation_mode === 'manual'" class="wide" label="Website">
+        <UiInput v-model="form.website" type="url" placeholder="https://company.example" />
+      </UiFormField>
+      <UiFormField v-if="form.creation_mode === 'manual'" class="wide" label="Address line 1">
+        <UiInput v-model="form.address_line1" placeholder="Building, street, or area" />
+      </UiFormField>
+      <UiFormField v-if="form.creation_mode === 'manual'" class="wide" label="Address line 2">
+        <UiInput v-model="form.address_line2" placeholder="Suite, floor, or additional address" />
+      </UiFormField>
+      <UiFormField v-if="form.creation_mode === 'manual'" label="City"><UiInput v-model="form.city" /></UiFormField>
+      <UiFormField v-if="form.creation_mode === 'manual'" label="State / region"><UiInput v-model="form.state_region" /></UiFormField>
+      <UiFormField v-if="form.creation_mode === 'manual'" label="Postal code"><UiInput v-model="form.postal_code" /></UiFormField>
+      <UiFormField v-if="form.creation_mode === 'manual'" label="Country"><UiInput v-model="form.country" /></UiFormField>
       <UiFormField v-if="form.creation_mode === 'manual'" label="Owner">
         <UiSelect v-model="form.owner_id" :options="ownerOptions" searchable />
       </UiFormField>
@@ -78,6 +100,9 @@ function searchContacts(value) { emit('search-contacts', value) }
       </UiFormField>
       <UiFormField v-if="form.creation_mode === 'manual'" label="Priority">
         <UiSelect v-model="form.priority" :options="priorityOptions" />
+      </UiFormField>
+      <UiFormField v-if="form.creation_mode === 'manual'" class="wide" label="Customer notes">
+        <UiInput v-model="form.notes" multiline :rows="4" placeholder="Background, preferences, or other customer details" />
       </UiFormField>
     </form>
     <template #footer>

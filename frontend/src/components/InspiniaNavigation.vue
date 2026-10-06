@@ -5,6 +5,7 @@ import { stuckReceiptsApi, unresolvedMessagesApi, workerAlertsApi } from '@/api'
 import { useAuthStore } from '@/stores/auth.js'
 import { useConversationsStore } from '@/stores/conversations'
 import { logsNavigation, moreNavigation, primaryNavigation, settingsNavigation } from '@/navigation/navigation'
+import { pageDescription as resolvePageDescription } from '@/navigation/pageDescriptions'
 import InspiniaSidebarProfile from '@/components/navigation/InspiniaSidebarProfile.vue'
 import InspiniaTopbarMenus from '@/components/navigation/InspiniaTopbarMenus.vue'
 import InspiniaCustomizer from '@/components/navigation/InspiniaCustomizer.vue'
@@ -34,6 +35,7 @@ const topbarSections = computed(() => primary.value.map(item => ({ ...item, chil
 const topbarApps = computed(() => [...moreNavigation.filter(canShow), ...settings.value])
 const alertTotal = computed(() => Object.values(alerts.value).reduce((sum, value) => sum + value, 0))
 const pageTitle = computed(() => route.meta.title || 'Workspace')
+const pageDescription = computed(() => resolvePageDescription(routeName.value))
 const roleLabel = computed(() => auth.currentRole?.replaceAll('_', ' ') || '')
 
 function isSectionOpen(item) { return item.routes?.includes(routeName.value) || expanded.value.has(item.id) }
@@ -119,11 +121,13 @@ onUnmounted(() => {
     <button class="inspinia-toggle" aria-label="Toggle sidebar" @click="toggleNavigation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/></svg></button>
     <div class="inspinia-page-title">
       <strong>{{ pageTitle }}</strong>
-      <div id="inspinia-page-context" class="inspinia-page-context"></div>
+      <div id="inspinia-page-context" class="inspinia-page-context">
+        <span v-if="routeName !== 'trading'" class="inspinia-page-description">{{ pageDescription }}</span>
+      </div>
     </div>
-    <InspiniaTopbarMenus :sections="topbarSections" :apps="topbarApps" />
-    <select v-if="routeName === 'conversations' && conversations.accounts.length" class="inspinia-account-select" :value="conversations.selectedAccountId" @change="conversations.switchAccount(Number($event.target.value))"><option v-for="account in conversations.accounts" :key="account.id" :value="account.id">{{ account.display_name || account.phone_number }}</option></select>
+    <select v-if="routeName === 'conversations' && conversations.accounts.length" class="inspinia-account-select" aria-label="WhatsApp account" :value="conversations.selectedAccountId" @change="conversations.switchAccount(Number($event.target.value))"><option v-for="account in conversations.accounts" :key="account.id" :value="account.id">{{ account.display_name || account.phone_number }}</option></select>
     <div class="inspinia-topbar-actions">
+      <InspiniaTopbarMenus :sections="topbarSections" :apps="topbarApps" />
       <button class="inspinia-tool" title="Customize interface" aria-label="Customize interface" @click="customizerOpen = true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19 14.5 21 16l-2 3-2.4-1a8 8 0 0 1-2.1 1.2L14 22h-4l-.5-2.8A8 8 0 0 1 7.4 18L5 19l-2-3 2-1.5a8 8 0 0 1 0-5L3 8l2-3 2.4 1a8 8 0 0 1 2.1-1.2L10 2h4l.5 2.8A8 8 0 0 1 16.6 6L19 5l2 3-2 1.5a8 8 0 0 1 0 5Z"/></svg></button>
       <RouterLink to="/task-operations" class="inspinia-alert" title="Operations"><NavigationIcon name="operations"/><b v-if="alertTotal">{{ alertTotal > 99 ? '99+' : alertTotal }}</b></RouterLink>
       <button class="inspinia-tool" title="Toggle fullscreen" aria-label="Toggle fullscreen" @click="toggleFullscreen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>

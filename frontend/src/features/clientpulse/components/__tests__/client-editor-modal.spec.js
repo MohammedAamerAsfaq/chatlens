@@ -10,7 +10,9 @@ describe('ClientEditorModal', () => {
     document.body.append(host)
     const form = {
       creation_mode: 'manual', whatsapp_contact_id: '', contact_search: '',
-      display_name: '', phone: '', lifecycle_stage: 'lead', priority: 'normal', owner_id: '',
+      display_name: '', company_name: '', job_title: '', phone: '', email: '', website: '',
+      address_line1: '', address_line2: '', city: '', state_region: '', postal_code: '',
+      country: '', notes: '', lifecycle_stage: 'lead', priority: 'normal', owner_id: '',
     }
     const wrapper = mount(ClientEditorModal, {
       attachTo: document.body,
@@ -22,6 +24,8 @@ describe('ClientEditorModal', () => {
     expect(host.querySelector('.ui-modal--full.ui-modal--tall')).not.toBeNull()
     expect(host.querySelector('input[placeholder="Person or company name"]')).not.toBeNull()
     expect(host.querySelector('input[placeholder="e.g. 971501234567"]')).not.toBeNull()
+    expect(host.querySelector('input[placeholder="Organization or employer"]')).not.toBeNull()
+    expect(host.querySelector('input[placeholder="Building, street, or area"]')).not.toBeNull()
 
     wrapper.unmount()
     host.remove()

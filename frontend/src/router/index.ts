@@ -54,7 +54,7 @@ const router = createRouter({
   routes: [
     { path: '/login', name: 'login', component: LoginView, meta: { public: true, title: 'Login' } },
     { path: '/', name: 'sessions', component: SessionView, meta: { title: 'Sessions' } },
-    { path: '/conversations', name: 'conversations', component: ConversationsView, meta: { title: 'Conversations' } },
+    { path: '/conversations', name: 'conversations', component: ConversationsView, meta: { title: 'WhatsApp Inbox' } },
     { path: '/activity', name: 'activity', component: ActivityView, meta: { title: 'Activity' } },
     { path: '/storage', name: 'storage', component: StorageView, meta: { title: 'Storage' } },
     { path: '/message-logs', name: 'message-logs', component: MessageLogsView, meta: { title: 'Message Logs' } },

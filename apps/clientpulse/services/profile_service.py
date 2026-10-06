@@ -12,6 +12,8 @@ CONTACT_FIELDS = (
 PROFILE_FIELDS = (
     'owner', 'lifecycle_stage', 'status', 'priority', 'source',
     'preferred_channel', 'preferred_language', 'timezone',
+    'company_name', 'job_title', 'website', 'address_line1', 'address_line2',
+    'city', 'state_region', 'postal_code', 'country',
     'last_contacted_at', 'last_inbound_at', 'next_follow_up_at',
     'do_not_contact', 'do_not_contact_reason',
 )
