@@ -10,6 +10,9 @@ defineProps({ name: { type: String, required: true } })
     <template v-else-if="name === 'trading'">
       <path d="M4 19V9m5 10V5m5 14v-7m5 7V3"/>
     </template>
+    <template v-else-if="name === 'automation'">
+      <path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/><circle cx="12" cy="12" r="4"/>
+    </template>
     <template v-else-if="name === 'clientpulse'">
       <circle cx="9" cy="8" r="3"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 8h5m-2.5-2.5v5"/>
     </template>

@@ -18,6 +18,13 @@ export const primaryNavigation = [
     ],
   },
   {
+    id: 'automation', label: 'Automation', to: '/automation',
+    routes: ['price-automation'],
+    children: [
+      { label: 'Price Automation', to: '/automation', route: 'price-automation' },
+    ],
+  },
+  {
     id: 'clientpulse', label: 'ClientPulse', to: '/clientpulse', permission: 'clientpulse.clients.view',
     routes: ['clientpulse', 'clientpulse-profile', 'clientpulse-reminders'],
     children: [

@@ -1,6 +1,6 @@
 <template>
-  <div class="ppu-view">
-    <div class="page-header">
+  <div class="ppu-view" :class="{ 'automation-mode': props.mode === 'automation' }">
+    <div v-if="props.mode !== 'automation'" class="page-header">
       <div>
         <h2>Product Price Update</h2>
         <p class="subtitle">
@@ -12,13 +12,14 @@
         </p>
       </div>
       <div class="page-tabs">
+        <RouterLink to="/automation" class="automation-page-link">Automation rules</RouterLink>
         <button :class="['page-tab', activeTab === 'qty_cost' && 'active']" @click="activeTab = 'qty_cost'">Qty &amp; Cost</button>
         <button :class="['page-tab', activeTab === 'sale_price' && 'active']" @click="activeTab = 'sale_price'">Sale Price</button>
       </div>
     </div>
 
     <!-- ── QTY & COST PROCESS ──────────────────────────────────────────── -->
-    <div v-if="activeTab === 'qty_cost'" class="process-card">
+    <div v-if="props.mode !== 'automation' && activeTab === 'qty_cost'" class="process-card">
       <div class="tab-bar">
         <button :class="['tab-btn', qtyCost.step === 'input' && 'active']" @click="qtyCost.step = 'input'">Input</button>
         <button :class="['tab-btn', qtyCost.step === 'review' && 'active']" :disabled="!qtyCost.preview.length" @click="qtyCost.step = 'review'">
@@ -102,7 +103,7 @@
     </div>
 
     <!-- ── SALE PRICE PROCESS ──────────────────────────────────────────── -->
-    <div v-if="activeTab === 'sale_price'" class="process-card">
+    <div v-if="props.mode !== 'automation' && activeTab === 'sale_price'" class="process-card">
       <div class="tab-bar">
         <button :class="['tab-btn', salePrice.step === 'input' && 'active']" @click="salePrice.step = 'input'">Input</button>
         <button :class="['tab-btn', salePrice.step === 'review' && 'active']" :disabled="!salePrice.preview.length" @click="salePrice.step = 'review'">
@@ -181,7 +182,7 @@
     </div>
 
       <!-- ── AUTOMATED PRICE UPDATES ─────────────────────────────────────── -->
-      <div class="automation-section">
+      <div v-if="props.mode !== 'manual'" class="automation-section">
         <div class="section-eyebrow"><span class="accent-mark"></span><span>Automated inventory updates</span></div>
         <div class="section-title-row"><h3>Qty, Cost &amp; Sale Price Automation</h3></div>
         <p class="section-desc">Watch specific contacts or groups, then route each matching message through either the Qty &amp; Cost or Sale Price process.</p>
@@ -194,7 +195,12 @@
           <div class="summary-cell"><div class="summary-num">{{ automationSummary.failed }}</div><div class="summary-label">Failures</div></div>
         </div>
 
-        <div v-if="!automationRules.length && !ruleForm" class="empty-msg">No automation rules yet.</div>
+        <div v-if="automationLoading" class="automation-load-state">Loading existing automation rules...</div>
+        <div v-if="automationError" class="automation-load-state error">
+          <span>{{ automationError }}</span>
+          <button class="btn-ghost btn-sm" type="button" @click="loadAutomation">Retry</button>
+        </div>
+        <div v-if="!automationLoading && !automationError && !automationRules.length && !ruleForm" class="empty-msg">No automation rules yet.</div>
 
         <div class="rules-list">
           <div v-for="rule in automationRules" :key="rule.id" class="rule-card" :class="{ paused: !rule.is_active }">
@@ -492,6 +498,10 @@ import { ref, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { tradingApi, contactsApi, groupsApi, accountsApi } from '../api/index.js'
 
+const props = defineProps({
+  mode: { type: String, default: 'full' },
+})
+
 const activeTab = ref('qty_cost')
 const accounts  = ref([])
 
@@ -530,6 +540,8 @@ function debounce(fn, delay = 300) {
 // ── Automated Price Updates ─────────────────────────────────────────────────
 const automationSummary = ref({ active_rules: 0, watched_sources: 0, captured_this_week: 0, queued: 0, failed: 0 })
 const automationRules   = ref([])
+const automationLoading = ref(false)
+const automationError   = ref('')
 const captures          = ref([])
 const captureFilter     = ref('')
 const captureLoading    = ref(false)
@@ -566,13 +578,36 @@ function captureOutcomeLabel(capture) {
 }
 
 async function loadAutomation() {
-  const [rulesRes, summaryRes] = await Promise.all([
+  automationLoading.value = true
+  automationError.value = ''
+
+  const errors = []
+  const [rulesResult, summaryResult] = await Promise.allSettled([
     tradingApi.listAutomationRules(),
     tradingApi.captureSummary(),
   ])
-  automationRules.value = rulesRes.data.results || rulesRes.data
-  automationSummary.value = summaryRes.data
-  await loadCaptures()
+
+  if (rulesResult.status === 'fulfilled') {
+    const data = rulesResult.value.data
+    automationRules.value = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : [])
+  } else {
+    errors.push('Automation rules could not be loaded.')
+  }
+
+  if (summaryResult.status === 'fulfilled') {
+    automationSummary.value = summaryResult.value.data
+  } else {
+    errors.push('Automation summary could not be loaded.')
+  }
+
+  try {
+    await loadCaptures()
+  } catch {
+    errors.push('Capture history could not be loaded.')
+  } finally {
+    automationError.value = errors.join(' ')
+    automationLoading.value = false
+  }
 }
 
 async function loadAutomationSummary() {
@@ -894,9 +929,16 @@ async function applySalePrice() {
 }
 
 onMounted(() => {
+  if (props.mode === 'automation') {
+    loadAutomation()
+    accountsApi.list().then(r => { accounts.value = r.data.results || r.data || [] }).catch(() => {})
+    return
+  }
   tradingApi.getActiveAgent().then(r => { agentPricing.value = r.data }).catch(() => {})
-  loadAutomation().catch(() => {})
-  accountsApi.list().then(r => { accounts.value = r.data }).catch(() => {})
+  if (props.mode === 'full') {
+    loadAutomation()
+    accountsApi.list().then(r => { accounts.value = r.data.results || r.data || [] }).catch(() => {})
+  }
 })
 </script>
 
@@ -907,6 +949,8 @@ onMounted(() => {
 .subtitle { margin: 0; font-size: 0.85rem; color: #6b7280; max-width: 640px; line-height: 1.5; }
 .edit-prompt-link { color: #2563eb; text-decoration: none; white-space: nowrap; margin-left: 6px; }
 .page-tabs { display: flex; gap: 4px; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+.automation-page-link { display: inline-flex; align-items: center; padding: 7px 12px; color: var(--ui-primary); font-size: 13px; font-weight: 700; text-decoration: none; }
+.automation-page-link:hover { background: var(--ui-primary-soft); }
 .page-tab { padding: 8px 18px; background: #f9fafb; border: none; cursor: pointer; font-size: 0.85rem; color: #6b7280; }
 .page-tab.active { background: #2563eb; color: #fff; font-weight: 500; }
 
@@ -949,6 +993,7 @@ onMounted(() => {
 
 /* ===== Automated Price Updates ===== */
 .automation-section { max-width: 900px; margin-top: 32px; padding-top: 28px; border-top: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 4px; }
+.automation-mode .automation-section { max-width: none; margin-top: 0; padding-top: 0; border-top: 0; }
 .section-eyebrow { display: flex; align-items: center; gap: 8px; }
 .accent-mark { width: 8px; height: 8px; border-radius: 2px; background: #0d7a70; }
 .section-eyebrow span { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #0d7a70; }
@@ -956,6 +1001,24 @@ onMounted(() => {
 .section-desc { margin: 0 0 16px; font-size: 0.83rem; color: #6b7280; max-width: 620px; }
 .muted { color: #9ca3af; font-size: 0.82rem; }
 .empty-msg { font-size: 0.85rem; color: #9ca3af; padding: 10px 0; }
+.automation-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  color: var(--ui-text-muted);
+  font-size: 0.85rem;
+  background: var(--ui-surface-muted);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+}
+.automation-load-state.error {
+  color: var(--ui-danger);
+  background: color-mix(in srgb, var(--ui-danger) 7%, var(--ui-surface));
+  border-color: color-mix(in srgb, var(--ui-danger) 28%, var(--ui-border));
+}
 
 .summary-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: #e5e7eb; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; margin-bottom: 20px; }
 .summary-cell { background: #fff; padding: 12px 16px; }
@@ -1151,4 +1214,5 @@ onMounted(() => {
 .add-rule-btn:hover { color: var(--ui-primary); }
 .search-results { box-shadow: var(--ui-shadow-popover); }
 .pager-label { color: var(--ui-text-muted); }
+.ppu-view.automation-mode { height: auto; padding: 0; overflow: visible; background: transparent; }
 </style>

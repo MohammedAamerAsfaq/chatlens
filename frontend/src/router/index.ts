@@ -29,6 +29,7 @@ import NonInventoryProductsView from '../views/NonInventoryProductsView.vue'
 import ProductsView         from '../views/ProductsView.vue'
 import V2CandidateSearchView from '../views/V2CandidateSearchView.vue'
 import ProductPriceUpdateView from '../views/ProductPriceUpdateView.vue'
+import AutomationView from '../views/AutomationView.vue'
 import AIInstructionsView   from '../views/AIInstructionsView.vue'
 import V2SettingsView        from '../views/V2SettingsView.vue'
 import BuyingInquiriesView  from '../views/BuyingInquiriesView.vue'
@@ -81,6 +82,7 @@ const router = createRouter({
     { path: '/products', name: 'products', component: ProductsView, meta: { title: 'Products' } },
     { path: '/v2-candidate-search', name: 'v2-candidate-search', component: V2CandidateSearchView, meta: { title: 'V2 Candidate Search' } },
     { path: '/product-price-update', name: 'product-price-update', component: ProductPriceUpdateView, meta: { title: 'Product Price Update' } },
+    { path: '/automation', name: 'price-automation', component: AutomationView, meta: { title: 'Price Automation' } },
     { path: '/buying-inquiries', name: 'buying-inquiries', component: BuyingInquiriesView, meta: { title: 'Buying Inquiries' } },
     { path: '/group-buying-inquiries', name: 'group-buying-inquiries', component: GroupBuyingInquiriesView, meta: { title: 'Group Buying Inquiries' } },
     { path: '/group-selling-offers', name: 'group-selling-offers', component: GroupSellingOffersView, meta: { title: 'Group Selling Offers' } },
