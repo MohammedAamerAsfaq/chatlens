@@ -69,6 +69,16 @@ class ConsentInputSerializer(serializers.Serializer):
 class ClientPulseSettingsInputSerializer(serializers.Serializer):
     consent_mode = serializers.ChoiceField(choices=('observational', 'enforced'), required=False)
     reminders_enabled = serializers.BooleanField(required=False)
+    reminder_popup_enabled = serializers.BooleanField(required=False)
+    reminder_sound_enabled = serializers.BooleanField(required=False)
+    reminder_sound = serializers.ChoiceField(
+        choices=('chime', 'bell', 'soft'), required=False,
+    )
+    reminder_sound_volume = serializers.IntegerField(min_value=0, max_value=100, required=False)
+    reminder_desktop_notifications_enabled = serializers.BooleanField(required=False)
+    reminder_poll_interval_seconds = serializers.IntegerField(
+        min_value=10, max_value=300, required=False,
+    )
     default_timezone = serializers.CharField(max_length=64, required=False)
     default_language = serializers.CharField(max_length=20, required=False, allow_blank=True)
 

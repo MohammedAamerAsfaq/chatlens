@@ -84,7 +84,9 @@ export const clientPulseApi = {
   snoozeReminder: (id, snoozed_until) => http.post(`/clientpulse/reminders/${id}/snooze/`, { snoozed_until }),
   cancelReminder: (id) => http.post(`/clientpulse/reminders/${id}/cancel/`),
   notifications: () => http.get('/clientpulse/notifications/'),
+  notificationPreferences: () => http.get('/clientpulse/notification-preferences/'),
   readNotification: (id) => http.post(`/clientpulse/notifications/${id}/read/`),
+  dismissNotification: (id) => http.post(`/clientpulse/notifications/${id}/dismiss/`),
 }
 
 export const taskQueueApi = {

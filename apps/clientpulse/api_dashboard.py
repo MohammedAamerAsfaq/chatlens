@@ -6,8 +6,21 @@ from rest_framework.response import Response
 
 from apps.clientpulse.api_helpers import denied, scoped_profiles
 from apps.clientpulse.api_reminders import _payload, _queryset
-from apps.clientpulse.models import ClientReminderNotification
+from apps.clientpulse.models import ClientPulseSettings, ClientReminderNotification
 from apps.clientpulse.services.reminder_windows import local_day_window
+from apps.tenancy.services.access import default_company_for_user
+
+
+def _notification_preferences(settings):
+    return {
+        'reminders_enabled': settings.reminders_enabled,
+        'reminder_popup_enabled': settings.reminder_popup_enabled,
+        'reminder_sound_enabled': settings.reminder_sound_enabled,
+        'reminder_sound': settings.reminder_sound,
+        'reminder_sound_volume': settings.reminder_sound_volume,
+        'reminder_desktop_notifications_enabled': settings.reminder_desktop_notifications_enabled,
+        'reminder_poll_interval_seconds': settings.reminder_poll_interval_seconds,
+    }
 
 
 @api_view(['GET'])
@@ -58,6 +71,16 @@ def reminder_notifications_view(request):
     } for item in rows])
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def reminder_notification_preferences_view(request):
+    if response := denied(request, 'clientpulse.reminders.view'):
+        return response
+    company = default_company_for_user(request.user)
+    settings, _ = ClientPulseSettings.objects.get_or_create(company=company)
+    return Response(_notification_preferences(settings))
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def read_reminder_notification_view(request, notification_id):
@@ -71,3 +94,21 @@ def read_reminder_notification_view(request, notification_id):
         return Response({'detail': 'Notification not found.'}, status=404)
     notification.read_at = timezone.now(); notification.save(update_fields=['read_at'])
     return Response({'status': 'read'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def dismiss_reminder_notification_view(request, notification_id):
+    if response := denied(request, 'clientpulse.reminders.view'):
+        return response
+    reminders = _queryset(request, 'clientpulse.reminders.view')
+    notification = ClientReminderNotification.objects.filter(
+        pk=notification_id, reminder__in=reminders,
+    ).first()
+    if not notification:
+        return Response({'detail': 'Notification not found.'}, status=404)
+    now = timezone.now()
+    notification.read_at = notification.read_at or now
+    notification.dismissed_at = now
+    notification.save(update_fields=['read_at', 'dismissed_at'])
+    return Response({'status': 'dismissed'})

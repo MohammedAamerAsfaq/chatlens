@@ -10,7 +10,9 @@ from .api_engagement import (
 from .api_identities import client_identities_view, client_identity_detail_view
 from .api_follow_up import manual_follow_up_view
 from .api_dashboard import (
-    clientpulse_dashboard_view, read_reminder_notification_view, reminder_notifications_view,
+    clientpulse_dashboard_view, dismiss_reminder_notification_view,
+    read_reminder_notification_view, reminder_notification_preferences_view,
+    reminder_notifications_view,
 )
 from .api_reminders import (
     cancel_reminder_view, complete_reminder_view, reminder_detail_view,
@@ -57,5 +59,7 @@ urlpatterns = [
     path('clientpulse/reminders/<int:reminder_id>/snooze/', snooze_reminder_view, name='clientpulse-reminder-snooze'),
     path('clientpulse/reminders/<int:reminder_id>/cancel/', cancel_reminder_view, name='clientpulse-reminder-cancel'),
     path('clientpulse/notifications/', reminder_notifications_view, name='clientpulse-notifications'),
+    path('clientpulse/notification-preferences/', reminder_notification_preferences_view, name='clientpulse-notification-preferences'),
     path('clientpulse/notifications/<int:notification_id>/read/', read_reminder_notification_view, name='clientpulse-notification-read'),
+    path('clientpulse/notifications/<int:notification_id>/dismiss/', dismiss_reminder_notification_view, name='clientpulse-notification-dismiss'),
 ]

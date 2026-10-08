@@ -80,6 +80,10 @@ def snooze_reminder(reminder_id, actor, snoozed_until):
     reminder.status = 'snoozed'
     reminder.snoozed_until = snoozed_until
     reminder.save(update_fields=['status', 'snoozed_until', 'updated_at'])
+    now = timezone.now()
+    ClientReminderNotification.objects.filter(reminder=reminder).update(
+        read_at=now, dismissed_at=now,
+    )
     _activity(reminder, actor, 'Reminder snoozed', {'snoozed_until': snoozed_until.isoformat()})
     return reminder
 

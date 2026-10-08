@@ -9,7 +9,7 @@ from apps.clientpulse.models import (
     ClientProfile, ClientPulseSettings, ClientReminder, ClientReminderNotification,
 )
 from apps.clientpulse.services.reminder_service import (
-    complete_reminder, scan_due_reminders,
+    complete_reminder, scan_due_reminders, snooze_reminder,
 )
 from apps.task_management.models import BackgroundTask, BackgroundTaskSchedule
 from apps.queue_management.services import TaskExecutor, claim_tasks
@@ -114,6 +114,42 @@ class ClientReminderTests(TestCase):
         self.assertEqual(reminder.status, 'pending')
         self.assertEqual(reminder.priority, 'critical')
         self.assertFalse(ClientReminderNotification.objects.filter(reminder=reminder).exists())
+
+    def test_notification_can_be_dismissed_without_completing_reminder(self):
+        reminder = self._reminder(status='due')
+        notification = ClientReminderNotification.objects.create(
+            company=self.company, reminder=reminder, recipient=self.membership,
+        )
+        response = self.client.post(
+            f'/api/clientpulse/notifications/{notification.pk}/dismiss/', format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        notification.refresh_from_db(); reminder.refresh_from_db()
+        self.assertIsNotNone(notification.read_at)
+        self.assertIsNotNone(notification.dismissed_at)
+        self.assertEqual(reminder.status, 'due')
+        self.assertEqual(self.client.get('/api/clientpulse/notifications/').data, [])
+
+    def test_snooze_hides_current_notification_until_next_delivery(self):
+        reminder = self._reminder(status='due')
+        notification = ClientReminderNotification.objects.create(
+            company=self.company, reminder=reminder, recipient=self.membership,
+        )
+        snooze_reminder(reminder.pk, self.user, timezone.now() + timedelta(hours=1))
+        notification.refresh_from_db()
+        self.assertIsNotNone(notification.read_at)
+        self.assertIsNotNone(notification.dismissed_at)
+        self.assertEqual(self.client.get('/api/clientpulse/notifications/').data, [])
+
+    def test_notification_preferences_are_available_to_reminder_viewers(self):
+        settings = ClientPulseSettings.objects.get(company=self.company)
+        settings.reminder_sound = 'bell'
+        settings.reminder_poll_interval_seconds = 20
+        settings.save()
+        response = self.client.get('/api/clientpulse/notification-preferences/')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['reminder_sound'], 'bell')
+        self.assertEqual(response.data['reminder_poll_interval_seconds'], 20)
 
     def test_completed_reminder_cannot_be_edited(self):
         reminder = self._reminder(status='completed', completed_at=timezone.now())

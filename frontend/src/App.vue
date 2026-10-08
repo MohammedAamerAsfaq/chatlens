@@ -4,6 +4,7 @@ import { RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
 import AppNavigation from '@/components/AppNavigation.vue'
 import InspiniaNavigation from '@/components/InspiniaNavigation.vue'
+import ReminderNotificationCenter from '@/features/clientpulse/components/ReminderNotificationCenter.vue'
 import { inspiniaClasses, inspiniaClassNames } from '@/themes/inspinia.js'
 
 const auth = useAuthStore()
@@ -41,5 +42,6 @@ onBeforeUnmount(() => {
     <div class="app-view flex-1 flex flex-col overflow-hidden min-h-0">
       <RouterView class="h-full" />
     </div>
+    <ReminderNotificationCenter v-if="auth.user && auth.hasPermission('clientpulse.reminders.view')" />
   </div>
 </template>

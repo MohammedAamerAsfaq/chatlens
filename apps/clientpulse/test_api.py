@@ -130,6 +130,29 @@ class ClientPulseApiTests(TestCase):
         self.assertEqual(settings.consent_mode, 'enforced')
         self.assertFalse(settings.automated_follow_up_enabled)
 
+    def test_settings_api_persists_reminder_notification_preferences(self):
+        response = self.client.patch('/api/clientpulse/settings/', {
+            'reminder_popup_enabled': False,
+            'reminder_sound_enabled': True,
+            'reminder_sound': 'soft',
+            'reminder_sound_volume': 45,
+            'reminder_desktop_notifications_enabled': True,
+            'reminder_poll_interval_seconds': 20,
+        }, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['reminder_sound'], 'soft')
+        self.assertEqual(response.data['reminder_sound_volume'], 45)
+        self.assertEqual(response.data['reminder_poll_interval_seconds'], 20)
+        settings = ClientPulseSettings.objects.get(company=self.company)
+        self.assertFalse(settings.reminder_popup_enabled)
+        self.assertTrue(settings.reminder_desktop_notifications_enabled)
+
+    def test_settings_api_rejects_unsafe_reminder_poll_interval(self):
+        response = self.client.patch(
+            '/api/clientpulse/settings/', {'reminder_poll_interval_seconds': 2}, format='json',
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_viewer_cannot_create_client(self):
         viewer = get_user_model().objects.create_user('crm-viewer')
         CompanyMembership.objects.create(
