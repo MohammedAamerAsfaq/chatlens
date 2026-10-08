@@ -79,6 +79,10 @@ class ClientPulseSettingsInputSerializer(serializers.Serializer):
     reminder_poll_interval_seconds = serializers.IntegerField(
         min_value=10, max_value=300, required=False,
     )
+    reminder_default_delay_days = serializers.IntegerField(
+        min_value=0, max_value=3650, required=False,
+    )
+    reminder_default_time = serializers.TimeField(required=False)
     default_timezone = serializers.CharField(max_length=64, required=False)
     default_language = serializers.CharField(max_length=20, required=False, allow_blank=True)
 

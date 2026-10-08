@@ -16,6 +16,7 @@ const form = reactive({
   reminder_sound: 'chime', reminder_sound_volume: 70,
   reminder_desktop_notifications_enabled: false,
   reminder_poll_interval_seconds: 30,
+  reminder_default_delay_days: 7, reminder_default_time: '10:00',
   default_timezone: 'Asia/Dubai', default_language: '',
 })
 const loading = ref(true), busy = ref(false), error = ref(''), success = ref('')
@@ -97,10 +98,17 @@ onMounted(() => {
         </div>
       </UiCard>
 
+      <UiCard title="Reminder creation defaults" subtitle="Prefill the due date and time when users create reminders or linked follow-ups.">
+        <div class="field-grid reminder-defaults">
+          <UiFormField label="Default delay" hint="Number of days after creation. Seven days equals one week."><UiInput v-model.number="form.reminder_default_delay_days" type="number" min="0" max="3650" required /></UiFormField>
+          <UiFormField label="Default time" hint="Time prefilled in the reminder editor."><UiInput v-model="form.reminder_default_time" type="time" required /></UiFormField>
+          <UiFormField label="Timezone" hint="Timezone recorded with new reminders."><UiInput v-model="form.default_timezone" required /></UiFormField>
+        </div>
+      </UiCard>
+
       <UiCard title="Client defaults" subtitle="Defaults applied to new ClientPulse records and consent checks.">
         <div class="field-grid">
           <UiFormField label="Consent policy"><UiSelect v-model="form.consent_mode" :options="consentModes" /></UiFormField>
-          <UiFormField label="Default timezone"><UiInput v-model="form.default_timezone" required /></UiFormField>
           <UiFormField label="Default language"><UiInput v-model="form.default_language" placeholder="e.g. en" /></UiFormField>
         </div>
       </UiCard>

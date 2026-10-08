@@ -8,11 +8,13 @@ import UiDataTable from '@/components/ui/UiDataTable.vue'
 import UiDataTableInlineEditor from '@/components/ui/UiDataTableInlineEditor.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import ClientEditorModal from '@/features/clientpulse/components/ClientEditorModal.vue'
+import { useClientInboxNavigation } from '@/features/clientpulse/composables/useClientInboxNavigation.js'
 import { useAuthStore } from '@/stores/auth'
 import '@/assets/clientpulse.css'
 
 const router = useRouter()
 const auth = useAuthStore()
+const { openingContactId, openClientInbox } = useClientInboxNavigation()
 const clients = ref([]), owners = ref([]), tags = ref([])
 const loading = ref(false), creating = ref(false), error = ref(''), showCreate = ref(false)
 const conversationContacts = ref([]), contactCount = ref(0), contactsLoading = ref(false)
@@ -20,6 +22,7 @@ const page = ref(1), pageSize = ref(25), count = ref(0)
 const sortKey = ref('updated_at'), sortDirection = ref('desc'), savingCell = ref('')
 const filters = reactive({ search: '', lifecycle_stage: '', owner_id: '', priority: '', status: 'active' })
 const canEdit = computed(() => auth.hasPermission('clientpulse.clients.update'))
+const canOpenInbox = computed(() => auth.hasPermission('conversations.chats.view'))
 const emptyClientForm = () => ({
   creation_mode: 'manual', whatsapp_contact_id: '', contact_search: '',
   display_name: '', company_name: '', job_title: '', phone: '', email: '', website: '',
@@ -99,6 +102,11 @@ async function saveInline(client, field, value) {
   } catch (exc) { error.value = message(exc, `Unable to update ${field}.`) }
   finally { savingCell.value = '' }
 }
+async function openInbox(account) {
+  error.value = ''
+  try { await openClientInbox(account.id, account.whatsapp_contact_id) }
+  catch (exc) { error.value = message(exc, 'Unable to open this customer in Inbox.') }
+}
 async function createClient() {
   creating.value = true; error.value = ''
   if (form.creation_mode === 'whatsapp') {
@@ -168,7 +176,12 @@ onMounted(async () => {
           <div class="cp-id">#{{ row.id }} &middot; {{ row.source }}</div>
         </template>
         <template #cell-communication_accounts="{ row }">
-          <div v-if="row.communication_accounts.length" class="cp-account-list"><span v-for="account in row.communication_accounts" :key="account.id" class="cp-account"><strong>{{ account.name }}</strong><small>{{ account.phone_number || account.session_status }}</small></span></div><span v-else class="cp-muted">Not linked</span>
+          <div v-if="row.communication_accounts.length" class="cp-account-list">
+            <span v-for="account in row.communication_accounts" :key="account.id" class="cp-account">
+              <span><strong>{{ account.name }}</strong><small>{{ account.phone_number || account.session_status }}</small></span>
+              <UiButton v-if="canOpenInbox" size="small" :disabled="openingContactId === account.whatsapp_contact_id" @click.stop="openInbox(account)">{{ openingContactId === account.whatsapp_contact_id ? 'Opening...' : 'Open Inbox' }}</UiButton>
+            </span>
+          </div><span v-else class="cp-muted">Not linked</span>
         </template>
         <template #cell-lifecycle_stage="{ row }">
           <UiDataTableInlineEditor :model-value="row.lifecycle_stage" :options="lifecycleEditOptions" :disabled="!canEdit" :saving="savingCell === `${row.id}:lifecycle_stage`" @save="saveInline(row, 'lifecycle_stage', $event)"><span class="cp-badge">{{ title(row.lifecycle_stage) }}</span></UiDataTableInlineEditor>
@@ -193,5 +206,5 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.directory-page{background:var(--ui-bg)}.directory-hero{align-items:center;padding-bottom:16px;border-bottom:1px solid var(--ui-border)}.directory-panel{margin-top:18px}.directory-panel :deep(.ui-card__body){overflow:visible}.directory-panel :deep(.ui-data-table){border:0;border-radius:0;box-shadow:none}.directory-panel :deep(.ui-data-table__filters .choices){width:180px;min-width:150px;margin:0}.directory-panel :deep(.ui-data-table__viewport){min-height:300px}.cp-account-list{display:grid;gap:3px}.cp-account{display:grid}.cp-account small{color:var(--ui-text-subtle)}.cp-tags{display:flex;flex-wrap:wrap;gap:4px}@media(max-width:900px){.directory-panel :deep(.ui-data-table__filters .choices){width:100%}}
+.directory-page{background:var(--ui-bg)}.directory-hero{align-items:center;padding-bottom:16px;border-bottom:1px solid var(--ui-border)}.directory-panel{margin-top:18px}.directory-panel :deep(.ui-card__body){overflow:visible}.directory-panel :deep(.ui-data-table){border:0;border-radius:0;box-shadow:none}.directory-panel :deep(.ui-data-table__filters .choices){width:180px;min-width:150px;margin:0}.directory-panel :deep(.ui-data-table__viewport){min-height:300px}.cp-account-list{display:grid;gap:6px}.cp-account{display:flex;align-items:center;justify-content:space-between;gap:8px}.cp-account>span{display:grid;min-width:0}.cp-account small{color:var(--ui-text-subtle)}.cp-account :deep(.ui-button){flex:none;white-space:nowrap}.cp-tags{display:flex;flex-wrap:wrap;gap:4px}@media(max-width:900px){.directory-panel :deep(.ui-data-table__filters .choices){width:100%}}
 </style>

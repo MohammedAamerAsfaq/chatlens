@@ -116,9 +116,17 @@ def client_options_view(request):
     memberships = CompanyMembership.objects.filter(
         company=company, is_active=True,
     ).select_related('user').order_by('user__username')
-    return Response({'owners': [{
-        'id': item.pk, 'username': item.user.username, 'email': item.user.email,
-    } for item in memberships]})
+    settings, _ = ClientPulseSettings.objects.get_or_create(company=company)
+    return Response({
+        'owners': [{
+            'id': item.pk, 'username': item.user.username, 'email': item.user.email,
+        } for item in memberships],
+        'reminder_defaults': {
+            'delay_days': settings.reminder_default_delay_days,
+            'time': settings.reminder_default_time.strftime('%H:%M'),
+            'timezone': settings.default_timezone,
+        },
+    })
 
 
 @api_view(['GET', 'PATCH'])
@@ -146,6 +154,8 @@ def clientpulse_settings_view(request):
         'reminder_sound_volume': settings.reminder_sound_volume,
         'reminder_desktop_notifications_enabled': settings.reminder_desktop_notifications_enabled,
         'reminder_poll_interval_seconds': settings.reminder_poll_interval_seconds,
+        'reminder_default_delay_days': settings.reminder_default_delay_days,
+        'reminder_default_time': settings.reminder_default_time.strftime('%H:%M'),
         'default_timezone': settings.default_timezone,
         'default_language': settings.default_language,
     })

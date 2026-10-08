@@ -1,4 +1,4 @@
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
@@ -6,7 +6,7 @@ from rest_framework.response import Response
 
 from apps.clientpulse.api_helpers import denied, profile_or_none
 from apps.clientpulse.services.communication_access import visible_clientpulse_accounts
-from apps.whatsapp_bridge.models import ChatType, WhatsAppMessage
+from apps.whatsapp_bridge.models import ChatType, WhatsAppContact, WhatsAppMessage
 
 
 CONVERSATION_TYPES = {'dm', 'group', 'announcement'}
@@ -20,8 +20,10 @@ class ClientConversationPagination(PageNumberPagination):
 
 def _account_payload(account):
     communication = account.communication_account
+    linked_contact = account.clientpulse_contacts[0] if account.clientpulse_contacts else None
     return {
         'id': account.pk,
+        'whatsapp_contact_id': linked_contact.pk if linked_contact else None,
         'name': account.display_name or communication.name or account.phone_number,
         'phone_number': account.phone_number,
         'session_status': account.session_status,
@@ -78,7 +80,13 @@ def client_conversation_history_view(request, profile_id):
     visible_accounts = visible_clientpulse_accounts(request.user, profile.company)
     linked_accounts = visible_accounts.filter(
         contacts__company_contact=profile.contact,
-    ).select_related('communication_account').distinct().order_by('display_name', 'pk')
+    ).select_related('communication_account').prefetch_related(Prefetch(
+        'contacts',
+        queryset=WhatsAppContact.objects.filter(
+            company_contact=profile.contact,
+        ).order_by('pk'),
+        to_attr='clientpulse_contacts',
+    )).distinct().order_by('display_name', 'pk')
     accounts = list(linked_accounts)
     account_id = request.query_params.get('account_id', '').strip()
     if account_id:

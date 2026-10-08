@@ -17,16 +17,20 @@ import UiNotice from '@/components/ui/UiNotice.vue'
 import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import { channelOptions, consentChannelOptions, consentPurposeOptions, consentStatusOptions, contactTypeOptions, identityTypeOptions, lifecycleOptions, ownerOption, priorityOptions } from '@/features/clientpulse/clientProfileOptions.js'
+import { useClientInboxNavigation } from '@/features/clientpulse/composables/useClientInboxNavigation.js'
 const route = useRoute()
 const auth = useAuthStore()
+const { openingContactId, openClientInbox } = useClientInboxNavigation()
 const id = Number(route.params.id)
 const client = ref(null), notes = ref([]), timeline = ref([]), consents = ref([]), tags = ref([]), owners = ref([])
 const loading = ref(true), busy = ref(''), error = ref(''), success = ref(''), noteBody = ref('')
+const activityExpanded = ref(true)
 // Kept available for a later rollout without exposing outbound follow-up in the profile UI.
 const showWhatsappFollowUp = false
 const canEdit = computed(() => auth.hasPermission('clientpulse.clients.update'))
 const canNotes = computed(() => auth.hasPermission('clientpulse.notes.manage'))
 const canConsent = computed(() => auth.hasPermission('clientpulse.consent.manage'))
+const canOpenInbox = computed(() => auth.hasPermission('conversations.chats.view'))
 const form = reactive({
   display_name: '', legal_name: '', contact_type: 'person', lifecycle_stage: 'lead',
   priority: 'normal', source: 'manual', owner_id: '', preferred_channel: '',
@@ -107,6 +111,11 @@ async function setActive(active) {
   finally { busy.value = '' }
 }
 async function followUpQueued() { timeline.value = (await clientPulseApi.timeline(id)).data }
+async function openInbox(item) {
+  error.value = ''
+  try { await openClientInbox(item.account_id, item.id) }
+  catch (exc) { error.value = apiMessage(exc, 'Unable to open this customer in Inbox.') }
+}
 onMounted(load)
 </script>
 <template>
@@ -179,7 +188,10 @@ onMounted(load)
         <UiCard title="Contact identities" subtitle="Direct identities and linked WhatsApp contacts.">
           <div class="client-profile__list">
             <div v-for="item in client.identities" :key="item.id" class="client-profile__item"><div><strong>{{ item.value }}</strong><small>{{ item.identity_type }} {{ item.label }}</small></div><UiButton v-if="canEdit" variant="danger" size="small" @click="removeIdentity(item)">Remove</UiButton></div>
-            <div v-for="item in client.whatsapp_contacts" :key="`wa-${item.id}`" class="client-profile__item"><div><strong>{{ item.display_name || item.phone_number }}</strong><small>Linked WhatsApp / {{ item.account_name }}</small></div><UiBadge tone="success">Linked</UiBadge></div>
+            <div v-for="item in client.whatsapp_contacts" :key="`wa-${item.id}`" class="client-profile__item">
+              <div><strong>{{ item.display_name || item.phone_number }}</strong><small>Linked WhatsApp / {{ item.account_name }}</small></div>
+              <span class="client-profile__item-actions"><UiBadge tone="success">Linked</UiBadge><UiButton v-if="canOpenInbox" size="small" :disabled="openingContactId === item.id" @click="openInbox(item)">{{ openingContactId === item.id ? 'Opening...' : 'Open in Inbox' }}</UiButton></span>
+            </div>
             <UiEmptyState v-if="!client.identities.length && !client.whatsapp_contacts.length" title="No identities linked" description="Add a direct identity below." />
           </div>
           <form v-if="canEdit" class="client-profile__form client-profile__subform" @submit.prevent="addIdentity">
@@ -191,10 +203,11 @@ onMounted(load)
         </UiCard>
       </div>
 
-      <UiCard title="Activity timeline" subtitle="Relationship, consent, reminder, and outbound activity.">
-        <div class="client-profile__timeline"><article v-for="item in timeline" :key="item.id" class="client-profile__timeline-item"><div><strong>{{ item.title }}</strong><p v-if="item.summary">{{ item.summary }}</p><small>{{ new Date(item.occurred_at).toLocaleString() }} / {{ item.created_by?.username || 'system' }}</small></div><UiBadge v-if="item.outbound" :tone="item.outbound.status === 'sent' ? 'success' : item.outbound.status === 'failed' ? 'danger' : 'info'">{{ item.outbound.status.replaceAll('_', ' ') }}</UiBadge></article><UiEmptyState v-if="!timeline.length" title="No activity recorded" description="Client activity will appear here." /></div>
+      <ClientConversationHistory :profile-id="id" :can-open-inbox="canOpenInbox" :opening-contact-id="openingContactId" @open-inbox="openInbox" />
+      <UiCard title="Activity timeline" subtitle="Relationship, consent, reminder, and outbound activity." class="client-profile__activity" :class="{ 'is-collapsed': !activityExpanded }">
+        <template #actions><UiButton variant="outline" :aria-expanded="activityExpanded" @click="activityExpanded = !activityExpanded">{{ activityExpanded ? 'Collapse' : 'Expand' }} <span aria-hidden="true">{{ activityExpanded ? '-' : '+' }}</span></UiButton></template>
+        <div v-if="activityExpanded" class="client-profile__timeline"><article v-for="item in timeline" :key="item.id" class="client-profile__timeline-item"><div><strong>{{ item.title }}</strong><p v-if="item.summary">{{ item.summary }}</p><small>{{ new Date(item.occurred_at).toLocaleString() }} / {{ item.created_by?.username || 'system' }}</small></div><UiBadge v-if="item.outbound" :tone="item.outbound.status === 'sent' ? 'success' : item.outbound.status === 'failed' ? 'danger' : 'info'">{{ item.outbound.status.replaceAll('_', ' ') }}</UiBadge></article><UiEmptyState v-if="!timeline.length" title="No activity recorded" description="Client activity will appear here." /></div>
       </UiCard>
-      <ClientConversationHistory :profile-id="id" />
     </template>
   </div></main>
 </template>
@@ -217,6 +230,8 @@ onMounted(load)
 .client-profile__item small,.client-profile__timeline-item small { display: block; margin-top: 3px; color: var(--ui-text-subtle); font-size: .7rem; }
 .client-profile__item p,.client-profile__timeline-item p { margin: 5px 0 0; color: var(--ui-text-muted); font-size: .78rem; line-height: 1.45; }
 .client-profile__item--block { display: block; }
+.client-profile__item-actions { display: flex; align-items: center; gap: 8px; }
+.client-profile__activity.is-collapsed :deep(.ui-card__body) { display: none; }
 @media (max-width: 1050px) { .client-profile__grid { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .client-profile__form { grid-template-columns: 1fr; } }
 </style>

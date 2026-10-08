@@ -10,6 +10,7 @@ def _communication_accounts(contact):
         account = item.account
         accounts[account.pk] = {
             'id': account.pk,
+            'whatsapp_contact_id': item.pk,
             'name': account.display_name or account.phone_number or f'Account #{account.pk}',
             'phone_number': account.phone_number,
             'session_status': account.session_status,

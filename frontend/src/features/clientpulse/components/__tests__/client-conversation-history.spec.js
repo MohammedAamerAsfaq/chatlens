@@ -14,7 +14,7 @@ describe('ClientConversationHistory', () => {
       data: {
         count: 1,
         next: null,
-        accounts: [{ id: 7, name: 'Primary WhatsApp', phone_number: '971500001234', session_status: 'connected' }],
+        accounts: [{ id: 7, whatsapp_contact_id: 19, name: 'Primary WhatsApp', phone_number: '971500001234', session_status: 'connected' }],
         results: [{
           id: 11, account_id: 7, account_name: 'Primary WhatsApp', contact_name: 'Customer Name',
           sender_name: 'Customer Name', account_status: 'connected',
@@ -24,12 +24,14 @@ describe('ClientConversationHistory', () => {
         }],
       },
     })
-    const wrapper = mount(ClientConversationHistory, { props: { profileId: 3 } })
+    const wrapper = mount(ClientConversationHistory, { props: { profileId: 3, canOpenInbox: true } })
     await flushPromises()
 
     expect(wrapper.text()).toContain('Customer history message')
     expect(wrapper.text()).toContain('Customer Name')
     expect(wrapper.text()).not.toContain('Primary WhatsAppPrimary WhatsApp')
+    await wrapper.findAll('button').find(button => button.text().includes('Open WhatsApp Inbox')).trigger('click')
+    expect(wrapper.emitted('open-inbox')).toEqual([[{ id: 19, account_id: 7 }]])
 
     await wrapper.get('select').setValue('7')
     await flushPromises()

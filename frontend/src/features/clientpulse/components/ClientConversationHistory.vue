@@ -9,7 +9,12 @@ import UiNotice from '@/components/ui/UiNotice.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTabs from '@/components/ui/UiTabs.vue'
 
-const props = defineProps({ profileId: { type: Number, required: true } })
+const props = defineProps({
+  profileId: { type: Number, required: true },
+  canOpenInbox: { type: Boolean, default: false },
+  openingContactId: { type: Number, default: null },
+})
+const emit = defineEmits(['open-inbox'])
 const messages = ref([]), accounts = ref([]), selectedAccount = ref(''), conversationType = ref('dm')
 const loading = ref(true), loadingMore = ref(false), error = ref('')
 const page = ref(1), count = ref(0), hasMore = ref(false)
@@ -46,6 +51,12 @@ const accountOptions = computed(() => [
     label: `${account.name}${account.phone_number ? ` / ${account.phone_number}` : ''}`,
   })),
 ])
+const inboxAccount = computed(() => {
+  if (selectedAccount.value) {
+    return accounts.value.find(account => String(account.id) === String(selectedAccount.value)) || null
+  }
+  return accounts.value.length === 1 ? accounts.value[0] : null
+})
 
 function mediaSource(url) { return url ? url.replace(/^\/media\//, '/worker-media/') : '' }
 function displayText(message) {
@@ -105,6 +116,13 @@ function toggleExpanded() {
   expanded.value = !expanded.value
   if (expanded.value) nextTick(scrollToLatest)
 }
+function openInbox() {
+  if (!inboxAccount.value?.whatsapp_contact_id) return
+  emit('open-inbox', {
+    id: inboxAccount.value.whatsapp_contact_id,
+    account_id: inboxAccount.value.id,
+  })
+}
 watch([selectedAccount, conversationType], refresh)
 onMounted(refresh)
 </script>
@@ -119,6 +137,13 @@ onMounted(refresh)
     <template #actions>
       <div class="client-conversations__tools">
         <UiSelect v-if="expanded" v-model="selectedAccount" :options="accountOptions" aria-label="Communication account" />
+        <UiButton
+          v-if="expanded && canOpenInbox"
+          variant="primary"
+          :disabled="!inboxAccount?.whatsapp_contact_id || openingContactId === inboxAccount?.whatsapp_contact_id"
+          :title="!inboxAccount && accounts.length > 1 ? 'Select a communication account first.' : 'Open this customer in WhatsApp Inbox.'"
+          @click="openInbox"
+        >{{ openingContactId === inboxAccount?.whatsapp_contact_id ? 'Opening...' : 'Open WhatsApp Inbox' }}</UiButton>
         <UiButton v-if="expanded" variant="outline" :disabled="loading || loadingMore" @click="refresh">Refresh</UiButton>
         <UiButton variant="outline" :aria-expanded="expanded" @click="toggleExpanded">
           {{ expanded ? 'Collapse' : 'Expand' }} <span aria-hidden="true">{{ expanded ? '-' : '+' }}</span>

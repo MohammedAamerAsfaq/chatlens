@@ -1,3 +1,5 @@
+from datetime import time
+
 from django.db import models
 
 
@@ -20,6 +22,8 @@ class ClientPulseSettings(models.Model):
     reminder_sound_volume = models.PositiveSmallIntegerField(default=70)
     reminder_desktop_notifications_enabled = models.BooleanField(default=False)
     reminder_poll_interval_seconds = models.PositiveSmallIntegerField(default=30)
+    reminder_default_delay_days = models.PositiveSmallIntegerField(default=7)
+    reminder_default_time = models.TimeField(default=time(10, 0))
     default_timezone = models.CharField(max_length=64, default='Asia/Dubai')
     default_language = models.CharField(max_length=20, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

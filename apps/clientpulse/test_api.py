@@ -138,14 +138,39 @@ class ClientPulseApiTests(TestCase):
             'reminder_sound_volume': 45,
             'reminder_desktop_notifications_enabled': True,
             'reminder_poll_interval_seconds': 20,
+            'reminder_default_delay_days': 14,
+            'reminder_default_time': '09:30',
         }, format='json')
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data['reminder_sound'], 'soft')
         self.assertEqual(response.data['reminder_sound_volume'], 45)
         self.assertEqual(response.data['reminder_poll_interval_seconds'], 20)
+        self.assertEqual(response.data['reminder_default_delay_days'], 14)
+        self.assertEqual(response.data['reminder_default_time'], '09:30')
         settings = ClientPulseSettings.objects.get(company=self.company)
         self.assertFalse(settings.reminder_popup_enabled)
         self.assertTrue(settings.reminder_desktop_notifications_enabled)
+        self.assertEqual(settings.reminder_default_delay_days, 14)
+        self.assertEqual(settings.reminder_default_time.strftime('%H:%M'), '09:30')
+
+    def test_options_exposes_company_reminder_defaults(self):
+        ClientPulseSettings.objects.update_or_create(
+            company=self.company,
+            defaults={
+                'reminder_default_delay_days': 10,
+                'reminder_default_time': '11:15',
+                'default_timezone': 'Asia/Dubai',
+            },
+        )
+
+        response = self.client.get('/api/clientpulse/options/')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['reminder_defaults'], {
+            'delay_days': 10,
+            'time': '11:15',
+            'timezone': 'Asia/Dubai',
+        })
 
     def test_settings_api_rejects_unsafe_reminder_poll_interval(self):
         response = self.client.patch(
@@ -192,6 +217,7 @@ class ClientPulseApiTests(TestCase):
         response = self.client.get('/api/clientpulse/clients/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['results'][0]['communication_accounts'], [{
-            'id': account.pk, 'name': 'Sales Line', 'phone_number': '971500000001',
+            'id': account.pk, 'whatsapp_contact_id': WhatsAppContact.objects.get(account=account).pk,
+            'name': 'Sales Line', 'phone_number': '971500000001',
             'session_status': account.session_status,
         }])

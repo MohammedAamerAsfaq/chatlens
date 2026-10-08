@@ -87,6 +87,11 @@ class ClientConversationHistoryTests(TestCase):
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data['count'], 2)
         self.assertEqual(len(response.data['accounts']), 2)
+        account_payloads = {item['id']: item for item in response.data['accounts']}
+        self.assertEqual(
+            account_payloads[self.admin_account.pk]['whatsapp_contact_id'],
+            self.admin_contact.pk,
+        )
         self.assertEqual(response.data['results'][0]['id'], self.member_message.pk)
 
     def test_sender_name_distinguishes_customer_and_account(self):
