@@ -80,6 +80,7 @@ export const clientPulseApi = {
   reminders: (params = {}) => http.get('/clientpulse/reminders/', { params }),
   createReminder: (data) => http.post('/clientpulse/reminders/', data),
   updateReminder: (id, data) => http.patch(`/clientpulse/reminders/${id}/`, data),
+  reminderThread: (id) => http.get(`/clientpulse/reminders/${id}/thread/`),
   completeReminder: (id) => http.post(`/clientpulse/reminders/${id}/complete/`),
   snoozeReminder: (id, snoozed_until) => http.post(`/clientpulse/reminders/${id}/snooze/`, { snoozed_until }),
   cancelReminder: (id) => http.post(`/clientpulse/reminders/${id}/cancel/`),

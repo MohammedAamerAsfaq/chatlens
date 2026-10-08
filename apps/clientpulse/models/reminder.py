@@ -39,6 +39,11 @@ class ClientReminder(models.Model):
         'self', null=True, blank=True, on_delete=models.SET_NULL,
         related_name='generated_occurrence',
     )
+    linked_from = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='linked_follow_ups',
+    )
+    thread_key = models.UUIDField(default=uuid.uuid4, editable=False, db_index=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
         related_name='client_reminders_created',
@@ -63,6 +68,15 @@ class ClientReminder(models.Model):
             raise ValidationError('Reminder profile must belong to the same company.')
         if self.assigned_to_id and self.assigned_to.company_id != self.company_id:
             raise ValidationError('Reminder assignee must belong to the same company.')
+        if self.linked_from_id:
+            if self.linked_from.company_id != self.company_id:
+                raise ValidationError('Linked reminder must belong to the same company.')
+            if self.linked_from.profile_id != self.profile_id:
+                raise ValidationError('Linked reminders must belong to the same client.')
+            if self.linked_from.status != 'completed':
+                raise ValidationError('A follow-up can only be linked to a completed reminder.')
+            if self.thread_key != self.linked_from.thread_key:
+                raise ValidationError('Linked reminders must retain the same thread key.')
         if self.recurrence_type == 'custom':
             try:
                 interval_days = int(self.recurrence_rule.get('interval_days', 0))

@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
@@ -19,7 +20,7 @@ from apps.tenancy.services.authorization import permission_scope
 def _queryset(request, permission_code):
     company = default_company_for_user(request.user)
     queryset = ClientReminder.objects.filter(company=company).select_related(
-        'profile__contact', 'assigned_to__user', 'completed_by',
+        'profile__contact', 'assigned_to__user', 'completed_by', 'linked_from',
     )
     scope = permission_scope(request.user, permission_code, company)
     membership = active_membership_for_user(request.user)
@@ -50,6 +51,10 @@ def _payload(reminder):
         'completed_at': reminder.completed_at,
         'next_occurrence_at': reminder.next_occurrence_at,
         'occurrence_number': reminder.occurrence_number,
+        'thread_key': str(reminder.thread_key),
+        'linked_from': None if not reminder.linked_from else {
+            'id': reminder.linked_from_id, 'title': reminder.linked_from.title,
+        },
     }
 
 
@@ -69,6 +74,7 @@ class ReminderPagination(PageNumberPagination):
 
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
+@transaction.atomic
 def reminders_view(request):
     permission = 'clientpulse.reminders.view' if request.method == 'GET' else 'clientpulse.reminders.manage'
     if response := denied(request, permission):
@@ -79,6 +85,7 @@ def reminders_view(request):
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
         data = serializer.validated_data
+        linked_from_id = data.pop('linked_from_id', None)
         profile = profile_or_none(request, data.pop('profile_id'), permission)
         if not profile:
             return Response({'detail': 'Client not found.'}, status=404)
@@ -89,11 +96,36 @@ def reminders_view(request):
         membership = active_membership_for_user(request.user)
         if scope != 'all' and assignee not in (None, membership):
             return Response({'assigned_to_id': ['You may only assign reminders to yourself.']}, status=403)
+        linked_from = None
+        if linked_from_id:
+            allowed_parent_id = _queryset(request, permission).filter(
+                pk=linked_from_id,
+            ).values_list('pk', flat=True).first()
+            if not allowed_parent_id:
+                return Response({'linked_from_id': ['Linked reminder not found.']}, status=400)
+            linked_from = ClientReminder.objects.select_for_update().get(pk=allowed_parent_id)
+            if linked_from.status != 'completed':
+                return Response(
+                    {'linked_from_id': ['Complete the previous reminder before adding a follow-up.']},
+                    status=409,
+                )
+            if linked_from.profile_id != profile.pk:
+                return Response(
+                    {'profile_id': ['A linked follow-up must use the same client.']}, status=400,
+                )
+        thread_values = {'linked_from': linked_from}
+        if linked_from:
+            thread_values['thread_key'] = linked_from.thread_key
         reminder = ClientReminder.objects.create(
             company=company, profile=profile, assigned_to=assignee or membership,
-            created_by=request.user, **data,
+            created_by=request.user, **thread_values, **data,
         )
-        record_activity(profile, request.user, 'Reminder created', metadata={'reminder_id': reminder.pk})
+        activity_title = 'Linked follow-up reminder created' if linked_from else 'Reminder created'
+        record_activity(profile, request.user, activity_title, metadata={
+            'reminder_id': reminder.pk,
+            'linked_from_id': linked_from.pk if linked_from else None,
+            'thread_key': str(reminder.thread_key),
+        })
         return Response(_payload(reminder), status=201)
 
     queryset = _queryset(request, permission)
@@ -137,6 +169,8 @@ def reminder_detail_view(request, reminder_id):
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
     data = serializer.validated_data
+    if 'linked_from_id' in data:
+        return Response({'linked_from_id': ['Reminder thread links cannot be edited.']}, status=400)
     if 'profile_id' in data:
         profile = profile_or_none(request, data.pop('profile_id'), 'clientpulse.reminders.manage')
         if not profile:

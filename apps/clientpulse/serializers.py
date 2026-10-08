@@ -85,6 +85,7 @@ class ClientPulseSettingsInputSerializer(serializers.Serializer):
 
 class ClientReminderInputSerializer(serializers.Serializer):
     profile_id = serializers.IntegerField(required=False)
+    linked_from_id = serializers.IntegerField(required=False, allow_null=True)
     assigned_to_id = serializers.IntegerField(required=False, allow_null=True)
     title = serializers.CharField(max_length=255, required=False)
     description = serializers.CharField(required=False, allow_blank=True)

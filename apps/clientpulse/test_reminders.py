@@ -53,6 +53,65 @@ class ClientReminderTests(TestCase):
         self.assertEqual(listed['count'], 1)
         self.assertEqual(listed['results'][0]['title'], 'Call customer')
 
+    def test_completed_reminders_can_form_an_explicit_follow_up_thread(self):
+        first = self._reminder(title='First action')
+        complete_reminder(first.pk, self.user)
+        second_response = self.client.post('/api/clientpulse/reminders/', {
+            'profile_id': self.profile.pk,
+            'linked_from_id': first.pk,
+            'assigned_to_id': self.membership.pk,
+            'title': 'Second action',
+            'due_at': (timezone.now() + timedelta(days=1)).isoformat(),
+        }, format='json')
+        self.assertEqual(second_response.status_code, 201, second_response.data)
+        second = ClientReminder.objects.get(pk=second_response.data['id'])
+        self.assertEqual(second.linked_from, first)
+        self.assertEqual(second.thread_key, first.thread_key)
+
+        complete_reminder(second.pk, self.user)
+        third_response = self.client.post('/api/clientpulse/reminders/', {
+            'profile_id': self.profile.pk,
+            'linked_from_id': second.pk,
+            'title': 'Third action',
+            'due_at': (timezone.now() + timedelta(days=2)).isoformat(),
+        }, format='json')
+        self.assertEqual(third_response.status_code, 201, third_response.data)
+
+        thread = self.client.get(f'/api/clientpulse/reminders/{first.pk}/thread/')
+        self.assertEqual(thread.status_code, 200, thread.data)
+        self.assertEqual(
+            [item['title'] for item in thread.data['results']],
+            ['First action', 'Second action', 'Third action'],
+        )
+        self.assertIsNone(thread.data['results'][0]['linked_from'])
+        self.assertEqual(thread.data['results'][2]['linked_from']['id'], second.pk)
+
+        separate = self._reminder(title='Separate thread')
+        self.assertNotEqual(separate.thread_key, first.thread_key)
+
+    def test_follow_up_requires_a_completed_reminder_for_the_same_client(self):
+        active = self._reminder(title='Not complete')
+        payload = {
+            'profile_id': self.profile.pk,
+            'linked_from_id': active.pk,
+            'title': 'Premature follow-up',
+            'due_at': (timezone.now() + timedelta(days=1)).isoformat(),
+        }
+        response = self.client.post('/api/clientpulse/reminders/', payload, format='json')
+        self.assertEqual(response.status_code, 409, response.data)
+
+        complete_reminder(active.pk, self.user)
+        other_contact = CompanyContact.objects.create(
+            company=self.company, display_name='Other Reminder Client',
+        )
+        other_profile = ClientProfile.objects.create(
+            company=self.company, contact=other_contact,
+            owner=self.membership, created_by=self.user,
+        )
+        payload['profile_id'] = other_profile.pk
+        response = self.client.post('/api/clientpulse/reminders/', payload, format='json')
+        self.assertEqual(response.status_code, 400, response.data)
+
     def test_recurring_completion_is_idempotent(self):
         reminder = self._reminder(recurrence_type='daily')
         _, first_next = complete_reminder(reminder.pk, self.user)

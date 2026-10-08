@@ -14,6 +14,7 @@ const props = defineProps({
   form: { type: Object, required: true },
   clients: { type: Array, default: () => [] },
   owners: { type: Array, default: () => [] },
+  linkedFrom: { type: Object, default: null },
 })
 defineEmits(['close', 'submit'])
 
@@ -32,16 +33,20 @@ const recurrences = ['none', 'daily', 'weekly', 'monthly', 'custom'].map(value =
 <template>
   <UiModal
     :open="open"
-    :title="editing ? 'Edit reminder' : 'Create reminder'"
-    subtitle="Schedule an internal follow-up. No customer message will be sent."
+    :title="editing ? 'Edit reminder' : linkedFrom ? 'Create linked follow-up' : 'Create reminder'"
+    :subtitle="linkedFrom ? 'Continue the selected reminder thread for the same client.' : 'Schedule an internal follow-up. No customer message will be sent.'"
     size="full"
     tall
     :closeable="!busy"
     @close="$emit('close')"
   >
     <form id="reminder-editor-form" class="reminder-form" @submit.prevent="$emit('submit')">
+      <div v-if="linkedFrom" class="thread-context wide">
+        <span>Following completed reminder</span>
+        <strong>{{ linkedFrom.title }}</strong>
+      </div>
       <UiFormField label="Client">
-        <UiSelect v-model="form.profile_id" :options="clientOptions" placeholder="Select client" searchable required />
+        <UiSelect v-model="form.profile_id" :options="clientOptions" placeholder="Select client" searchable required :disabled="Boolean(linkedFrom)" />
       </UiFormField>
       <UiFormField label="Assigned to">
         <UiSelect v-model="form.assigned_to_id" :options="ownerOptions" />
@@ -68,12 +73,12 @@ const recurrences = ['none', 'daily', 'weekly', 'monthly', 'custom'].map(value =
     <template #footer>
       <UiButton :disabled="busy" @click="$emit('close')">Cancel</UiButton>
       <UiButton form="reminder-editor-form" type="submit" variant="primary" :disabled="busy">
-        {{ busy ? 'Saving...' : editing ? 'Save changes' : 'Create reminder' }}
+        {{ busy ? 'Saving...' : editing ? 'Save changes' : linkedFrom ? 'Create linked follow-up' : 'Create reminder' }}
       </UiButton>
     </template>
   </UiModal>
 </template>
 
 <style scoped>
-.reminder-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.wide{grid-column:1/-1}@media(max-width:760px){.reminder-form{grid-template-columns:1fr}.wide{grid-column:auto}}
+.reminder-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.wide{grid-column:1/-1}.thread-context{display:flex;flex-direction:column;gap:4px;padding:12px 14px;border-left:4px solid var(--ui-primary);border-radius:var(--ui-radius-sm);background:var(--ui-primary-soft)}.thread-context span{color:var(--ui-text-muted);font-size:.7rem;font-weight:700;text-transform:uppercase}.thread-context strong{color:var(--ui-text-strong)}@media(max-width:760px){.reminder-form{grid-template-columns:1fr}.wide{grid-column:auto}}
 </style>
