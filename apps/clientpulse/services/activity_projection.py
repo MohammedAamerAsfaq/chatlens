@@ -5,7 +5,8 @@ from apps.queue_management.services import enqueue_task
 
 
 def enqueue_message_projection(message):
-    company_contact_id = getattr(message.contact, 'company_contact_id', None)
+    contact = message.contact or getattr(message.chat, 'contact', None)
+    company_contact_id = getattr(contact, 'company_contact_id', None)
     if not company_contact_id:
         return None
     profile = ClientProfile.objects.select_related('company').filter(
@@ -25,8 +26,9 @@ def enqueue_message_projection(message):
 def project_message_activity(message_id, company_id):
     from apps.whatsapp_bridge.models import WhatsAppMessage
 
-    message = WhatsAppMessage.objects.select_related('contact').get(pk=message_id)
-    company_contact_id = getattr(message.contact, 'company_contact_id', None)
+    message = WhatsAppMessage.objects.select_related('contact', 'chat__contact').get(pk=message_id)
+    contact = message.contact or message.chat.contact
+    company_contact_id = getattr(contact, 'company_contact_id', None)
     profile = ClientProfile.objects.select_for_update().get(
         company_id=company_id, contact_id=company_contact_id,
     )

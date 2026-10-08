@@ -141,7 +141,7 @@ onMounted(refresh)
           <div v-if="isNewDay(index)" class="client-conversations__date"><span>{{ formatDate(message.message_time) }}</span></div>
           <article class="client-conversations__row" :class="`is-${message.direction}`">
             <div class="client-conversations__bubble">
-              <div class="client-conversations__meta"><div><UiBadge :tone="message.account_status === 'connected' ? 'success' : 'neutral'">{{ message.account_name }}</UiBadge><strong v-if="message.conversation_type !== 'dm'">{{ message.chat_name }}</strong></div><span>{{ formatTime(message.message_time) }}</span></div>
+              <div class="client-conversations__meta"><div><UiBadge :tone="message.account_status === 'connected' ? 'success' : 'neutral'">{{ message.sender_name || (message.direction === 'inbound' ? message.contact_name : message.account_name) }}</UiBadge><strong v-if="message.conversation_type !== 'dm'">{{ message.chat_name }}</strong></div><span>{{ formatTime(message.message_time) }}</span></div>
               <img v-if="message.message_type === 'image' && mediaSource(message.media_url)" :src="mediaSource(message.media_url)" :alt="message.media_file_name || 'Conversation image'" loading="lazy" />
               <a v-else-if="message.has_media && mediaSource(message.media_url)" :href="mediaSource(message.media_url)" target="_blank" rel="noopener">{{ message.media_file_name || `Open ${message.message_type}` }}</a>
               <p>{{ displayText(message) }}</p>

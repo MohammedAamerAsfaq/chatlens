@@ -89,6 +89,25 @@ class ClientConversationHistoryTests(TestCase):
         self.assertEqual(len(response.data['accounts']), 2)
         self.assertEqual(response.data['results'][0]['id'], self.member_message.pk)
 
+    def test_sender_name_distinguishes_customer_and_account(self):
+        outbound = WhatsAppMessage.objects.create(
+            account=self.admin_account, chat=self.admin_message.chat,
+            contact=self.admin_contact, provider_message_id='admin-outbound',
+            direction=MessageDirection.OUTBOUND, message_type=MessageType.TEXT,
+            message_text='Account reply', message_time=timezone.now() + timedelta(minutes=1),
+        )
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.get(
+            f'/api/clientpulse/clients/{self.profile.pk}/conversations/',
+            {'account_id': self.admin_account.pk},
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        messages = {item['id']: item for item in response.data['results']}
+        self.assertEqual(messages[self.admin_message.pk]['sender_name'], 'History Client')
+        self.assertEqual(messages[outbound.pk]['sender_name'], 'Admin WhatsApp')
+
     def test_account_filter_returns_only_selected_linked_account(self):
         self.client.force_authenticate(self.admin)
         response = self.client.get(

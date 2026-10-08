@@ -3,7 +3,9 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.clientpulse.models import ClientActivity, ClientProfile
-from apps.clientpulse.services.activity_projection import enqueue_message_projection
+from apps.clientpulse.services.activity_projection import (
+    enqueue_message_projection, project_message_activity,
+)
 from apps.queue_management.models import BackgroundWorker
 from apps.queue_management.services import TaskExecutor, claim_tasks
 from apps.task_management.models import BackgroundTask
@@ -63,3 +65,13 @@ class ClientActivityProjectionTests(TestCase):
         self.assertNotIn(self.message.message_text, str(activity.metadata))
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.last_inbound_at, self.message.message_time)
+
+    def test_projection_resolves_direct_contact_from_chat(self):
+        self.message.contact = None
+        self.message.save(update_fields=['contact'])
+
+        task = enqueue_message_projection(self.message)
+        result = project_message_activity(self.message.pk, self.company.pk)
+
+        self.assertIsNotNone(task)
+        self.assertEqual(result['profile_id'], self.profile.pk)

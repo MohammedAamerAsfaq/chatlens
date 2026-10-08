@@ -16,7 +16,8 @@ describe('ClientConversationHistory', () => {
         next: null,
         accounts: [{ id: 7, name: 'Primary WhatsApp', phone_number: '971500001234', session_status: 'connected' }],
         results: [{
-          id: 11, account_id: 7, account_name: 'Primary WhatsApp', account_status: 'connected',
+          id: 11, account_id: 7, account_name: 'Primary WhatsApp', contact_name: 'Customer Name',
+          sender_name: 'Customer Name', account_status: 'connected',
           conversation_type: 'dm', chat_name: '',
           direction: 'inbound', message_type: 'text', message_text: 'Customer history message',
           message_time: '2026-10-06T12:00:00Z', has_media: false, media_url: '',
@@ -27,7 +28,8 @@ describe('ClientConversationHistory', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('Customer history message')
-    expect(wrapper.text()).toContain('Primary WhatsApp')
+    expect(wrapper.text()).toContain('Customer Name')
+    expect(wrapper.text()).not.toContain('Primary WhatsAppPrimary WhatsApp')
 
     await wrapper.get('select').setValue('7')
     await flushPromises()

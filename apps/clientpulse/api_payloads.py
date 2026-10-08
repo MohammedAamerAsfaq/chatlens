@@ -19,6 +19,19 @@ def _communication_accounts(contact):
 
 def profile_payload(profile, *, detail=False):
     contact = profile.contact
+    last_contacted_at = _latest_timestamp(
+        profile.last_contacted_at,
+        getattr(profile, 'system_last_contact_at', None),
+    )
+    last_replied_at = _latest_timestamp(
+        profile.last_inbound_at,
+        getattr(profile, 'system_last_replied_at', None),
+    )
+    next_follow_up_at = (
+        profile.system_next_follow_up_at
+        if hasattr(profile, 'system_next_follow_up_at')
+        else profile.next_follow_up_at
+    )
     data = {
         'id': profile.pk,
         'company_contact_id': contact.pk,
@@ -37,9 +50,10 @@ def profile_payload(profile, *, detail=False):
         'preferred_channel': profile.preferred_channel,
         'company_name': profile.company_name,
         'job_title': profile.job_title,
-        'last_contacted_at': profile.last_contacted_at,
-        'last_inbound_at': profile.last_inbound_at,
-        'next_follow_up_at': profile.next_follow_up_at,
+        'last_contacted_at': last_contacted_at,
+        'last_inbound_at': last_replied_at,
+        'last_replied_at': last_replied_at,
+        'next_follow_up_at': next_follow_up_at,
         'do_not_contact': profile.do_not_contact,
         'communication_accounts': _communication_accounts(contact),
         'tags': [{
@@ -88,6 +102,11 @@ def profile_payload(profile, *, detail=False):
             } for item in contact.whatsapp_contacts.select_related('account')],
         })
     return data
+
+
+def _latest_timestamp(*values):
+    available = [value for value in values if value is not None]
+    return max(available) if available else None
 
 
 def note_payload(note):

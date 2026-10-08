@@ -33,17 +33,20 @@ def _message_payload(message):
     contact = message.chat.contact or message.contact
     group = getattr(message.chat, 'group', None)
     is_announcement = bool(group and (group.announce or group.is_community_announcement))
+    account_name = account.display_name or account.communication_account.name or account.phone_number
+    contact_name = (
+        (contact.display_name or contact.push_name or contact.phone_number)
+        if contact else ''
+    )
     return {
         'id': message.pk,
         'account_id': account.pk,
-        'account_name': account.display_name or account.communication_account.name or account.phone_number,
+        'account_name': account_name,
         'account_status': account.session_status,
         'chat_id': message.chat_id,
         'contact_id': contact.pk if contact else None,
-        'contact_name': (
-            (contact.display_name or contact.push_name or contact.phone_number)
-            if contact else ''
-        ),
+        'contact_name': contact_name,
+        'sender_name': contact_name if message.direction == 'inbound' else account_name,
         'chat_name': message.chat.name or (group.name if group else '') or message.chat.wa_chat_id,
         'conversation_type': (
             'dm' if message.chat.chat_type == ChatType.INDIVIDUAL

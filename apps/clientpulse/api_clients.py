@@ -9,6 +9,7 @@ from apps.clientpulse.api_payloads import profile_payload
 from apps.clientpulse.models import ClientProfile, ClientPulseSettings, ClientTag
 from apps.clientpulse.serializers import ClientProfileInputSerializer
 from apps.clientpulse.services.profile_service import create_profile, record_activity, update_profile
+from apps.clientpulse.services.directory_metrics import with_directory_metrics
 from apps.tenancy.models import CompanyMembership
 from apps.tenancy.services.access import default_company_for_user
 
@@ -80,7 +81,7 @@ def clients_view(request):
         )
         return Response(profile_payload(_related(ClientProfile.objects).get(pk=profile.pk), detail=True), status=201)
 
-    queryset = _related(scoped_profiles(request))
+    queryset = with_directory_metrics(_related(scoped_profiles(request)))
     requested_status = request.query_params.get('status', 'active')
     if requested_status != 'all':
         queryset = queryset.filter(status=requested_status)
@@ -98,9 +99,20 @@ def clients_view(request):
     if tag_id := request.query_params.get('tag_id'):
         queryset = queryset.filter(tag_assignments__tag_id=tag_id)
     ordering = request.query_params.get('ordering', '-updated_at')
-    allowed = {'updated_at', '-updated_at', 'contact__display_name', '-contact__display_name',
-               'next_follow_up_at', '-next_follow_up_at'}
-    queryset = queryset.order_by(ordering if ordering in allowed else '-updated_at')
+    ordering_map = {
+        'updated_at': 'updated_at',
+        'display_name': 'contact__display_name',
+        'last_contacted_at': 'system_last_contact_at',
+        'last_replied_at': 'system_last_replied_at',
+        'next_follow_up_at': 'system_next_follow_up_at',
+    }
+    descending = ordering.startswith('-')
+    ordering_key = ordering.lstrip('-')
+    resolved_ordering = ordering_map.get(ordering_key, 'updated_at')
+    queryset = queryset.order_by(
+        f'-{resolved_ordering}' if descending else resolved_ordering,
+        'pk',
+    )
     paginator = ClientPagination()
     page = paginator.paginate_queryset(queryset, request)
     return paginator.get_paginated_response([profile_payload(item) for item in page])
