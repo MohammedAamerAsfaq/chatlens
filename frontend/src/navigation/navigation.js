@@ -6,7 +6,7 @@ export const primaryNavigation = [
     ],
   },
   {
-    id: 'trading', label: 'Trading', to: '/trading',
+    id: 'trading', label: 'Trading', to: '/trading', industries: ['trading'],
     routes: ['trading', 'products', 'inquiry-products', 'non-inventory-products', 'v2-candidate-search', 'product-price-update'],
     children: [
       { label: 'Dashboard', to: '/trading', route: 'trading' },
@@ -18,7 +18,16 @@ export const primaryNavigation = [
     ],
   },
   {
-    id: 'automation', label: 'Automation', to: '/automation',
+    id: 'real-estate', label: 'Real Estate', to: '/real-estate/properties', industries: ['real_estate'],
+    routes: ['real-estate-properties', 'real-estate-listings', 'real-estate-candidates'],
+    children: [
+      { label: 'Properties', to: '/real-estate/properties', route: 'real-estate-properties' },
+      { label: 'Listings', to: '/real-estate/listings', route: 'real-estate-listings' },
+      { label: 'Candidate Review', to: '/real-estate/candidates', route: 'real-estate-candidates' },
+    ],
+  },
+  {
+    id: 'automation', label: 'Automation', to: '/automation', industries: ['trading'],
     routes: ['price-automation'],
     children: [
       { label: 'Price Automation', to: '/automation', route: 'price-automation' },
@@ -33,7 +42,7 @@ export const primaryNavigation = [
     ],
   },
   {
-    id: 'campaigns', label: 'Campaigns', to: '/buying-inquiries',
+    id: 'campaigns', label: 'Campaigns', to: '/buying-inquiries', industries: ['trading'],
     routes: ['buying-inquiries', 'selling-offers', 'group-buying-inquiries', 'group-selling-offers'],
     children: [
       { label: 'Direct Buying', to: '/buying-inquiries', route: 'buying-inquiries' },
@@ -43,7 +52,7 @@ export const primaryNavigation = [
     ],
   },
   {
-    id: 'reports', label: 'Reports', to: '/trading-analytics',
+    id: 'reports', label: 'Reports', to: '/trading-analytics', industries: ['trading'],
     routes: ['trading-analytics', 'report-summary', 'inventory-product-mentions', 'selling-offers-report'],
     children: [
       { label: 'Analytics', to: '/trading-analytics', route: 'trading-analytics' },
@@ -64,10 +73,10 @@ export const settingsNavigation = [
   { label: 'Storage', to: '/storage', route: 'storage' },
   { label: 'AI Providers', to: '/ai-providers', route: 'ai-providers' },
   { label: 'KiwiRouter', to: '/kiwi-router', route: 'kiwi-router' },
-  { label: 'AI Instructions', to: '/ai-instructions', route: 'ai-instructions' },
-  { label: 'V2 Settings', to: '/v2-settings', route: 'v2-settings' },
-  { label: 'V2 Match Training', to: '/v2-match-training', route: 'v2-match-training' },
-  { label: 'Inquiry Forwarding', to: '/inquiry-forwarding', route: 'inquiry-forwarding' },
+  { label: 'AI Instructions', to: '/ai-instructions', route: 'ai-instructions', industries: ['trading'] },
+  { label: 'V2 Settings', to: '/v2-settings', route: 'v2-settings', industries: ['trading'] },
+  { label: 'V2 Match Training', to: '/v2-match-training', route: 'v2-match-training', industries: ['trading'] },
+  { label: 'Inquiry Forwarding', to: '/inquiry-forwarding', route: 'inquiry-forwarding', industries: ['trading'] },
   { label: 'Task & Queues', to: '/task-queues', route: 'task-queues' },
   { label: 'ClientPulse', to: '/clientpulse-settings', route: 'clientpulse-settings', permission: 'settings.company.view' },
   { label: 'Users', to: '/company-users', route: 'company-users', permission: 'users.memberships.view' },
@@ -84,7 +93,18 @@ export const logsNavigation = [
   { label: 'Worker Alerts', to: '/worker-alerts', route: 'worker-alerts', badge: 'worker' },
   { label: 'Stuck Receipts', to: '/stuck-receipts', route: 'stuck-receipts', badge: 'receipts' },
   { label: 'Unresolved Messages', to: '/unresolved-messages', route: 'unresolved-messages', badge: 'messages' },
-  { label: 'AI Parsing', to: '/ai-parsing-log', route: 'ai-parsing-log' },
-  { label: 'AI Parse V2', to: '/ai-parse-v2-log', route: 'ai-parse-v2-log' },
+  { label: 'AI Parsing', to: '/ai-parsing-log', route: 'ai-parsing-log', industries: ['trading'] },
+  { label: 'AI Parse V2', to: '/ai-parse-v2-log', route: 'ai-parse-v2-log', industries: ['trading'] },
   { label: 'Task Operations', to: '/task-operations', route: 'task-operations' },
 ]
+
+export function navigationItemVisible(item, context) {
+  if (item.permission && !context.hasPermission(item.permission)) return false
+  if (item.tenantAdmin && !context.canManageTenants) return false
+  if (item.industries && !item.industries.includes(context.industry)) return false
+  return true
+}
+
+export function industryHomePath(industry) {
+  return industry === 'real_estate' ? '/real-estate/properties' : '/'
+}

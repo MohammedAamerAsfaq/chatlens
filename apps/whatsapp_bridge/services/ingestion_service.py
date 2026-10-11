@@ -197,9 +197,22 @@ def _log_ai_parsing_and_classify(message) -> None:
     """Record the sent/skipped routing decision for this message, then classify
     it if it wasn't skipped. Single source of truth for the AI Parsing Log page.
     """
+    reason = _classify_skip_reason(message)
+    from apps.tenancy.models import Company
+    from apps.tenancy.services.access import company_for_message
+
+    company = company_for_message(message)
+    if company and company.industry_type == Company.INDUSTRY_REAL_ESTATE:
+        from apps.real_estate.services.classification_dispatch import (
+            dispatch_real_estate_classification,
+        )
+        dispatch_real_estate_classification(message, company, reason)
+        return
+    if company and company.industry_type != Company.INDUSTRY_TRADING:
+        return
+
     from apps.trading.models import AiParsingLog
     from apps.trading.services.classification_service import classify_message, effective_classification_version
-    reason = _classify_skip_reason(message)
     classification_version = '' if reason else effective_classification_version(message.account)
     AiParsingLog.objects.update_or_create(
         message=message,

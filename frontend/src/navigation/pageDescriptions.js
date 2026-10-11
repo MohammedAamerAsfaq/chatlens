@@ -45,6 +45,9 @@ const pageDescriptions = {
   'clientpulse-profile': 'Review customer details, activity, and conversations.',
   'clientpulse-settings': 'Configure ClientPulse automation and policies.',
   'clientpulse-reminders': 'Plan and track customer follow-up reminders.',
+  'real-estate-properties': 'Maintain verified company-owned property inventory and media.',
+  'real-estate-listings': 'Manage sale and lease listings without duplicating physical properties.',
+  'real-estate-candidates': 'Review AI-extracted property offers before they enter trusted inventory.',
 }
 
 export function pageDescription(routeName) {

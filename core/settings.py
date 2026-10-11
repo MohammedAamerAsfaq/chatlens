@@ -36,11 +36,12 @@ INSTALLED_APPS = [
     'apps.api',
     'apps.ai_providers',
     'apps.trading',
+    'apps.real_estate',
     'apps.task_management',
-      'apps.queue_management',
-      'apps.clientpulse',
-      'apps.integrations',
-  ]
+    'apps.queue_management',
+    'apps.clientpulse',
+    'apps.integrations',
+]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

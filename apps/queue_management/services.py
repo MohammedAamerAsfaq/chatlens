@@ -52,6 +52,8 @@ TRANSIENT_LIVE_TASK_KEYS = (
     'trading.classify_message_v2_pass1',
     'trading.classify_message_v2_pass2',
     'trading.forward_inquiry',
+    'real_estate.gate_message',
+    'real_estate.extract_message',
 )
 
 
@@ -73,6 +75,7 @@ def _ensure_task_handlers_registered():
     from apps.message_intelligence import embedding_task_handlers  # noqa: F401
     from apps.whatsapp_bridge import task_handlers as whatsapp_task_handlers  # noqa: F401
     from apps.clientpulse import task_handlers as clientpulse_task_handlers  # noqa: F401
+    from apps.real_estate import task_handlers as real_estate_task_handlers  # noqa: F401
 
 
 def _event(task, event_type, *, worker_id='', message='', metadata=None, error='', traceback_text=''):

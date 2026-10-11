@@ -90,6 +90,32 @@ export const clientPulseApi = {
   dismissNotification: (id) => http.post(`/clientpulse/notifications/${id}/dismiss/`),
 }
 
+export const realEstateApi = {
+  properties: (params = {}) => http.get('/real-estate/properties/', { params }),
+  createProperty: data => http.post('/real-estate/properties/', data),
+  updateProperty: (id, data) => http.patch(`/real-estate/properties/${id}/`, data),
+  archiveProperty: id => http.delete(`/real-estate/properties/${id}/`),
+  previewPropertyImport: file => {
+    const data = new FormData()
+    data.append('file', file)
+    return http.post('/real-estate/properties/import-preview/', data)
+  },
+  importProperties: rows => http.post('/real-estate/properties/bulk-import/', { rows }),
+  exportProperties: (params = {}) => http.get('/real-estate/properties/export/', { params, responseType: 'blob' }),
+  createAddress: data => http.post('/real-estate/property-addresses/', data),
+  updateAddress: (id, data) => http.patch(`/real-estate/property-addresses/${id}/`, data),
+  createMedia: data => http.post('/real-estate/property-media/', data),
+  deleteMedia: id => http.delete(`/real-estate/property-media/${id}/`),
+  listings: (params = {}) => http.get('/real-estate/listings/', { params }),
+  createListing: data => http.post('/real-estate/listings/', data),
+  updateListing: (id, data) => http.patch(`/real-estate/listings/${id}/`, data),
+  archiveListing: id => http.delete(`/real-estate/listings/${id}/`),
+  candidates: (params = {}) => http.get('/real-estate/candidates/', { params }),
+  promoteCandidate: (id, data) => http.post(`/real-estate/candidates/${id}/promote/`, data),
+  mergeCandidate: (id, listingId) => http.post(`/real-estate/candidates/${id}/merge/`, { listing_id: listingId }),
+  rejectCandidate: id => http.post(`/real-estate/candidates/${id}/reject/`),
+}
+
 export const taskQueueApi = {
   overview: () => http.get('/task-queue/overview/'),
   settings: () => http.get('/task-queue/settings/'),

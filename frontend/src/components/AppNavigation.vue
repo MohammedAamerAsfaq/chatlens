@@ -4,7 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { workerAlertsApi, stuckReceiptsApi, unresolvedMessagesApi } from '@/api'
 import { useAuthStore } from '@/stores/auth.js'
 import { useConversationsStore } from '@/stores/conversations'
-import { logsNavigation, moreNavigation, primaryNavigation, settingsNavigation } from '@/navigation/navigation'
+import { industryHomePath, logsNavigation, moreNavigation, navigationItemVisible, primaryNavigation, settingsNavigation } from '@/navigation/navigation'
 import '@/assets/app-navigation.css'
 
 const auth = useAuthStore()
@@ -18,15 +18,20 @@ const switchingTheme = ref(false)
 const alerts = ref({ worker: 0, receipts: 0, messages: 0 })
 let alertPollTimer = null
 
-const canShow = (item) => (!item.permission || auth.hasPermission(item.permission)) && (!item.tenantAdmin || auth.canManageTenants)
+const canShow = item => navigationItemVisible(item, {
+  industry: auth.currentCompany?.industry_type,
+  canManageTenants: auth.canManageTenants,
+  hasPermission: auth.hasPermission,
+})
 const visiblePrimary = computed(() => primaryNavigation.filter(canShow))
 const visibleSettings = computed(() => settingsNavigation.filter(canShow))
+const visibleLogs = computed(() => logsNavigation.filter(canShow))
 const totalAlerts = computed(() => alerts.value.worker + alerts.value.receipts + alerts.value.messages)
 const routeName = computed(() => String(route.name || ''))
 const activePrimary = computed(() => visiblePrimary.value.find((item) => item.routes.includes(routeName.value)))
 const activeUtility = computed(() => {
   if (settingsNavigation.some((item) => item.route === routeName.value)) return { id: 'settings', label: 'Settings', children: visibleSettings.value }
-  if (logsNavigation.some((item) => item.route === routeName.value)) return { id: 'logs', label: 'Operations', children: logsNavigation }
+  if (logsNavigation.some((item) => item.route === routeName.value)) return { id: 'logs', label: 'Operations', children: visibleLogs.value }
   if (moreNavigation.some((item) => item.route === routeName.value)) return { id: 'more', label: 'Directory', children: moreNavigation }
   return null
 })
@@ -58,7 +63,7 @@ async function switchCompany(event) {
   switchingCompany.value = true
   try {
     await auth.selectCompany(companyId)
-    window.location.assign('/')
+    window.location.assign(industryHomePath(auth.currentCompany?.industry_type))
   } finally {
     switchingCompany.value = false
   }
@@ -130,7 +135,7 @@ onUnmounted(() => {
             <b v-if="totalAlerts">{{ totalAlerts > 99 ? '99+' : totalAlerts }}</b>
           </button>
           <div v-if="openMenu === 'logs'" class="navigation-menu__panel navigation-menu__panel--right" @click.stop>
-            <RouterLink v-for="item in logsNavigation" :key="item.route" :to="item.to">
+            <RouterLink v-for="item in visibleLogs" :key="item.route" :to="item.to">
               {{ item.label }}<b v-if="badgeFor(item)">{{ badgeFor(item) > 99 ? '99+' : badgeFor(item) }}</b>
             </RouterLink>
           </div>
