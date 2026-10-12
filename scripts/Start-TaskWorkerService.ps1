@@ -37,14 +37,24 @@ if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'manage.py') -PathType Lea
     throw "manage.py was not found under '$repoRoot'."
 }
 
+New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
+$dedicatedQueues = @(
+    'real_estate_gate',
+    'real_estate_extract',
+    'real_estate_match',
+    'real_estate_maintenance'
+)
+$excludeArguments = ($dedicatedQueues | ForEach-Object { "--exclude-queue $_" }) -join ' '
+$arguments = "manage.py run_background_tasks --no-ui $excludeArguments"
 $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($service -and $service.Status -eq 'Running') {
-    Write-Host "$ServiceName is already running."
-    exit 0
+    $currentArguments = (& $NssmPath get $ServiceName AppParameters | Out-String).Trim()
+    if ($currentArguments -eq $arguments) {
+        Write-Host "$ServiceName is already running with the correct queue exclusions."
+        exit 0
+    }
+    throw "$ServiceName is running with outdated parameters. Stop it safely, then run this script again to apply queue exclusions."
 }
-
-New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
-$arguments = 'manage.py run_background_tasks --no-ui'
 if (-not $service) {
     & $NssmPath install $ServiceName $PythonPath $arguments
     if ($LASTEXITCODE -ne 0) { throw "NSSM could not install $ServiceName." }
@@ -55,7 +65,7 @@ $settings = @(
     @('AppDirectory', $repoRoot),
     @('AppParameters', $arguments),
     @('DisplayName', 'ChatLens Task Worker'),
-    @('Description', 'Durable background task worker for all enabled ChatLens queues.'),
+    @('Description', 'Durable background task worker excluding queues assigned to dedicated services.'),
     @('Start', 'SERVICE_AUTO_START'),
     @('AppExit', 'Default', 'Restart'),
     @('AppRestartDelay', '5000'),
@@ -77,4 +87,4 @@ foreach ($setting in $settings) {
 & $NssmPath start $ServiceName
 if ($LASTEXITCODE -ne 0) { throw "NSSM could not start $ServiceName." }
 (Get-Service -Name $ServiceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
-Write-Host "$ServiceName is running and serving all enabled queues."
+Write-Host "$ServiceName is running and excluding dedicated queues: $($dedicatedQueues -join ', ')."

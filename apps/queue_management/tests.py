@@ -9,8 +9,10 @@ from django.utils import timezone
 from apps.task_management.models import BackgroundTask, BackgroundTaskEvent, BackgroundTaskSchedule
 from apps.task_management.registry import TaskDefinition, task_registry, validate_any_v1_payload
 from apps.queue_management.models import BackgroundWorker, QueueDefinition
+from apps.queue_management.management.commands.run_background_tasks import resolve_worker_queues
 from apps.queue_management.services import (
-    TaskWorker, claim_tasks, enqueue_due_schedules, enqueue_task, release_stale_locks,
+    TaskWorker, WorkerQueueConflict, claim_tasks, enqueue_due_schedules, enqueue_task,
+    release_stale_locks,
 )
 
 
@@ -57,6 +59,23 @@ class DurableTaskQueueTests(TestCase):
         second = enqueue_task(task_key='tests.success', payload={'version': 1, 'value': 'x'}, idempotency_key='same')
         self.assertEqual(first.pk, second.pk)
         self.assertEqual(BackgroundTask.objects.count(), 1)
+
+    def test_enabled_queue_resolution_excludes_dedicated_worker_queues(self):
+        QueueDefinition.objects.update_or_create(name='shared-test', defaults={'is_enabled': True})
+        QueueDefinition.objects.update_or_create(name='dedicated-test', defaults={'is_enabled': True})
+
+        queues = resolve_worker_queues(excluded_queues=['dedicated-test'])
+
+        self.assertIn('shared-test', queues)
+        self.assertNotIn('dedicated-test', queues)
+
+    def test_explicit_queue_resolution_still_applies_exclusions(self):
+        queues = resolve_worker_queues(
+            requested_queues=['shared-test', 'dedicated-test'],
+            excluded_queues=['dedicated-test'],
+        )
+
+        self.assertEqual(queues, ['shared-test'])
 
     def test_claim_and_execute_records_lifecycle(self):
         task = enqueue_task(task_key='tests.success', payload={'version': 1, 'value': 'ok'}, idempotency_key='success')
@@ -110,6 +129,17 @@ class DurableTaskQueueTests(TestCase):
         with self.assertRaises(Exception):
             first.run_once()
         second.stop()
+
+    def test_start_rejects_partial_queue_overlap_without_stopping_prior_worker(self):
+        first = TaskWorker(['default', 'reports'], worker_id='shared-worker')
+        first.start()
+
+        with self.assertRaises(WorkerQueueConflict):
+            TaskWorker(['reports'], worker_id='dedicated-worker').start()
+
+        first._worker.refresh_from_db()
+        self.assertEqual(first._worker.status, BackgroundWorker.STATUS_RUNNING)
+        first.stop()
 
     def test_start_discards_pending_live_backlog(self):
         task = enqueue_task(

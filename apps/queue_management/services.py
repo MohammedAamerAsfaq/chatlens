@@ -40,6 +40,10 @@ class WorkerSuperseded(RuntimeError):
     pass
 
 
+class WorkerQueueConflict(RuntimeError):
+    pass
+
+
 class WorkerStopRequested(RuntimeError):
     pass
 
@@ -400,21 +404,30 @@ class TaskWorker:
             .values_list('max_concurrency', flat=True)
         )
         self.concurrency = max(1, self.concurrency or configured_concurrency)
-        self._executor = ThreadPoolExecutor(
-            max_workers=self.concurrency,
-            thread_name_prefix='chatlens-task',
-        )
         now = timezone.now()
         # One worker owns a queue set at a time. Older registrations are retired
         # before this worker announces itself, so the operations monitor is not
         # left showing abandoned worker instances as running.
         for prior in BackgroundWorker.objects.filter(status=BackgroundWorker.STATUS_RUNNING).exclude(worker_id=self.worker_id):
-            if set(prior.queue_names or ()) & set(self.queue_names):
+            prior_queues = set(prior.queue_names or ())
+            worker_queues = set(self.queue_names)
+            overlap = prior_queues & worker_queues
+            if overlap and prior_queues != worker_queues:
+                names = ', '.join(sorted(overlap))
+                raise WorkerQueueConflict(
+                    f'Worker {prior.worker_id} already owns overlapping queues: {names}. '
+                    'Dedicated worker queue sets must be disjoint.'
+                )
+            if overlap:
                 BackgroundWorker.objects.filter(pk=prior.pk).update(
                     status=BackgroundWorker.STATUS_STOPPED,
                     stopped_at=now,
                     last_heartbeat_at=now,
                 )
+        self._executor = ThreadPoolExecutor(
+            max_workers=self.concurrency,
+            thread_name_prefix='chatlens-task',
+        )
         discarded = discard_pre_start_live_tasks(self.queue_names, now)
         self._worker, _ = BackgroundWorker.objects.update_or_create(
             worker_id=self.worker_id,

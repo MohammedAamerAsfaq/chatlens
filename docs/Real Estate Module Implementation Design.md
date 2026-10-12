@@ -868,7 +868,7 @@ Apply the database migrations before opening the Real Estate UI:
 python manage.py migrate
 ```
 
-The normal `ChatLensTaskWorker` serves every enabled queue, including Real Estate queues. A dedicated worker is also available when Real Estate processing needs isolated capacity or independent service control:
+The normal `ChatLensTaskWorker` serves enabled queues except the Real Estate queues reserved for the dedicated worker. This keeps worker ownership disjoint and prevents one service from superseding the other:
 
 ```text
 scripts\Start-RealEstateTaskWorkerService.bat
@@ -891,7 +891,7 @@ logs\services\real-estate-task-worker.out.log
 logs\services\real-estate-task-worker.err.log
 ```
 
-Queue concurrency, timeout, retry, and enablement remain database-owned and are managed through the existing Task & Queues settings. Running the generic and dedicated workers simultaneously is safe because claims are durable and atomic, although the generic worker may also claim Real Estate tasks.
+Queue concurrency, timeout, retry, and enablement remain database-owned and are managed through the existing Task & Queues settings. The generic worker is started with one `--exclude-queue` argument for each dedicated Real Estate queue. Worker queue sets must not overlap because startup supersession intentionally retires an older worker that owns any of the same queues.
 
 ### Current operator verification
 

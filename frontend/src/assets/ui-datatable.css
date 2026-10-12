@@ -2,6 +2,7 @@
 .ui-data-table__toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--ui-border); background: var(--ui-surface); }
 .ui-data-table__filters,.ui-data-table__tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ui-data-table__filters { flex: 1; }
+.ui-data-table__filters>.choices { flex: 0 1 220px; width: 220px; min-width: 180px; margin: 0; }
 .ui-data-table__toolbar select,.ui-data-table__toolbar button,.ui-data-table__search { min-height: 34px; border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-sm); background: var(--ui-surface); color: var(--ui-text); font: 600 .76rem var(--ui-font-sans); }
 .ui-data-table__toolbar select,.ui-data-table__toolbar button { padding: 6px 10px; }
 .ui-data-table__toolbar button { cursor: pointer; }
@@ -32,7 +33,8 @@
 .ui-data-table__footer button { cursor: pointer; }
 .ui-data-table__footer button.active { border-color: var(--ui-primary); background: var(--ui-primary); color: var(--ui-on-primary); }
 .ui-data-table__footer button:disabled { opacity: .45; cursor: not-allowed; }
-@media(max-width:900px) { .ui-data-table__toolbar,.ui-data-table__footer { align-items: stretch; flex-direction: column; } .ui-data-table__tools,.ui-data-table__search { width: 100%; } .ui-data-table__footer nav { overflow-x: auto; } }
+@media(min-width:901px) { .ui-data-table__toolbar,.ui-data-table__filters,.ui-data-table__tools { flex-wrap: nowrap; } .ui-data-table__filters { min-width: 0; } }
+@media(max-width:900px) { .ui-data-table__toolbar,.ui-data-table__footer { align-items: stretch; flex-direction: column; } .ui-data-table__tools,.ui-data-table__search { width: 100%; } .ui-data-table__filters>.choices { flex: 1 1 220px; width: auto; } .ui-data-table__footer nav { overflow-x: auto; } }
 .ui-data-table__legacy-viewport { position: relative; overflow: auto; border: 1px solid var(--ui-border) !important; border-radius: var(--ui-radius-lg) !important; background: var(--ui-surface) !important; box-shadow: var(--ui-shadow-card) !important; }
 .ui-data-table__bridge-tools { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--ui-border); background: var(--ui-surface); }
 .ui-data-table__bridge-tools button,.ui-data-table__bridge-tools summary { min-height: 32px; padding: 6px 10px; border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-sm); background: var(--ui-surface); color: var(--ui-text); font: 650 .74rem var(--ui-font-sans); cursor: pointer; list-style: none; }

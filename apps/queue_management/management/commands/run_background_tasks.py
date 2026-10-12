@@ -1,10 +1,19 @@
 import signal
 import time
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from apps.queue_management.models import QueueDefinition
-from apps.queue_management.services import TaskWorker, WorkerStopRequested
+from apps.queue_management.services import TaskWorker, WorkerQueueConflict, WorkerStopRequested
+
+
+def resolve_worker_queues(requested_queues=None, excluded_queues=None):
+    """Resolve enabled queues while keeping dedicated worker pools disjoint."""
+    queues = requested_queues or list(
+        QueueDefinition.objects.filter(is_enabled=True).values_list('name', flat=True)
+    )
+    excluded = set(excluded_queues or ())
+    return [queue for queue in queues if queue not in excluded]
 
 
 class Command(BaseCommand):
@@ -12,6 +21,10 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--queue', action='append', dest='queues')
+        parser.add_argument(
+            '--exclude-queue', action='append', dest='excluded_queues',
+            help='Exclude an enabled queue, usually because a dedicated worker owns it.',
+        )
         parser.add_argument('--limit', type=int, default=None, help='Maximum tasks claimed per queue cycle.')
         parser.add_argument('--concurrency', type=int, default=None, help='Maximum concurrent tasks for this worker.')
         parser.add_argument('--interval', type=float, default=None)
@@ -20,7 +33,7 @@ class Command(BaseCommand):
         parser.add_argument('--no-ui', action='store_true', help='Do not launch the local desktop Task Operations Monitor.')
 
     def handle(self, *args, **options):
-        queues = options['queues'] or list(QueueDefinition.objects.filter(is_enabled=True).values_list('name', flat=True))
+        queues = resolve_worker_queues(options['queues'], options['excluded_queues'])
         if not queues:
             self.stderr.write('No enabled queues available.')
             return
@@ -38,7 +51,10 @@ class Command(BaseCommand):
 
         signal.signal(signal.SIGINT, stop)
         signal.signal(signal.SIGTERM, stop)
-        worker.start()
+        try:
+            worker.start()
+        except WorkerQueueConflict as exc:
+            raise CommandError(str(exc)) from exc
         self.stdout.write(
             f'Task Worker {worker.worker_id} serving {", ".join(queues)} '
             f'with concurrency {worker.concurrency}'
