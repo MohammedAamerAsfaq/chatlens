@@ -2,7 +2,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
-from .contracts import ActivityType
+from .contracts import ActivityType, AreaUnit
 from .property import Property
 
 
@@ -18,7 +18,7 @@ class PropertyRequirement(models.Model):
     bathrooms_max = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True, validators=[MinValueValidator(0)])
     area_min = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)])
     area_max = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)])
-    area_unit = models.CharField(max_length=10, choices=Property.AREA_UNIT_CHOICES, default='sqft')
+    area_unit = models.CharField(max_length=10, choices=AreaUnit.choices, default=AreaUnit.SQUARE_FEET)
     budget_min = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)])
     budget_max = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)])
     currency = models.CharField(max_length=3, default='AED')

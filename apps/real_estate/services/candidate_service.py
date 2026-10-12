@@ -3,6 +3,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.real_estate.models import Listing, Property, PropertyAddress
+from apps.real_estate.services.property_types import resolve_property_type
 
 
 @transaction.atomic
@@ -25,10 +26,14 @@ def promote_candidate(candidate, user, property_data=None, listing_data=None):
         'payment_terms', 'available_from', 'status', 'assigned_agent', 'source_contact',
         'published_at', 'expires_at',
     })
+    requested_type = property_data.pop('property_type', None)
+    property_type = resolve_property_type(
+        candidate.company, requested_type or candidate.property_type, fallback=True,
+    )
     property_record = Property(
         company=candidate.company,
         title=property_data.pop('title', candidate.title or f'Property candidate #{candidate.pk}'),
-        property_type=property_data.pop('property_type', candidate.property_type or 'other'),
+        property_type=property_type,
         description=property_data.pop('description', candidate.description),
         bedrooms=property_data.pop('bedrooms', candidate.bedrooms),
         bathrooms=property_data.pop('bathrooms', candidate.bathrooms),

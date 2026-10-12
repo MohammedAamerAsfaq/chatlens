@@ -224,6 +224,14 @@ Recommended statuses:
 draft | available | reserved | sold | leased | inactive
 ```
 
+### 5.1.1 Property Type Master
+
+Property types are not a fixed application enum. `PropertyType` is a directly company-owned master record with a stable code, display name, category, description, sort order, and active state. `Property` and `PropertyCandidate` reference this master with protected foreign keys. Requirements retain an array of stable type codes because one requirement can accept several types.
+
+Default types are seeded for Real Estate companies during enrollment. Operators can add, edit, deactivate, and reactivate company-specific types from the Properties screen. Deactivation prevents new selection without invalidating existing inventory, candidates, requirements, imports, or audit history. The fallback `other` type cannot be deactivated.
+
+Supported area units are `sqft`, `sqm`, `sqyd`, `acre`, and `hectare`. Numeric area values are always stored with their selected unit and are never silently converted or replaced.
+
 ### 5.2 PropertyAddress
 
 Store searchable location fields separately from descriptive property data:
@@ -656,7 +664,7 @@ Operational reports should include:
 
 - Finalize the four-value activity enum, classification statuses, status transitions, property types, required fields, and AI schemas.
 - Extend the existing classification dispatch boundary using `Company.industry_type` while preserving the current Trading branch.
-- Register explicit Real Estate embedding task handlers through the existing task registry and `embeddings` queue.
+- Register explicit Real Estate embedding task handlers through the existing task registry and a dedicated `real_estate_embeddings` queue.
 - Add backend industry guards and frontend industry-aware navigation.
 - Add permission definitions and role grants.
 - Document non-regression requirements for trading.
@@ -687,7 +695,7 @@ Operational reports should include:
 
 ### Phase 5: Live classification
 
-- Register `real_estate_gate`, `real_estate_extract`, `real_estate_match`, and `real_estate_maintenance` independently from Trading queues.
+- Register `real_estate_gate`, `real_estate_extract`, `real_estate_match`, `real_estate_maintenance`, and `real_estate_embeddings` independently from Trading queues.
 - Seed database-backed concurrency, timeout, retry, and backoff settings for each queue.
 - Register Real Estate durable task handlers.
 - Implement gate, extraction, validation, deduplication, and persistence.
@@ -860,6 +868,28 @@ Viewings, offers, deals, campaign automation, and advanced analytics should foll
 - Added explicit candidate promotion, merge, and rejection UI. Extracted candidates still cannot enter trusted inventory silently.
 - Added focused API and navigation tests while preserving the existing Trading routes for Trading companies.
 
+### Real Estate embedding foundation completed on 12 October 2026
+
+- Added four separate, directly company-owned vector tables: `real_estate_property_embedding`, `real_estate_listing_embedding`, `real_estate_requirement_embedding`, and `real_estate_candidate_embedding`.
+- Source values remain authoritative and unchanged. No property, listing, requirement, or candidate field is replaced by an embedding.
+- Each vector row stores a 512-dimension vector, model, provider metadata, canonical-document version and SHA-256 hash, status, error, and timestamps.
+- Property vectors contain searchable physical-property context and one canonical location phrase. Unit numbers, reference codes, coordinates, and other operational identifiers remain structured data and are not embedded.
+- Listing vectors combine the physical property document with transaction, asking-price, payment, and availability context.
+- Requirement vectors contain the inquiry activity, source wording, structured ranges, acceptable locations/types, amenities, timeframe, and constraints.
+- Candidate vectors contain the offered-property wording, location, property attributes, price, furnishing, availability, and description.
+- Added the dedicated `real_estate_embeddings` durable queue and four retry-safe task keys. Every handler validates task company, payload company, and target company before provider work.
+- Property, address, media, listing, requirement, candidate, and relevant opportunity changes automatically enqueue only the affected vectors. Property context changes also refresh its listing vectors.
+- Added company-scoped status and repair/backfill endpoints plus Properties-page feedback. Repair is blocked until that company has an active company-owned embedding provider.
+- Added cosine IVFFlat indexes for later candidate retrieval. Matching still must apply authoritative structured eligibility filters before vector ranking.
+
+### Property type master and expanded units completed on 12 October 2026
+
+- Replaced fixed property-type choices with a directly company-owned `PropertyType` master referenced by verified properties and extracted candidates.
+- Migrated every existing property and candidate type into the owning company's master before removing the legacy text fields.
+- Preserved readable API and CSV contracts by continuing to accept and return stable type codes instead of exposing database IDs.
+- Added company-scoped CRUD, safe deactivation/reactivation, enrollment defaults, dynamic inventory filters, and dynamic property/candidate selectors.
+- Expanded area measurements from square feet and square metres to include square yards, acres, and hectares without modifying existing values.
+
 ### Deployment and worker operation
 
 Apply the database migrations before opening the Real Estate UI:
@@ -882,6 +912,7 @@ real_estate_gate
 real_estate_extract
 real_estate_match
 real_estate_maintenance
+real_estate_embeddings
 ```
 
 PowerShell variants accept `-ServiceName`, `-NssmPath`, and `-PythonPath` overrides. The stop script requests a graceful stop and waits for active work rather than force-killing it. Service output is written to:
@@ -904,7 +935,8 @@ For a company with `industry_type = real_estate`:
 5. CSV import requires preview before import and reports validation and duplicate problems.
 6. Candidate Review shows AI-extracted supply candidates without treating them as trusted inventory.
 7. Promotion creates a draft property/listing record; merge links to an existing listing; rejection preserves the audit trail.
-8. Task Operations shows the four Real Estate queues and their task lifecycle events.
+8. Task Operations shows the five Real Estate queues and their task lifecycle events.
+9. Properties shows the combined Real Estate embedding count. Repair queues missing, skipped, or failed property, listing, requirement, and candidate vectors.
 
 ### Remaining phases
 

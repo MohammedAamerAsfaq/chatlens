@@ -11,12 +11,15 @@ from apps.real_estate.models import (
 from apps.real_estate.services.candidate_service import promote_candidate
 from apps.real_estate.services.extraction_projection import project_extraction
 from apps.tenancy.models import Company, CompanyMembership
+from apps.real_estate.services.property_types import seed_default_property_types
 
 
 class RealEstateInventoryTests(TestCase):
     def setUp(self):
         self.company = Company.objects.create(name='Estate A', slug='estate-a', industry_type='real_estate')
         self.other = Company.objects.create(name='Estate B', slug='estate-b', industry_type='real_estate')
+        self.types = {item.code: item for item in seed_default_property_types(self.company)}
+        self.other_types = {item.code: item for item in seed_default_property_types(self.other)}
         self.user = get_user_model().objects.create_user('estate-owner')
         CompanyMembership.objects.create(
             company=self.company, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
@@ -32,7 +35,7 @@ class RealEstateInventoryTests(TestCase):
 
     def test_cross_company_listing_is_rejected(self):
         foreign_property = Property.objects.create(
-            company=self.other, title='Foreign villa', property_type='villa',
+            company=self.other, title='Foreign villa', property_type=self.other_types['villa'],
         )
         listing = Listing(
             company=self.company, property=foreign_property, listing_type='sale',
@@ -43,7 +46,7 @@ class RealEstateInventoryTests(TestCase):
 
     def test_database_prevents_conflicting_active_listings(self):
         property_record = Property.objects.create(
-            company=self.company, title='Marina flat', property_type='apartment',
+            company=self.company, title='Marina flat', property_type=self.types['apartment'],
         )
         values = dict(
             company=self.company, property=property_record, listing_type='sale',

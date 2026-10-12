@@ -1,6 +1,8 @@
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
+from .contracts import AreaUnit
+
 
 class RealEstateSettings(models.Model):
     GATE_DISABLED = 'disabled'
@@ -12,9 +14,9 @@ class RealEstateSettings(models.Model):
         (GATE_ENFORCED, 'Enforced'),
     ]
 
-    AREA_SQFT = 'sqft'
-    AREA_SQM = 'sqm'
-    AREA_UNIT_CHOICES = [(AREA_SQFT, 'Square feet'), (AREA_SQM, 'Square metres')]
+    AREA_SQFT = AreaUnit.SQUARE_FEET
+    AREA_SQM = AreaUnit.SQUARE_METRES
+    AREA_UNIT_CHOICES = AreaUnit.choices
 
     company = models.OneToOneField(
         'tenancy.Company',

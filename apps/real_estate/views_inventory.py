@@ -7,16 +7,36 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from apps.real_estate.api_base import CompanyOwnedViewSet
-from apps.real_estate.models import Listing, Property, PropertyAddress, PropertyMedia
+from apps.real_estate.models import Listing, Property, PropertyAddress, PropertyMedia, PropertyType
 from apps.real_estate.serializers import (
     ListingSerializer, PropertyAddressSerializer, PropertyMediaSerializer, PropertySerializer,
+    PropertyTypeSerializer,
 )
 from apps.real_estate.services.inventory_export import property_export_response
 from apps.real_estate.services.inventory_import import import_rows, parse_csv_upload, preview_rows
 
 
+class PropertyTypeViewSet(CompanyOwnedViewSet):
+    queryset = PropertyType.objects.all()
+    serializer_class = PropertyTypeSerializer
+    read_permission = 'real_estate.properties.view'
+    write_permission = 'real_estate.properties.manage'
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if self.request.query_params.get('include_inactive') != 'true':
+            qs = qs.filter(is_active=True)
+        return qs
+
+    def perform_destroy(self, instance):
+        if instance.code == 'other':
+            raise ValidationError({'property_type': 'The fallback Other type cannot be deactivated.'})
+        instance.is_active = False
+        instance.save(update_fields=['is_active', 'updated_at'])
+
+
 class PropertyViewSet(CompanyOwnedViewSet):
-    queryset = Property.objects.select_related('assigned_to').prefetch_related('media')
+    queryset = Property.objects.select_related('assigned_to', 'property_type').prefetch_related('media')
     serializer_class = PropertySerializer
     read_permission = 'real_estate.properties.view'
     write_permission = 'real_estate.properties.manage'
@@ -26,7 +46,7 @@ class PropertyViewSet(CompanyOwnedViewSet):
         if self.request.query_params.get('archived') != 'true':
             qs = qs.filter(is_archived=False)
         if value := self.request.query_params.get('property_type'):
-            qs = qs.filter(property_type=value)
+            qs = qs.filter(property_type__code=value)
         if value := self.request.query_params.get('status'):
             qs = qs.filter(availability_status=value)
         if search := self.request.query_params.get('search'):
@@ -34,7 +54,9 @@ class PropertyViewSet(CompanyOwnedViewSet):
         allowed = {'title', 'property_type', 'bedrooms', 'built_up_area', 'availability_status', 'updated_at'}
         ordering = self.request.query_params.get('ordering', '-updated_at')
         if ordering.lstrip('-') in allowed:
-            qs = qs.order_by(ordering)
+            prefix = '-' if ordering.startswith('-') else ''
+            field = 'property_type__name' if ordering.lstrip('-') == 'property_type' else ordering.lstrip('-')
+            qs = qs.order_by(f'{prefix}{field}')
         return qs
 
     def perform_destroy(self, instance):
@@ -65,6 +87,28 @@ class PropertyViewSet(CompanyOwnedViewSet):
     @action(detail=False, methods=['get'])
     def export(self, request):
         return property_export_response(self.get_queryset())
+
+    @action(detail=False, methods=['get'], url_path='embedding-status')
+    def embedding_status(self, request):
+        from apps.real_estate.services.embedding_dispatch import embedding_status
+
+        return Response(embedding_status(self.active_company()))
+
+    @action(detail=False, methods=['post'], url_path='backfill-embeddings')
+    def backfill_embeddings(self, request):
+        from apps.ai_providers.models import AIProviderConfig
+        from apps.real_estate.services.embedding_dispatch import enqueue_backfill
+
+        company = self.active_company()
+        if not AIProviderConfig.objects.filter(
+            company=company,
+            capability=AIProviderConfig.CAPABILITY_EMBEDDING,
+            is_active=True,
+        ).exists():
+            raise ValidationError({
+                'embedding_provider': 'Configure an active company-owned embedding provider first.',
+            })
+        return Response(enqueue_backfill(company), status=status.HTTP_202_ACCEPTED)
 
 
 class PropertyAddressViewSet(CompanyOwnedViewSet):

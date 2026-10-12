@@ -1,10 +1,14 @@
 from rest_framework.routers import DefaultRouter
 
-from .views_inventory import ListingViewSet, PropertyAddressViewSet, PropertyMediaViewSet, PropertyViewSet
+from .views_inventory import (
+    ListingViewSet, PropertyAddressViewSet, PropertyMediaViewSet, PropertyTypeViewSet,
+    PropertyViewSet,
+)
 from .views_opportunities import CandidateViewSet, OpportunityViewSet, RequirementViewSet
 
 router = DefaultRouter()
 router.register('real-estate/properties', PropertyViewSet, basename='real-estate-properties')
+router.register('real-estate/property-types', PropertyTypeViewSet, basename='real-estate-property-types')
 router.register('real-estate/property-addresses', PropertyAddressViewSet, basename='real-estate-property-addresses')
 router.register('real-estate/property-media', PropertyMediaViewSet, basename='real-estate-property-media')
 router.register('real-estate/listings', ListingViewSet, basename='real-estate-listings')

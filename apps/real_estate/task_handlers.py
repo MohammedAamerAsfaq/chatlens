@@ -12,6 +12,24 @@ def validate_message_payload(payload):
             raise UnsupportedTaskPayload(f'{key} must be a positive integer.')
 
 
+def validate_embedding_payload(payload):
+    if not isinstance(payload, dict) or payload.get('version') != 1:
+        raise UnsupportedTaskPayload('Payload version 1 is required.')
+    for key in ('company_id', 'object_id'):
+        if not isinstance(payload.get(key), int) or payload[key] <= 0:
+            raise UnsupportedTaskPayload(f'{key} must be a positive integer.')
+
+
+def _embed(kind, payload, context):
+    from apps.real_estate.services.embedding_service import embed_real_estate
+
+    task_company_id = BackgroundTask.objects.values_list('company_id', flat=True).get(pk=context.task_id)
+    if task_company_id != payload['company_id']:
+        raise ValueError('Task company does not match embedding payload company.')
+    stored = embed_real_estate(kind, payload['object_id'], payload['company_id'])
+    return {'kind': kind, 'object_id': payload['object_id'], 'embedded': stored}
+
+
 def _load_context(payload, context):
     from apps.real_estate.models import RealEstateParseLog
     from apps.tenancy.models import Company
@@ -103,3 +121,34 @@ def extract_message(payload, context):
         'extraction_complete': True,
     }
 
+
+@task_handler(
+    key='real_estate.embed_property', default_queue='real_estate_embeddings',
+    payload_validator=validate_embedding_payload, retry_safe=True,
+)
+def embed_property(payload, context):
+    return _embed('property', payload, context)
+
+
+@task_handler(
+    key='real_estate.embed_listing', default_queue='real_estate_embeddings',
+    payload_validator=validate_embedding_payload, retry_safe=True,
+)
+def embed_listing(payload, context):
+    return _embed('listing', payload, context)
+
+
+@task_handler(
+    key='real_estate.embed_requirement', default_queue='real_estate_embeddings',
+    payload_validator=validate_embedding_payload, retry_safe=True,
+)
+def embed_requirement(payload, context):
+    return _embed('requirement', payload, context)
+
+
+@task_handler(
+    key='real_estate.embed_candidate', default_queue='real_estate_embeddings',
+    payload_validator=validate_embedding_payload, retry_safe=True,
+)
+def embed_candidate(payload, context):
+    return _embed('candidate', payload, context)

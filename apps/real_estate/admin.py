@@ -2,17 +2,29 @@ from django.contrib import admin
 
 from apps.real_estate.models import (
     Listing,
+    ListingEmbedding,
     Property,
+    PropertyType,
     PropertyAddress,
+    PropertyEmbedding,
     PropertyCandidate,
+    CandidateEmbedding,
     PropertyMedia,
     PropertyRequirement,
+    RequirementEmbedding,
     RealEstateAgentCallLog,
     RealEstateOpportunity,
     RealEstateParseLog,
     RealEstatePromptConfig,
     RealEstateSettings,
 )
+
+
+@admin.register(PropertyType)
+class PropertyTypeAdmin(admin.ModelAdmin):
+    list_display = ('name', 'code', 'company', 'category', 'sort_order', 'is_active')
+    list_filter = ('company', 'category', 'is_active')
+    search_fields = ('name', 'code', 'description')
 
 
 @admin.register(Property)
@@ -83,3 +95,15 @@ class RealEstateAgentCallLogAdmin(admin.ModelAdmin):
     list_display = ('id', 'company', 'purpose', 'provider', 'model', 'success', 'duration_ms', 'created_at')
     list_filter = ('company', 'purpose', 'provider', 'success')
     readonly_fields = ('created_at',)
+
+
+class RealEstateEmbeddingAdmin(admin.ModelAdmin):
+    list_display = ('id', 'company', 'status', 'embedding_model', 'updated_at')
+    list_filter = ('company', 'status', 'embedding_model')
+    readonly_fields = ('embedding', 'metadata', 'created_at', 'updated_at')
+
+
+admin.site.register(PropertyEmbedding, RealEstateEmbeddingAdmin)
+admin.site.register(ListingEmbedding, RealEstateEmbeddingAdmin)
+admin.site.register(RequirementEmbedding, RealEstateEmbeddingAdmin)
+admin.site.register(CandidateEmbedding, RealEstateEmbeddingAdmin)

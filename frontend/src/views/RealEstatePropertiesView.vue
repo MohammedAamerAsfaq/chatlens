@@ -12,9 +12,10 @@ import UiSelect from '@/components/ui/UiSelect.vue'
 import PropertyEditorModal from '@/features/realEstate/components/PropertyEditorModal.vue'
 import PropertyImportModal from '@/features/realEstate/components/PropertyImportModal.vue'
 import PropertyMediaModal from '@/features/realEstate/components/PropertyMediaModal.vue'
+import PropertyTypeManagerModal from '@/features/realEstate/components/PropertyTypeManagerModal.vue'
 import { apiError, downloadBlob } from '@/features/realEstate/apiErrors'
 import { cleanPayload } from '@/features/realEstate/forms'
-import { propertyStatuses, propertyTypes, title } from '@/features/realEstate/options'
+import { propertyStatuses, title } from '@/features/realEstate/options'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -25,8 +26,14 @@ const editor = reactive({ open: false, record: null, busy: false })
 const media = reactive({ open: false, property: null, busy: false })
 const importer = reactive({ open: false, rows: [], busy: false, error: '' })
 const archive = reactive({ open: false, record: null, busy: false })
+const embeddings = reactive({ total: 0, embedded: 0, pending: 0, error: 0, missing: 0, busy: false })
+const propertyTypeRecords = ref([])
+const typeManager = reactive({ open: false, busy: false })
 const canManage = computed(() => auth.hasPermission('real_estate.properties.manage'))
-const filterTypes = [{ value: '', label: 'All property types' }, ...propertyTypes]
+const propertyTypeOptions = computed(() => propertyTypeRecords.value
+  .filter(record => record.is_active)
+  .map(record => ({ value: record.code, label: record.name })))
+const filterTypes = computed(() => [{ value: '', label: 'All property types' }, ...propertyTypeOptions.value])
 const filterStatuses = [{ value: '', label: 'All statuses' }, ...propertyStatuses]
 const columns = [
   { key: 'title', label: 'Property', sortable: true, width: '20rem' },
@@ -44,16 +51,48 @@ async function load() {
   } catch (exc) { error.value = apiError(exc, 'Unable to load properties.') }
   finally { loading.value = false }
 }
+async function loadEmbeddingStatus() {
+  try { Object.assign(embeddings, (await realEstateApi.realEstateEmbeddingStatus()).data) }
+  catch (exc) { error.value = apiError(exc, 'Unable to load Real Estate embedding status.') }
+}
+async function loadPropertyTypes() {
+  try {
+    propertyTypeRecords.value = (await realEstateApi.propertyTypes({ include_inactive: true, page_size: 100 })).data.results
+  } catch (exc) { error.value = apiError(exc, 'Unable to load property types.') }
+}
+async function savePropertyType(values) {
+  typeManager.busy = true; error.value = ''
+  try {
+    const payload = { ...values }; delete payload.id; delete payload.created_at; delete payload.updated_at
+    if (values.id) await realEstateApi.updatePropertyType(values.id, payload)
+    else await realEstateApi.createPropertyType(payload)
+    await loadPropertyTypes()
+  } catch (exc) { error.value = apiError(exc, 'Unable to save the property type.') }
+  finally { typeManager.busy = false }
+}
+async function deactivatePropertyType(record) {
+  typeManager.busy = true; error.value = ''
+  try { await realEstateApi.deactivatePropertyType(record.id); await loadPropertyTypes() }
+  catch (exc) { error.value = apiError(exc, 'Unable to deactivate the property type.') }
+  finally { typeManager.busy = false }
+}
+async function repairEmbeddings() {
+  embeddings.busy = true; error.value = ''
+  try { await realEstateApi.backfillRealEstateEmbeddings(); await loadEmbeddingStatus() }
+  catch (exc) { error.value = apiError(exc, 'Unable to queue Real Estate embeddings.') }
+  finally { embeddings.busy = false }
+}
 function openEditor(record = null) { editor.record = record; editor.open = true }
 async function saveProperty(values) {
   editor.busy = true; error.value = ''
   const { address, ...propertyValues } = values
   const numeric = ['bedrooms', 'bathrooms', 'built_up_area', 'plot_area', 'completion_year']
+  const addressPayload = cleanPayload(address, ['latitude', 'longitude'])
   try {
     const response = editor.record ? await realEstateApi.updateProperty(editor.record.id, cleanPayload(propertyValues, numeric)) : await realEstateApi.createProperty(cleanPayload(propertyValues, numeric))
     const hasAddress = Object.values(address).some(value => value !== '' && value != null)
-    if (response.data.address?.id) await realEstateApi.updateAddress(response.data.address.id, address)
-    else if (hasAddress) await realEstateApi.createAddress({ ...address, property: response.data.id })
+    if (response.data.address?.id) await realEstateApi.updateAddress(response.data.address.id, addressPayload)
+    else if (hasAddress) await realEstateApi.createAddress({ ...addressPayload, property: response.data.id })
     editor.open = false; await load()
   } catch (exc) { error.value = apiError(exc, 'Unable to save the property.') }
   finally { editor.busy = false }
@@ -74,10 +113,10 @@ async function confirmArchive() { archive.busy = true; try { await realEstateApi
 function resetAndLoad() { if (page.value !== 1) page.value = 1; else load() }
 watch(() => [filters.search, filters.property_type, filters.status], resetAndLoad)
 watch([page, pageSize, sortKey, sortDirection], load)
-onMounted(load)
+onMounted(() => Promise.all([load(), loadEmbeddingStatus(), loadPropertyTypes()]))
 </script>
 
-<template><UiPage width="wide"><UiPageHeader eyebrow="Real Estate Inventory" title="Properties" description="Maintain verified physical property records independently from sale and lease listings."><template #actions><UiButton @click="exportAll">Export CSV</UiButton><UiButton v-if="canManage" @click="importer.open = true">Import CSV</UiButton><UiButton v-if="canManage" variant="primary" @click="openEditor()">+ Add property</UiButton></template></UiPageHeader><UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
+<template><UiPage width="wide"><UiPageHeader eyebrow="Real Estate Inventory" title="Properties" description="Maintain verified physical property records independently from sale and lease listings."><template #actions><UiBadge :tone="embeddings.error ? 'danger' : (embeddings.pending || embeddings.missing) ? 'warning' : 'success'">Embeddings {{ embeddings.embedded }}/{{ embeddings.total }}</UiBadge><UiButton v-if="canManage" @click="typeManager.open = true">Property types</UiButton><UiButton v-if="canManage" :loading="embeddings.busy" @click="repairEmbeddings">Repair embeddings</UiButton><UiButton @click="exportAll">Export CSV</UiButton><UiButton v-if="canManage" @click="importer.open = true">Import CSV</UiButton><UiButton v-if="canManage" variant="primary" @click="openEditor()">+ Add property</UiButton></template></UiPageHeader><UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
   <UiDataTable :columns="columns" :rows="rows" :loading="loading" :total="total" :page="page" :page-size="pageSize" :sort-key="sortKey" :sort-direction="sortDirection" :search="filters.search" persist-key="real-estate-properties" search-placeholder="Search title, reference, or project..." empty-title="No properties match these filters." @update:page="page = $event" @update:page-size="pageSize = $event; page = 1" @update:sort-key="sortKey = $event" @update:sort-direction="sortDirection = $event" @update:search="filters.search = $event" @refresh="load">
     <template #filters><UiSelect v-model="filters.property_type" :options="filterTypes" /><UiSelect v-model="filters.status" :options="filterStatuses" /></template>
     <template #cell-title="{ row }"><strong>{{ row.title }}</strong><small class="subline">{{ row.reference_code || `#${row.id}` }}</small></template>
@@ -85,7 +124,7 @@ onMounted(load)
     <template #cell-built_up_area="{ row }">{{ row.built_up_area ? `${row.built_up_area} ${row.area_unit}` : '-' }}</template><template #cell-availability_status="{ value }"><UiBadge :tone="value === 'available' ? 'success' : 'neutral'">{{ title(value) }}</UiBadge></template>
     <template #cell-media="{ row }">{{ row.media.length }}</template><template #cell-actions="{ row }"><div class="actions"><UiButton size="small" @click.stop="openMedia(row)">Media</UiButton><UiButton v-if="canManage" size="small" @click.stop="openEditor(row)">Edit</UiButton><UiButton v-if="canManage" size="small" variant="danger" @click.stop="archive.record = row; archive.open = true">Archive</UiButton></div></template>
   </UiDataTable>
-  <PropertyEditorModal :open="editor.open" :record="editor.record" :busy="editor.busy" @close="editor.open = false" @save="saveProperty" /><PropertyMediaModal :open="media.open" :property="media.property" :busy="media.busy" @close="media.open = false" @upload="uploadMedia" @remove="removeMedia" /><PropertyImportModal :open="importer.open" :rows="importer.rows" :busy="importer.busy" :error="importer.error" @close="importer.open = false" @preview="previewImport" @import="importRows" /><UiConfirmModal :open="archive.open" title="Archive property" :message="`Archive ${archive.record?.title || 'this property'} and close its listings?`" confirm-label="Archive" danger :busy="archive.busy" @cancel="archive.open = false" @confirm="confirmArchive" />
+  <PropertyEditorModal :open="editor.open" :record="editor.record" :busy="editor.busy" :property-types="propertyTypeOptions" @close="editor.open = false" @save="saveProperty" /><PropertyMediaModal :open="media.open" :property="media.property" :busy="media.busy" @close="media.open = false" @upload="uploadMedia" @remove="removeMedia" /><PropertyImportModal :open="importer.open" :rows="importer.rows" :busy="importer.busy" :error="importer.error" @close="importer.open = false" @preview="previewImport" @import="importRows" /><PropertyTypeManagerModal :open="typeManager.open" :records="propertyTypeRecords" :busy="typeManager.busy" @close="typeManager.open = false" @save="savePropertyType" @deactivate="deactivatePropertyType" /><UiConfirmModal :open="archive.open" title="Archive property" :message="`Archive ${archive.record?.title || 'this property'} and close its listings?`" confirm-label="Archive" danger :busy="archive.busy" @cancel="archive.open = false" @confirm="confirmArchive" />
 </UiPage></template>
 
 <style scoped>.subline{display:block;color:var(--ui-text-subtle);margin-top:3px}.actions{display:flex;gap:6px;flex-wrap:wrap}</style>

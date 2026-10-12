@@ -91,6 +91,10 @@ export const clientPulseApi = {
 }
 
 export const realEstateApi = {
+  propertyTypes: (params = {}) => http.get('/real-estate/property-types/', { params }),
+  createPropertyType: data => http.post('/real-estate/property-types/', data),
+  updatePropertyType: (id, data) => http.patch(`/real-estate/property-types/${id}/`, data),
+  deactivatePropertyType: id => http.delete(`/real-estate/property-types/${id}/`),
   properties: (params = {}) => http.get('/real-estate/properties/', { params }),
   createProperty: data => http.post('/real-estate/properties/', data),
   updateProperty: (id, data) => http.patch(`/real-estate/properties/${id}/`, data),
@@ -102,6 +106,8 @@ export const realEstateApi = {
   },
   importProperties: rows => http.post('/real-estate/properties/bulk-import/', { rows }),
   exportProperties: (params = {}) => http.get('/real-estate/properties/export/', { params, responseType: 'blob' }),
+  realEstateEmbeddingStatus: () => http.get('/real-estate/properties/embedding-status/'),
+  backfillRealEstateEmbeddings: () => http.post('/real-estate/properties/backfill-embeddings/'),
   createAddress: data => http.post('/real-estate/property-addresses/', data),
   updateAddress: (id, data) => http.patch(`/real-estate/property-addresses/${id}/`, data),
   createMedia: data => http.post('/real-estate/property-media/', data),

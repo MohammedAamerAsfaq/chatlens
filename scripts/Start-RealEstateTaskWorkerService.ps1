@@ -44,7 +44,13 @@ if ($service -and $service.Status -eq 'Running') {
 }
 
 New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
-$queues = @('real_estate_gate', 'real_estate_extract', 'real_estate_match', 'real_estate_maintenance')
+$queues = @(
+    'real_estate_gate',
+    'real_estate_extract',
+    'real_estate_match',
+    'real_estate_maintenance',
+    'real_estate_embeddings'
+)
 $queueArguments = ($queues | ForEach-Object { "--queue $_" }) -join ' '
 $arguments = "manage.py run_background_tasks --no-ui $queueArguments"
 if (-not $service) {

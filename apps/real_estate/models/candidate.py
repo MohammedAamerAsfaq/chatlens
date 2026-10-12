@@ -3,7 +3,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
 
-from .contracts import ActivityType
+from .contracts import ActivityType, AreaUnit
 from .property import Property
 
 
@@ -12,12 +12,15 @@ class PropertyCandidate(models.Model):
     company = models.ForeignKey('tenancy.Company', on_delete=models.CASCADE, related_name='property_candidates')
     opportunity = models.OneToOneField('real_estate.RealEstateOpportunity', on_delete=models.CASCADE, related_name='property_candidate')
     title = models.CharField(max_length=255, blank=True)
-    property_type = models.CharField(max_length=30, choices=Property.TYPE_CHOICES, blank=True)
+    property_type = models.ForeignKey(
+        'real_estate.PropertyType', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='candidates',
+    )
     location_raw = models.CharField(max_length=500, blank=True)
     bedrooms = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True, validators=[MinValueValidator(0)])
     bathrooms = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True, validators=[MinValueValidator(0)])
     area = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)])
-    area_unit = models.CharField(max_length=10, choices=Property.AREA_UNIT_CHOICES, default='sqft')
+    area_unit = models.CharField(max_length=10, choices=AreaUnit.choices, default=AreaUnit.SQUARE_FEET)
     asking_price = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)])
     currency = models.CharField(max_length=3, default='AED')
     furnishing = models.CharField(max_length=30, choices=Property.FURNISHING_CHOICES, default='unknown')
@@ -43,6 +46,8 @@ class PropertyCandidate(models.Model):
             errors['opportunity'] = 'The opportunity must belong to this company.'
         if self.opportunity_id and self.opportunity.activity_type not in ActivityType.offer_values():
             errors['opportunity'] = 'Only selling or leasing offer opportunities can create candidates.'
+        if self.property_type_id and self.property_type.company_id != self.company_id:
+            errors['property_type'] = 'The property type must belong to this company.'
         for field in ('promoted_property', 'promoted_listing'):
             linked = getattr(self, field, None) if getattr(self, f'{field}_id', None) else None
             if linked and linked.company_id != self.company_id:

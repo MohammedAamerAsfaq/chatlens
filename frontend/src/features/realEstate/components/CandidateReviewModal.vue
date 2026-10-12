@@ -6,9 +6,15 @@ import UiInput from '@/components/ui/UiInput.vue'
 import UiModal from '@/components/ui/UiModal.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTabs from '@/components/ui/UiTabs.vue'
-import { areaUnits, furnishingOptions, paymentFrequencies, propertyTypes } from '../options'
+import { areaUnits, furnishingOptions, paymentFrequencies } from '../options'
 
-const props = defineProps({ open: Boolean, candidate: { type: Object, default: null }, listings: { type: Array, default: () => [] }, busy: Boolean })
+const props = defineProps({
+  open: Boolean,
+  candidate: { type: Object, default: null },
+  listings: { type: Array, default: () => [] },
+  propertyTypes: { type: Array, default: () => [] },
+  busy: Boolean,
+})
 const emit = defineEmits(['close', 'promote', 'merge', 'reject'])
 const mode = ref('promote')
 const listingId = ref('')
@@ -51,7 +57,7 @@ function promote() {
     <UiTabs v-model="mode" :tabs="tabs" />
     <form v-if="mode === 'promote'" id="candidate-form" class="candidate-form" @submit.prevent="promote">
       <UiFormField label="Property title" class="wide"><UiInput v-model="form.title" required /></UiFormField>
-      <UiFormField label="Property type"><UiSelect v-model="form.property_type" :options="propertyTypes" /></UiFormField>
+      <UiFormField label="Property type"><UiSelect v-model="form.property_type" :options="props.propertyTypes" /></UiFormField>
       <UiFormField label="Location"><UiInput v-model="form.normalized_location" /></UiFormField>
       <UiFormField label="Bedrooms"><UiInput v-model="form.bedrooms" type="number" min="0" step="0.5" /></UiFormField>
       <UiFormField label="Bathrooms"><UiInput v-model="form.bathrooms" type="number" min="0" step="0.5" /></UiFormField>

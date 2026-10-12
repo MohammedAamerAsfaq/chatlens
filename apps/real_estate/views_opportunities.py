@@ -45,7 +45,7 @@ class RequirementViewSet(CompanyOwnedViewSet):
 
 class CandidateViewSet(CompanyOwnedViewSet):
     queryset = PropertyCandidate.objects.select_related(
-        'opportunity', 'promoted_property', 'promoted_listing', 'reviewed_by',
+        'opportunity', 'property_type', 'promoted_property', 'promoted_listing', 'reviewed_by',
     )
     serializer_class = PropertyCandidateSerializer
     read_permission = 'real_estate.opportunities.view'

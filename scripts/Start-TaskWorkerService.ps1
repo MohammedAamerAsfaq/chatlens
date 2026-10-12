@@ -42,7 +42,8 @@ $dedicatedQueues = @(
     'real_estate_gate',
     'real_estate_extract',
     'real_estate_match',
-    'real_estate_maintenance'
+    'real_estate_maintenance',
+    'real_estate_embeddings'
 )
 $excludeArguments = ($dedicatedQueues | ForEach-Object { "--exclude-queue $_" }) -join ' '
 $arguments = "manage.py run_background_tasks --no-ui $excludeArguments"

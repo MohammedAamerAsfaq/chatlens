@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from apps.real_estate.models import Listing, Property, PropertyAddress
+from apps.real_estate.services.property_types import resolve_property_type
 
 
 PROPERTY_FIELDS = (
@@ -76,8 +77,13 @@ def preview_row(company, source):
     errors = {}
     duplicate = _find_duplicate(company, row)
     if not duplicate:
-        property_record = Property(company=company, **_values(row, PROPERTY_FIELDS))
-        _collect_errors(property_record, errors)
+        property_values = _values(row, PROPERTY_FIELDS)
+        property_values['property_type'] = resolve_property_type(company, row.get('property_type'))
+        if not property_values['property_type']:
+            errors['property_type'] = 'Select an active property type configured for this company.'
+        property_record = Property(company=company, **property_values)
+        if not errors:
+            _collect_errors(property_record, errors)
         if _has_values(row, ADDRESS_FIELDS):
             _collect_errors(
                 PropertyAddress(company=company, property=property_record, **_values(row, ADDRESS_FIELDS)),
@@ -109,7 +115,9 @@ def import_rows(company, rows):
         if row['duplicate_property_id']:
             skipped.append(row['row_number'])
             continue
-        property_record = Property.objects.create(company=company, **_values(row, PROPERTY_FIELDS))
+        values = _values(row, PROPERTY_FIELDS)
+        values['property_type'] = resolve_property_type(company, row.get('property_type'))
+        property_record = Property.objects.create(company=company, **values)
         if _has_values(row, ADDRESS_FIELDS):
             PropertyAddress.objects.create(company=company, property=property_record, **_values(row, ADDRESS_FIELDS))
         if row.get('listing_type') or row.get('asking_price') is not None:

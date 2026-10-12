@@ -5,15 +5,19 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.real_estate.models import (
-    ActivityType, ClassificationStatus, Listing, Property, PropertyCandidate, RealEstateOpportunity,
+    ActivityType, ClassificationStatus, Listing, Property, PropertyCandidate, PropertyType,
+    RealEstateOpportunity,
 )
 from apps.tenancy.models import Company, CompanyMembership
+from apps.real_estate.services.property_types import seed_default_property_types
 
 
 class RealEstateApiTests(TestCase):
     def setUp(self):
         self.company = Company.objects.create(name='API Estate', slug='api-estate', industry_type='real_estate')
         self.other = Company.objects.create(name='Other Estate', slug='other-estate', industry_type='real_estate')
+        self.types = {item.code: item for item in seed_default_property_types(self.company)}
+        self.other_types = {item.code: item for item in seed_default_property_types(self.other)}
         self.user = get_user_model().objects.create_user('api-estate-owner')
         CompanyMembership.objects.create(
             company=self.company, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
@@ -22,12 +26,12 @@ class RealEstateApiTests(TestCase):
         self.client.force_authenticate(self.user)
 
     def test_properties_are_company_scoped_and_archived_on_delete(self):
-        visible = Property.objects.create(company=self.company, title='Visible flat', property_type='apartment')
+        visible = Property.objects.create(company=self.company, title='Visible flat', property_type=self.types['apartment'])
         listing = Listing.objects.create(
             company=self.company, property=visible, listing_type='sale', asking_price=100,
             is_verified=True, status='active',
         )
-        Property.objects.create(company=self.other, title='Hidden villa', property_type='villa')
+        Property.objects.create(company=self.other, title='Hidden villa', property_type=self.other_types['villa'])
 
         response = self.client.get('/api/real-estate/properties/')
         self.assertEqual(response.status_code, 200)
@@ -51,6 +55,29 @@ class RealEstateApiTests(TestCase):
         self.assertEqual(response.status_code, 201, response.json())
         self.assertEqual(Property.objects.get(pk=response.json()['id']).company, self.company)
 
+    def test_property_type_master_supports_custom_types_and_safe_deactivation(self):
+        response = self.client.post('/api/real-estate/property-types/', {
+            'name': 'Hotel Apartment', 'code': 'hotel_apartment',
+            'category': 'residential', 'sort_order': 25,
+        }, format='json')
+        self.assertEqual(response.status_code, 201, response.json())
+        type_id = response.json()['id']
+        self.assertEqual(PropertyType.objects.get(pk=type_id).company, self.company)
+
+        response = self.client.post('/api/real-estate/properties/', {
+            'title': 'Serviced unit', 'property_type': 'hotel_apartment', 'area_unit': 'acre',
+        }, format='json')
+        self.assertEqual(response.status_code, 201, response.json())
+        self.assertEqual(response.json()['property_type_name'], 'Hotel Apartment')
+        self.assertEqual(response.json()['area_unit'], 'acre')
+
+        self.assertEqual(self.client.delete(f'/api/real-estate/property-types/{type_id}/').status_code, 204)
+        response = self.client.post('/api/real-estate/properties/', {
+            'title': 'Another serviced unit', 'property_type': 'hotel_apartment',
+        }, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(PropertyType.objects.get(pk=type_id).is_active is False)
+
     def test_candidate_promotion_is_explicit(self):
         opportunity = RealEstateOpportunity.objects.create(
             company=self.company,
@@ -62,7 +89,7 @@ class RealEstateApiTests(TestCase):
             company=self.company,
             opportunity=opportunity,
             title='Seller villa',
-            property_type='villa',
+            property_type=self.types['villa'],
             asking_price=3000000,
         )
         self.assertFalse(Property.objects.filter(company=self.company).exists())
@@ -123,9 +150,9 @@ class RealEstateApiTests(TestCase):
 
     def test_csv_import_skips_exact_duplicate_and_export_is_company_scoped(self):
         existing = Property.objects.create(
-            company=self.company, reference_code='SV-002', title='Existing Villa', property_type='villa',
+            company=self.company, reference_code='SV-002', title='Existing Villa', property_type=self.types['villa'],
         )
-        Property.objects.create(company=self.other, reference_code='HIDDEN', title='Hidden', property_type='villa')
+        Property.objects.create(company=self.other, reference_code='HIDDEN', title='Hidden', property_type=self.other_types['villa'])
         response = self.client.post('/api/real-estate/properties/bulk-import/', {
             'rows': [{'row_number': 2, 'reference_code': 'SV-002', 'title': 'Existing Villa', 'property_type': 'villa'}],
         }, format='json')

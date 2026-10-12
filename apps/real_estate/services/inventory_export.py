@@ -22,6 +22,8 @@ def property_export_response(queryset):
             for field in CSV_FIELDS:
                 if hasattr(property_record, field):
                     value = getattr(property_record, field)
+                    if field == 'property_type':
+                        value = value.code
                 elif address and hasattr(address, field):
                     value = getattr(address, field)
                 elif listing and field == 'listing_status':

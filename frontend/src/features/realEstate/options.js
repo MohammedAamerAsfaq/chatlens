@@ -1,10 +1,11 @@
-export const propertyTypes = options([
-  'apartment', 'villa', 'townhouse', 'office', 'retail', 'warehouse', 'land', 'building', 'room', 'other',
-])
 export const propertyStatuses = options(['draft', 'available', 'reserved', 'sold', 'leased', 'inactive'])
 export const furnishingOptions = options(['unknown', 'unfurnished', 'semi_furnished', 'furnished'])
 export const completionOptions = options(['unknown', 'ready', 'off_plan', 'under_construction'])
-export const areaUnits = [{ value: 'sqft', label: 'Square feet' }, { value: 'sqm', label: 'Square metres' }]
+export const areaUnits = [
+  { value: 'sqft', label: 'Square feet' }, { value: 'sqm', label: 'Square metres' },
+  { value: 'sqyd', label: 'Square yards' }, { value: 'acre', label: 'Acres' },
+  { value: 'hectare', label: 'Hectares' },
+]
 export const listingTypes = [{ value: 'sale', label: 'Sale' }, { value: 'lease', label: 'Lease' }]
 export const listingStatuses = options(['draft', 'active', 'paused', 'expired', 'closed'])
 export const paymentFrequencies = options(['not_applicable', 'yearly', 'monthly', 'quarterly', 'weekly', 'daily'])

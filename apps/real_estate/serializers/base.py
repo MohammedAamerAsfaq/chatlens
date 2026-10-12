@@ -1,6 +1,25 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
+from apps.tenancy.services.access import default_company_for_user
+
+
+class CompanyPropertyTypeField(serializers.Field):
+    default_error_messages = {'invalid': 'Select an active property type for this company.'}
+
+    def to_representation(self, value):
+        return value.code if value else None
+
+    def to_internal_value(self, data):
+        from apps.real_estate.services.property_types import resolve_property_type
+
+        request = self.context.get('request')
+        company = default_company_for_user(request.user) if request else None
+        match = resolve_property_type(company, data) if company else None
+        if not match:
+            self.fail('invalid')
+        return match
+
 
 class CleanModelSerializer(serializers.ModelSerializer):
     def create(self, validated_data):

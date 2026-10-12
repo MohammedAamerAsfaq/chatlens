@@ -5,10 +5,15 @@ import UiFormField from '@/components/ui/UiFormField.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiModal from '@/components/ui/UiModal.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
-import { areaUnits, completionOptions, furnishingOptions, propertyStatuses, propertyTypes } from '../options'
+import { areaUnits, completionOptions, furnishingOptions, propertyStatuses } from '../options'
 import { emptyProperty } from '../forms'
 
-const props = defineProps({ open: Boolean, record: { type: Object, default: null }, busy: Boolean })
+const props = defineProps({
+  open: Boolean,
+  record: { type: Object, default: null },
+  busy: Boolean,
+  propertyTypes: { type: Array, default: () => [] },
+})
 const emit = defineEmits(['close', 'save'])
 const form = reactive(emptyProperty())
 
@@ -29,7 +34,7 @@ function submit() {
       <section><h3>Property details</h3><div class="re-form-grid">
         <UiFormField label="Title"><UiInput v-model="form.title" required /></UiFormField>
         <UiFormField label="Reference code"><UiInput v-model="form.reference_code" /></UiFormField>
-        <UiFormField label="Property type"><UiSelect v-model="form.property_type" :options="propertyTypes" /></UiFormField>
+        <UiFormField label="Property type"><UiSelect v-model="form.property_type" :options="props.propertyTypes" /></UiFormField>
         <UiFormField label="Availability"><UiSelect v-model="form.availability_status" :options="propertyStatuses" /></UiFormField>
         <UiFormField label="Bedrooms"><UiInput v-model="form.bedrooms" type="number" min="0" step="0.5" /></UiFormField>
         <UiFormField label="Bathrooms"><UiInput v-model="form.bathrooms" type="number" min="0" step="0.5" /></UiFormField>
@@ -52,6 +57,8 @@ function submit() {
         <UiFormField label="Street"><UiInput v-model="form.address.street" /></UiFormField>
         <UiFormField label="Unit"><UiInput v-model="form.address.unit_number" /></UiFormField>
         <UiFormField label="Postal code"><UiInput v-model="form.address.postal_code" /></UiFormField>
+        <UiFormField label="Latitude"><UiInput v-model="form.address.latitude" type="number" min="-90" max="90" step="0.000001" placeholder="25.204849" /></UiFormField>
+        <UiFormField label="Longitude"><UiInput v-model="form.address.longitude" type="number" min="-180" max="180" step="0.000001" placeholder="55.270783" /></UiFormField>
         <UiFormField label="Normalized location" class="wide"><UiInput v-model="form.address.normalized_location" /></UiFormField>
       </div></section>
     </form>

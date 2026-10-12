@@ -89,6 +89,7 @@ class RealEstateFoundationTests(TestCase):
                 'real_estate_extract',
                 'real_estate_match',
                 'real_estate_maintenance',
+                'real_estate_embeddings',
             },
         )
         self.assertTrue(all(queue.task_timeout_seconds == 300 for queue in queues))
@@ -103,6 +104,10 @@ class RealEstateFoundationTests(TestCase):
         )
         settings = RealEstateSettings.objects.get(company_id=result.company_id)
         self.assertEqual(settings.gate_mode, RealEstateSettings.GATE_OBSERVATIONAL)
+        from apps.real_estate.models import PropertyType
+        self.assertTrue(PropertyType.objects.filter(
+            company_id=result.company_id, code='apartment', is_active=True,
+        ).exists())
         self.assertTrue(CompanyRolePermission.objects.filter(
             company_id=result.company_id,
             role__key='super_user',

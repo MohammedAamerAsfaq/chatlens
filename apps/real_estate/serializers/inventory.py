@@ -1,7 +1,22 @@
 from rest_framework import serializers
 
-from apps.real_estate.models import Listing, Property, PropertyAddress, PropertyMedia
-from .base import CleanModelSerializer
+from apps.real_estate.models import Listing, Property, PropertyAddress, PropertyMedia, PropertyType
+from .base import CleanModelSerializer, CompanyPropertyTypeField
+
+
+class PropertyTypeSerializer(CleanModelSerializer):
+    def validate_code(self, value):
+        from apps.real_estate.services.property_types import normalize_property_type_code
+
+        normalized = normalize_property_type_code(value)
+        if self.instance and normalized != self.instance.code:
+            raise serializers.ValidationError('The code cannot be changed after creation.')
+        return normalized
+
+    class Meta:
+        model = PropertyType
+        exclude = ('company',)
+        read_only_fields = ('created_at', 'updated_at')
 
 
 class PropertyAddressSerializer(CleanModelSerializer):
@@ -19,6 +34,8 @@ class PropertyMediaSerializer(CleanModelSerializer):
 
 
 class PropertySerializer(CleanModelSerializer):
+    property_type = CompanyPropertyTypeField()
+    property_type_name = serializers.CharField(source='property_type.name', read_only=True)
     address = PropertyAddressSerializer(read_only=True)
     media = PropertyMediaSerializer(many=True, read_only=True)
 

@@ -5,11 +5,13 @@ from django.db import transaction
 
 from apps.real_estate.models import (
     ActivityType,
+    AreaUnit,
     Property,
     PropertyCandidate,
     PropertyRequirement,
     RealEstateSettings,
 )
+from apps.real_estate.services.property_types import resolve_property_type, seed_default_property_types
 
 
 @transaction.atomic
@@ -17,6 +19,7 @@ def project_extraction(opportunity, parsed):
     if not opportunity.activity_type:
         return None
     settings, _ = RealEstateSettings.objects.get_or_create(company=opportunity.company)
+    seed_default_property_types(opportunity.company)
     payload = parsed.get('property') or {}
     if opportunity.activity_type in ActivityType.requirement_values():
         PropertyCandidate.objects.filter(opportunity=opportunity).delete()
@@ -31,14 +34,14 @@ def _project_requirement(opportunity, payload, parsed, settings):
     defaults = {
         'company': opportunity.company,
         'acceptable_locations': _list(payload.get('locations') or payload.get('location')),
-        'acceptable_property_types': _property_types(payload),
+        'acceptable_property_types': _property_types(opportunity.company, payload),
         'bedrooms_min': _decimal(payload.get('bedrooms_min') or payload.get('bedrooms')),
         'bedrooms_max': _decimal(payload.get('bedrooms_max') or payload.get('bedrooms')),
         'bathrooms_min': _decimal(payload.get('bathrooms_min') or payload.get('bathrooms')),
         'bathrooms_max': _decimal(payload.get('bathrooms_max') or payload.get('bathrooms')),
         'area_min': _decimal(payload.get('area_min') or area.get('min')),
         'area_max': _decimal(payload.get('area_max') or area.get('max')),
-        'area_unit': _choice(payload.get('area_unit') or area.get('unit'), {'sqft', 'sqm'}, settings.default_area_unit),
+        'area_unit': _choice(payload.get('area_unit') or area.get('unit'), set(AreaUnit.values), settings.default_area_unit),
         'budget_min': _decimal(payload.get('budget_min') or budget.get('min')),
         'budget_max': _decimal(payload.get('budget_max') or budget.get('max')),
         'currency': str(payload.get('currency') or budget.get('currency') or settings.default_currency).upper()[:3],
@@ -61,12 +64,14 @@ def _project_candidate(opportunity, payload, parsed, settings):
     defaults = {
         'company': opportunity.company,
         'title': str(payload.get('title') or parsed.get('summary') or '')[:255],
-        'property_type': _property_type(payload.get('property_type')),
+        'property_type': resolve_property_type(
+            opportunity.company, payload.get('property_type'), fallback=True,
+        ),
         'location_raw': str(payload.get('location') or _first(payload.get('locations')) or '')[:500],
         'bedrooms': _decimal(payload.get('bedrooms')),
         'bathrooms': _decimal(payload.get('bathrooms')),
         'area': _decimal(payload.get('area') if not isinstance(payload.get('area'), dict) else payload['area'].get('value')),
-        'area_unit': _choice(payload.get('area_unit'), {'sqft', 'sqm'}, settings.default_area_unit),
+        'area_unit': _choice(payload.get('area_unit'), set(AreaUnit.values), settings.default_area_unit),
         'asking_price': _decimal(payload.get('asking_price') or price.get('value') or price.get('amount')),
         'currency': str(payload.get('currency') or price.get('currency') or settings.default_currency).upper()[:3],
         'furnishing': _furnishing(payload.get('furnishing')),
@@ -126,10 +131,7 @@ def _furnishing(value):
     return _choice(value, {item[0] for item in Property.FURNISHING_CHOICES}, 'unknown')
 
 
-def _property_type(value):
-    return _choice(value, {item[0] for item in Property.TYPE_CHOICES}, 'other')
-
-
-def _property_types(payload):
+def _property_types(company, payload):
     values = _list(payload.get('property_types') or payload.get('property_type'))
-    return [_property_type(value) for value in values]
+    matches = [resolve_property_type(company, value, fallback=True) for value in values]
+    return list(dict.fromkeys(match.code for match in matches if match))

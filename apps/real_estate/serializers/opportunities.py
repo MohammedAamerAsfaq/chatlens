@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from apps.real_estate.models import PropertyCandidate, PropertyRequirement, RealEstateOpportunity
-from .base import CleanModelSerializer
+from .base import CleanModelSerializer, CompanyPropertyTypeField
 
 
 class OpportunitySerializer(CleanModelSerializer):
@@ -27,6 +27,8 @@ class PropertyRequirementSerializer(CleanModelSerializer):
 
 class PropertyCandidateSerializer(CleanModelSerializer):
     activity_type = serializers.CharField(source='opportunity.activity_type', read_only=True)
+    property_type = CompanyPropertyTypeField(required=False, allow_null=True)
+    property_type_name = serializers.CharField(source='property_type.name', read_only=True)
 
     class Meta:
         model = PropertyCandidate

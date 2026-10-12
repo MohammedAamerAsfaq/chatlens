@@ -4,13 +4,10 @@ from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import Q
 
+from .contracts import AreaUnit
+
 
 class Property(models.Model):
-    TYPE_CHOICES = [(value, label) for value, label in (
-        ('apartment', 'Apartment'), ('villa', 'Villa'), ('townhouse', 'Townhouse'),
-        ('office', 'Office'), ('retail', 'Retail'), ('warehouse', 'Warehouse'),
-        ('land', 'Land'), ('building', 'Building'), ('room', 'Room'), ('other', 'Other'),
-    )]
     STATUS_CHOICES = [(value, value.replace('_', ' ').title()) for value in (
         'draft', 'available', 'reserved', 'sold', 'leased', 'inactive',
     )]
@@ -20,12 +17,14 @@ class Property(models.Model):
     COMPLETION_CHOICES = [(value, value.replace('_', ' ').title()) for value in (
         'unknown', 'ready', 'off_plan', 'under_construction',
     )]
-    AREA_UNIT_CHOICES = [('sqft', 'Square feet'), ('sqm', 'Square metres')]
+    AREA_UNIT_CHOICES = AreaUnit.choices
 
     company = models.ForeignKey('tenancy.Company', on_delete=models.CASCADE, related_name='properties')
     reference_code = models.CharField(max_length=80, blank=True)
     title = models.CharField(max_length=255)
-    property_type = models.CharField(max_length=30, choices=TYPE_CHOICES)
+    property_type = models.ForeignKey(
+        'real_estate.PropertyType', on_delete=models.PROTECT, related_name='properties',
+    )
     description = models.TextField(blank=True)
     bedrooms = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True, validators=[MinValueValidator(0)])
     bathrooms = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True, validators=[MinValueValidator(0)])
@@ -53,13 +52,18 @@ class Property(models.Model):
             models.UniqueConstraint(fields=['company', 'reference_code'], condition=~Q(reference_code=''), name='re_property_company_reference_uniq'),
             models.UniqueConstraint(fields=['company', 'source', 'external_source_id'], condition=~Q(external_source_id=''), name='re_property_external_source_uniq'),
         ]
-        indexes = [models.Index(fields=['company', 'property_type', 'availability_status'])]
+        indexes = [models.Index(
+            fields=['company', 'property_type', 'availability_status'],
+            name='re_property_type_status_idx',
+        )]
 
     def __str__(self):
         return self.title
 
     def clean(self):
         super().clean()
+        if self.property_type_id and self.property_type.company_id != self.company_id:
+            raise ValidationError({'property_type': 'The property type must belong to this company.'})
         if not self.assigned_to_id:
             return
         from apps.tenancy.models import CompanyMembership

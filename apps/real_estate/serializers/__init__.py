@@ -1,8 +1,11 @@
-from .inventory import ListingSerializer, PropertyAddressSerializer, PropertyMediaSerializer, PropertySerializer
+from .inventory import (
+    ListingSerializer, PropertyAddressSerializer, PropertyMediaSerializer,
+    PropertySerializer, PropertyTypeSerializer,
+)
 from .opportunities import OpportunitySerializer, PropertyCandidateSerializer, PropertyRequirementSerializer
 
 __all__ = [
     'ListingSerializer', 'OpportunitySerializer', 'PropertyAddressSerializer',
     'PropertyCandidateSerializer', 'PropertyMediaSerializer', 'PropertyRequirementSerializer',
-    'PropertySerializer',
+    'PropertySerializer', 'PropertyTypeSerializer',
 ]

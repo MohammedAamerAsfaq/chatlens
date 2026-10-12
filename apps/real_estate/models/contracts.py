@@ -29,3 +29,11 @@ class ClassificationDecision(models.TextChoices):
     LEASING_OFFER = ActivityType.LEASING_OFFER, 'Leasing Offer'
     NOT_REAL_ESTATE = ClassificationStatus.NOT_REAL_ESTATE, 'Not Real Estate'
     NEEDS_REVIEW = ClassificationStatus.NEEDS_REVIEW, 'Needs Review'
+
+
+class AreaUnit(models.TextChoices):
+    SQUARE_FEET = 'sqft', 'Square feet'
+    SQUARE_METRES = 'sqm', 'Square metres'
+    SQUARE_YARDS = 'sqyd', 'Square yards'
+    ACRES = 'acre', 'Acres'
+    HECTARES = 'hectare', 'Hectares'

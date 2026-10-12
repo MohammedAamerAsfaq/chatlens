@@ -72,7 +72,9 @@ class CompanyEnrollmentService:
             ClientPulseSettings.objects.get_or_create(company=company)
             if company.industry_type == Company.INDUSTRY_REAL_ESTATE:
                 from apps.real_estate.models import RealEstateSettings
+                from apps.real_estate.services.property_types import seed_default_property_types
                 RealEstateSettings.objects.get_or_create(company=company)
+                seed_default_property_types(company)
             from apps.clientpulse.services.scheduling import ensure_company_reminder_schedule
             ensure_company_reminder_schedule(company)
             seed_company_roles(company)
