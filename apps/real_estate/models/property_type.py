@@ -21,6 +21,7 @@ class PropertyType(models.Model):
     )
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='other')
     description = models.CharField(max_length=255, blank=True)
+    aliases = models.JSONField(default=list, blank=True)
     sort_order = models.PositiveSmallIntegerField(default=0)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -43,3 +44,8 @@ class PropertyType(models.Model):
         self.code = self.code.strip().lower()
         if not self.name:
             raise ValidationError({'name': 'Property type name is required.'})
+        if not isinstance(self.aliases, list):
+            raise ValidationError({'aliases': 'Aliases must be a list.'})
+        self.aliases = list(dict.fromkeys(
+            str(value).strip() for value in self.aliases if str(value).strip()
+        ))

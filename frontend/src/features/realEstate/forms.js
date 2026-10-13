@@ -3,6 +3,8 @@ export function emptyProperty() {
     reference_code: '', title: '', property_type: 'apartment', description: '', bedrooms: '', bathrooms: '',
     built_up_area: '', plot_area: '', area_unit: 'sqft', furnishing: 'unknown', completion_status: 'unknown',
     developer: '', project_name: '', completion_year: '', availability_status: 'draft',
+    market_scope: 'local', inventory_source_type: 'own', is_tracked: false,
+    ownership_eligibility: 'all', tenure_type: '', attributes: {},
     address: emptyAddress(),
   }
 }

@@ -22,12 +22,16 @@ watch(() => props.records, records => {
 }, { deep: true })
 
 function emptyForm() {
-  return { id: null, name: '', code: '', category: 'residential', description: '', sort_order: 0, is_active: true }
+  return { id: null, name: '', code: '', category: 'residential', aliases_text: '', description: '', sort_order: 0, is_active: true }
 }
 
-function edit(record) { Object.assign(form, record) }
+function edit(record) { Object.assign(form, record, { aliases_text: (record.aliases || []).join(', ') }) }
 function reset() { Object.assign(form, emptyForm()) }
-function save() { emit('save', { ...form }) }
+function save() {
+  const values = { ...form, aliases: form.aliases_text.split(',').map(value => value.trim()).filter(Boolean) }
+  delete values.aliases_text
+  emit('save', values)
+}
 </script>
 
 <template>
@@ -45,6 +49,7 @@ function save() { emit('save', { ...form }) }
         <UiFormField label="Name"><UiInput v-model="form.name" required /></UiFormField>
         <UiFormField label="Code" hint="Lowercase letters, numbers, and underscores."><UiInput v-model="form.code" required :disabled="Boolean(form.id)" /></UiFormField>
         <UiFormField label="Category"><UiSelect v-model="form.category" :options="categories" /></UiFormField>
+        <UiFormField label="Aliases" hint="Import and AI labels, separated by commas."><UiInput v-model="form.aliases_text" /></UiFormField>
         <UiFormField label="Sort order"><UiInput v-model="form.sort_order" type="number" min="0" /></UiFormField>
         <UiFormField label="Description"><UiInput v-model="form.description" multiline :rows="3" /></UiFormField>
         <div class="form-actions"><UiButton v-if="form.id" @click="reset">Add new</UiButton><UiButton variant="primary" type="submit" :disabled="busy">Save type</UiButton></div>

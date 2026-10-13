@@ -37,3 +37,27 @@ class AreaUnit(models.TextChoices):
     SQUARE_YARDS = 'sqyd', 'Square yards'
     ACRES = 'acre', 'Acres'
     HECTARES = 'hectare', 'Hectares'
+
+
+class MarketScope(models.TextChoices):
+    LOCAL = 'local', 'Local'
+    REGIONAL = 'regional', 'Regional'
+    INTERNATIONAL = 'international', 'International'
+
+
+class OwnershipEligibility(models.TextChoices):
+    LOCALS_ONLY = 'locals_only', 'Locals Only'
+    GCC_ONLY = 'gcc_only', 'GCC Only'
+    ALL = 'all', 'All'
+
+
+class TenureType(models.TextChoices):
+    FREEHOLD = 'freehold', 'Freehold'
+    LONG_LEASE = 'long_lease', 'Long Lease'
+    LEASE_99_YEAR = 'lease_99_year', '99 Year Lease'
+
+
+class InventorySourceType(models.TextChoices):
+    OWN = 'own', 'Own Inventory'
+    AUTHORIZED = 'authorized', 'Authorized Inventory'
+    FLOATING = 'floating', 'Floating Inventory'

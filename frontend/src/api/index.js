@@ -105,6 +105,7 @@ export const realEstateApi = {
     return http.post('/real-estate/properties/import-preview/', data)
   },
   importProperties: rows => http.post('/real-estate/properties/bulk-import/', { rows }),
+  reviewPropertyImportRows: rows => http.post('/real-estate/properties/review-import-rows/', { rows }),
   exportProperties: (params = {}) => http.get('/real-estate/properties/export/', { params, responseType: 'blob' }),
   realEstateEmbeddingStatus: () => http.get('/real-estate/properties/embedding-status/'),
   backfillRealEstateEmbeddings: () => http.post('/real-estate/properties/backfill-embeddings/'),
@@ -117,6 +118,7 @@ export const realEstateApi = {
   updateListing: (id, data) => http.patch(`/real-estate/listings/${id}/`, data),
   archiveListing: id => http.delete(`/real-estate/listings/${id}/`),
   candidates: (params = {}) => http.get('/real-estate/candidates/', { params }),
+  updateCandidate: (id, data) => http.patch(`/real-estate/candidates/${id}/`, data),
   promoteCandidate: (id, data) => http.post(`/real-estate/candidates/${id}/promote/`, data),
   mergeCandidate: (id, listingId) => http.post(`/real-estate/candidates/${id}/merge/`, { listing_id: listingId }),
   rejectCandidate: id => http.post(`/real-estate/candidates/${id}/reject/`),

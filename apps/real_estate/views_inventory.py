@@ -17,12 +17,15 @@ from apps.real_estate.services.inventory_import import import_rows, parse_csv_up
 
 
 class PropertyTypeViewSet(CompanyOwnedViewSet):
-    queryset = PropertyType.objects.all()
+    queryset = PropertyType.objects.prefetch_related('field_definitions')
     serializer_class = PropertyTypeSerializer
     read_permission = 'real_estate.properties.view'
     write_permission = 'real_estate.properties.manage'
 
     def get_queryset(self):
+        from apps.real_estate.services.property_types import seed_default_property_types
+
+        seed_default_property_types(self.active_company())
         qs = super().get_queryset()
         if self.request.query_params.get('include_inactive') != 'true':
             qs = qs.filter(is_active=True)
@@ -49,9 +52,18 @@ class PropertyViewSet(CompanyOwnedViewSet):
             qs = qs.filter(property_type__code=value)
         if value := self.request.query_params.get('status'):
             qs = qs.filter(availability_status=value)
+        if value := self.request.query_params.get('inventory_type'):
+            qs = qs.filter(is_tracked=True) if value == 'tracked' else qs.filter(inventory_source_type=value)
+        if value := self.request.query_params.get('ownership_eligibility'):
+            qs = qs.filter(ownership_eligibility=value)
+        if value := self.request.query_params.get('tenure_type'):
+            qs = qs.filter(tenure_type=value)
         if search := self.request.query_params.get('search'):
             qs = qs.filter(Q(title__icontains=search) | Q(reference_code__icontains=search) | Q(project_name__icontains=search))
-        allowed = {'title', 'property_type', 'bedrooms', 'built_up_area', 'availability_status', 'updated_at'}
+        allowed = {
+            'title', 'property_type', 'bedrooms', 'built_up_area',
+            'availability_status', 'inventory_source_type', 'updated_at',
+        }
         ordering = self.request.query_params.get('ordering', '-updated_at')
         if ordering.lstrip('-') in allowed:
             prefix = '-' if ordering.startswith('-') else ''
@@ -83,6 +95,14 @@ class PropertyViewSet(CompanyOwnedViewSet):
             raise ValidationError({'rows': 'Provide at least one reviewed row.'})
         result = import_rows(self.active_company(), rows)
         return Response(result, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'], url_path='review-import-rows')
+    def review_import_rows(self, request):
+        rows = request.data.get('rows')
+        if not isinstance(rows, list) or not rows:
+            raise ValidationError({'rows': 'Provide at least one row to validate.'})
+        reviewed = preview_rows(self.active_company(), rows)
+        return Response({'rows': reviewed, 'count': len(reviewed)})
 
     @action(detail=False, methods=['get'])
     def export(self, request):

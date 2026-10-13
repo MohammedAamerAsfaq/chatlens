@@ -4,7 +4,13 @@ from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import Q
 
-from .contracts import AreaUnit
+from .contracts import (
+    AreaUnit,
+    InventorySourceType,
+    MarketScope,
+    OwnershipEligibility,
+    TenureType,
+)
 
 
 class Property(models.Model):
@@ -25,6 +31,17 @@ class Property(models.Model):
     property_type = models.ForeignKey(
         'real_estate.PropertyType', on_delete=models.PROTECT, related_name='properties',
     )
+    source_property_type_label = models.CharField(max_length=100, blank=True)
+    market_scope = models.CharField(max_length=20, choices=MarketScope.choices, default=MarketScope.LOCAL)
+    inventory_source_type = models.CharField(
+        max_length=20, choices=InventorySourceType.choices, default=InventorySourceType.OWN,
+    )
+    is_tracked = models.BooleanField(default=False)
+    ownership_eligibility = models.CharField(
+        max_length=20, choices=OwnershipEligibility.choices, default=OwnershipEligibility.ALL,
+    )
+    tenure_type = models.CharField(max_length=20, choices=TenureType.choices, blank=True, default='')
+    attributes = models.JSONField(default=dict, blank=True)
     description = models.TextField(blank=True)
     bedrooms = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True, validators=[MinValueValidator(0)])
     bathrooms = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True, validators=[MinValueValidator(0)])
@@ -55,6 +72,9 @@ class Property(models.Model):
         indexes = [models.Index(
             fields=['company', 'property_type', 'availability_status'],
             name='re_property_type_status_idx',
+        ), models.Index(
+            fields=['company', 'inventory_source_type', 'is_tracked'],
+            name='re_property_inventory_idx',
         )]
 
     def __str__(self):
@@ -64,6 +84,12 @@ class Property(models.Model):
         super().clean()
         if self.property_type_id and self.property_type.company_id != self.company_id:
             raise ValidationError({'property_type': 'The property type must belong to this company.'})
+        if not isinstance(self.attributes, dict):
+            raise ValidationError({'attributes': 'Property attributes must be an object.'})
+        if self.property_type_id:
+            from apps.real_estate.services.property_attributes import normalize_attributes
+
+            self.attributes = normalize_attributes(self.property_type, self.attributes, strict=True)
         if not self.assigned_to_id:
             return
         from apps.tenancy.models import CompanyMembership

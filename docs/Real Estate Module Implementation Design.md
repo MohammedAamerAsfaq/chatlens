@@ -1,8 +1,8 @@
 # ChatLens Real Estate Module Implementation Design
 
-**Status:** Foundation, live classification, and verified inventory foundation implemented  
+**Status:** Foundation, live classification, verified inventory, embeddings, and prospect-path alignment implemented
 **Prepared:** 8 October 2026  
-**Last updated:** 10 October 2026  
+**Last updated:** 13 October 2026
 **Target industry:** `real_estate`
 
 ## 1. Purpose
@@ -190,6 +190,20 @@ is_property_offer = activity_type in (selling, leasing_offer)
 listing_type = sale for buying/selling; lease for leasing_inquiry/leasing_offer
 ```
 
+### 4.1 Prospect selection dimensions
+
+The prospect path adds independent dimensions without changing the canonical four-value activity contract:
+
+```text
+market_scope: local | regional | international
+ownership_eligibility: locals_only | gcc_only | all
+tenure_type: freehold | long_lease | lease_99_year
+```
+
+For Local opportunities, the selected UAE emirate is stored as structured location criteria. Regional and International remain supported scopes, but their selectable geography must come from configured location data rather than hard-coded assumptions. Ownership eligibility and tenure are separate fields because a Freehold property can still have a Locals Only, GCC Only, or All eligibility rule.
+
+These values belong to the requirement, offered-property candidate, property, or listing context where applicable. They must not be stored as permanent ClientPulse classifications because one client may have several opportunities with different eligibility, tenure, location, and activity requirements.
+
 ## 5. Domain Model
 
 Every model in this section must contain its own non-nullable `company` foreign key, even when the company could be inferred through another relationship. Company-scoped querysets plus serializer, model, and service validation must reject relationships between records owned by different companies.
@@ -231,6 +245,46 @@ Property types are not a fixed application enum. `PropertyType` is a directly co
 Default types are seeded for Real Estate companies during enrollment. Operators can add, edit, deactivate, and reactivate company-specific types from the Properties screen. Deactivation prevents new selection without invalidating existing inventory, candidates, requirements, imports, or audit history. The fallback `other` type cannot be deactivated.
 
 Supported area units are `sqft`, `sqm`, `sqyd`, `acre`, and `hectare`. Numeric area values are always stored with their selected unit and are never silently converted or replaced.
+
+### 5.1.2 Inventory provenance and tracking
+
+The Real Estate inventory experience exposes four user-facing views:
+
+- **Own Inventory:** verified properties owned by the company;
+- **Authorized Inventory:** properties or requirements for which the company is authorized to buy, sell, or lease;
+- **Floating Inventory:** provisional property information extracted from inbound requirements and offers;
+- **Tracked Inventory:** records a user explicitly chooses to monitor from Own, Authorized, or Floating inventory.
+
+The persistent source classification is:
+
+```text
+inventory_source_type: own | authorized | floating
+is_tracked: true | false
+```
+
+Tracked is intentionally a separate flag rather than a fourth source value. This preserves whether a tracked record originated as Own, Authorized, or Floating inventory. The UI may present Tracked Inventory as a fourth filter or section.
+
+Authorized is a loose inventory filter only. No separate purchase, sale, or lease authorization flags are required. The existing opportunity activity and listing type already identify whether the record concerns buying, selling, or leasing.
+
+Floating inventory does not bypass the existing trust boundary. AI-extracted demand remains a `PropertyRequirement`, and AI-extracted supply remains a `PropertyCandidate` until reviewed. The unified inventory UI may project those records as Floating Inventory, but it must not silently promote them into verified `Property` or active `Listing` rows.
+
+### 5.1.3 Property-type field definitions
+
+Property types require different details. Plot-specific fields are not relevant to an apartment, while bedroom fields are not relevant to most warehouses. Follow the existing configurable-master pattern by adding company-owned, property-type field definitions and typed values instead of adding every possible field as a nullable column on `Property`.
+
+The initial field definitions are system-seeded and are not user-configurable. User-managed field definitions can be considered later without changing the stored contract. Common, frequently filtered values such as location, bedrooms, bathrooms, area, budget, ownership eligibility, and tenure remain typed first-class fields.
+
+For Plot, the initial schema includes:
+
+- `area`: total plot size;
+- `gross_floor_area`: total permitted floor area across all floors;
+- `built_up_area`: actual constructed area, when applicable;
+- `view`: road, sea, park, or another outlook;
+- `master_developer`: developer responsible for the wider project;
+- `use`: residential, commercial, industrial, or mixed use;
+- `far`: floor area ratio, calculated as permitted gross floor area divided by plot area.
+
+Conditional definitions must support rules such as requesting a district-cooling company only when the selected AC type is district cooling.
 
 ### 5.2 PropertyAddress
 
@@ -584,6 +638,21 @@ Trading navigation, product inventory, product matching, price updates, and trad
 
 The Real Estate dashboard should use four operational lanes: Buying, Selling, Leasing Inquiries, and Leasing Offers. The UI must use those exact labels and must not collapse both leasing activities into one lane.
 
+### 10.1 Prospect path interaction pattern
+
+Do not introduce a separate step-by-step wizard. Follow the existing Trading interaction pattern:
+
+- AI creates classified activity cards from incoming messages;
+- users review and correct extracted values through the existing card, modal, and standard-form patterns;
+- manual creation uses one structured form with conditional sections;
+- the property-type selection controls which type-specific fields are shown;
+- import review uses the same field components and validation rules;
+- unknown or conflicting values remain reviewable instead of being guessed.
+
+The shared fields and conditional sections must be reusable components, but their presentation must remain consistent with current Trading forms and review dialogs.
+
+A physical `Property` is not itself Buying, Selling, Leasing Inquiry, or Leasing Offer. Activity belongs to a `RealEstateOpportunity`; sale or lease commercial terms belong to a `Listing`. This separation allows the same physical property to be offered for sale, offered for lease, or retained without an active listing at different times.
+
 ## 11. ClientPulse Integration
 
 Real Estate opportunities should link to `CompanyContact` and ClientPulse profiles. ClientPulse should display:
@@ -662,7 +731,7 @@ Operational reports should include:
 
 ### Phase 1: Contract and platform preparation
 
-- Finalize the four-value activity enum, classification statuses, status transitions, property types, required fields, and AI schemas.
+- Finalize the four-value activity enum, classification statuses, status transitions, inventory provenance, ownership eligibility, tenure, property types, required fields, and AI schemas.
 - Extend the existing classification dispatch boundary using `Company.industry_type` while preserving the current Trading branch.
 - Register explicit Real Estate embedding task handlers through the existing task registry and a dedicated `real_estate_embeddings` queue.
 - Add backend industry guards and frontend industry-aware navigation.
@@ -681,6 +750,9 @@ Operational reports should include:
 
 - Implement property and listing CRUD.
 - Add CSV import/export and validation preview.
+- Add Own, Authorized, Floating, and Tracked inventory views while preserving source provenance and the existing candidate verification boundary.
+- Map imported source labels to the owning company's canonical property types, for example `Flat` to `Apartment`, while retaining the original source value for audit and correction.
+- Add system-seeded property-type field definitions and reusable conditional field rendering.
 - Add image/document upload.
 - Add duplicate detection and candidate merge workflows.
 - Build reusable data-table views using the established component system.
@@ -713,6 +785,7 @@ Operational reports should include:
 
 - Add dashboard and four activity lanes.
 - Add opportunity detail and candidate verification dialogs.
+- Extend the existing Trading-style cards, standard forms, and modals for prospect path review; do not add a separate wizard framework.
 - Add listing and requirement matching views.
 - Add agent assignment, statuses, filters, pagination, async loading, and saved view preferences.
 
@@ -753,6 +826,10 @@ Required automated test categories:
 - task idempotency, retry, timeout, and prerequisite handling;
 - AI parsing schema validation;
 - mutually exclusive activity classification;
+- exact ownership eligibility and tenure contracts;
+- Own, Authorized, and Floating provenance with independent tracking state;
+- single Authorized inventory provenance without redundant action flags;
+- property-type conditional field validation;
 - ambiguous-activity review handling;
 - no-backlog and AI-enable cutoff behavior;
 - duplicate WhatsApp delivery;
@@ -890,6 +967,19 @@ Viewings, offers, deals, campaign automation, and advanced analytics should foll
 - Added company-scoped CRUD, safe deactivation/reactivation, enrollment defaults, dynamic inventory filters, and dynamic property/candidate selectors.
 - Expanded area measurements from square feet and square metres to include square yards, acres, and hectares without modifying existing values.
 
+### Prospect-path and inventory alignment completed on 13 October 2026
+
+- Added the approved ownership eligibility values: `locals_only`, `gcc_only`, and `all`.
+- Added only the approved tenure values: `freehold`, `long_lease`, and `lease_99_year`.
+- Added Own, Authorized, and Floating as inventory source provenance, with Tracked implemented independently so tracking never destroys the original source.
+- Kept Authorized as one loose inventory classification. No purchase, sale, or lease permission flags were introduced.
+- Expanded the company-owned property taxonomy and retained imported or AI source labels separately from the canonical property type.
+- Added company-owned, schema-driven type-field definitions and a reusable UI component shared by manual property editing, candidate review, and imported-row correction.
+- Added market scope, ownership, tenure, inventory, tracking, and type-specific attributes to extraction and candidate promotion without allowing AI candidates to bypass review.
+- Added grid filters and actions for inventory source and tracking, plus server-side validation after imported rows are corrected.
+- Extended Real Estate embedding documents with the new readable context while keeping all original structured values authoritative.
+- Added regression coverage for taxonomy aliases, type schemas, inventory provenance, independent tracking, filtered APIs, import audit retention, extraction, and promotion.
+
 ### Deployment and worker operation
 
 Apply the database migrations before opening the Real Estate UI:
@@ -932,11 +1022,13 @@ For a company with `industry_type = real_estate`:
 2. The sidebar shows Real Estate and hides Trading, Automation, Campaigns, Trading Reports, V2 settings, and Trading parsing logs.
 3. Properties can be created, edited, archived, filtered, exported, and assigned address/media records.
 4. Listings remain separate from physical properties and can be created, edited, verified, filtered, or closed.
-5. CSV import requires preview before import and reports validation and duplicate problems.
+5. CSV import requires preview before import, supports correction through the shared property editor, revalidates corrections server-side, and reports validation and duplicate problems.
 6. Candidate Review shows AI-extracted supply candidates without treating them as trusted inventory.
 7. Promotion creates a draft property/listing record; merge links to an existing listing; rejection preserves the audit trail.
 8. Task Operations shows the five Real Estate queues and their task lifecycle events.
 9. Properties shows the combined Real Estate embedding count. Repair queues missing, skipped, or failed property, listing, requirement, and candidate vectors.
+10. Properties can be filtered as Own, Authorized, Floating, or Tracked; tracking does not change source provenance.
+11. Property and candidate forms show only the system-defined fields configured for the selected company property type.
 
 ### Remaining phases
 

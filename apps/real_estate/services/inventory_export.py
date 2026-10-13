@@ -1,4 +1,5 @@
 import csv
+import json
 
 from django.http import StreamingHttpResponse
 
@@ -24,6 +25,8 @@ def property_export_response(queryset):
                     value = getattr(property_record, field)
                     if field == 'property_type':
                         value = value.code
+                    elif field == 'attributes':
+                        value = json.dumps(value, ensure_ascii=True, sort_keys=True)
                 elif address and hasattr(address, field):
                     value = getattr(address, field)
                 elif listing and field == 'listing_status':

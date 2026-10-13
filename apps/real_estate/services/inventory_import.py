@@ -1,18 +1,21 @@
 import csv
 import io
+import json
 from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from apps.real_estate.models import Listing, Property, PropertyAddress
-from apps.real_estate.services.property_types import resolve_property_type
+from apps.real_estate.services.property_types import resolve_property_type, seed_default_property_types
 
 
 PROPERTY_FIELDS = (
     'reference_code', 'title', 'property_type', 'description', 'bedrooms', 'bathrooms',
     'built_up_area', 'plot_area', 'area_unit', 'furnishing', 'completion_status',
     'developer', 'project_name', 'completion_year', 'availability_status',
+    'market_scope', 'inventory_source_type', 'is_tracked', 'ownership_eligibility',
+    'tenure_type', 'attributes', 'source_property_type_label',
 )
 ADDRESS_FIELDS = (
     'country', 'state_region', 'city', 'community', 'project_building', 'street',
@@ -51,6 +54,11 @@ def normalize_row(row, row_number=None):
     clean['furnishing'] = clean['furnishing'] or 'unknown'
     clean['completion_status'] = clean['completion_status'] or 'unknown'
     clean['availability_status'] = clean['availability_status'] or 'draft'
+    clean['market_scope'] = clean['market_scope'] or 'local'
+    clean['inventory_source_type'] = clean['inventory_source_type'] or 'own'
+    clean['ownership_eligibility'] = clean['ownership_eligibility'] or 'all'
+    clean['is_tracked'] = _boolean(clean['is_tracked'])
+    clean['attributes'] = _json_object(clean['attributes'])
     clean['currency'] = clean['currency'] or 'AED'
     clean['status'] = clean['status'] or 'draft'
     clean['is_verified'] = _boolean(clean['is_verified'])
@@ -58,6 +66,7 @@ def normalize_row(row, row_number=None):
 
 
 def preview_rows(company, rows):
+    seed_default_property_types(company)
     previews = []
     seen = {}
     for source in rows:
@@ -76,10 +85,14 @@ def preview_row(company, source):
     row = normalize_row(source)
     errors = {}
     duplicate = _find_duplicate(company, row)
+    canonical_type = None
+    source_label = row.get('source_property_type_label') or row.get('property_type')
     if not duplicate:
         property_values = _values(row, PROPERTY_FIELDS)
-        property_values['property_type'] = resolve_property_type(company, row.get('property_type'))
-        if not property_values['property_type']:
+        property_values['source_property_type_label'] = source_label
+        canonical_type = resolve_property_type(company, row.get('property_type'))
+        property_values['property_type'] = canonical_type
+        if not canonical_type:
             errors['property_type'] = 'Select an active property type configured for this company.'
         property_record = Property(company=company, **property_values)
         if not errors:
@@ -96,6 +109,8 @@ def preview_row(company, source):
             )
     return {
         **row,
+        'property_type': canonical_type.code if canonical_type else row.get('property_type'),
+        'source_property_type_label': source_label,
         'errors': errors,
         'valid': not errors,
         'duplicate_property_id': duplicate.pk if duplicate else None,
@@ -116,6 +131,7 @@ def import_rows(company, rows):
             skipped.append(row['row_number'])
             continue
         values = _values(row, PROPERTY_FIELDS)
+        values['source_property_type_label'] = row.get('source_property_type_label') or row.get('property_type')
         values['property_type'] = resolve_property_type(company, row.get('property_type'))
         property_record = Property.objects.create(company=company, **values)
         if _has_values(row, ADDRESS_FIELDS):
@@ -169,6 +185,18 @@ def _clean_value(field, value):
 
 def _boolean(value):
     return str(value).strip().lower() in {'1', 'true', 'yes', 'y'}
+
+
+def _json_object(value):
+    if value in ('', None):
+        return {}
+    if isinstance(value, dict):
+        return value
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return value
+    return parsed
 
 
 def _values(row, fields):

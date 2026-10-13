@@ -1,11 +1,15 @@
 <script setup>
-import { reactive, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiFormField from '@/components/ui/UiFormField.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiModal from '@/components/ui/UiModal.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
-import { areaUnits, completionOptions, furnishingOptions, propertyStatuses } from '../options'
+import PropertyAttributeFields from './PropertyAttributeFields.vue'
+import {
+  areaUnits, completionOptions, furnishingOptions, inventorySourceTypes,
+  marketScopes, ownershipEligibilityOptions, propertyStatuses, tenureOptions,
+} from '../options'
 import { emptyProperty } from '../forms'
 
 const props = defineProps({
@@ -13,9 +17,12 @@ const props = defineProps({
   record: { type: Object, default: null },
   busy: Boolean,
   propertyTypes: { type: Array, default: () => [] },
+  propertyTypeRecords: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['close', 'save'])
 const form = reactive(emptyProperty())
+const selectedType = computed(() => props.propertyTypeRecords.find(record => record.code === form.property_type))
+const fieldDefinitions = computed(() => selectedType.value?.field_definitions || [])
 
 watch(() => [props.open, props.record], () => {
   if (!props.open) return
@@ -24,7 +31,9 @@ watch(() => [props.open, props.record], () => {
 }, { immediate: true, deep: true })
 
 function submit() {
-  emit('save', { ...form, address: { ...form.address } })
+  const allowed = new Set(fieldDefinitions.value.map(item => item.code))
+  const attributes = Object.fromEntries(Object.entries(form.attributes || {}).filter(([key]) => allowed.has(key)))
+  emit('save', { ...form, attributes, address: { ...form.address } })
 }
 </script>
 
@@ -35,7 +44,13 @@ function submit() {
         <UiFormField label="Title"><UiInput v-model="form.title" required /></UiFormField>
         <UiFormField label="Reference code"><UiInput v-model="form.reference_code" /></UiFormField>
         <UiFormField label="Property type"><UiSelect v-model="form.property_type" :options="props.propertyTypes" /></UiFormField>
+        <UiFormField v-if="form.source_property_type_label" label="Original source type"><UiInput v-model="form.source_property_type_label" disabled /></UiFormField>
         <UiFormField label="Availability"><UiSelect v-model="form.availability_status" :options="propertyStatuses" /></UiFormField>
+        <UiFormField label="Market scope"><UiSelect v-model="form.market_scope" :options="marketScopes" /></UiFormField>
+        <UiFormField label="Inventory type"><UiSelect v-model="form.inventory_source_type" :options="inventorySourceTypes" /></UiFormField>
+        <UiFormField label="Ownership eligibility"><UiSelect v-model="form.ownership_eligibility" :options="ownershipEligibilityOptions" /></UiFormField>
+        <UiFormField label="Tenure"><UiSelect v-model="form.tenure_type" :options="tenureOptions" /></UiFormField>
+        <UiFormField label="Tracked inventory"><label class="check-row"><input v-model="form.is_tracked" type="checkbox" /> Track this property across inventory views</label></UiFormField>
         <UiFormField label="Bedrooms"><UiInput v-model="form.bedrooms" type="number" min="0" step="0.5" /></UiFormField>
         <UiFormField label="Bathrooms"><UiInput v-model="form.bathrooms" type="number" min="0" step="0.5" /></UiFormField>
         <UiFormField label="Built-up area"><UiInput v-model="form.built_up_area" type="number" min="0" step="0.01" /></UiFormField>
@@ -47,6 +62,9 @@ function submit() {
         <UiFormField label="Developer"><UiInput v-model="form.developer" /></UiFormField>
         <UiFormField label="Project"><UiInput v-model="form.project_name" /></UiFormField>
         <UiFormField label="Description" class="wide"><UiInput v-model="form.description" multiline :rows="4" /></UiFormField>
+      </div></section>
+      <section v-if="fieldDefinitions.length"><h3>{{ selectedType?.name }} details</h3><div class="re-form-grid">
+        <PropertyAttributeFields v-model="form.attributes" :definitions="fieldDefinitions" />
       </div></section>
       <section><h3>Address</h3><div class="re-form-grid">
         <UiFormField label="Country"><UiInput v-model="form.address.country" /></UiFormField>
@@ -67,5 +85,5 @@ function submit() {
 </template>
 
 <style scoped>
-.re-form{display:grid;gap:24px}.re-form section{border:1px solid var(--ui-border);border-radius:12px;padding:18px}.re-form h3{margin:0 0 16px}.re-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.wide{grid-column:1/-1}@media(max-width:760px){.re-form-grid{grid-template-columns:1fr}.wide{grid-column:auto}}
+.re-form{display:grid;gap:24px}.re-form section{border:1px solid var(--ui-border);border-radius:12px;padding:18px}.re-form h3{margin:0 0 16px}.re-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.wide{grid-column:1/-1}.check-row{display:flex;align-items:center;gap:8px;min-height:42px}@media(max-width:760px){.re-form-grid{grid-template-columns:1fr}.wide{grid-column:auto}}
 </style>

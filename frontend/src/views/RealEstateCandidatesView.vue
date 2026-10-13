@@ -15,16 +15,17 @@ import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const rows = ref([]), listings = ref([]), total = ref(0), page = ref(1), pageSize = ref(25)
-const propertyTypes = ref([])
+const propertyTypeRecords = ref([])
 const loading = ref(false), error = ref(''), search = ref('')
 const filters = reactive({ review_status: 'pending', activity_type: '' })
 const review = reactive({ open: false, candidate: null, busy: false })
 const canReview = computed(() => auth.hasPermission('real_estate.opportunities.update'))
+const propertyTypes = computed(() => propertyTypeRecords.value.map(record => ({ value: record.code, label: record.name })))
 const reviewStatuses = ['pending', 'promoted', 'merged', 'rejected'].map(value => ({ value, label: title(value) }))
 const activities = [{ value: '', label: 'All offer activities' }, { value: 'selling', label: 'Selling' }, { value: 'leasing_offer', label: 'Leasing Offer' }]
 const columns = [
   { key: 'title', label: 'Candidate', width: '21rem' }, { key: 'activity_type', label: 'Activity' },
-  { key: 'property_type', label: 'Type' }, { key: 'location_raw', label: 'Location' },
+  { key: 'property_type', label: 'Type' }, { key: 'inventory', label: 'Inventory' }, { key: 'location_raw', label: 'Location' },
   { key: 'asking_price', label: 'Asking price' }, { key: 'review_status', label: 'Review' },
   { key: 'updated_at', label: 'Updated' }, { key: 'actions', label: '', exportable: false, width: '9rem' },
 ]
@@ -43,7 +44,7 @@ async function loadListings() {
 async function loadPropertyTypes() {
   try {
     const { data } = await realEstateApi.propertyTypes({ page_size: 100 })
-    propertyTypes.value = data.results.map(record => ({ value: record.code, label: record.name }))
+    propertyTypeRecords.value = data.results
   } catch (exc) { error.value = apiError(exc, 'Unable to load property types.') }
 }
 function openReview(candidate) { review.candidate = candidate; review.open = true }
@@ -56,6 +57,10 @@ async function execute(action) {
 function promote(payload) { return execute(() => realEstateApi.promoteCandidate(review.candidate.id, payload)) }
 function merge(listingId) { return execute(() => realEstateApi.mergeCandidate(review.candidate.id, listingId)) }
 function reject() { return execute(() => realEstateApi.rejectCandidate(review.candidate.id)) }
+async function toggleTracked(candidate) {
+  try { await realEstateApi.updateCandidate(candidate.id, { is_tracked: !candidate.is_tracked }); await load() }
+  catch (exc) { error.value = apiError(exc, 'Unable to update candidate tracking.') }
+}
 function money(row) { return row.asking_price == null ? '-' : `${row.currency} ${Number(row.asking_price).toLocaleString()}` }
 function resetAndLoad() { if (page.value !== 1) page.value = 1; else load() }
 watch(() => [filters.review_status, filters.activity_type], resetAndLoad)
@@ -67,8 +72,8 @@ onMounted(() => Promise.all([load(), loadListings(), loadPropertyTypes()]))
 <template><UiPage width="wide"><UiPageHeader eyebrow="Trust Boundary" title="Candidate Review" description="AI-extracted offers remain untrusted until an authorized user promotes, merges, or rejects them." /><UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
   <UiDataTable :columns="columns" :rows="rows" :loading="loading" :total="total" :page="page" :page-size="pageSize" :search="search" persist-key="real-estate-candidates" search-placeholder="Search candidates..." empty-title="No candidates match these filters." @update:page="page = $event" @update:page-size="pageSize = $event; page = 1" @update:search="search = $event" @refresh="load">
     <template #filters><UiSelect v-model="filters.review_status" :options="reviewStatuses" /><UiSelect v-model="filters.activity_type" :options="activities" /></template>
-    <template #cell-title="{ row }"><strong>{{ row.title || `Candidate #${row.id}` }}</strong><small class="subline">Opportunity #{{ row.opportunity }}</small></template><template #cell-activity_type="{ value }">{{ title(value) }}</template><template #cell-property_type="{ value }">{{ title(value || 'other') }}</template><template #cell-location_raw="{ value }">{{ value || '-' }}</template><template #cell-asking_price="{ row }">{{ money(row) }}</template><template #cell-review_status="{ value }"><UiBadge :tone="value === 'pending' ? 'warning' : value === 'rejected' ? 'danger' : 'success'">{{ title(value) }}</UiBadge></template><template #cell-updated_at="{ value }">{{ new Date(value).toLocaleString() }}</template><template #cell-actions="{ row }"><UiButton v-if="canReview && row.review_status === 'pending'" size="small" variant="primary" @click.stop="openReview(row)">Review</UiButton></template>
-  </UiDataTable><CandidateReviewModal :open="review.open" :candidate="review.candidate" :listings="listings" :property-types="propertyTypes" :busy="review.busy" @close="review.open = false" @promote="promote" @merge="merge" @reject="reject" />
+    <template #cell-title="{ row }"><strong>{{ row.title || `Candidate #${row.id}` }}</strong><small class="subline">Opportunity #{{ row.opportunity }}</small></template><template #cell-activity_type="{ value }">{{ title(value) }}</template><template #cell-property_type="{ value }">{{ title(value || 'other') }}</template><template #cell-inventory="{ row }"><UiBadge :tone="row.is_tracked ? 'success' : 'neutral'">{{ row.is_tracked ? 'Tracked' : title(row.inventory_source_type) }}</UiBadge></template><template #cell-location_raw="{ value }">{{ value || '-' }}</template><template #cell-asking_price="{ row }">{{ money(row) }}</template><template #cell-review_status="{ value }"><UiBadge :tone="value === 'pending' ? 'warning' : value === 'rejected' ? 'danger' : 'success'">{{ title(value) }}</UiBadge></template><template #cell-updated_at="{ value }">{{ new Date(value).toLocaleString() }}</template><template #cell-actions="{ row }"><div class="candidate-actions"><UiButton v-if="canReview && row.review_status === 'pending'" size="small" @click.stop="toggleTracked(row)">{{ row.is_tracked ? 'Untrack' : 'Track' }}</UiButton><UiButton v-if="canReview && row.review_status === 'pending'" size="small" variant="primary" @click.stop="openReview(row)">Review</UiButton></div></template>
+  </UiDataTable><CandidateReviewModal :open="review.open" :candidate="review.candidate" :listings="listings" :property-types="propertyTypes" :property-type-records="propertyTypeRecords" :busy="review.busy" @close="review.open = false" @promote="promote" @merge="merge" @reject="reject" />
 </UiPage></template>
 
-<style scoped>.subline{display:block;color:var(--ui-text-subtle);margin-top:3px}</style>
+<style scoped>.subline{display:block;color:var(--ui-text-subtle);margin-top:3px}.candidate-actions{display:flex;gap:6px}</style>

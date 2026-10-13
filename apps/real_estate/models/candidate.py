@@ -3,7 +3,13 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
 
-from .contracts import ActivityType, AreaUnit
+from .contracts import (
+    ActivityType,
+    AreaUnit,
+    InventorySourceType,
+    OwnershipEligibility,
+    TenureType,
+)
 from .property import Property
 
 
@@ -16,6 +22,15 @@ class PropertyCandidate(models.Model):
         'real_estate.PropertyType', null=True, blank=True, on_delete=models.PROTECT,
         related_name='candidates',
     )
+    inventory_source_type = models.CharField(
+        max_length=20, choices=InventorySourceType.choices, default=InventorySourceType.FLOATING,
+    )
+    is_tracked = models.BooleanField(default=False)
+    ownership_eligibility = models.CharField(
+        max_length=20, choices=OwnershipEligibility.choices, default=OwnershipEligibility.ALL,
+    )
+    tenure_type = models.CharField(max_length=20, choices=TenureType.choices, blank=True, default='')
+    attributes = models.JSONField(default=dict, blank=True)
     location_raw = models.CharField(max_length=500, blank=True)
     bedrooms = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True, validators=[MinValueValidator(0)])
     bathrooms = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True, validators=[MinValueValidator(0)])
@@ -48,6 +63,8 @@ class PropertyCandidate(models.Model):
             errors['opportunity'] = 'Only selling or leasing offer opportunities can create candidates.'
         if self.property_type_id and self.property_type.company_id != self.company_id:
             errors['property_type'] = 'The property type must belong to this company.'
+        if not isinstance(self.attributes, dict):
+            errors['attributes'] = 'Candidate attributes must be an object.'
         for field in ('promoted_property', 'promoted_listing'):
             linked = getattr(self, field, None) if getattr(self, f'{field}_id', None) else None
             if linked and linked.company_id != self.company_id:

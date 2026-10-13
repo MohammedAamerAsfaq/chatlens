@@ -1,5 +1,14 @@
 from .agent_call_log import RealEstateAgentCallLog
-from .contracts import ActivityType, AreaUnit, ClassificationDecision, ClassificationStatus
+from .contracts import (
+    ActivityType,
+    AreaUnit,
+    ClassificationDecision,
+    ClassificationStatus,
+    InventorySourceType,
+    MarketScope,
+    OwnershipEligibility,
+    TenureType,
+)
 from .embeddings import (
     CandidateEmbedding,
     EmbeddingStatus,
@@ -12,6 +21,7 @@ from .candidate import PropertyCandidate
 from .listing import Listing
 from .property import Property
 from .property_type import PropertyType
+from .property_type_field import PropertyTypeFieldDefinition
 from .property_address import PropertyAddress
 from .property_media import PropertyMedia
 from .requirement import PropertyRequirement
@@ -24,6 +34,10 @@ __all__ = [
     'AreaUnit',
     'ClassificationDecision',
     'ClassificationStatus',
+    'InventorySourceType',
+    'MarketScope',
+    'OwnershipEligibility',
+    'TenureType',
     'CandidateEmbedding',
     'EmbeddingStatus',
     'RealEstateAgentCallLog',
@@ -32,6 +46,7 @@ __all__ = [
     'ListingEmbedding',
     'Property',
     'PropertyType',
+    'PropertyTypeFieldDefinition',
     'PropertyEmbedding',
     'PropertyAddress',
     'PropertyCandidate',

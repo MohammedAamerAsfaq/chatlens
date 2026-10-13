@@ -4,7 +4,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
 
-from .contracts import ActivityType, ClassificationStatus
+from .contracts import ActivityType, ClassificationStatus, MarketScope
 
 
 class RealEstateOpportunity(models.Model):
@@ -71,6 +71,11 @@ class RealEstateOpportunity(models.Model):
         choices=ActivityType.choices,
         null=True,
         blank=True,
+    )
+    market_scope = models.CharField(
+        max_length=20,
+        choices=MarketScope.choices,
+        default=MarketScope.LOCAL,
     )
     classification_status = models.CharField(
         max_length=30,

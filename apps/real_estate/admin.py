@@ -5,6 +5,7 @@ from apps.real_estate.models import (
     ListingEmbedding,
     Property,
     PropertyType,
+    PropertyTypeFieldDefinition,
     PropertyAddress,
     PropertyEmbedding,
     PropertyCandidate,
@@ -27,10 +28,23 @@ class PropertyTypeAdmin(admin.ModelAdmin):
     search_fields = ('name', 'code', 'description')
 
 
+@admin.register(PropertyTypeFieldDefinition)
+class PropertyTypeFieldDefinitionAdmin(admin.ModelAdmin):
+    list_display = ('property_type', 'code', 'label', 'data_type', 'company', 'is_active')
+    list_filter = ('company', 'data_type', 'is_active')
+    search_fields = ('property_type__name', 'code', 'label')
+
+
 @admin.register(Property)
 class PropertyAdmin(admin.ModelAdmin):
-    list_display = ('id', 'company', 'title', 'property_type', 'availability_status', 'is_archived', 'updated_at')
-    list_filter = ('company', 'property_type', 'availability_status', 'is_archived')
+    list_display = (
+        'id', 'company', 'title', 'property_type', 'inventory_source_type',
+        'is_tracked', 'availability_status', 'is_archived', 'updated_at',
+    )
+    list_filter = (
+        'company', 'property_type', 'inventory_source_type', 'is_tracked',
+        'availability_status', 'is_archived',
+    )
     search_fields = ('title', 'reference_code', 'project_name', 'developer')
     readonly_fields = ('created_at', 'updated_at')
 

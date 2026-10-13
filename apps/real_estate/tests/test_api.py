@@ -55,6 +55,27 @@ class RealEstateApiTests(TestCase):
         self.assertEqual(response.status_code, 201, response.json())
         self.assertEqual(Property.objects.get(pk=response.json()['id']).company, self.company)
 
+    def test_property_inventory_filters_keep_tracking_independent(self):
+        own = Property.objects.create(
+            company=self.company, title='Own unit', property_type=self.types['apartment'],
+            inventory_source_type='own', is_tracked=True,
+        )
+        authorized = Property.objects.create(
+            company=self.company, title='Authorized unit', property_type=self.types['villa'],
+            inventory_source_type='authorized', is_tracked=False,
+        )
+        response = self.client.get('/api/real-estate/properties/?inventory_type=authorized')
+        self.assertEqual([row['id'] for row in response.json()['results']], [authorized.pk])
+        response = self.client.get('/api/real-estate/properties/?inventory_type=tracked')
+        self.assertEqual([row['id'] for row in response.json()['results']], [own.pk])
+
+    def test_property_type_endpoint_exposes_system_schema(self):
+        response = self.client.get('/api/real-estate/property-types/?page_size=100')
+        self.assertEqual(response.status_code, 200)
+        apartment = next(row for row in response.json()['results'] if row['code'] == 'apartment')
+        self.assertIn('flat', apartment['aliases'])
+        self.assertIn('floor', {field['code'] for field in apartment['field_definitions']})
+
     def test_property_type_master_supports_custom_types_and_safe_deactivation(self):
         response = self.client.post('/api/real-estate/property-types/', {
             'name': 'Hotel Apartment', 'code': 'hotel_apartment',
@@ -147,6 +168,29 @@ class RealEstateApiTests(TestCase):
         record = Property.objects.get(company=self.company, reference_code='SV-001')
         self.assertEqual(record.address.city, 'Dubai')
         self.assertEqual(record.listings.get().asking_price, 2200000)
+
+    def test_csv_alias_maps_to_canonical_type_and_preserves_source_label(self):
+        upload = SimpleUploadedFile(
+            'properties.csv',
+            b'reference_code,title,property_type,inventory_source_type,is_tracked\n'
+            b'SV-FLAT,Imported Flat,flat,authorized,true\n',
+            content_type='text/csv',
+        )
+        preview = self.client.post(
+            '/api/real-estate/properties/import-preview/', {'file': upload}, format='multipart',
+        ).json()['rows'][0]
+        self.assertEqual(preview['property_type'], 'apartment')
+        self.assertEqual(preview['source_property_type_label'], 'flat')
+
+        response = self.client.post(
+            '/api/real-estate/properties/bulk-import/', {'rows': [preview]}, format='json',
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        record = Property.objects.get(reference_code='SV-FLAT')
+        self.assertEqual(record.property_type.code, 'apartment')
+        self.assertEqual(record.source_property_type_label, 'flat')
+        self.assertEqual(record.inventory_source_type, 'authorized')
+        self.assertTrue(record.is_tracked)
 
     def test_csv_import_skips_exact_duplicate_and_export_is_company_scoped(self):
         existing = Property.objects.create(

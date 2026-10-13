@@ -1,10 +1,25 @@
 from rest_framework import serializers
 
-from apps.real_estate.models import Listing, Property, PropertyAddress, PropertyMedia, PropertyType
+from apps.real_estate.models import (
+    Listing, Property, PropertyAddress, PropertyMedia, PropertyType,
+    PropertyTypeFieldDefinition,
+)
 from .base import CleanModelSerializer, CompanyPropertyTypeField
 
 
+class PropertyTypeFieldDefinitionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PropertyTypeFieldDefinition
+        fields = (
+            'id', 'code', 'label', 'data_type', 'options', 'unit_hint',
+            'is_required', 'is_filterable', 'is_embeddable',
+            'condition_field', 'condition_value', 'sort_order', 'is_active',
+        )
+
+
 class PropertyTypeSerializer(CleanModelSerializer):
+    field_definitions = PropertyTypeFieldDefinitionSerializer(many=True, read_only=True)
+
     def validate_code(self, value):
         from apps.real_estate.services.property_types import normalize_property_type_code
 

@@ -2,7 +2,13 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
-from .contracts import ActivityType, AreaUnit
+from .contracts import (
+    ActivityType,
+    AreaUnit,
+    InventorySourceType,
+    OwnershipEligibility,
+    TenureType,
+)
 from .property import Property
 
 
@@ -10,6 +16,15 @@ class PropertyRequirement(models.Model):
     REVIEW_CHOICES = [(value, value.title()) for value in ('pending', 'approved', 'rejected')]
     company = models.ForeignKey('tenancy.Company', on_delete=models.CASCADE, related_name='property_requirements')
     opportunity = models.OneToOneField('real_estate.RealEstateOpportunity', on_delete=models.CASCADE, related_name='requirement')
+    inventory_source_type = models.CharField(
+        max_length=20, choices=InventorySourceType.choices, default=InventorySourceType.FLOATING,
+    )
+    is_tracked = models.BooleanField(default=False)
+    ownership_eligibility = models.CharField(
+        max_length=20, choices=OwnershipEligibility.choices, default=OwnershipEligibility.ALL,
+    )
+    tenure_type = models.CharField(max_length=20, choices=TenureType.choices, blank=True, default='')
+    attributes = models.JSONField(default=dict, blank=True)
     acceptable_locations = models.JSONField(default=list, blank=True)
     acceptable_property_types = models.JSONField(default=list, blank=True)
     bedrooms_min = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True, validators=[MinValueValidator(0)])
@@ -50,5 +65,7 @@ class PropertyRequirement(models.Model):
         for field in ('acceptable_locations', 'acceptable_property_types', 'required_amenities', 'preferred_amenities'):
             if not isinstance(getattr(self, field), list):
                 errors[field] = 'This value must be a list.'
+        if not isinstance(self.attributes, dict):
+            errors['attributes'] = 'Requirement attributes must be an object.'
         if errors:
             raise ValidationError(errors)

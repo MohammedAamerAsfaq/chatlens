@@ -6,11 +6,15 @@ from django.db import transaction
 from apps.real_estate.models import (
     ActivityType,
     AreaUnit,
+    InventorySourceType,
+    OwnershipEligibility,
     Property,
     PropertyCandidate,
     PropertyRequirement,
     RealEstateSettings,
+    TenureType,
 )
+from apps.real_estate.services.property_attributes import normalize_attributes
 from apps.real_estate.services.property_types import resolve_property_type, seed_default_property_types
 
 
@@ -33,6 +37,13 @@ def _project_requirement(opportunity, payload, parsed, settings):
     area = _mapping(payload.get('area'))
     defaults = {
         'company': opportunity.company,
+        'inventory_source_type': InventorySourceType.FLOATING,
+        'ownership_eligibility': _choice(
+            payload.get('ownership_eligibility'),
+            set(OwnershipEligibility.values), OwnershipEligibility.ALL,
+        ),
+        'tenure_type': _choice(payload.get('tenure_type'), set(TenureType.values), ''),
+        'attributes': _attributes_for_requirement(opportunity.company, payload),
         'acceptable_locations': _list(payload.get('locations') or payload.get('location')),
         'acceptable_property_types': _property_types(opportunity.company, payload),
         'bedrooms_min': _decimal(payload.get('bedrooms_min') or payload.get('bedrooms')),
@@ -61,12 +72,20 @@ def _project_requirement(opportunity, payload, parsed, settings):
 
 def _project_candidate(opportunity, payload, parsed, settings):
     price = _mapping(payload.get('price'))
+    property_type = resolve_property_type(
+        opportunity.company, payload.get('property_type'), fallback=True,
+    )
     defaults = {
         'company': opportunity.company,
-        'title': str(payload.get('title') or parsed.get('summary') or '')[:255],
-        'property_type': resolve_property_type(
-            opportunity.company, payload.get('property_type'), fallback=True,
+        'inventory_source_type': InventorySourceType.FLOATING,
+        'ownership_eligibility': _choice(
+            payload.get('ownership_eligibility'),
+            set(OwnershipEligibility.values), OwnershipEligibility.ALL,
         ),
+        'tenure_type': _choice(payload.get('tenure_type'), set(TenureType.values), ''),
+        'title': str(payload.get('title') or parsed.get('summary') or '')[:255],
+        'property_type': property_type,
+        'attributes': _normalized_attributes(property_type, payload.get('attributes')),
         'location_raw': str(payload.get('location') or _first(payload.get('locations')) or '')[:500],
         'bedrooms': _decimal(payload.get('bedrooms')),
         'bathrooms': _decimal(payload.get('bathrooms')),
@@ -135,3 +154,16 @@ def _property_types(company, payload):
     values = _list(payload.get('property_types') or payload.get('property_type'))
     matches = [resolve_property_type(company, value, fallback=True) for value in values]
     return list(dict.fromkeys(match.code for match in matches if match))
+
+
+def _normalized_attributes(property_type, value):
+    if not property_type or not isinstance(value, dict):
+        return {}
+    return normalize_attributes(property_type, value, strict=False)
+
+
+def _attributes_for_requirement(company, payload):
+    values = _property_types(company, payload)
+    if len(values) != 1:
+        return payload.get('attributes') if isinstance(payload.get('attributes'), dict) else {}
+    return _normalized_attributes(resolve_property_type(company, values[0]), payload.get('attributes'))

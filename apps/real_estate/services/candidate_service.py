@@ -18,8 +18,11 @@ def promote_candidate(candidate, user, property_data=None, listing_data=None):
     })
     property_data = _only(property_data, {
         'reference_code', 'title', 'property_type', 'description', 'bedrooms', 'bathrooms',
+        'source_property_type_label',
         'built_up_area', 'plot_area', 'area_unit', 'furnishing', 'completion_status',
         'developer', 'project_name', 'completion_year', 'availability_status', 'assigned_to',
+        'market_scope', 'inventory_source_type', 'is_tracked', 'ownership_eligibility',
+        'tenure_type', 'attributes',
     })
     listing_data = _only(listing_data, {
         'asking_price', 'currency', 'payment_frequency', 'deposit', 'commission',
@@ -34,11 +37,25 @@ def promote_candidate(candidate, user, property_data=None, listing_data=None):
         company=candidate.company,
         title=property_data.pop('title', candidate.title or f'Property candidate #{candidate.pk}'),
         property_type=property_type,
+        source_property_type_label=property_data.pop(
+            'source_property_type_label',
+            str(candidate.raw_extraction.get('property_type') or ''),
+        ),
         description=property_data.pop('description', candidate.description),
         bedrooms=property_data.pop('bedrooms', candidate.bedrooms),
         bathrooms=property_data.pop('bathrooms', candidate.bathrooms),
         built_up_area=property_data.pop('built_up_area', candidate.area),
         area_unit=property_data.pop('area_unit', candidate.area_unit),
+        market_scope=property_data.pop('market_scope', candidate.opportunity.market_scope),
+        inventory_source_type=property_data.pop(
+            'inventory_source_type', candidate.inventory_source_type,
+        ),
+        is_tracked=property_data.pop('is_tracked', candidate.is_tracked),
+        ownership_eligibility=property_data.pop(
+            'ownership_eligibility', candidate.ownership_eligibility,
+        ),
+        tenure_type=property_data.pop('tenure_type', candidate.tenure_type),
+        attributes=property_data.pop('attributes', candidate.attributes),
         source='ai_candidate',
         external_source_id=str(candidate.pk),
         **property_data,

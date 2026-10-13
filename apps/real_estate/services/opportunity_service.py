@@ -1,6 +1,6 @@
 from django.utils import timezone
 
-from apps.real_estate.models import RealEstateOpportunity
+from apps.real_estate.models import MarketScope, RealEstateOpportunity
 from apps.real_estate.services.classification_contract import outcome_for_decision
 
 
@@ -12,6 +12,7 @@ def persist_opportunity(message, company, parsed):
         'contact': message.contact,
         'source_chat': message.chat,
         'activity_type': outcome.activity_type,
+        'market_scope': _market_scope((parsed.get('property') or {}).get('market_scope')),
         'classification_status': outcome.status,
         'summary': parsed.get('summary', ''),
         'original_message': message.message_text or '',
@@ -41,3 +42,7 @@ def _workflow_status(classification_status):
         return RealEstateOpportunity.STATUS_IRRELEVANT
     return RealEstateOpportunity.STATUS_NEW
 
+
+def _market_scope(value):
+    normalized = str(value or '').strip().lower()
+    return normalized if normalized in MarketScope.values else MarketScope.LOCAL

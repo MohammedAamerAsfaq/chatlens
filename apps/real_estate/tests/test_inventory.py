@@ -6,12 +6,14 @@ from django.utils import timezone
 
 from apps.real_estate.models import (
     ActivityType, ClassificationStatus, Listing, Property, PropertyCandidate,
-    PropertyRequirement, RealEstateOpportunity,
+    PropertyRequirement, RealEstateOpportunity, InventorySourceType,
+    OwnershipEligibility, TenureType,
 )
 from apps.real_estate.services.candidate_service import promote_candidate
 from apps.real_estate.services.extraction_projection import project_extraction
 from apps.tenancy.models import Company, CompanyMembership
 from apps.real_estate.services.property_types import seed_default_property_types
+from apps.real_estate.services.property_types import resolve_property_type
 
 
 class RealEstateInventoryTests(TestCase):
@@ -89,3 +91,57 @@ class RealEstateInventoryTests(TestCase):
         self.assertEqual(listing.listing_type, 'lease')
         self.assertEqual(listing.status, 'draft')
         self.assertTrue(listing.is_verified)
+
+    def test_company_taxonomy_seeds_aliases_and_type_fields(self):
+        apartment = self.types['apartment']
+        self.assertEqual(resolve_property_type(self.company, 'flat'), apartment)
+        self.assertTrue(apartment.field_definitions.filter(code='floor').exists())
+        self.assertEqual(resolve_property_type(self.company, 'land').code, 'plot')
+
+    def test_inventory_source_and_tracking_are_independent(self):
+        property_record = Property.objects.create(
+            company=self.company,
+            title='Authorized tracked villa',
+            property_type=self.types['villa'],
+            inventory_source_type=InventorySourceType.AUTHORIZED,
+            is_tracked=True,
+            ownership_eligibility=OwnershipEligibility.GCC_ONLY,
+            tenure_type=TenureType.LONG_LEASE,
+        )
+        self.assertEqual(property_record.inventory_source_type, 'authorized')
+        self.assertTrue(property_record.is_tracked)
+        self.assertFalse(hasattr(property_record, 'authorized_for_sale'))
+
+    def test_property_type_schema_rejects_unknown_attributes(self):
+        property_record = Property(
+            company=self.company,
+            title='Typed apartment',
+            property_type=self.types['apartment'],
+            attributes={'floor': '12', 'not_configured': 'value'},
+        )
+        with self.assertRaises(ValidationError):
+            property_record.full_clean()
+
+    def test_candidate_projection_and_promotion_preserve_inventory_contract(self):
+        opportunity = self.opportunity(ActivityType.SELLING)
+        candidate = project_extraction(opportunity, {
+            'summary': 'Authorized office offer',
+            'property': {
+                'property_type': 'office',
+                'ownership_eligibility': 'locals_only',
+                'tenure_type': 'freehold',
+                'attributes': {'floor': 17, 'parking': 2},
+                'asking_price': 2500000,
+            },
+        })
+        self.assertEqual(candidate.inventory_source_type, InventorySourceType.FLOATING)
+        self.assertEqual(candidate.ownership_eligibility, OwnershipEligibility.LOCALS_ONLY)
+        self.assertEqual(candidate.attributes['floor'], '17')
+        candidate.is_tracked = True
+        candidate.save(update_fields=['is_tracked'])
+
+        property_record, _ = promote_candidate(candidate, self.user)
+        self.assertEqual(property_record.inventory_source_type, InventorySourceType.FLOATING)
+        self.assertTrue(property_record.is_tracked)
+        self.assertEqual(property_record.tenure_type, TenureType.FREEHOLD)
+        self.assertEqual(property_record.attributes['parking'], '2')

@@ -18,6 +18,9 @@ Return JSON only with this schema:
   "summary": "concise factual summary",
   "confidence": 0.0,
   "property": {
+    "market_scope": "local|regional|international",
+    "ownership_eligibility": "locals_only|gcc_only|all",
+    "tenure_type": "freehold|long_lease|lease_99_year|",
     "property_type": "",
     "locations": [],
     "bedrooms_min": null,
@@ -33,9 +36,14 @@ Return JSON only with this schema:
     "furnishing": "",
     "timeframe": "",
     "amenities": [],
-    "free_form_constraints": ""
+    "free_form_constraints": "",
+    "attributes": {}
   }
-}"""
+}
+Use attributes only for facts relevant to the selected property type, such as view,
+parking, balconies, maid's room, AC type, district cooling company, management
+company, master developer, facilities, roof height, decor status, floor, unit mix,
+gross floor area, use, or FAR. Do not invent missing values."""
 
 
 def configured_prompt(company, key):
@@ -52,4 +60,3 @@ def message_prompt(message):
         f'Sender: {message.sender_number or "unknown"}\n'
         f'Message:\n{message.message_text}'
     )
-

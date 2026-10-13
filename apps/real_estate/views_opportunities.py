@@ -64,6 +64,8 @@ class CandidateViewSet(CompanyOwnedViewSet):
             qs = qs.filter(review_status=value)
         if value := self.request.query_params.get('activity_type'):
             qs = qs.filter(opportunity__activity_type=value)
+        if value := self.request.query_params.get('tracked'):
+            qs = qs.filter(is_tracked=value.lower() == 'true')
         if search := self.request.query_params.get('search'):
             qs = qs.filter(Q(title__icontains=search) | Q(location_raw__icontains=search))
         return qs

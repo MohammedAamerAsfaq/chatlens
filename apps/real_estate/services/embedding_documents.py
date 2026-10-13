@@ -3,7 +3,7 @@
 from django.core.exceptions import ObjectDoesNotExist
 
 
-DOCUMENT_VERSION = 1
+DOCUMENT_VERSION = 2
 
 
 def _text(value):
@@ -46,11 +46,26 @@ def _property_location(record):
     return ', '.join(dict.fromkeys(part.strip() for part in parts if part and part.strip()))
 
 
+def _embeddable_attributes(record):
+    if not record.attributes:
+        return {}
+    codes = set(record.property_type.field_definitions.filter(
+        is_active=True, is_embeddable=True,
+    ).values_list('code', flat=True))
+    return {key: value for key, value in record.attributes.items() if key in codes}
+
+
 def property_document(record):
     captions = [item.caption for item in record.media.all() if item.caption]
     return _join([
         _line('Property', record.title),
         _line('Type', record.property_type.name),
+        _line('Source type label', record.source_property_type_label),
+        _line('Market scope', record.get_market_scope_display()),
+        _line('Inventory source', record.get_inventory_source_type_display()),
+        _line('Tracked', 'Yes' if record.is_tracked else 'No'),
+        _line('Ownership eligibility', record.get_ownership_eligibility_display()),
+        _line('Tenure', record.get_tenure_type_display()),
         _line('Description', record.description),
         _line('Location', _property_location(record)),
         _line('Bedrooms', record.bedrooms),
@@ -62,6 +77,7 @@ def property_document(record):
         _line('Developer', record.developer),
         _line('Project', record.project_name),
         _line('Completion year', record.completion_year),
+        _line('Type-specific details', _embeddable_attributes(record)),
         _line('Media context', captions),
     ])
 
@@ -85,6 +101,9 @@ def requirement_document(record):
         _line('Activity', opportunity.get_activity_type_display()),
         _line('Summary', opportunity.summary),
         _line('Original inquiry', opportunity.original_message),
+        _line('Market scope', opportunity.get_market_scope_display()),
+        _line('Ownership eligibility', record.get_ownership_eligibility_display()),
+        _line('Tenure', record.get_tenure_type_display()),
         _line('Acceptable locations', record.acceptable_locations),
         _line('Property types', record.acceptable_property_types),
         _range('Bedrooms', record.bedrooms_min, record.bedrooms_max),
@@ -96,6 +115,7 @@ def requirement_document(record):
         _line('Required amenities', record.required_amenities),
         _line('Preferred amenities', record.preferred_amenities),
         _line('Other constraints', record.free_form_constraints),
+        _line('Type-specific details', record.attributes),
     ])
 
 
@@ -105,6 +125,9 @@ def candidate_document(record):
         _line('Activity', opportunity.get_activity_type_display()),
         _line('Summary', opportunity.summary),
         _line('Original offer', opportunity.original_message),
+        _line('Market scope', opportunity.get_market_scope_display()),
+        _line('Ownership eligibility', record.get_ownership_eligibility_display()),
+        _line('Tenure', record.get_tenure_type_display()),
         _line('Property', record.title),
         _line('Type', record.property_type.name if record.property_type else ''),
         _line('Location', record.location_raw),
@@ -115,4 +138,5 @@ def candidate_document(record):
         _line('Furnishing', record.get_furnishing_display()),
         _line('Available from', record.available_from),
         _line('Description', record.description),
+        _line('Type-specific details', record.attributes),
     ])
