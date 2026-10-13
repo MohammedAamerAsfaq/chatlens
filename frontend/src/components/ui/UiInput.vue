@@ -5,6 +5,7 @@ defineProps({
   type: { type: String, default: 'text' },
   placeholder: { type: String, default: '' },
   disabled: { type: Boolean, default: false },
+  compact: { type: Boolean, default: false },
   multiline: { type: Boolean, default: false },
   rows: { type: Number, default: 4 },
 })
@@ -12,7 +13,7 @@ defineEmits(['update:modelValue'])
 </script>
 
 <template>
-  <div class="ui-input-wrap" :class="{ 'has-prefix': $slots.prefix }">
+  <div class="ui-input-wrap" :class="{ 'has-prefix': $slots.prefix, 'is-compact': compact }">
     <span v-if="$slots.prefix" class="ui-input__prefix"><slot name="prefix" /></span>
     <textarea
       v-if="multiline"

@@ -32,8 +32,7 @@ describe('UiDataTable', () => {
     await wrapper.get('tbody tr').trigger('click')
     expect(wrapper.get('.expanded-test').text()).toBe('Details')
 
-    const columnsButton = wrapper.findAll('header button').find(button => button.text() === 'Columns')
-    await columnsButton?.trigger('click')
+    await wrapper.get('button[aria-label="Choose columns"]').trigger('click')
     const statusToggle = wrapper.findAll('.ui-data-table__column-menu input')[1]
     expect(statusToggle).toBeDefined()
     await statusToggle!.setValue(false)

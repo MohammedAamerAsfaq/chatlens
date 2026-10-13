@@ -1,8 +1,9 @@
 <script setup>
 import { computed } from 'vue'
+import UiCheckboxGroup from '@/components/ui/UiCheckboxGroup.vue'
 import UiFormField from '@/components/ui/UiFormField.vue'
 import UiInput from '@/components/ui/UiInput.vue'
-import UiSelect from '@/components/ui/UiSelect.vue'
+import UiRadioGroup from '@/components/ui/UiRadioGroup.vue'
 
 const props = defineProps({
   definitions: { type: Array, default: () => [] },
@@ -31,7 +32,7 @@ function valueFor(definition) {
 function update(definition, value) {
   const next = { ...(props.modelValue || {}) }
   next[definition.code] = definition.data_type === 'list'
-    ? String(value).split(',').map(item => item.trim()).filter(Boolean)
+    ? (Array.isArray(value) ? value : String(value).split(',').map(item => item.trim()).filter(Boolean))
     : value
   emit('update:modelValue', next)
 }
@@ -39,24 +40,38 @@ function update(definition, value) {
 
 <template>
   <template v-for="definition in visibleDefinitions" :key="definition.code">
-    <UiFormField :label="definition.label" :hint="definition.unit_hint || (definition.data_type === 'list' ? 'Separate values with commas.' : '')">
-      <UiSelect
-        v-if="definition.data_type === 'select'"
-        :model-value="valueFor(definition)"
-        :options="optionsFor(definition)"
-        :required="definition.is_required"
-        @update:model-value="update(definition, $event)"
-      />
-      <UiSelect
-        v-else-if="definition.data_type === 'boolean'"
-        :model-value="valueFor(definition)"
-        :options="booleanOptions"
-        @update:model-value="update(definition, $event)"
-      />
+    <UiRadioGroup
+      v-if="definition.data_type === 'select'"
+      :label="definition.label"
+      :model-value="valueFor(definition)"
+      :options="optionsFor(definition)"
+      :required="definition.is_required"
+      @update:model-value="update(definition, $event)"
+    />
+    <UiRadioGroup
+      v-else-if="definition.data_type === 'boolean'"
+      :label="definition.label"
+      :model-value="valueFor(definition)"
+      :options="booleanOptions"
+      @update:model-value="update(definition, $event)"
+    />
+    <UiCheckboxGroup
+      v-else-if="definition.data_type === 'list' && definition.options?.length"
+      :label="definition.label"
+      :hint="definition.unit_hint"
+      :model-value="Array.isArray(modelValue?.[definition.code]) ? modelValue[definition.code] : []"
+      :options="optionsFor(definition)"
+      @update:model-value="update(definition, $event)"
+    />
+    <UiFormField
+      v-else
+      :label="definition.label"
+      :hint="definition.unit_hint || (definition.data_type === 'list' ? 'Separate values with commas.' : '')"
+    >
       <UiInput
-        v-else
         :model-value="valueFor(definition)"
         :type="definition.data_type === 'number' ? 'number' : 'text'"
+        :compact="definition.data_type === 'number'"
         :step="definition.data_type === 'number' ? 'any' : undefined"
         :required="definition.is_required"
         @update:model-value="update(definition, $event)"

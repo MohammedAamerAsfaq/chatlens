@@ -1,5 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import { faBoxArchive, faCrosshairs, faEyeSlash, faImages, faPenToSquare } from '@fortawesome/free-solid-svg-icons'
 import { realEstateApi } from '@/api'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
@@ -43,13 +45,16 @@ const filterStatuses = [{ value: '', label: 'All statuses' }, ...propertyStatuse
 const filterEligibility = [{ value: '', label: 'All eligibility' }, ...ownershipEligibilityOptions]
 const filterTenure = [{ value: '', label: 'All tenure' }, ...tenureOptions.filter(item => item.value)]
 const columns = [
-  { key: 'title', label: 'Property', sortable: true, width: '20rem' },
-  { key: 'property_type', label: 'Type', sortable: true }, { key: 'location', label: 'Location' },
-  { key: 'bedrooms', label: 'Beds', sortable: true }, { key: 'built_up_area', label: 'Area', sortable: true },
-  { key: 'inventory_source_type', label: 'Inventory', sortable: true },
-  { key: 'tenure_type', label: 'Tenure' },
-  { key: 'availability_status', label: 'Status', sortable: true }, { key: 'media', label: 'Media', exportable: false },
-  { key: 'actions', label: '', exportable: false, width: '15rem' },
+  { key: 'title', label: 'Property', sortable: true, width: '19rem', cellClass: 'property-title-cell' },
+  { key: 'property_type', label: 'Type', sortable: true, width: '8rem' },
+  { key: 'location', label: 'Location', width: '14rem', cellClass: 'property-location-cell' },
+  { key: 'bedrooms', label: 'Beds', sortable: true, width: '5rem' },
+  { key: 'built_up_area', label: 'Area', sortable: true, width: '7rem' },
+  { key: 'inventory_source_type', label: 'Inventory', sortable: true, width: '8rem' },
+  { key: 'tenure_type', label: 'Tenure', width: '8rem' },
+  { key: 'availability_status', label: 'Status', sortable: true, width: '7rem' },
+  { key: 'media', label: 'Media', exportable: false, width: '5rem' },
+  { key: 'actions', label: '', exportable: false, width: '9rem', cellClass: 'property-actions-cell' },
 ]
 
 async function load() {
@@ -134,14 +139,35 @@ onMounted(() => Promise.all([load(), loadEmbeddingStatus(), loadPropertyTypes()]
 </script>
 
 <template><UiPage width="wide"><UiPageHeader eyebrow="Real Estate Inventory" title="Properties" description="Maintain verified physical property records independently from sale and lease listings."><template #actions><UiBadge :tone="embeddings.error ? 'danger' : (embeddings.pending || embeddings.missing) ? 'warning' : 'success'">Embeddings {{ embeddings.embedded }}/{{ embeddings.total }}</UiBadge><UiButton v-if="canManage" @click="typeManager.open = true">Property types</UiButton><UiButton v-if="canManage" :loading="embeddings.busy" @click="repairEmbeddings">Repair embeddings</UiButton><UiButton @click="exportAll">Export CSV</UiButton><UiButton v-if="canManage" @click="importer.open = true">Import CSV</UiButton><UiButton v-if="canManage" variant="primary" @click="openEditor()">+ Add property</UiButton></template></UiPageHeader><UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
-  <UiDataTable :columns="columns" :rows="rows" :loading="loading" :total="total" :page="page" :page-size="pageSize" :sort-key="sortKey" :sort-direction="sortDirection" :search="filters.search" persist-key="real-estate-properties" search-placeholder="Search title, reference, or project..." empty-title="No properties match these filters." @update:page="page = $event" @update:page-size="pageSize = $event; page = 1" @update:sort-key="sortKey = $event" @update:sort-direction="sortDirection = $event" @update:search="filters.search = $event" @refresh="load">
+  <UiDataTable class="properties-table" :columns="columns" :rows="rows" :loading="loading" :total="total" :page="page" :page-size="pageSize" :sort-key="sortKey" :sort-direction="sortDirection" :search="filters.search" persist-key="real-estate-properties" search-placeholder="Search title, reference, or project..." empty-title="No properties match these filters." @update:page="page = $event" @update:page-size="pageSize = $event; page = 1" @update:sort-key="sortKey = $event" @update:sort-direction="sortDirection = $event" @update:search="filters.search = $event" @refresh="load">
     <template #filters><UiSelect v-model="filters.inventory_type" :options="inventoryFilters" /><UiSelect v-model="filters.property_type" :options="filterTypes" /><UiSelect v-model="filters.status" :options="filterStatuses" /><UiSelect v-model="filters.ownership_eligibility" :options="filterEligibility" /><UiSelect v-model="filters.tenure_type" :options="filterTenure" /></template>
     <template #cell-title="{ row }"><strong>{{ row.title }}</strong><small class="subline">{{ row.reference_code || `#${row.id}` }}</small></template>
     <template #cell-property_type="{ value }">{{ title(value) }}</template><template #cell-location="{ row }">{{ row.address?.normalized_location || [row.address?.community, row.address?.city].filter(Boolean).join(', ') || '-' }}</template>
     <template #cell-built_up_area="{ row }">{{ row.built_up_area ? `${row.built_up_area} ${row.area_unit}` : '-' }}</template><template #cell-inventory_source_type="{ row }"><UiBadge :tone="row.is_tracked ? 'success' : 'neutral'">{{ row.is_tracked ? 'Tracked' : title(row.inventory_source_type) }}</UiBadge><small v-if="row.is_tracked" class="subline">{{ title(row.inventory_source_type) }}</small></template><template #cell-tenure_type="{ value }">{{ value ? title(value) : '-' }}</template><template #cell-availability_status="{ value }"><UiBadge :tone="value === 'available' ? 'success' : 'neutral'">{{ title(value) }}</UiBadge></template>
-    <template #cell-media="{ row }">{{ row.media.length }}</template><template #cell-actions="{ row }"><div class="actions"><UiButton size="small" @click.stop="openMedia(row)">Media</UiButton><UiButton v-if="canManage" size="small" @click.stop="toggleTracked(row)">{{ row.is_tracked ? 'Untrack' : 'Track' }}</UiButton><UiButton v-if="canManage" size="small" @click.stop="openEditor(row)">Edit</UiButton><UiButton v-if="canManage" size="small" variant="danger" @click.stop="archive.record = row; archive.open = true">Archive</UiButton></div></template>
+    <template #cell-media="{ row }">{{ row.media.length }}</template><template #cell-actions="{ row }"><div class="actions"><UiButton class="property-action" size="small" title="Manage media" aria-label="Manage media" @click.stop="openMedia(row)"><FontAwesomeIcon :icon="faImages" /></UiButton><UiButton v-if="canManage" class="property-action" size="small" :title="row.is_tracked ? 'Stop tracking' : 'Track property'" :aria-label="row.is_tracked ? 'Stop tracking' : 'Track property'" @click.stop="toggleTracked(row)"><FontAwesomeIcon :icon="row.is_tracked ? faEyeSlash : faCrosshairs" /></UiButton><UiButton v-if="canManage" class="property-action" size="small" title="Edit property" aria-label="Edit property" @click.stop="openEditor(row)"><FontAwesomeIcon :icon="faPenToSquare" /></UiButton><UiButton v-if="canManage" class="property-action" size="small" variant="danger" title="Archive property" aria-label="Archive property" @click.stop="archive.record = row; archive.open = true"><FontAwesomeIcon :icon="faBoxArchive" /></UiButton></div></template>
   </UiDataTable>
   <PropertyEditorModal :open="editor.open" :record="editor.record" :busy="editor.busy" :property-types="propertyTypeOptions" :property-type-records="propertyTypeRecords" @close="editor.open = false" @save="saveProperty" /><PropertyMediaModal :open="media.open" :property="media.property" :busy="media.busy" @close="media.open = false" @upload="uploadMedia" @remove="removeMedia" /><PropertyImportModal :open="importer.open" :rows="importer.rows" :busy="importer.busy" :error="importer.error" :property-types="propertyTypeOptions" :property-type-records="propertyTypeRecords" @close="importer.open = false" @preview="previewImport" @review="reviewImportRows" @import="importRows" /><PropertyTypeManagerModal :open="typeManager.open" :records="propertyTypeRecords" :busy="typeManager.busy" @close="typeManager.open = false" @save="savePropertyType" @deactivate="deactivatePropertyType" /><UiConfirmModal :open="archive.open" title="Archive property" :message="`Archive ${archive.record?.title || 'this property'} and close its listings?`" confirm-label="Archive" danger :busy="archive.busy" @cancel="archive.open = false" @confirm="confirmArchive" />
 </UiPage></template>
 
-<style scoped>.subline{display:block;color:var(--ui-text-subtle);margin-top:3px}.actions{display:flex;gap:6px;flex-wrap:wrap}</style>
+<style scoped>
+.subline{display:block;color:var(--ui-text-subtle);margin-top:3px}
+.actions{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.property-action{width:30px;min-width:30px;padding:0}
+.properties-table :deep(.ui-data-table__toolbar){display:grid;grid-template-columns:minmax(0,1fr);align-items:center}
+.properties-table :deep(.ui-data-table__filters){display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));width:100%;min-width:0}
+.properties-table :deep(.ui-data-table__filters>.choices){width:100%;min-width:0;margin:0}
+.properties-table :deep(.ui-data-table__tools){width:100%;min-width:0;justify-content:flex-end}
+.properties-table :deep(.ui-data-table__search){width:min(360px,100%);margin-right:auto}
+.properties-table :deep(.ui-data-table__viewport table){min-width:1280px}
+.properties-table :deep(.property-title-cell){min-width:19rem}
+.properties-table :deep(.property-location-cell){min-width:14rem;white-space:normal;overflow-wrap:break-word}
+.properties-table :deep(.property-actions-cell){min-width:9rem}
+@media(max-width:1100px){
+  .properties-table :deep(.ui-data-table__filters){grid-template-columns:repeat(3,minmax(150px,1fr))}
+}
+@media(max-width:760px){
+  .properties-table :deep(.ui-data-table__filters){grid-template-columns:1fr}
+  .properties-table :deep(.ui-data-table__tools){align-items:stretch;display:grid;grid-template-columns:1fr 1fr}
+  .properties-table :deep(.ui-data-table__search){grid-column:1/-1;width:100%;margin:0}
+}
+</style>

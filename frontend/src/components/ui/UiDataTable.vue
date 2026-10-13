@@ -1,5 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import { faFileCsv, faRotateRight, faTableColumns } from '@fortawesome/free-solid-svg-icons'
 
 const props = defineProps({
   columns: { type: Array, required: true },
@@ -116,13 +118,13 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); document.removeEventListener(
       <div class="ui-data-table__tools">
         <label class="ui-data-table__search"><span aria-hidden="true">&#128269;</span><input v-model="internalSearch" :placeholder="searchPlaceholder" @input="updateSearch"></label>
         <div class="ui-data-table__columns">
-          <button type="button" @click.stop="showColumns = !showColumns">Columns</button>
+          <button type="button" class="ui-data-table__icon-button" title="Choose columns" aria-label="Choose columns" @click.stop="showColumns = !showColumns"><FontAwesomeIcon :icon="faTableColumns" /></button>
           <div v-if="showColumns" class="ui-data-table__column-menu">
             <label v-for="column in columns" :key="column.key"><input type="checkbox" :checked="!hiddenKeys.has(column.key)" :disabled="!hiddenKeys.has(column.key) && visibleColumns.length === 1" @change="toggleColumn(column.key)"><span>{{ column.label }}</span></label>
           </div>
         </div>
-        <button type="button" :disabled="!rows.length" @click="exportPage">Export CSV</button>
-        <button type="button" :disabled="loading" aria-label="Refresh records" @click="emit('refresh')">Refresh</button>
+        <button type="button" class="ui-data-table__icon-button" :disabled="!rows.length" title="Export CSV" aria-label="Export CSV" @click="exportPage"><FontAwesomeIcon :icon="faFileCsv" /></button>
+        <button type="button" class="ui-data-table__icon-button" :disabled="loading" title="Refresh records" aria-label="Refresh records" @click="emit('refresh')"><FontAwesomeIcon :icon="faRotateRight" /></button>
       </div>
     </header>
 

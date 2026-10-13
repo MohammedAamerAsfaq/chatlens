@@ -1,9 +1,11 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 import UiButton from '@/components/ui/UiButton.vue'
+import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiFormField from '@/components/ui/UiFormField.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiModal from '@/components/ui/UiModal.vue'
+import UiRadioGroup from '@/components/ui/UiRadioGroup.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTabs from '@/components/ui/UiTabs.vue'
 import PropertyAttributeFields from './PropertyAttributeFields.vue'
@@ -75,18 +77,18 @@ function promote() {
       <UiFormField label="Property title" class="wide"><UiInput v-model="form.title" required /></UiFormField>
       <UiFormField label="Property type"><UiSelect v-model="form.property_type" :options="props.propertyTypes" /></UiFormField>
       <UiFormField label="Location"><UiInput v-model="form.normalized_location" /></UiFormField>
-      <UiFormField label="Inventory type"><UiSelect v-model="form.inventory_source_type" :options="inventorySourceTypes" /></UiFormField>
-      <UiFormField label="Ownership eligibility"><UiSelect v-model="form.ownership_eligibility" :options="ownershipEligibilityOptions" /></UiFormField>
-      <UiFormField label="Tenure"><UiSelect v-model="form.tenure_type" :options="tenureOptions" /></UiFormField>
-      <UiFormField label="Tracked inventory"><label class="check-row"><input v-model="form.is_tracked" type="checkbox" /> Track after promotion</label></UiFormField>
-      <UiFormField label="Bedrooms"><UiInput v-model="form.bedrooms" type="number" min="0" step="0.5" /></UiFormField>
-      <UiFormField label="Bathrooms"><UiInput v-model="form.bathrooms" type="number" min="0" step="0.5" /></UiFormField>
-      <UiFormField label="Area"><UiInput v-model="form.built_up_area" type="number" min="0" step="0.01" /></UiFormField>
-      <UiFormField label="Area unit"><UiSelect v-model="form.area_unit" :options="areaUnits" /></UiFormField>
-      <UiFormField label="Furnishing"><UiSelect v-model="form.furnishing" :options="furnishingOptions" /></UiFormField>
-      <UiFormField label="Asking price"><UiInput v-model="form.asking_price" type="number" min="0" step="0.01" required /></UiFormField>
+      <UiRadioGroup v-model="form.inventory_source_type" label="Inventory type" :options="inventorySourceTypes" />
+      <UiRadioGroup v-model="form.ownership_eligibility" label="Ownership eligibility" :options="ownershipEligibilityOptions" />
+      <UiRadioGroup v-model="form.tenure_type" label="Tenure" :options="tenureOptions" />
+      <div class="tracking-field"><span>Inventory tracking</span><UiCheckbox v-model="form.is_tracked" label="Track after promotion" description="Include the promoted property in tracked inventory views." /></div>
+      <UiFormField label="Bedrooms"><UiInput v-model="form.bedrooms" compact type="number" min="0" step="0.5" /></UiFormField>
+      <UiFormField label="Bathrooms"><UiInput v-model="form.bathrooms" compact type="number" min="0" step="0.5" /></UiFormField>
+      <UiFormField label="Area"><UiInput v-model="form.built_up_area" compact type="number" min="0" step="0.01" /></UiFormField>
+      <UiRadioGroup v-model="form.area_unit" label="Area unit" :options="areaUnits" />
+      <UiRadioGroup v-model="form.furnishing" label="Furnishing" :options="furnishingOptions" />
+      <UiFormField label="Asking price"><UiInput v-model="form.asking_price" compact type="number" min="0" step="0.01" required /></UiFormField>
       <UiFormField label="Currency"><UiInput v-model="form.currency" maxlength="3" /></UiFormField>
-      <UiFormField v-if="isLease" label="Payment frequency"><UiSelect v-model="form.payment_frequency" :options="paymentFrequencies" /></UiFormField>
+      <UiRadioGroup v-if="isLease" v-model="form.payment_frequency" label="Payment frequency" :options="paymentFrequencies" />
       <template v-if="fieldDefinitions.length">
         <div class="section-title wide">{{ selectedType?.name }} details</div>
         <PropertyAttributeFields v-model="form.attributes" :definitions="fieldDefinitions" />
@@ -99,5 +101,5 @@ function promote() {
 </template>
 
 <style scoped>
-.candidate-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:18px}.wide{grid-column:1/-1}.section-title{font-weight:700;border-top:1px solid var(--ui-border);padding-top:16px}.check-row{display:flex;align-items:center;gap:8px;min-height:42px}.merge-form{display:grid;gap:12px;margin-top:24px}.merge-form p{color:var(--ui-text-subtle)}.spacer{flex:1}@media(max-width:700px){.candidate-form{grid-template-columns:1fr}.wide{grid-column:auto}}
+.candidate-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:18px}.wide{grid-column:1/-1}.section-title{font-weight:700;border-top:1px solid var(--ui-border);padding-top:16px}.tracking-field{display:flex;flex-direction:column;gap:8px;color:var(--ui-text);font-size:.76rem;font-weight:750}.tracking-field .ui-checkbox{min-height:42px;align-items:center}.merge-form{display:grid;gap:12px;margin-top:24px}.merge-form p{color:var(--ui-text-subtle)}.spacer{flex:1}@media(max-width:700px){.candidate-form{grid-template-columns:1fr}.wide{grid-column:auto}}
 </style>

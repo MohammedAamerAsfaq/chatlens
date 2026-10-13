@@ -1,10 +1,11 @@
-.ui-data-table { overflow: visible; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); background: var(--ui-surface); color: var(--ui-text); box-shadow: var(--ui-shadow-card); font-family: var(--ui-font-sans); }
+.ui-data-table { width: 100%; max-width: 100%; min-width: 0; overflow: hidden; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); background: var(--ui-surface); color: var(--ui-text); box-shadow: var(--ui-shadow-card); font-family: var(--ui-font-sans); }
 .ui-data-table__toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--ui-border); background: var(--ui-surface); }
 .ui-data-table__filters,.ui-data-table__tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ui-data-table__filters { flex: 1; }
 .ui-data-table__filters>.choices { flex: 0 1 220px; width: 220px; min-width: 180px; margin: 0; }
 .ui-data-table__toolbar select,.ui-data-table__toolbar button,.ui-data-table__search { min-height: 34px; border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-sm); background: var(--ui-surface); color: var(--ui-text); font: 600 .76rem var(--ui-font-sans); }
 .ui-data-table__toolbar select,.ui-data-table__toolbar button { padding: 6px 10px; }
+.ui-data-table__toolbar .ui-data-table__icon-button { width: 34px; min-width: 34px; padding: 0; font-size: .9rem; }
 .ui-data-table__toolbar button { cursor: pointer; }
 .ui-data-table__toolbar button:hover:not(:disabled) { border-color: var(--ui-primary); background: var(--ui-primary-soft); color: var(--ui-primary); }
 .ui-data-table__toolbar button:disabled { opacity: .5; cursor: not-allowed; }
@@ -14,7 +15,7 @@
 .ui-data-table__column-menu { position: absolute; z-index: 40; top: calc(100% + 6px); right: 0; width: 210px; padding: 7px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: var(--ui-surface-raised); box-shadow: var(--ui-shadow-popover); }
 .ui-data-table__column-menu label { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: var(--ui-radius-xs); color: var(--ui-text); font-size: .76rem; cursor: pointer; }
 .ui-data-table__column-menu label:hover { background: var(--ui-surface-muted); }
-.ui-data-table__viewport { max-height: calc(100vh - 315px); overflow: auto; }
+.ui-data-table__viewport { width: 100%; max-width: 100%; min-width: 0; max-height: calc(100vh - 315px); overflow: auto; }
 .ui-data-table table { width: 100%; min-width: 920px; border-collapse: separate; border-spacing: 0; font-size: .78rem; }
 .ui-data-table thead { position: sticky; z-index: 5; top: 0; }
 .ui-data-table th { padding: 10px 13px; border-bottom: 1px solid var(--ui-border); background: var(--ui-surface-muted); color: var(--ui-text-muted); font-size: .64rem; letter-spacing: .055em; text-align: left; text-transform: uppercase; white-space: nowrap; }

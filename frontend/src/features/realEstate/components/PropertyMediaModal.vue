@@ -6,7 +6,7 @@ import UiFileUpload from '@/components/ui/UiFileUpload.vue'
 import UiFormField from '@/components/ui/UiFormField.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiModal from '@/components/ui/UiModal.vue'
-import UiSelect from '@/components/ui/UiSelect.vue'
+import UiRadioGroup from '@/components/ui/UiRadioGroup.vue'
 import { mediaTypes } from '../options'
 
 const props = defineProps({ open: Boolean, property: { type: Object, default: null }, busy: Boolean })
@@ -38,7 +38,7 @@ function submit() {
       <p v-if="!media.length" class="empty">No media has been added.</p>
     </div>
     <form id="media-form" class="media-form" @submit.prevent="submit">
-      <UiFormField label="Media type"><UiSelect v-model="form.media_type" :options="mediaTypes" /></UiFormField>
+      <UiRadioGroup v-model="form.media_type" label="Media type" :options="mediaTypes" />
       <UiFormField label="Caption"><UiInput v-model="form.caption" /></UiFormField>
       <UiFormField label="Upload file" class="wide"><UiFileUpload accept="image/jpeg,image/png,image/webp,application/pdf,video/mp4" :file-name="file?.name || ''" @select="file = $event" @clear="file = null" /></UiFormField>
       <UiFormField label="Or external URL" class="wide"><UiInput v-model="form.external_url" type="url" placeholder="https://..." :disabled="Boolean(file)" /></UiFormField>
