@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { faInbox } from '@fortawesome/free-solid-svg-icons'
+import { faWhatsapp } from '@fortawesome/free-brands-svg-icons'
 import { clientPulseApi } from '@/api'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCard from '@/components/ui/UiCard.vue'
@@ -183,7 +183,7 @@ onMounted(async () => {
           <div v-if="row.communication_accounts.length" class="cp-account-list">
             <span v-for="account in row.communication_accounts" :key="account.id" class="cp-account">
               <span><strong>{{ account.name }}</strong><small>{{ account.phone_number || account.session_status }}</small></span>
-              <UiButton v-if="canOpenInbox" class="cp-open-inbox" size="small" :disabled="openingContactId === account.whatsapp_contact_id" :title="openingContactId === account.whatsapp_contact_id ? 'Opening WhatsApp inbox' : 'Open WhatsApp inbox'" aria-label="Open WhatsApp inbox" @click.stop="openInbox(account)"><FontAwesomeIcon :icon="faInbox" /></UiButton>
+              <UiButton v-if="canOpenInbox" class="cp-open-inbox" size="small" :disabled="openingContactId === account.whatsapp_contact_id" :title="openingContactId === account.whatsapp_contact_id ? 'Opening WhatsApp inbox' : 'Open WhatsApp inbox'" aria-label="Open WhatsApp inbox" @click.stop="openInbox(account)"><FontAwesomeIcon :icon="faWhatsapp" /></UiButton>
             </span>
           </div><span v-else class="cp-muted">Not linked</span>
         </template>
