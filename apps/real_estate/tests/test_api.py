@@ -1,13 +1,20 @@
+from io import BytesIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from uuid import uuid4
+
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
+from openpyxl import Workbook
 
 from apps.real_estate.models import (
     ActivityType, ClassificationStatus, Listing, Property, PropertyCandidate, PropertyType,
-    RealEstateOpportunity,
+    RealEstateMockSourceRecord, RealEstateOpportunity,
 )
+from apps.task_management.models import BackgroundTask
 from apps.tenancy.models import Company, CompanyMembership
 from apps.real_estate.services.property_types import seed_default_property_types
 
@@ -54,6 +61,110 @@ class RealEstateApiTests(TestCase):
         }, format='json')
         self.assertEqual(response.status_code, 201, response.json())
         self.assertEqual(Property.objects.get(pk=response.json()['id']).company, self.company)
+
+    def test_mock_source_preview_returns_model_shaped_rows_without_persisting(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = 'Prospects'
+        sheet.append(['Name', 'Mobile', 'Property', 'Budget'])
+        sheet.append(['Demo Buyer', '971500000000', 'Dubai Marina apartment', 2500000])
+        content = BytesIO()
+        workbook.save(content)
+        property_count = Property.objects.count()
+
+        response = self.client.post('/api/real-estate/properties/mock-source-preview/', {
+            'files': SimpleUploadedFile(
+                'prospects.xlsx', content.getvalue(),
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ),
+            'record_limit': 1,
+        }, format='multipart')
+
+        self.assertEqual(response.status_code, 200, response.json())
+        payload = response.json()
+        self.assertFalse(payload['persisted'])
+        self.assertEqual(payload['count'], 1)
+        self.assertEqual(payload['record_limit'], 1)
+        self.assertEqual(payload['rows'][0]['source_file_name'], 'prospects.xlsx')
+        self.assertEqual(payload['rows'][0]['source_sheet_name'], 'Prospects')
+        self.assertEqual(payload['rows'][0]['source_row_number'], 1)
+        self.assertEqual(payload['rows'][0]['row_kind'], 'header')
+        self.assertIsNone(payload['rows'][0]['imported_at'])
+        self.assertEqual(Property.objects.count(), property_count)
+
+    def test_mock_source_preview_rejects_unsupported_record_limit(self):
+        workbook = Workbook()
+        workbook.active.append(['Name'])
+        content = BytesIO()
+        workbook.save(content)
+
+        response = self.client.post('/api/real-estate/properties/mock-source-preview/', {
+            'files': SimpleUploadedFile('prospects.xlsx', content.getvalue()),
+            'record_limit': 2,
+        }, format='multipart')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('record_limit', response.json())
+
+    def test_mock_source_files_can_be_queued_imported_and_deleted(self):
+        from apps.real_estate.services.mock_source_import import import_mock_sources
+
+        with TemporaryDirectory() as temp_dir:
+            source_dir = Path(temp_dir) / 'static' / 'Real Estate Data'
+            source_dir.mkdir(parents=True)
+            workbook = Workbook()
+            workbook.active.append(['Name', 'Mobile', 'Property'])
+            workbook.active.append(['Demo Buyer', '971500000000', 'Marina flat'])
+            workbook.save(source_dir / 'sample.xlsx')
+
+            with override_settings(BASE_DIR=temp_dir):
+                response = self.client.get('/api/real-estate/mock-source-records/available-files/')
+                self.assertEqual(response.status_code, 200, response.json())
+                self.assertEqual([row['name'] for row in response.json()['files']], ['sample.xlsx'])
+
+                response = self.client.post('/api/real-estate/mock-source-records/import-files/', {
+                    'import_all': False, 'file_names': ['sample.xlsx'],
+                }, format='json')
+                self.assertEqual(response.status_code, 202, response.json())
+                task = BackgroundTask.objects.get(pk=response.json()['task_id'])
+                self.assertEqual(task.queue_name, 'real_estate_imports')
+                self.assertEqual(task.company, self.company)
+
+                first = import_mock_sources(self.company, uuid4(), ['sample.xlsx'])
+                second = import_mock_sources(self.company, uuid4(), ['sample.xlsx'])
+                self.assertEqual(first['records_created'], 2)
+                self.assertEqual(second['records_created'], 0)
+                self.assertEqual(second['duplicates_skipped'], 2)
+
+                listed = self.client.get('/api/real-estate/mock-source-records/?page_size=10')
+                self.assertEqual(listed.status_code, 200, listed.json())
+                self.assertEqual(listed.json()['count'], 2)
+                self.assertEqual(listed.json()['results'][0]['company_id'], self.company.pk)
+
+                blocked = self.client.delete('/api/real-estate/mock-source-records/delete-all/')
+                self.assertEqual(blocked.status_code, 409)
+                task.status = BackgroundTask.STATUS_SUCCEEDED
+                task.save(update_fields=['status'])
+                deleted = self.client.delete('/api/real-estate/mock-source-records/delete-all/')
+                self.assertEqual(deleted.status_code, 200, deleted.json())
+                self.assertEqual(deleted.json()['deleted'], 2)
+
+    def test_mock_source_delete_all_is_company_scoped(self):
+        common = {
+            'import_run_id': uuid4(), 'source_file_name': 'source.xlsx',
+            'source_file_checksum': 'a' * 64, 'source_sheet_name': 'Sheet1',
+            'source_sheet_index': 0, 'source_row_number': 1,
+            'raw_values': ['Name'], 'display_values': ['Name'],
+            'row_checksum': 'b' * 64,
+        }
+        RealEstateMockSourceRecord.objects.create(company=self.company, **common)
+        RealEstateMockSourceRecord.objects.create(company=self.other, **common)
+
+        response = self.client.delete('/api/real-estate/mock-source-records/delete-all/')
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertFalse(RealEstateMockSourceRecord.objects.filter(company=self.company).exists())
+        self.assertTrue(RealEstateMockSourceRecord.objects.filter(company=self.other).exists())
 
     def test_property_inventory_filters_keep_tracking_independent(self):
         own = Property.objects.create(

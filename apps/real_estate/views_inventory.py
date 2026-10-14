@@ -14,6 +14,7 @@ from apps.real_estate.serializers import (
 )
 from apps.real_estate.services.inventory_export import property_export_response
 from apps.real_estate.services.inventory_import import import_rows, parse_csv_upload, preview_rows
+from apps.real_estate.services.mock_source_preview import preview_workbooks
 
 
 class PropertyTypeViewSet(CompanyOwnedViewSet):
@@ -87,6 +88,15 @@ class PropertyViewSet(CompanyOwnedViewSet):
         rows = parse_csv_upload(request.FILES.get('file'))
         preview = preview_rows(self.active_company(), rows)
         return Response({'rows': preview, 'count': len(preview)})
+
+    @action(detail=False, methods=['post'], url_path='mock-source-preview')
+    def mock_source_preview(self, request):
+        result = preview_workbooks(
+            self.active_company(),
+            request.FILES.getlist('files'),
+            request.data.get('record_limit', 10),
+        )
+        return Response(result)
 
     @action(detail=False, methods=['post'], url_path='bulk-import')
     def bulk_import(self, request):

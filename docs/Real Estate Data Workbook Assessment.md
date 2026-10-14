@@ -392,3 +392,17 @@ For broader system testing, use `Dubai silicon oasis 2026.xlsx` for property nor
 - Do not discard or overwrite source values during normalization.
 - Do not expose one company's imported records to another company.
 - Do not process the complete dataset until the controlled pilot reconciles successfully.
+
+## 16. Mock-Source Staging Implementation
+
+The Real Estate Mock Data page now imports workbook rows into the company-owned
+`real_estate_mock_source_record` staging table. This table is isolated from property inventory,
+listings, ClientPulse contacts, and classified opportunities.
+
+- Users can select individual `.xlsx` files from `static/Real Estate Data` or import all files.
+- Import runs through the dedicated `real_estate_imports` durable queue with concurrency `1`.
+- Source filename, file checksum, sheet index, and source row number form a duplicate-safe identity within a company.
+- Re-importing an unchanged workbook skips existing rows rather than creating duplicates.
+- Raw and display values are retained independently; no source value is replaced by normalized data.
+- The grid is server-paginated and company-scoped.
+- Delete All removes only the active company's staging records and is blocked while its import is active.

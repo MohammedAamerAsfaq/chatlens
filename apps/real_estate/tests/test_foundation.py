@@ -90,6 +90,7 @@ class RealEstateFoundationTests(TestCase):
                 'real_estate_match',
                 'real_estate_maintenance',
                 'real_estate_embeddings',
+                'real_estate_imports',
             },
         )
         self.assertTrue(all(queue.task_timeout_seconds == 300 for queue in queues))

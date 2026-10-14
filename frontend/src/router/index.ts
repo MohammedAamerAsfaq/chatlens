@@ -50,6 +50,7 @@ import ClientPulseRemindersView from '../views/ClientPulseRemindersView.vue'
 import RealEstatePropertiesView from '../views/RealEstatePropertiesView.vue'
 import RealEstateListingsView from '../views/RealEstateListingsView.vue'
 import RealEstateCandidatesView from '../views/RealEstateCandidatesView.vue'
+import RealEstateMockDataView from '../views/RealEstateMockDataView.vue'
 
 const APP_TITLE = 'ChatLens'
 
@@ -106,6 +107,7 @@ const router = createRouter({
     { path: '/real-estate/properties', name: 'real-estate-properties', component: RealEstatePropertiesView, meta: { title: 'Properties', permission: 'real_estate.properties.view', industries: ['real_estate'] } },
     { path: '/real-estate/listings', name: 'real-estate-listings', component: RealEstateListingsView, meta: { title: 'Listings', permission: 'real_estate.listings.view', industries: ['real_estate'] } },
     { path: '/real-estate/candidates', name: 'real-estate-candidates', component: RealEstateCandidatesView, meta: { title: 'Candidate Review', permission: 'real_estate.opportunities.view', industries: ['real_estate'] } },
+    { path: '/real-estate/mock-data', name: 'real-estate-mock-data', component: RealEstateMockDataView, meta: { title: 'Real Estate Mock Data', permission: 'real_estate.properties.manage', industries: ['real_estate'] } },
   ],
 })
 

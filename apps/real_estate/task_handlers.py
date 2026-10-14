@@ -152,3 +152,7 @@ def embed_requirement(payload, context):
 )
 def embed_candidate(payload, context):
     return _embed('candidate', payload, context)
+
+
+# Keep the large workbook importer isolated from latency-sensitive AI handlers.
+from apps.real_estate import task_handlers_mock  # noqa: E402,F401

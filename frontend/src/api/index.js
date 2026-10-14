@@ -104,6 +104,17 @@ export const realEstateApi = {
     data.append('file', file)
     return http.post('/real-estate/properties/import-preview/', data)
   },
+  previewRealEstateMockSources: (files, recordLimit) => {
+    const data = new FormData()
+    files.forEach(file => data.append('files', file))
+    data.append('record_limit', String(recordLimit))
+    return http.post('/real-estate/properties/mock-source-preview/', data)
+  },
+  mockSourceFiles: () => http.get('/real-estate/mock-source-records/available-files/'),
+  mockSourceRecords: (params = {}) => http.get('/real-estate/mock-source-records/', { params }),
+  mockSourceSummary: () => http.get('/real-estate/mock-source-records/summary/'),
+  importMockSources: data => http.post('/real-estate/mock-source-records/import-files/', data),
+  deleteMockSources: () => http.delete('/real-estate/mock-source-records/delete-all/'),
   importProperties: rows => http.post('/real-estate/properties/bulk-import/', { rows }),
   reviewPropertyImportRows: rows => http.post('/real-estate/properties/review-import-rows/', { rows }),
   exportProperties: (params = {}) => http.get('/real-estate/properties/export/', { params, responseType: 'blob' }),

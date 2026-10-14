@@ -14,6 +14,7 @@ from apps.real_estate.models import (
     PropertyRequirement,
     RequirementEmbedding,
     RealEstateAgentCallLog,
+    RealEstateMockSourceRecord,
     RealEstateOpportunity,
     RealEstateParseLog,
     RealEstatePromptConfig,
@@ -121,3 +122,18 @@ admin.site.register(PropertyEmbedding, RealEstateEmbeddingAdmin)
 admin.site.register(ListingEmbedding, RealEstateEmbeddingAdmin)
 admin.site.register(RequirementEmbedding, RealEstateEmbeddingAdmin)
 admin.site.register(CandidateEmbedding, RealEstateEmbeddingAdmin)
+
+
+@admin.register(RealEstateMockSourceRecord)
+class RealEstateMockSourceRecordAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'company', 'source_file_name', 'source_sheet_name',
+        'source_row_number', 'row_kind', 'processing_status', 'imported_at',
+    )
+    list_filter = ('company', 'row_kind', 'processing_status', 'source_file_name')
+    search_fields = ('source_file_name', 'source_sheet_name', 'processing_notes')
+    readonly_fields = (
+        'company', 'import_run_id', 'source_file_name', 'source_file_checksum',
+        'source_sheet_name', 'source_sheet_index', 'source_row_number', 'row_kind',
+        'raw_values', 'display_values', 'row_checksum', 'imported_at',
+    )

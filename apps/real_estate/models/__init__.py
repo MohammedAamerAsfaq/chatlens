@@ -19,6 +19,7 @@ from .embeddings import (
 from .opportunity import RealEstateOpportunity
 from .candidate import PropertyCandidate
 from .listing import Listing
+from .mock_source_record import RealEstateMockSourceRecord
 from .property import Property
 from .property_type import PropertyType
 from .property_type_field import PropertyTypeFieldDefinition
@@ -43,6 +44,7 @@ __all__ = [
     'RealEstateAgentCallLog',
     'RealEstateOpportunity',
     'Listing',
+    'RealEstateMockSourceRecord',
     'ListingEmbedding',
     'Property',
     'PropertyType',

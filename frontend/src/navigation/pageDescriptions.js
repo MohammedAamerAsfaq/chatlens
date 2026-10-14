@@ -48,6 +48,7 @@ const pageDescriptions = {
   'real-estate-properties': 'Maintain verified company-owned property inventory and media.',
   'real-estate-listings': 'Manage sale and lease listings without duplicating physical properties.',
   'real-estate-candidates': 'Review AI-extracted property offers before they enter trusted inventory.',
+  'real-estate-mock-data': 'Preview Excel source rows against the proposed Real Estate test-data schema.',
 }
 
 export function pageDescription(routeName) {

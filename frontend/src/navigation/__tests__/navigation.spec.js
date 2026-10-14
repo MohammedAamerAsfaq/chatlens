@@ -21,6 +21,7 @@ describe('industry-aware navigation', () => {
     const visible = settingsNavigation.filter(item => navigationItemVisible(item, context('real_estate')))
     expect(visible.map(item => item.route)).not.toContain('v2-settings')
     expect(visible.map(item => item.route)).toContain('ai-providers')
+    expect(visible.map(item => item.route)).toContain('real-estate-mock-data')
   })
 
   it('lands a switched Real Estate company on its inventory', () => {

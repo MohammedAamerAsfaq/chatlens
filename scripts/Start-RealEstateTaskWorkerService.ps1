@@ -37,22 +37,26 @@ if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'manage.py') -PathType Lea
     throw "manage.py was not found under '$repoRoot'."
 }
 
-$service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-if ($service -and $service.Status -eq 'Running') {
-    Write-Host "$ServiceName is already running."
-    exit 0
-}
-
 New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
 $queues = @(
     'real_estate_gate',
     'real_estate_extract',
     'real_estate_match',
     'real_estate_maintenance',
-    'real_estate_embeddings'
+    'real_estate_embeddings',
+    'real_estate_imports'
 )
 $queueArguments = ($queues | ForEach-Object { "--queue $_" }) -join ' '
 $arguments = "manage.py run_background_tasks --no-ui $queueArguments"
+$service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+if ($service -and $service.Status -eq 'Running') {
+    $currentArguments = (& $NssmPath get $ServiceName AppParameters | Out-String).Trim()
+    if ($currentArguments -eq $arguments) {
+        Write-Host "$ServiceName is already running with the correct Real Estate queues."
+        exit 0
+    }
+    throw "$ServiceName is running with outdated parameters. Stop it safely, then run this script again to apply the Real Estate queue list."
+}
 if (-not $service) {
     & $NssmPath install $ServiceName $PythonPath $arguments
     if ($LASTEXITCODE -ne 0) { throw "NSSM could not install $ServiceName." }
