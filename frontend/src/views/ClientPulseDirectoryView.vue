@@ -138,11 +138,13 @@ watch(() => [filters.lifecycle_stage, filters.owner_id, filters.priority, filter
 watch([page, pageSize, sortKey, sortDirection], load)
 watch(() => form.creation_mode, mode => { if (showCreate.value && mode === 'whatsapp') loadConversationContacts() })
 onMounted(async () => {
-  try {
-    const [optionsResponse, tagsResponse] = await Promise.all([clientPulseApi.options(), clientPulseApi.tags()])
-    owners.value = optionsResponse.data.owners; tags.value = tagsResponse.data
-    await load()
-  } catch (exc) { error.value = message(exc, 'Unable to initialize ClientPulse.') }
+  const loadReferenceData = async () => {
+    try {
+      const [optionsResponse, tagsResponse] = await Promise.all([clientPulseApi.options(), clientPulseApi.tags()])
+      owners.value = optionsResponse.data.owners; tags.value = tagsResponse.data
+    } catch (exc) { error.value = message(exc, 'Unable to initialize ClientPulse.') }
+  }
+  await Promise.all([load(), loadReferenceData()])
 })
 </script>
 
