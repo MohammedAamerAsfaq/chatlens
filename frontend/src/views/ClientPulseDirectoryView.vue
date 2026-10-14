@@ -1,6 +1,8 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import { faInbox } from '@fortawesome/free-solid-svg-icons'
 import { clientPulseApi } from '@/api'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCard from '@/components/ui/UiCard.vue'
@@ -66,7 +68,7 @@ const columns = [
 
 function title(value) { return value.replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase()) }
 function message(exc, fallback) { return exc.response?.data?.detail || fallback }
-function formatDateTime(value) { return value ? new Date(value).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '-' }
+function formatDateTime(value) { return value ? new Date(value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '-' }
 function resetForm() { Object.assign(form, emptyClientForm()) }
 function openCreate() { resetForm(); showCreate.value = true }
 function closeCreate() { if (!creating.value) showCreate.value = false }
@@ -181,7 +183,7 @@ onMounted(async () => {
           <div v-if="row.communication_accounts.length" class="cp-account-list">
             <span v-for="account in row.communication_accounts" :key="account.id" class="cp-account">
               <span><strong>{{ account.name }}</strong><small>{{ account.phone_number || account.session_status }}</small></span>
-              <UiButton v-if="canOpenInbox" size="small" :disabled="openingContactId === account.whatsapp_contact_id" @click.stop="openInbox(account)">{{ openingContactId === account.whatsapp_contact_id ? 'Opening...' : 'Open Inbox' }}</UiButton>
+              <UiButton v-if="canOpenInbox" class="cp-open-inbox" size="small" :disabled="openingContactId === account.whatsapp_contact_id" :title="openingContactId === account.whatsapp_contact_id ? 'Opening WhatsApp inbox' : 'Open WhatsApp inbox'" aria-label="Open WhatsApp inbox" @click.stop="openInbox(account)"><FontAwesomeIcon :icon="faInbox" /></UiButton>
             </span>
           </div><span v-else class="cp-muted">Not linked</span>
         </template>
@@ -208,5 +210,5 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.directory-page{background:var(--ui-bg)}.directory-hero{align-items:center;padding-bottom:16px;border-bottom:1px solid var(--ui-border)}.directory-panel{margin-top:18px}.directory-panel :deep(.ui-card__body){overflow:visible}.directory-panel :deep(.ui-data-table){border:0;border-radius:0;box-shadow:none}.directory-panel :deep(.ui-data-table__filters .choices){width:180px;min-width:150px;margin:0}.directory-panel :deep(.ui-data-table__viewport){min-height:300px}.cp-account-list{display:grid;gap:6px}.cp-account{display:flex;align-items:center;justify-content:space-between;gap:8px}.cp-account>span{display:grid;min-width:0}.cp-account small{color:var(--ui-text-subtle)}.cp-account :deep(.ui-button){flex:none;white-space:nowrap}.cp-tags{display:flex;flex-wrap:wrap;gap:4px}@media(max-width:900px){.directory-panel :deep(.ui-data-table__filters .choices){width:100%}}
+.directory-page{background:var(--ui-bg)}.directory-hero{align-items:center;padding-bottom:16px;border-bottom:1px solid var(--ui-border)}.directory-panel{margin-top:18px}.directory-panel :deep(.ui-card__body){overflow:visible}.directory-panel :deep(.ui-data-table){border:0;border-radius:0;box-shadow:none}.directory-panel :deep(.ui-data-table__filters .choices){width:180px;min-width:150px;margin:0}.directory-panel :deep(.ui-data-table__viewport){min-height:300px}.cp-account-list{display:grid;gap:6px}.cp-account{display:flex;align-items:center;justify-content:space-between;gap:8px}.cp-account>span{display:grid;min-width:0}.cp-account small{color:var(--ui-text-subtle)}.cp-account :deep(.ui-button){flex:none;white-space:nowrap}.cp-open-inbox{width:30px;min-width:30px;padding:0}.cp-tags{display:flex;flex-wrap:wrap;gap:4px}@media(max-width:900px){.directory-panel :deep(.ui-data-table__filters .choices){width:100%}}
 </style>
