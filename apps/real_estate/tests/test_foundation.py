@@ -14,6 +14,7 @@ from apps.real_estate.models import (
     RealEstateSettings,
 )
 from apps.real_estate.services.classification_contract import outcome_for_decision
+from apps.real_estate.services.prompts import DEFAULT_EXTRACTION_PROMPT
 from apps.tenancy.models import Company, CompanyRolePermission
 from apps.tenancy.services.enrollment_service import CompanyEnrollmentService
 
@@ -31,6 +32,18 @@ class RealEstateFoundationTests(TestCase):
             set(ActivityType.values),
             {'buying', 'selling', 'leasing_inquiry', 'leasing_offer'},
         )
+
+    def test_v1_extraction_instruction_matches_persistence_contract(self):
+        for decision in (
+            'buying', 'selling', 'leasing_inquiry', 'leasing_offer',
+            'not_real_estate', 'needs_review',
+        ):
+            self.assertIn(decision, DEFAULT_EXTRACTION_PROMPT)
+        for field in (
+            'locations', 'bedrooms_min', 'bedrooms_max', 'asking_price',
+            'budget_min', 'budget_max', 'area_unit', 'available_from',
+        ):
+            self.assertIn(f'"{field}"', DEFAULT_EXTRACTION_PROMPT)
 
     def test_ai_decisions_map_to_one_persistence_outcome(self):
         buying = outcome_for_decision(ClassificationDecision.BUYING)
