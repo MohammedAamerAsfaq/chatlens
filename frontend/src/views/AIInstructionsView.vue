@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h2>AI Instructions</h2>
-        <p class="subtitle">Prompts sent verbatim to the AI. Edit and save to change behaviour globally.</p>
+        <p class="subtitle">{{ pageSubtitle }}</p>
       </div>
       <div class="page-tabs">
         <button :class="['page-tab', tab === 'prompts' && 'active']" @click="tab = 'prompts'">Prompts</button>
@@ -45,7 +45,7 @@
       </div>
 
       <!-- Trading reply settings card -->
-      <div class="agent-card">
+      <div v-if="!isRealEstate" class="agent-card">
         <div class="agent-header">
           <div class="agent-title">
             <span class="agent-name">WhatsApp Price Reply</span>
@@ -131,7 +131,7 @@
       </div>
 
       <!-- Inquiry product save settings card -->
-      <div class="agent-card">
+      <div v-if="!isRealEstate" class="agent-card">
         <div class="agent-header">
           <div class="agent-title">
             <span class="agent-name">Inquiry Product Trace Saving</span>
@@ -214,6 +214,15 @@
             <span class="meta-note" v-if="p.key === 'inventory_update'">
               Used in Products → Update Inventory · supports <code>{product_block}</code> placeholder · must return a raw JSON array
             </span>
+            <span class="meta-note" v-if="p.key === 'gate'">
+              First-pass Real Estate relevance gate for inbound messages
+            </span>
+            <span class="meta-note" v-if="p.key === 'extraction'">
+              Real Estate V1 activity classification and structured property extraction
+            </span>
+            <span class="meta-note" v-if="p.key === 'match_rerank'">
+              Reranks eligible Real Estate property candidates after structured filtering
+            </span>
             <span class="token-estimate">
               ~{{ tokenCount(p.body).toLocaleString() }} tokens
               <span v-if="inputCost(p.body) !== null" class="cost-estimate">· ~${{ inputCost(p.body) }} input</span>
@@ -236,12 +245,19 @@
         <div class="filter-group">
           <select v-model="logFilter.purpose" @change="loadLogs">
             <option value="">All purposes</option>
-            <option value="classification">Inquiry Classification</option>
-            <option value="inquiry_extraction_v2">Inquiry Extraction V2</option>
-            <option value="inquiry_match_v2">Inquiry Match V2</option>
-            <option value="product_extraction">Product Extraction</option>
-            <option value="match_verification">Match Verification</option>
-            <option value="inventory_update">Inventory Update</option>
+            <template v-if="isRealEstate">
+              <option value="gate">Real Estate GatePass</option>
+              <option value="extraction">Real Estate V1 Extraction</option>
+              <option value="match_rerank">Real Estate Match Reranking</option>
+            </template>
+            <template v-else>
+              <option value="classification">Inquiry Classification</option>
+              <option value="inquiry_extraction_v2">Inquiry Extraction V2</option>
+              <option value="inquiry_match_v2">Inquiry Match V2</option>
+              <option value="product_extraction">Product Extraction</option>
+              <option value="match_verification">Match Verification</option>
+              <option value="inventory_update">Inventory Update</option>
+            </template>
           </select>
           <select v-model="logFilter.success" @change="loadLogs">
             <option value="">All statuses</option>
@@ -309,8 +325,16 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { tradingApi } from '../api/index.js'
+import { computed, ref, onMounted } from 'vue'
+import { realEstateApi, tradingApi } from '../api/index.js'
+import { useAuthStore } from '@/stores/auth.js'
+
+const auth = useAuthStore()
+const isRealEstate = computed(() => auth.currentCompany?.industry_type === 'real_estate')
+const promptApi = computed(() => isRealEstate.value ? realEstateApi : tradingApi)
+const pageSubtitle = computed(() => isRealEstate.value
+  ? 'Company-owned instructions used by the Real Estate gate, V1 extraction, and matching pipeline.'
+  : 'Company-owned prompts sent to the AI. Edit and save to change trading behaviour.')
 
 const tab = ref('prompts')
 
@@ -372,12 +396,12 @@ async function loadPrompts() {
   promptsLoading.value = true
   try {
     const [pr, ar, ao, kro, wr, ips] = await Promise.all([
-      tradingApi.listPrompts(),
-      tradingApi.getActiveAgent().catch(() => ({ data: {} })),
-      tradingApi.listPromptAgentOptions().catch(() => ({ data: [] })),
-      tradingApi.listPromptKiwiRouterOptions().catch(() => ({ data: [] })),
-      tradingApi.getWtsReplySettings().catch(() => ({ data: {} })),
-      tradingApi.getInquiryProductSaveSettings().catch(() => ({ data: {} })),
+      promptApi.value.listPrompts(),
+      promptApi.value.getActiveAgent().catch(() => ({ data: {} })),
+      promptApi.value.listPromptAgentOptions().catch(() => ({ data: [] })),
+      promptApi.value.listPromptKiwiRouterOptions().catch(() => ({ data: [] })),
+      isRealEstate.value ? Promise.resolve({ data: {} }) : tradingApi.getWtsReplySettings().catch(() => ({ data: {} })),
+      isRealEstate.value ? Promise.resolve({ data: {} }) : tradingApi.getInquiryProductSaveSettings().catch(() => ({ data: {} })),
     ])
     prompts.value = pr.data
     Object.assign(agent.value, ar.data)
@@ -395,7 +419,7 @@ async function save(p) {
   saved.value[p.key]  = false
   errors.value[p.key] = ''
   try {
-    const { data } = await tradingApi.savePrompt(
+    const { data } = await promptApi.value.savePrompt(
       p.key,
       p.body,
       p.uses_kiwi_router ? null : p.agent_config || null,
@@ -417,7 +441,7 @@ async function savePromptAgent(p) {
   saved.value[p.key] = false
   errors.value[p.key] = ''
   try {
-    const { data } = await tradingApi.savePromptAgent(
+    const { data } = await promptApi.value.savePromptAgent(
       p.key,
       p.uses_kiwi_router ? null : p.agent_config || null,
       p.uses_kiwi_router ? p.kiwi_router || null : null,
@@ -445,13 +469,13 @@ async function togglePromptTarget(p) {
 
 async function reset(p) {
   if (!confirm(`Reset "${p.label}" to the built-in default?`)) return
-  await tradingApi.resetPrompt(p.key)
+  await promptApi.value.resetPrompt(p.key)
   await loadPrompts()
 }
 
 async function savePricing() {
   pricingSaved.value = false
-  await tradingApi.saveAgentPricing({
+  await promptApi.value.saveAgentPricing({
     input_price_per_1m:  agent.value.input_price_per_1m,
     output_price_per_1m: agent.value.output_price_per_1m,
   })
@@ -489,7 +513,7 @@ async function loadLogs() {
     const params = {}
     if (logFilter.value.purpose) params.purpose = logFilter.value.purpose
     if (logFilter.value.success) params.success = logFilter.value.success
-    const { data } = await tradingApi.listAgentLogs(params)
+    const { data } = await promptApi.value.listAgentLogs(params)
     logs.value = data
   } finally {
     logsLoading.value = false
@@ -508,6 +532,9 @@ function toggle(id) {
 }
 
 function purposeLabel(p) {
+  if (p === 'gate') return 'Real Estate GatePass'
+  if (p === 'extraction') return 'Real Estate V1 Extraction'
+  if (p === 'match_rerank') return 'Real Estate Match Reranking'
   if (p === 'classification') return 'Classification'
   if (p === 'inquiry_extraction_v2') return 'V2 Extraction'
   if (p === 'inquiry_match_v2') return 'V2 Match'

@@ -73,7 +73,7 @@ export const settingsNavigation = [
   { label: 'Storage', to: '/storage', route: 'storage' },
   { label: 'AI Providers', to: '/ai-providers', route: 'ai-providers' },
   { label: 'KiwiRouter', to: '/kiwi-router', route: 'kiwi-router' },
-  { label: 'AI Instructions', to: '/ai-instructions', route: 'ai-instructions', industries: ['trading'] },
+  { label: 'AI Instructions', to: '/ai-instructions', route: 'ai-instructions', industries: ['trading', 'real_estate'] },
   { label: 'V2 Settings', to: '/v2-settings', route: 'v2-settings', industries: ['trading'] },
   { label: 'V2 Match Training', to: '/v2-match-training', route: 'v2-match-training', industries: ['trading'] },
   { label: 'Inquiry Forwarding', to: '/inquiry-forwarding', route: 'inquiry-forwarding', industries: ['trading'] },

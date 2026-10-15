@@ -84,12 +84,35 @@ Extraction rules:
 - For not_real_estate or needs_review, keep property fields empty except facts explicitly stated.
 """
 
+DEFAULT_MATCH_RERANK_PROMPT = """You are a strict real-estate match reranking agent.
+Compare one real-estate requirement with the supplied property candidates. Rank only candidates
+that satisfy the stated activity, location, property type, price or budget, and explicit hard
+constraints. Do not invent missing property facts. Return valid JSON only as an array of objects:
+[{"candidate_id": 1, "score": 0.0, "reason": "concise factual explanation"}].
+Score must be between 0 and 1. Omit candidates that clearly violate a hard constraint."""
+
+
+DEFAULT_PROMPTS = {
+    RealEstatePromptConfig.KEY_GATE: (
+        DEFAULT_GATE_PROMPT,
+        'Real Estate GatePass',
+    ),
+    RealEstatePromptConfig.KEY_EXTRACTION: (
+        DEFAULT_EXTRACTION_PROMPT,
+        'Real Estate V1 Classification and Extraction',
+    ),
+    RealEstatePromptConfig.KEY_MATCH_RERANK: (
+        DEFAULT_MATCH_RERANK_PROMPT,
+        'Real Estate Match Reranking',
+    ),
+}
+
 
 def configured_prompt(company, key):
     config = RealEstatePromptConfig.get_for_company(company, key)
     if config and config.body.strip():
         return config.body.strip(), config
-    default = DEFAULT_GATE_PROMPT if key == RealEstatePromptConfig.KEY_GATE else DEFAULT_EXTRACTION_PROMPT
+    default, _label = DEFAULT_PROMPTS.get(key, DEFAULT_PROMPTS[RealEstatePromptConfig.KEY_EXTRACTION])
     return default, config
 
 

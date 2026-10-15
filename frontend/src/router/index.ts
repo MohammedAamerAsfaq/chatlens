@@ -91,7 +91,7 @@ const router = createRouter({
     { path: '/buying-inquiries', name: 'buying-inquiries', component: BuyingInquiriesView, meta: { title: 'Buying Inquiries', industries: ['trading'] } },
     { path: '/group-buying-inquiries', name: 'group-buying-inquiries', component: GroupBuyingInquiriesView, meta: { title: 'Group Buying Inquiries', industries: ['trading'] } },
     { path: '/group-selling-offers', name: 'group-selling-offers', component: GroupSellingOffersView, meta: { title: 'Group Selling Offers', industries: ['trading'] } },
-    { path: '/ai-instructions', name: 'ai-instructions', component: AIInstructionsView, meta: { title: 'AI Instructions', industries: ['trading'] } },
+    { path: '/ai-instructions', name: 'ai-instructions', component: AIInstructionsView, meta: { title: 'AI Instructions', industries: ['trading', 'real_estate'] } },
     { path: '/v2-settings', name: 'v2-settings', component: V2SettingsView, meta: { title: 'V2 Settings', industries: ['trading'] } },
     { path: '/tenant-admin', name: 'tenant-admin', component: TenantAdminView, meta: { title: 'Tenant Admin' } },
     { path: '/v2-match-training', name: 'v2-match-training', component: V2MatchTrainingView, meta: { title: 'V2 Match Training', industries: ['trading'] } },

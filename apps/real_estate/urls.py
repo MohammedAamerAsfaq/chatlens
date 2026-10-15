@@ -7,6 +7,7 @@ from .views_inventory import (
 from .views_opportunities import CandidateViewSet, OpportunityViewSet, RequirementViewSet
 from .views_mock_source import MockSourceRecordViewSet
 from .views_mock_inquiry import MockInquiryViewSet
+from .views_prompts import RealEstatePromptViewSet
 
 router = DefaultRouter()
 router.register('real-estate/properties', PropertyViewSet, basename='real-estate-properties')
@@ -19,5 +20,6 @@ router.register('real-estate/requirements', RequirementViewSet, basename='real-e
 router.register('real-estate/candidates', CandidateViewSet, basename='real-estate-candidates')
 router.register('real-estate/mock-source-records', MockSourceRecordViewSet, basename='real-estate-mock-source-records')
 router.register('real-estate/mock-inquiries', MockInquiryViewSet, basename='real-estate-mock-inquiries')
+router.register('real-estate/prompts', RealEstatePromptViewSet, basename='real-estate-prompts')
 
 urlpatterns = router.urls

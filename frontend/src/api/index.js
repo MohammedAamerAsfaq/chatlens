@@ -91,6 +91,19 @@ export const clientPulseApi = {
 }
 
 export const realEstateApi = {
+  listPrompts: () => http.get('/real-estate/prompts/'),
+  savePrompt: (key, body, agent_config, kiwi_router) => http.patch(
+    `/real-estate/prompts/${key}/`, { body, agent_config, kiwi_router },
+  ),
+  savePromptAgent: (key, agent_config, kiwi_router) => http.patch(
+    `/real-estate/prompts/${key}/`, { agent_config, kiwi_router },
+  ),
+  resetPrompt: key => http.delete(`/real-estate/prompts/${key}/`),
+  listPromptAgentOptions: () => http.get('/real-estate/prompts/agent-options/'),
+  listPromptKiwiRouterOptions: () => http.get('/real-estate/prompts/kiwi-router-options/'),
+  listAgentLogs: (params = {}) => http.get('/real-estate/prompts/agent-logs/', { params }),
+  getActiveAgent: () => http.get('/prompts/active-agent/'),
+  saveAgentPricing: data => http.patch('/prompts/active-agent/', data),
   propertyTypes: (params = {}) => http.get('/real-estate/property-types/', { params }),
   createPropertyType: data => http.post('/real-estate/property-types/', data),
   updatePropertyType: (id, data) => http.patch(`/real-estate/property-types/${id}/`, data),

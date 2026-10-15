@@ -12,7 +12,7 @@ from openpyxl import Workbook
 
 from apps.real_estate.models import (
     ActivityType, ClassificationStatus, Listing, Property, PropertyCandidate, PropertyType,
-    RealEstateMockSourceRecord, RealEstateOpportunity,
+    RealEstateMockSourceRecord, RealEstateOpportunity, RealEstatePromptConfig,
 )
 from apps.task_management.models import BackgroundTask
 from apps.tenancy.models import Company, CompanyMembership
@@ -31,6 +31,24 @@ class RealEstateApiTests(TestCase):
         )
         self.client = APIClient()
         self.client.force_authenticate(self.user)
+
+    def test_real_estate_prompt_api_lists_defaults_and_saves_company_override(self):
+        response = self.client.get('/api/real-estate/prompts/')
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(
+            {row['key'] for row in response.json()},
+            {'gate', 'extraction', 'match_rerank'},
+        )
+        self.assertTrue(all(row['is_default'] for row in response.json()))
+
+        response = self.client.patch('/api/real-estate/prompts/extraction/', {
+            'body': 'Company-specific Real Estate extraction instruction.',
+        }, format='json')
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertFalse(response.json()['is_default'])
+        prompt = RealEstatePromptConfig.objects.get(company=self.company, key='extraction')
+        self.assertEqual(prompt.body, 'Company-specific Real Estate extraction instruction.')
+        self.assertFalse(RealEstatePromptConfig.objects.filter(company=self.other).exists())
 
     def test_properties_are_company_scoped_and_archived_on_delete(self):
         visible = Property.objects.create(company=self.company, title='Visible flat', property_type=self.types['apartment'])
