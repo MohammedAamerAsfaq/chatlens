@@ -80,6 +80,7 @@ export const settingsNavigation = [
   { label: 'Task & Queues', to: '/task-queues', route: 'task-queues' },
   { label: 'ClientPulse', to: '/clientpulse-settings', route: 'clientpulse-settings', permission: 'settings.company.view' },
   { label: 'Real Estate Mock Data', to: '/real-estate/mock-data', route: 'real-estate-mock-data', permission: 'real_estate.properties.manage', industries: ['real_estate'] },
+  { label: 'Real Estate Mock Inquiries', to: '/real-estate/mock-inquiries', route: 'real-estate-mock-inquiries', permission: 'real_estate.properties.manage', industries: ['real_estate'] },
   { label: 'Users', to: '/company-users', route: 'company-users', permission: 'users.memberships.view' },
   { label: 'Roles & Permissions', to: '/company-roles', route: 'company-roles', permission: 'users.roles.view' },
   { label: 'Tenant Admin', to: '/tenant-admin', route: 'tenant-admin', tenantAdmin: true },

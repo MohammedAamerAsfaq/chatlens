@@ -406,3 +406,28 @@ listings, ClientPulse contacts, and classified opportunities.
 - Raw and display values are retained independently; no source value is replaced by normalized data.
 - The grid is server-paginated and company-scoped.
 - Delete All removes only the active company's staging records and is blocked while its import is active.
+
+## 17. Mock Inquiry Pipeline
+
+The Real Estate Mock Inquiries page uses curated staging rows to exercise the normal inbound
+pipeline without sending a real WhatsApp message. First-phase dataset profiles are deliberately
+explicit because the source workbooks do not share one stable column layout.
+
+| Workbook | Mock activity | Reason selected |
+|---|---|---|
+| `Binghatti Leads-1.xlsx` | Buying | Contains buyer identity, phone, project, bedroom preference, and budget. |
+| `Leads JVC-1.xlsx` | Buying | Contains buyer identity, phone, location, and requested property type. |
+| `Dubai silicon oasis 2026.xlsx` | Selling | Contains owner contact, project, unit, type, size, and property value. |
+| `Business Bay F2026.xlsx` | Selling | Contains owner contact, community, project, unit, and size. |
+
+The generation task runs on `real_estate_imports`. It creates or reuses the inbound-only
+`Real Estate Mock WhatsApp` account, generates a realistic text message, and enqueues that
+message through `whatsapp.persist_live_message` on `live_ingestion`. From that point, the
+existing message embedding and Real Estate gate/extraction queues run unchanged.
+
+Each generated message retains its source row, expected activity, durable live-ingestion task,
+and persisted WhatsApp message identity. Successfully selected staging rows are marked
+`processed`, preventing accidental reuse. Clear All removes the generated messages, dependent
+AI records and tasks, mock chats and contacts, run records, and inquiry records, then resets the
+source rows to `pending`. It never deletes inventory, listings, ClientPulse data, or non-mock
+WhatsApp messages.

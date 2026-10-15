@@ -49,6 +49,7 @@ const pageDescriptions = {
   'real-estate-listings': 'Manage sale and lease listings without duplicating physical properties.',
   'real-estate-candidates': 'Review AI-extracted property offers before they enter trusted inventory.',
   'real-estate-mock-data': 'Preview Excel source rows against the proposed Real Estate test-data schema.',
+  'real-estate-mock-inquiries': 'Send controlled source rows through the production Real Estate ingestion and AI queues.',
 }
 
 export function pageDescription(routeName) {
