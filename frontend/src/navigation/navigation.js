@@ -19,12 +19,11 @@ export const primaryNavigation = [
   },
   {
     id: 'real-estate', label: 'Real Estate', to: '/real-estate/properties', industries: ['real_estate'],
-    routes: ['real-estate-properties', 'real-estate-listings', 'real-estate-candidates', 'ai-instructions'],
+    routes: ['real-estate-properties', 'real-estate-listings', 'real-estate-candidates'],
     children: [
       { label: 'Properties', to: '/real-estate/properties', route: 'real-estate-properties' },
       { label: 'Listings', to: '/real-estate/listings', route: 'real-estate-listings' },
       { label: 'Candidate Review', to: '/real-estate/candidates', route: 'real-estate-candidates' },
-      { label: 'AI Instructions', to: '/ai-instructions', route: 'ai-instructions' },
     ],
   },
   {
@@ -74,7 +73,7 @@ export const settingsNavigation = [
   { label: 'Storage', to: '/storage', route: 'storage' },
   { label: 'AI Providers', to: '/ai-providers', route: 'ai-providers' },
   { label: 'KiwiRouter', to: '/kiwi-router', route: 'kiwi-router' },
-  { label: 'AI Instructions', to: '/ai-instructions', route: 'ai-instructions', industries: ['trading'] },
+  { label: 'AI Instructions', to: '/ai-instructions', route: 'ai-instructions', industries: ['trading', 'real_estate'] },
   { label: 'V2 Settings', to: '/v2-settings', route: 'v2-settings', industries: ['trading'] },
   { label: 'V2 Match Training', to: '/v2-match-training', route: 'v2-match-training', industries: ['trading'] },
   { label: 'Inquiry Forwarding', to: '/inquiry-forwarding', route: 'inquiry-forwarding', industries: ['trading'] },
