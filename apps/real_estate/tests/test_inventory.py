@@ -14,6 +14,7 @@ from apps.real_estate.services.extraction_projection import project_extraction
 from apps.tenancy.models import Company, CompanyMembership
 from apps.real_estate.services.property_types import seed_default_property_types
 from apps.real_estate.services.property_types import resolve_property_type
+from apps.task_management.models import BackgroundTask
 
 
 class RealEstateInventoryTests(TestCase):
@@ -72,6 +73,18 @@ class RealEstateInventoryTests(TestCase):
         self.assertFalse(PropertyCandidate.objects.filter(opportunity=opportunity).exists())
         self.assertFalse(Property.objects.filter(company=self.company).exists())
 
+    def test_requirement_projection_enqueues_one_embedding_task(self):
+        opportunity = self.opportunity(ActivityType.BUYING)
+        with self.captureOnCommitCallbacks(execute=True):
+            requirement = project_extraction(opportunity, {
+                'property': {'property_type': 'apartment', 'locations': ['Dubai Marina']},
+            })
+
+        self.assertEqual(BackgroundTask.objects.filter(
+            task_key='real_estate.embed_requirement',
+            payload__object_id=requirement.pk,
+        ).count(), 1)
+
     def test_supply_projects_to_candidate_then_explicit_promotion(self):
         opportunity = self.opportunity(ActivityType.LEASING_OFFER)
         candidate = project_extraction(opportunity, {
@@ -91,6 +104,18 @@ class RealEstateInventoryTests(TestCase):
         self.assertEqual(listing.listing_type, 'lease')
         self.assertEqual(listing.status, 'draft')
         self.assertTrue(listing.is_verified)
+
+    def test_candidate_projection_enqueues_one_embedding_task(self):
+        opportunity = self.opportunity(ActivityType.SELLING)
+        with self.captureOnCommitCallbacks(execute=True):
+            candidate = project_extraction(opportunity, {
+                'property': {'property_type': 'villa', 'location': 'Dubai Islands'},
+            })
+
+        self.assertEqual(BackgroundTask.objects.filter(
+            task_key='real_estate.embed_candidate',
+            payload__object_id=candidate.pk,
+        ).count(), 1)
 
     def test_company_taxonomy_seeds_aliases_and_type_fields(self):
         apartment = self.types['apartment']

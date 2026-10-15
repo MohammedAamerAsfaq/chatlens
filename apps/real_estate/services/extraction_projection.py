@@ -64,7 +64,7 @@ def _project_requirement(opportunity, payload, parsed, settings):
         'extraction_confidence': _decimal(parsed.get('confidence')),
         'raw_extraction': payload,
     }
-    requirement, _ = PropertyRequirement.objects.update_or_create(opportunity=opportunity, defaults=defaults)
+    requirement, _ = _projection_record(PropertyRequirement, opportunity, defaults)
     requirement.full_clean()
     requirement.save()
     return requirement
@@ -98,7 +98,7 @@ def _project_candidate(opportunity, payload, parsed, settings):
         'description': str(payload.get('description') or opportunity.original_message or ''),
         'raw_extraction': payload,
     }
-    candidate, created = PropertyCandidate.objects.update_or_create(opportunity=opportunity, defaults=defaults)
+    candidate, created = _projection_record(PropertyCandidate, opportunity, defaults)
     if not created and candidate.review_status != 'pending':
         candidate.review_status = 'pending'
         candidate.promoted_property = None
@@ -108,6 +108,16 @@ def _project_candidate(opportunity, payload, parsed, settings):
     candidate.full_clean()
     candidate.save()
     return candidate
+
+
+def _projection_record(model, opportunity, defaults):
+    record = model.objects.select_for_update().filter(opportunity=opportunity).first()
+    created = record is None
+    if created:
+        record = model(opportunity=opportunity)
+    for field, value in defaults.items():
+        setattr(record, field, value)
+    return record, created
 
 
 def _mapping(value):
