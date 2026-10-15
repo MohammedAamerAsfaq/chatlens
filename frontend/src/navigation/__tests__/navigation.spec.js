@@ -9,6 +9,10 @@ describe('industry-aware navigation', () => {
     expect(visible.map(item => item.id)).toContain('real-estate')
     expect(visible.map(item => item.id)).not.toContain('trading')
     expect(visible.map(item => item.id)).not.toContain('campaigns')
+
+    const realEstate = visible.find(item => item.id === 'real-estate')
+    expect(realEstate.routes).toContain('ai-instructions')
+    expect(realEstate.children.map(item => item.route)).toContain('ai-instructions')
   })
 
   it('preserves Trading navigation for Trading companies', () => {
@@ -20,8 +24,14 @@ describe('industry-aware navigation', () => {
   it('hides Trading-only settings from Real Estate companies', () => {
     const visible = settingsNavigation.filter(item => navigationItemVisible(item, context('real_estate')))
     expect(visible.map(item => item.route)).not.toContain('v2-settings')
+    expect(visible.map(item => item.route)).not.toContain('ai-instructions')
     expect(visible.map(item => item.route)).toContain('ai-providers')
     expect(visible.map(item => item.route)).toContain('real-estate-mock-data')
+  })
+
+  it('keeps AI Instructions in Trading settings', () => {
+    const visible = settingsNavigation.filter(item => navigationItemVisible(item, context('trading')))
+    expect(visible.map(item => item.route)).toContain('ai-instructions')
   })
 
   it('lands a switched Real Estate company on its inventory', () => {
