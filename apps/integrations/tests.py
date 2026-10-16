@@ -93,6 +93,45 @@ class IntegrationApiTests(TestCase):
         self.assertTrue(overview.data['can_manage_platform'])
         self.assertEqual(overview.data['geonames']['username'], 'geo-user')
 
+    def test_control_admin_can_manage_platform_source_from_customer_workspace(self):
+        customer = Company.objects.create(name='Real Estate', slug='real-estate')
+        CompanyMembership.objects.create(
+            company=customer, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
+        )
+        session = self.client.session
+        session['active_company_id'] = customer.pk
+        session.save()
+
+        response = self.client.put('/api/integrations/geography-source/', {
+            'username': 'geo-user', 'is_enabled': True,
+        }, format='json')
+        self.assertEqual(response.status_code, 200)
+        overview = self.client.get('/api/integrations/overview/')
+        self.assertTrue(overview.data['can_manage_platform'])
+
+    def test_platform_sync_is_owned_by_control_company_from_customer_workspace(self):
+        customer = Company.objects.create(name='Real Estate', slug='real-estate-sync')
+        CompanyMembership.objects.create(
+            company=customer, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
+        )
+        session = self.client.session
+        session['active_company_id'] = customer.pk
+        session.save()
+        QueueDefinition.objects.update_or_create(
+            name='integrations', defaults={'display_name': 'Integrations', 'is_enabled': True},
+        )
+        IntegrationConnection.objects.create(
+            scope='platform', provider='geonames', display_name='GeoNames',
+            configuration={'username': 'geo-user'}, is_enabled=True, status='ready',
+        )
+
+        response = self.client.post(
+            '/api/integrations/geography-source/sync/', {'country_code': 'AE'}, format='json',
+        )
+        self.assertEqual(response.status_code, 202)
+        task = BackgroundTask.objects.get(pk=response.data['background_task_id'])
+        self.assertEqual(task.company, self.control)
+
     @patch('apps.integrations.views.GeoNamesClient.country')
     def test_connection_test_reports_country(self, country):
         country.return_value = {'countryName': 'United Arab Emirates', 'countryCode': 'AE'}

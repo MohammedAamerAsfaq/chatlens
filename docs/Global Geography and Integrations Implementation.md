@@ -6,7 +6,7 @@
 ## 1. Decisions
 
 - `apps.integrations` owns external provider connections, adapters, synchronization runs, and external reference-data imports.
-- Canonical geography is platform data shared by every company. Only a control-workspace administrator can configure or synchronize it.
+- Canonical geography is platform data shared by every company. Only a Control Account administrator can configure or synchronize it, regardless of which permitted workspace is currently selected.
 - Company-specific connectors, including future Google Maps and Google Contacts connections, remain company-owned.
 - Provider credentials must not be stored as plain text. `IntegrationConnection.secret_reference` stores only a reference to an external secret facility.
 - Geography supplements raw property addresses. It does not replace or discard the original address, normalized location text, or coordinates.
@@ -78,7 +78,7 @@ GET  /api/integrations/locations/
 1. Apply Django migrations.
 2. Restart IIS/application processes.
 3. Restart the background worker that includes the `integrations` queue.
-4. Open **Settings > Integrations** from the control workspace.
+4. As a Control Account administrator, open **Settings > Integrations** from any permitted workspace.
 5. Save a registered GeoNames username and test the connection.
 6. Start **Sync UAE geography** and inspect its run in the page or Task Operations.
 

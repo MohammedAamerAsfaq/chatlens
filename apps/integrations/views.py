@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.queue_management.services import enqueue_task
-from apps.tenancy.services.access import default_company_for_user, is_control_company_admin
+from apps.tenancy.services.access import control_company_for_platform_admin, is_platform_admin
 from apps.tenancy.services.authorization import has_company_permission
 from .connectors import GeoNamesClient, GeoNamesError
 from .models import AdministrativeArea, City, Country, IntegrationConnection, IntegrationSyncRun
@@ -51,7 +51,7 @@ def overview(request):
         connection__provider=IntegrationConnection.PROVIDER_GEONAMES,
     )[:10]
     return Response({
-        'can_manage_platform': is_control_company_admin(request.user),
+        'can_manage_platform': is_platform_admin(request.user),
         'geonames': _source_data(source) if source else None,
         'geography': {
             'countries': Country.objects.filter(is_active=True).count(),
@@ -66,8 +66,8 @@ def overview(request):
 @permission_classes([IsAuthenticated])
 def geography_source(request):
     _require(request, 'integrations.connections.manage')
-    if not is_control_company_admin(request.user):
-        raise PermissionDenied('The shared geography source can only be managed from the control workspace.')
+    if not is_platform_admin(request.user):
+        raise PermissionDenied('The shared geography source can only be managed by a platform administrator.')
     username = str(request.data.get('username') or '').strip()
     if not username:
         raise ValidationError({'username': 'GeoNames username is required.'})
@@ -90,8 +90,8 @@ def geography_source(request):
 @permission_classes([IsAuthenticated])
 def test_geography_source(request):
     _require(request, 'integrations.connections.manage')
-    if not is_control_company_admin(request.user):
-        raise PermissionDenied('The shared geography source can only be tested from the control workspace.')
+    if not is_platform_admin(request.user):
+        raise PermissionDenied('The shared geography source can only be tested by a platform administrator.')
     source = _geonames_connection()
     if not source:
         raise ValidationError({'detail': 'Configure GeoNames before testing it.'})
@@ -118,15 +118,15 @@ def test_geography_source(request):
 @permission_classes([IsAuthenticated])
 def sync_geography(request):
     _require(request, 'integrations.sync.execute')
-    if not is_control_company_admin(request.user):
-        raise PermissionDenied('Shared geography can only be synchronized from the control workspace.')
+    company = control_company_for_platform_admin(request.user)
+    if not company:
+        raise PermissionDenied('Shared geography can only be synchronized by a platform administrator.')
     source = _geonames_connection()
     if not source or not source.is_enabled:
         raise ValidationError({'detail': 'Enable and test the GeoNames connection first.'})
     country_code = str(request.data.get('country_code') or 'AE').strip().upper()
     if len(country_code) != 2 or not country_code.isalpha():
         raise ValidationError({'country_code': 'Use a two-letter ISO country code.'})
-    company = default_company_for_user(request.user)
     try:
         with transaction.atomic():
             run = IntegrationSyncRun.objects.create(

@@ -80,6 +80,27 @@ def is_control_company_admin(user) -> bool:
     return membership.role in {CompanyMembership.ROLE_SUPER_USER, CompanyMembership.ROLE_ADMIN}
 
 
+def control_company_for_platform_admin(user):
+    """Return the control company when the user has platform administration rights."""
+    control = Company.objects.filter(company_type=Company.TYPE_CONTROL, is_active=True).first()
+    if not control or not control.access_is_valid:
+        return None
+    if user.is_superuser:
+        return control
+    membership = CompanyMembership.objects.filter(
+        user=user,
+        company=control,
+        is_active=True,
+        role__in={CompanyMembership.ROLE_SUPER_USER, CompanyMembership.ROLE_ADMIN},
+    ).first()
+    return control if membership else None
+
+
+def is_platform_admin(user) -> bool:
+    """Platform authority is independent of the workspace currently being viewed."""
+    return control_company_for_platform_admin(user) is not None
+
+
 def company_for_whatsapp_account(account):
     if not account:
         return None
