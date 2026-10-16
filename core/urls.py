@@ -12,6 +12,7 @@ urlpatterns = [
     path('api/', include('apps.queue_management.urls')),
     path('api/', include('apps.tenancy.urls')),
     path('api/', include('apps.clientpulse.urls')),
+    path('api/', include('apps.integrations.urls')),
     path('api/', include('apps.real_estate.urls')),
     path('', include('apps.whatsapp_bridge.urls')),
     path('', frontend_spa, name='frontend-root'),

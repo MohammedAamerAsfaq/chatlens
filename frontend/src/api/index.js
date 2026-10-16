@@ -154,6 +154,14 @@ export const realEstateApi = {
   rejectCandidate: id => http.post(`/real-estate/candidates/${id}/reject/`),
 }
 
+export const integrationsApi = {
+  overview: () => http.get('/integrations/overview/'),
+  saveGeographySource: data => http.put('/integrations/geography-source/', data),
+  testGeographySource: () => http.post('/integrations/geography-source/test/'),
+  syncGeography: country_code => http.post('/integrations/geography-source/sync/', { country_code }),
+  locations: (params = {}) => http.get('/integrations/locations/', { params }),
+}
+
 export const taskQueueApi = {
   overview: () => http.get('/task-queue/overview/'),
   settings: () => http.get('/task-queue/settings/'),

@@ -3,6 +3,7 @@ const pageDescriptions = {
   conversations: 'Read, search, and respond to WhatsApp conversations.',
   activity: 'Review session, ingestion, and system activity.',
   storage: 'Monitor stored media and manage retention.',
+  integrations: 'Configure external services and maintain shared geography master data.',
   'message-logs': 'Inspect message ingestion and processing records.',
   'ai-providers': 'Configure company AI agents, models, and routing targets.',
   'dropped-messages': 'Review messages excluded before downstream processing.',

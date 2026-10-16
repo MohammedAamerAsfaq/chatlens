@@ -1,6 +1,6 @@
 # ClientPulse and Integrations Implementation Design
 
-> **Status:** Approved design; Phases 0-4 implemented through manual WhatsApp follow-up. ClientPulse directory, reminder, and profile screens use the shared Inspinia component system.
+> **Status:** Approved design; Phases 0-4 implemented through manual WhatsApp follow-up. The provider-neutral Integrations foundation and GeoNames-backed global geography master are implemented; Google Contacts remains pending.
 > **Prepared:** 2026-10-01
 > **Purpose:** Define the concrete implementation of the ClientPulse CRM module and the Integrations module used to connect external contact providers such as Google Contacts.
 
@@ -46,6 +46,8 @@ Phase 3 adds company-scoped durable reminders, recurrence, snoozing, in-app noti
 Phase 4 adds permission-scoped manual WhatsApp follow-up from a ClientPulse profile. It resolves only company-owned linked WhatsApp contacts, enforces CRM suppression and configured consent policy, performs live destination preflight, and delegates text or image messages to the existing outbound queue. Timeline entries reference the outbound ledger and expose its live queued, sent, delivered, read, blocked, or failed state. Baileys receipt callbacks advance delivery state monotonically and use the worker fallback journal when Django is unavailable.
 
 The 2026-10-06 UI and conversion checkpoint adds creation of a ClientPulse profile from an existing WhatsApp contact. The candidate endpoint is company-scoped and permission-protected. Owners, admins, and superusers may search all communication accounts owned by the active company; other users may search only WhatsApp accounts assigned to them. Group, newsletter, and broadcast identities are excluded. The directory uses one remotely searchable contact selector rather than separate account/contact selectors.
+
+The 2026-10-16 Integrations checkpoint adds platform- and company-scoped connection records, durable synchronization runs, a control-admin GeoNames connector, global country/administrative-area/city masters, an Integrations settings screen, and the `integrations.sync_geography` task. Shared geography is platform-managed; future Google Contacts connections remain company-owned. See `Global Geography and Integrations Implementation.md` for the implemented contract and deployment sequence.
 
 ---
 

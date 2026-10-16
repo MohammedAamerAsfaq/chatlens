@@ -202,6 +202,8 @@ tenure_type: freehold | long_lease | lease_99_year
 
 For Local opportunities, the selected UAE emirate is stored as structured location criteria. Regional and International remain supported scopes, but their selectable geography must come from configured location data rather than hard-coded assumptions. Ownership eligibility and tenure are separate fields because a Freehold property can still have a Locals Only, GCC Only, or All eligibility rule.
 
+The global geography prerequisite is now implemented in `apps.integrations`: control administrators can synchronize countries, first-level administrative areas, and cities from GeoNames through the durable `integrations` queue. Property-address foreign keys and locality/project enrichment remain a later phase; existing raw and normalized address values must remain intact during that alignment. See `Global Geography and Integrations Implementation.md`.
+
 These values belong to the requirement, offered-property candidate, property, or listing context where applicable. They must not be stored as permanent ClientPulse classifications because one client may have several opportunities with different eligibility, tenure, location, and activity requirements.
 
 ## 5. Domain Model

@@ -79,6 +79,7 @@ def _ensure_task_handlers_registered():
     from apps.message_intelligence import embedding_task_handlers  # noqa: F401
     from apps.whatsapp_bridge import task_handlers as whatsapp_task_handlers  # noqa: F401
     from apps.clientpulse import task_handlers as clientpulse_task_handlers  # noqa: F401
+    from apps.integrations import task_handlers as integration_task_handlers  # noqa: F401
     from apps.real_estate import task_handlers as real_estate_task_handlers  # noqa: F401
 
 

@@ -71,6 +71,7 @@ export const moreNavigation = [
 export const settingsNavigation = [
   { label: 'Sessions', to: '/', route: 'sessions' },
   { label: 'Storage', to: '/storage', route: 'storage' },
+  { label: 'Integrations', to: '/integrations', route: 'integrations', permission: 'integrations.connections.view' },
   { label: 'AI Providers', to: '/ai-providers', route: 'ai-providers' },
   { label: 'KiwiRouter', to: '/kiwi-router', route: 'kiwi-router' },
   { label: 'AI Instructions', to: '/ai-instructions', route: 'ai-instructions', industries: ['trading', 'real_estate'] },

@@ -52,6 +52,7 @@ import RealEstateListingsView from '../views/RealEstateListingsView.vue'
 import RealEstateCandidatesView from '../views/RealEstateCandidatesView.vue'
 import RealEstateMockDataView from '../views/RealEstateMockDataView.vue'
 import RealEstateMockInquiriesView from '../views/RealEstateMockInquiriesView.vue'
+import IntegrationsView from '../views/IntegrationsView.vue'
 
 const APP_TITLE = 'ChatLens'
 
@@ -63,6 +64,7 @@ const router = createRouter({
     { path: '/conversations', name: 'conversations', component: ConversationsView, meta: { title: 'WhatsApp Inbox' } },
     { path: '/activity', name: 'activity', component: ActivityView, meta: { title: 'Activity' } },
     { path: '/storage', name: 'storage', component: StorageView, meta: { title: 'Storage' } },
+    { path: '/integrations', name: 'integrations', component: IntegrationsView, meta: { title: 'Integrations', permission: 'integrations.connections.view' } },
     { path: '/message-logs', name: 'message-logs', component: MessageLogsView, meta: { title: 'Message Logs' } },
     { path: '/ai-providers', name: 'ai-providers', component: AIProvidersView, meta: { title: 'AI Providers' } },
     { path: '/dropped-messages', name: 'dropped-messages', component: DroppedMessagesView, meta: { title: 'Dropped Messages' } },
