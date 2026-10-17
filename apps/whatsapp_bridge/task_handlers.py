@@ -150,4 +150,8 @@ def persist_live_message(payload, context):
         )
 
     dispatch_queued_live_message(message.pk)
+
+    from apps.apiconsumer.services import enqueue_inbound_message_webhooks
+    enqueue_inbound_message_webhooks(message)
+
     return {'message_id': message.pk, 'downstream_dispatched': True}

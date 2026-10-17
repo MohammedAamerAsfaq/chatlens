@@ -14,7 +14,7 @@ from .policy import evaluate_outbound, new_chat_snapshot, settings_snapshot
 
 
 def create_outbound_message(*, account, destination_jid, text, requested_by, asset=None,
-                            idempotency_key=None, confirm_new_chat=False):
+                            idempotency_key=None, confirm_new_chat=False, actor_label=None):
     key = str(idempotency_key or uuid.uuid4())[:255]
     existing = OutboundMessage.objects.filter(
         company=account.communication_account.company, idempotency_key=key,
@@ -25,13 +25,13 @@ def create_outbound_message(*, account, destination_jid, text, requested_by, ass
     return _create_outbound_message(
         account=account, destination_jid=destination_jid, text=text,
         requested_by=requested_by, asset=asset, key=key,
-        confirm_new_chat=confirm_new_chat,
+        confirm_new_chat=confirm_new_chat, actor_label=actor_label,
     )
 
 
 @transaction.atomic
 def _create_outbound_message(*, account, destination_jid, text, requested_by, asset,
-                             key, confirm_new_chat):
+                             key, confirm_new_chat, actor_label=None):
     company = account.communication_account.company
     if asset and asset.company_id != company.pk:
         raise ValueError('asset_company_mismatch')
@@ -72,7 +72,7 @@ def _create_outbound_message(*, account, destination_jid, text, requested_by, as
         requested_by=requested_by,
         eligible_at=timezone.now(),
     )
-    actor = f'user:{requested_by.pk}' if requested_by else 'system:automation'
+    actor = actor_label or (f'user:{requested_by.pk}' if requested_by else 'system:automation')
     record_event(message, 'requested', actor=actor)
     permission = json.loads(json.dumps(evaluate_outbound(message), cls=DjangoJSONEncoder))
     message.permission_snapshot = permission

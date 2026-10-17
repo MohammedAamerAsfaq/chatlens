@@ -14,6 +14,8 @@ urlpatterns = [
     path('api/', include('apps.clientpulse.urls')),
     path('api/', include('apps.integrations.urls')),
     path('api/', include('apps.real_estate.urls')),
+    path('api/apiconsumer/', include('apps.apiconsumer.management_urls')),
+    path('api/external/v1/', include('apps.apiconsumer.external_urls')),
     path('', include('apps.whatsapp_bridge.urls')),
     path('', frontend_spa, name='frontend-root'),
     re_path(

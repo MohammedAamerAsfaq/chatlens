@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'apps.queue_management',
     'apps.clientpulse',
     'apps.integrations',
+    'apps.apiconsumer',
 ]
 
 MIDDLEWARE = [
@@ -127,6 +128,9 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.JSONRenderer',
     ],
 }
+
+# --- API consumer (external parties) ---
+APICONSUMER_DEFAULT_RATE = os.getenv('APICONSUMER_DEFAULT_RATE', '60/min')
 
 # --- Redis ---
 REDIS_URL = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379')
