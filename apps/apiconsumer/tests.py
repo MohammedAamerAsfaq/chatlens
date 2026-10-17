@@ -196,6 +196,54 @@ class InquiryViewSetTests(TestCase):
         response = self.client.get(self.url, HTTP_AUTHORIZATION=f'Api-Key {secret}')
         self.assertEqual(response.status_code, 403)
 
+    def test_response_is_paginated(self):
+        for index in range(3):
+            self._make_inquiry(self.company, dedup_key=f'buy:page:{index}:1')
+        response = self.client.get(
+            f'{self.url}?page_size=2', HTTP_AUTHORIZATION=f'Api-Key {self.secret}',
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['count'], 3)
+        self.assertEqual(len(body['results']), 2)
+        self.assertIsNotNone(body['next'])
+
+    def test_page_size_is_capped(self):
+        for index in range(3):
+            self._make_inquiry(self.company, dedup_key=f'buy:cap:{index}:1')
+        response = self.client.get(
+            f'{self.url}?page_size=100000', HTTP_AUTHORIZATION=f'Api-Key {self.secret}',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertLessEqual(len(response.json()['results']), 200)
+
+    def test_filters_by_first_seen_date_range(self):
+        old = self._make_inquiry(
+            self.company, dedup_key='buy:old:1:1',
+            first_seen_at=timezone.datetime(2020, 1, 1, tzinfo=timezone.get_current_timezone()),
+        )
+        recent = self._make_inquiry(
+            self.company, dedup_key='buy:recent:1:1',
+            first_seen_at=timezone.now(),
+        )
+        response = self.client.get(
+            f'{self.url}?first_seen_after=2025-01-01T00:00:00Z',
+            HTTP_AUTHORIZATION=f'Api-Key {self.secret}',
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        rows = body['results'] if 'results' in body else body
+        ids = [row['id'] for row in rows]
+        self.assertIn(recent.pk, ids)
+        self.assertNotIn(old.pk, ids)
+
+    def test_invalid_date_filter_returns_400(self):
+        response = self.client.get(
+            f'{self.url}?first_seen_after=not-a-date',
+            HTTP_AUTHORIZATION=f'Api-Key {self.secret}',
+        )
+        self.assertEqual(response.status_code, 400)
+
 
 class SendMessageViewTests(TestCase):
     def setUp(self):

@@ -28,7 +28,7 @@ const ENDPOINTS = [
   { method: 'GET', path: '/chats/', scope: 'data:read', description: 'List and retrieve chats.' },
   { method: 'GET', path: '/messages/', scope: 'data:read', description: 'List messages. Supports an optional ?chat=<id> filter.' },
   { method: 'GET', path: '/outbound-messages/', scope: 'data:read', description: 'Status of messages sent through this API.' },
-  { method: 'GET', path: '/inquiries/', scope: 'data:read', description: 'List buying/selling inquiries. Supports optional ?status= and ?inquiry_type= filters.' },
+  { method: 'GET', path: '/inquiries/', scope: 'data:read', description: 'List buying/selling inquiries. Optional ?status=, ?inquiry_type=, ?first_seen_after=, ?first_seen_before= (ISO 8601) filters. Paginated.' },
   { method: 'POST', path: '/send-message/', scope: 'messages:send', description: 'Send an outbound WhatsApp message.' },
   { method: 'GET / POST', path: '/webhooks/', scope: 'webhooks:manage', description: 'List or create webhook subscriptions.' },
   { method: 'PATCH / DELETE', path: '/webhooks/{id}/', scope: 'webhooks:manage', description: 'Update or remove a webhook subscription.' },
@@ -166,6 +166,7 @@ onMounted(loadKeys)
     <UiCard title="Available endpoints" subtitle="Everything a key can reach, depending on the scopes it was granted.">
       <UiNotice tone="info">
         Base URL: <code>{{ API_BASE_URL }}</code> &middot; Authenticate with <code>Authorization: Api-Key &lt;prefix&gt;.&lt;secret&gt;</code>
+        <br>List endpoints are paginated: <code>?page=</code> and <code>?page_size=</code> (default 50, max 200), returning <code>{ count, next, previous, results }</code>.
       </UiNotice>
       <div class="endpoints-table">
         <table>

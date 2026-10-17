@@ -1,5 +1,7 @@
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework import status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -14,14 +16,28 @@ from .external_serializers import (
     WebhookSubscriptionSerializer,
 )
 from .models import ApiKey, ApiKeyUsageLog, WebhookDeliveryAttempt, WebhookSubscription
+from .pagination import ApiKeyPageNumberPagination
 from .permissions import HasApiScope
 from .throttling import ApiKeyRateThrottle
+
+
+def _parse_query_datetime(request, param):
+    raw = request.query_params.get(param)
+    if not raw:
+        return None
+    value = parse_datetime(raw)
+    if value is None:
+        raise ValidationError({param: [f'{param} must be an ISO 8601 datetime, e.g. 2026-01-31T00:00:00Z.']})
+    if timezone.is_naive(value):
+        value = timezone.make_aware(value)
+    return value
 
 
 class ExternalApiMixin:
     authentication_classes = [ApiKeyAuthentication]
     permission_classes = [HasApiScope]
     throttle_classes = [ApiKeyRateThrottle]
+    pagination_class = ApiKeyPageNumberPagination
 
     def finalize_response(self, request, response, *args, **kwargs):
         response = super().finalize_response(request, response, *args, **kwargs)
@@ -105,6 +121,10 @@ class InquiryViewSet(ExternalApiMixin, viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(status=value)
         if value := self.request.query_params.get('inquiry_type'):
             qs = qs.filter(inquiry_type=value)
+        if value := _parse_query_datetime(self.request, 'first_seen_after'):
+            qs = qs.filter(first_seen_at__gte=value)
+        if value := _parse_query_datetime(self.request, 'first_seen_before'):
+            qs = qs.filter(first_seen_at__lte=value)
         return qs.order_by('-first_seen_at')
 
 
