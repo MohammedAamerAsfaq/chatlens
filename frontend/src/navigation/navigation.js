@@ -72,6 +72,7 @@ export const settingsNavigation = [
   { label: 'Sessions', to: '/', route: 'sessions' },
   { label: 'Storage', to: '/storage', route: 'storage' },
   { label: 'Integrations', to: '/integrations', route: 'integrations', permission: 'integrations.connections.view' },
+  { label: 'API Consumer', to: '/api-consumer-settings', route: 'api-consumer-settings', requiresCompanyAdmin: true },
   { label: 'AI Providers', to: '/ai-providers', route: 'ai-providers' },
   { label: 'KiwiRouter', to: '/kiwi-router', route: 'kiwi-router' },
   { label: 'AI Instructions', to: '/ai-instructions', route: 'ai-instructions', industries: ['trading', 'real_estate'] },
@@ -104,6 +105,7 @@ export const logsNavigation = [
 export function navigationItemVisible(item, context) {
   if (item.permission && !context.hasPermission(item.permission)) return false
   if (item.tenantAdmin && !context.canManageTenants) return false
+  if (item.requiresCompanyAdmin && !context.isCompanyAdmin) return false
   if (item.industries && !item.industries.includes(context.industry)) return false
   return true
 }

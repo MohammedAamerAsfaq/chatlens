@@ -35,3 +35,17 @@ describe('industry-aware navigation', () => {
     expect(industryHomePath('trading')).toBe('/')
   })
 })
+
+describe('company-admin-gated navigation', () => {
+  const adminContext = isCompanyAdmin => ({ industry: 'trading', canManageTenants: false, isCompanyAdmin, hasPermission: () => true })
+
+  it('hides API Consumer settings from non-admins', () => {
+    const visible = settingsNavigation.filter(item => navigationItemVisible(item, adminContext(false)))
+    expect(visible.map(item => item.route)).not.toContain('api-consumer-settings')
+  })
+
+  it('shows API Consumer settings to company admins, including control-account admins', () => {
+    const visible = settingsNavigation.filter(item => navigationItemVisible(item, adminContext(true)))
+    expect(visible.map(item => item.route)).toContain('api-consumer-settings')
+  })
+})

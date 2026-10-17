@@ -21,6 +21,7 @@ export const useAuthStore = defineStore('auth', () => {
     if (!company) return false
     return company.company_type === 'control' && ['super_user', 'admin'].includes(currentRole.value)
   })
+  const isCompanyAdmin = computed(() => ['super_user', 'admin'].includes(currentRole.value))
   const hasPermission = (code) => Boolean(permissions.value[code])
   const permissionScope = (code) => permissions.value[code] ?? null
 
@@ -77,6 +78,7 @@ export const useAuthStore = defineStore('auth', () => {
     inspiniaOptions,
     hasMultipleMemberships,
     canManageTenants,
+    isCompanyAdmin,
     hasPermission,
     permissionScope,
     init,

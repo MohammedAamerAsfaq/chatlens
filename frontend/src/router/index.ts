@@ -53,6 +53,7 @@ import RealEstateCandidatesView from '../views/RealEstateCandidatesView.vue'
 import RealEstateMockDataView from '../views/RealEstateMockDataView.vue'
 import RealEstateMockInquiriesView from '../views/RealEstateMockInquiriesView.vue'
 import IntegrationsView from '../views/IntegrationsView.vue'
+import ApiConsumerSettingsView from '../views/ApiConsumerSettingsView.vue'
 
 const APP_TITLE = 'ChatLens'
 
@@ -65,6 +66,7 @@ const router = createRouter({
     { path: '/activity', name: 'activity', component: ActivityView, meta: { title: 'Activity' } },
     { path: '/storage', name: 'storage', component: StorageView, meta: { title: 'Storage' } },
     { path: '/integrations', name: 'integrations', component: IntegrationsView, meta: { title: 'Integrations', permission: 'integrations.connections.view' } },
+    { path: '/api-consumer-settings', name: 'api-consumer-settings', component: ApiConsumerSettingsView, meta: { title: 'API Consumer', requiresCompanyAdmin: true } },
     { path: '/message-logs', name: 'message-logs', component: MessageLogsView, meta: { title: 'Message Logs' } },
     { path: '/ai-providers', name: 'ai-providers', component: AIProvidersView, meta: { title: 'AI Providers' } },
     { path: '/dropped-messages', name: 'dropped-messages', component: DroppedMessagesView, meta: { title: 'Dropped Messages' } },
@@ -125,6 +127,9 @@ router.beforeEach(async (to) => {
     return auth.currentCompany?.industry_type === 'real_estate' ? { name: 'real-estate-properties' } : { name: 'sessions' }
   }
   if (typeof to.meta.permission === 'string' && !auth.hasPermission(to.meta.permission)) {
+    return { name: 'sessions' }
+  }
+  if (to.meta.requiresCompanyAdmin && !auth.isCompanyAdmin) {
     return { name: 'sessions' }
   }
 })

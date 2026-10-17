@@ -31,6 +31,7 @@ const routeName = computed(() => String(route.name || ''))
 const canShow = item => navigationItemVisible(item, {
   industry: auth.currentCompany?.industry_type,
   canManageTenants: auth.canManageTenants,
+  isCompanyAdmin: auth.isCompanyAdmin,
   hasPermission: auth.hasPermission,
 })
 const primary = computed(() => primaryNavigation.filter(canShow))

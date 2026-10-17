@@ -492,6 +492,12 @@ export const aiProvidersApi = {
   setAgentTarget: (data)       => http.patch('/ai-providers/agent-target/', data),
 }
 
+export const apiConsumerApi = {
+  list:   ()     => http.get('/apiconsumer/keys/'),
+  create: (data) => http.post('/apiconsumer/keys/', data),
+  revoke: (id)   => http.post(`/apiconsumer/keys/${id}/revoke/`),
+}
+
 export const kiwiRoutersApi = {
   list: () => http.get('/kiwi-routers/'),
   create: (data) => http.post('/kiwi-routers/', data),
