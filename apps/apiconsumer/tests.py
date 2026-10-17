@@ -8,7 +8,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.tenancy.models import CommunicationAccount, Company, CompanyMembership, ConnectionProvider
-from apps.trading.models import Inquiry
+from apps.trading.models import Inquiry, InquiryProduct, Product
 from apps.whatsapp_bridge.models import WhatsAppAccount
 
 from .models import ApiKey, WebhookDeliveryAttempt, WebhookSubscription
@@ -242,6 +242,112 @@ class InquiryViewSetTests(TestCase):
             f'{self.url}?first_seen_after=not-a-date',
             HTTP_AUTHORIZATION=f'Api-Key {self.secret}',
         )
+        self.assertEqual(response.status_code, 400)
+
+
+class ProductMentionsViewTests(TestCase):
+    def setUp(self):
+        self.company = _make_company()
+        self.owner = User.objects.create_user(username='owner-mentions')
+        self.account = _make_account(self.company, self.owner)
+        self.api_key, self.secret = ApiKey.generate(
+            company=self.company, name='Mentions key', scopes=[ApiKey.SCOPE_DATA_READ],
+        )
+        self.client = APIClient()
+        self.url = reverse('external-product-mentions')
+        self.product = Product.objects.create(
+            company=self.company, name='iPhone 17 Pro Max', brand='Apple',
+            sku='IP17PM', qty=10, sale_price=4500, currency='AED',
+        )
+
+    def _make_inquiry(self, **overrides):
+        defaults = {
+            'company': self.company, 'account': self.account, 'inquiry_type': 'buy',
+            'summary': 'WTB iPhone', 'dedup_key': f'buy:iphone:{timezone.now().timestamp()}',
+            'source_type': 'direct', 'first_seen_at': timezone.now(),
+        }
+        defaults.update(overrides)
+        return Inquiry.objects.create(**defaults)
+
+    def _make_mention(self, **overrides):
+        inquiry = overrides.pop('inquiry', None) or self._make_inquiry(
+            inquiry_type=overrides.get('inquiry_type', 'buy'),
+        )
+        defaults = {
+            'company': self.company, 'inquiry': inquiry, 'product': self.product,
+            'inquiry_type': inquiry.inquiry_type, 'canonical_name': 'iPhone 17 Pro Max',
+            'first_seen_at': timezone.now(),
+        }
+        defaults.update(overrides)
+        return InquiryProduct.objects.create(**defaults)
+
+    def _auth(self, params=''):
+        return self.client.get(f'{self.url}{params}', HTTP_AUTHORIZATION=f'Api-Key {self.secret}')
+
+    def test_aggregates_mention_counts_per_product(self):
+        self._make_mention(inquiry_type='buy')
+        self._make_mention(inquiry_type='buy')
+        self._make_mention(inquiry_type='sell')
+        response = self._auth()
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(len(body['results']), 1)
+        row = body['results'][0]
+        self.assertEqual(row['product_id'], self.product.pk)
+        self.assertEqual(row['wtb_count'], 2)
+        self.assertEqual(row['wts_count'], 1)
+        self.assertEqual(row['total_count'], 3)
+        self.assertEqual(body['summary']['total_mentions'], 3)
+        self.assertEqual(body['summary']['products'], 1)
+
+    def test_defaults_to_last_30_days_when_no_range_given(self):
+        self._make_mention(first_seen_at=timezone.now() - timezone.timedelta(days=45))
+        recent = self._make_mention(first_seen_at=timezone.now())
+        response = self._auth()
+        body = response.json()
+        self.assertEqual([row['product_id'] for row in body['results']], [self.product.pk])
+        self.assertEqual(body['summary']['total_mentions'], 1)
+        self.assertEqual(recent.first_seen_at.date().isoformat(), timezone.now().date().isoformat())
+
+    def test_explicit_date_range_overrides_default(self):
+        self._make_mention(first_seen_at=timezone.datetime(2020, 1, 1, tzinfo=timezone.get_current_timezone()))
+        response = self._auth('?first_seen_after=2019-01-01T00:00:00Z&first_seen_before=2021-01-01T00:00:00Z')
+        body = response.json()
+        self.assertEqual(body['summary']['total_mentions'], 1)
+
+    def test_search_filters_by_product_name(self):
+        other = Product.objects.create(company=self.company, name='Samsung Galaxy S30', brand='Samsung')
+        self._make_mention()
+        self._make_mention(product=other, canonical_name='Samsung Galaxy S30')
+        response = self._auth('?search=iphone')
+        body = response.json()
+        self.assertEqual([row['name'] for row in body['results']], ['iPhone 17 Pro Max'])
+
+    def test_cross_tenant_mentions_are_not_visible(self):
+        other_company = _make_company(name='Other Mentions Co', slug='other-mentions-co')
+        other_product = Product.objects.create(company=other_company, name='Other Product')
+        other_inquiry = Inquiry.objects.create(
+            company=other_company, account=self.account, inquiry_type='buy',
+            summary='x', dedup_key='buy:other:1:1', source_type='direct', first_seen_at=timezone.now(),
+        )
+        InquiryProduct.objects.create(
+            company=other_company, inquiry=other_inquiry, product=other_product,
+            inquiry_type='buy', canonical_name='Other Product', first_seen_at=timezone.now(),
+        )
+        response = self._auth()
+        self.assertEqual(response.json()['results'], [])
+
+    def test_limit_is_capped(self):
+        response = self._auth('?limit=999999')
+        self.assertEqual(response.status_code, 200)
+
+    def test_requires_data_read_scope(self):
+        _, secret = ApiKey.generate(company=self.company, name='No scopes', scopes=[])
+        response = self.client.get(self.url, HTTP_AUTHORIZATION=f'Api-Key {secret}')
+        self.assertEqual(response.status_code, 403)
+
+    def test_invalid_date_returns_400(self):
+        response = self._auth('?first_seen_after=garbage')
         self.assertEqual(response.status_code, 400)
 
 

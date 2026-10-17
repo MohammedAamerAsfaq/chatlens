@@ -1,3 +1,6 @@
+from datetime import timedelta
+
+from django.db.models import Count, Max, Min, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import status, viewsets
@@ -6,7 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.trading.models import Inquiry
+from apps.trading.models import Inquiry, InquiryProduct
 from apps.whatsapp_bridge.models import OutboundMessage, WhatsAppAccount, WhatsAppChat, WhatsAppContact, WhatsAppMessage
 
 from .authentication import ApiKeyAuthentication
@@ -126,6 +129,83 @@ class InquiryViewSet(ExternalApiMixin, viewsets.ReadOnlyModelViewSet):
         if value := _parse_query_datetime(self.request, 'first_seen_before'):
             qs = qs.filter(first_seen_at__lte=value)
         return qs.order_by('-first_seen_at')
+
+
+class ProductMentionsView(ExternalApiMixin, APIView):
+    """Grouped WTB/WTS mention counts per product over a date range.
+
+    Mirrors apps/trading/views.py ReportViewSet.inventory_product_mentions (the internal
+    Product Mentions report) so the two stay consistent, scoped to the key's company
+    instead of the session user's visible companies.
+    """
+
+    required_scope = ApiKey.SCOPE_DATA_READ
+    DEFAULT_RANGE_DAYS = 30
+    MAX_LIMIT = 500
+    DEFAULT_LIMIT = 100
+
+    def get(self, request):
+        end = _parse_query_datetime(request, 'first_seen_before') or timezone.now()
+        start = _parse_query_datetime(request, 'first_seen_after') or (end - timedelta(days=self.DEFAULT_RANGE_DAYS))
+        search = (request.query_params.get('search') or '').strip()
+        try:
+            limit = min(max(int(request.query_params.get('limit') or self.DEFAULT_LIMIT), 1), self.MAX_LIMIT)
+        except ValueError:
+            raise ValidationError({'limit': ['limit must be an integer.']})
+
+        qs = InquiryProduct.objects.filter(
+            company=request.auth.company, product__isnull=False,
+            first_seen_at__gte=start, first_seen_at__lte=end,
+        )
+        if search:
+            qs = qs.filter(
+                Q(product__name__icontains=search)
+                | Q(product__brand__icontains=search)
+                | Q(canonical_name__icontains=search)
+            )
+
+        grouped = (
+            qs.values(
+                'product_id', 'product__brand', 'product__name', 'product__sku',
+                'product__qty', 'product__sale_price', 'product__currency',
+            )
+            .annotate(
+                wtb_count=Count('id', filter=Q(inquiry_type='buy')),
+                wts_count=Count('id', filter=Q(inquiry_type='sell')),
+                total_count=Count('id'),
+                first_seen=Min('first_seen_at'),
+                last_seen=Max('first_seen_at'),
+            )
+            .order_by('-total_count', '-last_seen', 'product__name')[:limit]
+        )
+        rows = [
+            {
+                'product_id': row['product_id'],
+                'brand': row['product__brand'] or '',
+                'name': row['product__name'] or '',
+                'sku': row['product__sku'] or '',
+                'qty': row['product__qty'],
+                'sale_price': row['product__sale_price'],
+                'currency': row['product__currency'] or '',
+                'wtb_count': row['wtb_count'],
+                'wts_count': row['wts_count'],
+                'total_count': row['total_count'],
+                'first_seen': row['first_seen'],
+                'last_seen': row['last_seen'],
+            }
+            for row in grouped
+        ]
+        totals = qs.aggregate(
+            total_mentions=Count('id'),
+            total_wtb=Count('id', filter=Q(inquiry_type='buy')),
+            total_wts=Count('id', filter=Q(inquiry_type='sell')),
+            products=Count('product_id', distinct=True),
+        )
+        return Response({
+            'results': rows,
+            'summary': totals,
+            'range': {'first_seen_after': start, 'first_seen_before': end},
+        })
 
 
 class SendMessageView(ExternalApiMixin, APIView):
