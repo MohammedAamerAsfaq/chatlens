@@ -47,7 +47,7 @@ $dedicatedQueues = @(
     'real_estate_imports'
 )
 $excludeArguments = ($dedicatedQueues | ForEach-Object { "--exclude-queue $_" }) -join ' '
-$arguments = "manage.py run_background_tasks --no-ui $excludeArguments"
+$arguments = "manage.py run_background_tasks --no-ui --worker-id chatlens-main-worker $excludeArguments"
 $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($service -and $service.Status -eq 'Running') {
     $currentArguments = (& $NssmPath get $ServiceName AppParameters | Out-String).Trim()

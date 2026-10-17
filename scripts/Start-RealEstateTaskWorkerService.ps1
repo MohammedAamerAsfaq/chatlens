@@ -47,7 +47,7 @@ $queues = @(
     'real_estate_imports'
 )
 $queueArguments = ($queues | ForEach-Object { "--queue $_" }) -join ' '
-$arguments = "manage.py run_background_tasks --no-ui $queueArguments"
+$arguments = "manage.py run_background_tasks --no-ui --worker-id chatlens-real-estate-worker $queueArguments"
 $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($service -and $service.Status -eq 'Running') {
     $currentArguments = (& $NssmPath get $ServiceName AppParameters | Out-String).Trim()
