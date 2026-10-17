@@ -2,8 +2,8 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .external_views import (
-    ChatViewSet, ContactViewSet, InquiryViewSet, MessageViewSet, OutboundMessageViewSet, SendMessageView,
-    WebhookDeliveryAttemptViewSet, WebhookSubscriptionViewSet,
+    ChatViewSet, ContactViewSet, InquiryViewSet, MessageViewSet, OutboundMessageViewSet, PingView,
+    SendMessageView, WebhookDeliveryAttemptViewSet, WebhookSubscriptionViewSet,
 )
 
 router = DefaultRouter()
@@ -15,6 +15,7 @@ router.register('outbound-messages', OutboundMessageViewSet, basename='external-
 router.register('webhooks', WebhookSubscriptionViewSet, basename='external-webhook')
 
 urlpatterns = [
+    path('ping/', PingView.as_view(), name='external-ping'),
     path('send-message/', SendMessageView.as_view(), name='external-send-message'),
     path(
         'webhooks/<int:subscription_pk>/deliveries/',

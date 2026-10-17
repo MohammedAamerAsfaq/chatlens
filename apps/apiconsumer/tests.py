@@ -63,6 +63,32 @@ class ApiKeyManagementViewTests(TestCase):
         self.assertEqual(api_key.status, ApiKey.STATUS_REVOKED)
 
 
+class PingViewTests(TestCase):
+    def setUp(self):
+        self.company = _make_company(name='Ping Co', slug='ping-co')
+        self.client = APIClient()
+        self.url = reverse('external-ping')
+
+    def test_valid_key_with_no_scopes_can_still_ping(self):
+        _, secret = ApiKey.generate(company=self.company, name='Ping key', scopes=[])
+        response = self.client.get(self.url, HTTP_AUTHORIZATION=f'Api-Key {secret}')
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['status'], 'ok')
+        self.assertEqual(body['company'], 'Ping Co')
+        self.assertEqual(body['key_name'], 'Ping key')
+        self.assertEqual(body['scopes'], [])
+        self.assertIn('server_time', body)
+
+    def test_invalid_key_is_rejected(self):
+        response = self.client.get(self.url, HTTP_AUTHORIZATION='Api-Key bogus.secret')
+        self.assertEqual(response.status_code, 401)
+
+    def test_missing_header_is_rejected(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 401)
+
+
 class ApiKeyAuthenticationTests(TestCase):
     def setUp(self):
         self.company = _make_company()

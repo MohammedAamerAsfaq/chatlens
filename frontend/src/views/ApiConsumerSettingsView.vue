@@ -23,6 +23,7 @@ const SCOPE_LABELS = { 'data:read': 'Read', 'messages:send': 'Send', 'webhooks:m
 
 const API_BASE_URL = '/api/external/v1'
 const ENDPOINTS = [
+  { method: 'GET', path: '/ping/', scope: null, description: 'Verify a key is valid and see which company and scopes it carries. Works with any valid key, no scope required.' },
   { method: 'GET', path: '/contacts/', scope: 'data:read', description: 'List and retrieve WhatsApp contacts.' },
   { method: 'GET', path: '/chats/', scope: 'data:read', description: 'List and retrieve chats.' },
   { method: 'GET', path: '/messages/', scope: 'data:read', description: 'List messages. Supports an optional ?chat=<id> filter.' },
@@ -153,7 +154,7 @@ onMounted(loadKeys)
             <tr v-for="endpoint in ENDPOINTS" :key="endpoint.path + endpoint.method">
               <td><UiBadge :tone="methodTone(endpoint.method)">{{ endpoint.method }}</UiBadge></td>
               <td><code>{{ API_BASE_URL }}{{ endpoint.path }}</code></td>
-              <td><UiBadge tone="neutral">{{ SCOPE_LABELS[endpoint.scope] }}</UiBadge></td>
+              <td><UiBadge :tone="endpoint.scope ? 'neutral' : 'success'">{{ endpoint.scope ? SCOPE_LABELS[endpoint.scope] : 'Any key' }}</UiBadge></td>
               <td>{{ endpoint.description }}</td>
             </tr>
           </tbody>

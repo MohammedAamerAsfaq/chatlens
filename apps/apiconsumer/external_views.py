@@ -1,4 +1,6 @@
+from django.utils import timezone
 from rest_framework import status, viewsets
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -30,6 +32,23 @@ class ExternalApiMixin:
                 path=request.path, status_code=response.status_code,
             )
         return response
+
+
+class PingView(ExternalApiMixin, APIView):
+    """Lets a third party confirm its key works without needing any particular scope."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        api_key = request.auth
+        return Response({
+            'status': 'ok',
+            'company': api_key.company.name,
+            'key_name': api_key.name,
+            'key_prefix': api_key.key_prefix,
+            'scopes': api_key.scopes,
+            'server_time': timezone.now(),
+        })
 
 
 class ContactViewSet(ExternalApiMixin, viewsets.ReadOnlyModelViewSet):
