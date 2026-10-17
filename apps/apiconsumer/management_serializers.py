@@ -17,9 +17,3 @@ class ApiKeySerializer(serializers.ModelSerializer):
             'created_at', 'revoked_at', 'last_used_at', 'expires_at',
         ]
 
-
-class ApiKeyCreatedSerializer(ApiKeySerializer):
-    secret = serializers.CharField()
-
-    class Meta(ApiKeySerializer.Meta):
-        fields = ApiKeySerializer.Meta.fields + ['secret']

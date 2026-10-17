@@ -1,12 +1,13 @@
+import json
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from apps.tenancy.models import CommunicationAccount, Company, ConnectionProvider
+from apps.tenancy.models import CommunicationAccount, Company, CompanyMembership, ConnectionProvider
 from apps.whatsapp_bridge.models import WhatsAppAccount
 
 from .models import ApiKey, WebhookDeliveryAttempt, WebhookSubscription
@@ -29,6 +30,36 @@ def _make_account(company, owner):
         display_name='Acme Account', phone_number='971500000001',
         worker_session_id='acme-account', outbound_sending_enabled=True,
     )
+
+
+class ApiKeyManagementViewTests(TestCase):
+    def setUp(self):
+        self.company = _make_company(name='Mgmt Co', slug='mgmt-co')
+        self.admin = User.objects.create_user(username='mgmt-admin', password='pass12345')
+        CompanyMembership.objects.create(company=self.company, user=self.admin, role=CompanyMembership.ROLE_ADMIN)
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def test_create_key_returns_the_secret_exactly_once(self):
+        response = self.client.post(
+            '/api/apiconsumer/keys/',
+            data=json.dumps({'name': 'Test key', 'scopes': ['data:read', 'webhooks:manage']}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()
+        self.assertTrue(body['secret'])
+        self.assertTrue(body['secret'].startswith(body['key_prefix'] + '.'))
+        self.assertEqual(body['name'], 'Test key')
+        self.assertNotIn('secret_hash', body)
+        self.assertEqual(ApiKey.objects.get(pk=body['id']).company, self.company)
+
+    def test_revoke_key(self):
+        api_key, _ = ApiKey.generate(company=self.company, name='To revoke', scopes=[ApiKey.SCOPE_DATA_READ])
+        response = self.client.post(f'/api/apiconsumer/keys/{api_key.pk}/revoke/')
+        self.assertEqual(response.status_code, 200)
+        api_key.refresh_from_db()
+        self.assertEqual(api_key.status, ApiKey.STATUS_REVOKED)
 
 
 class ApiKeyAuthenticationTests(TestCase):

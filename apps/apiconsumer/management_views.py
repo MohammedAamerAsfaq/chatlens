@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from apps.tenancy.permissions import CompanyAdminPermission
 from apps.tenancy.services.access import default_company_for_user
 
-from .management_serializers import ApiKeyCreatedSerializer, ApiKeyCreateSerializer, ApiKeySerializer
+from .management_serializers import ApiKeyCreateSerializer, ApiKeySerializer
 from .models import ApiKey
 
 
@@ -34,7 +34,7 @@ class ApiKeyViewSet(viewsets.ModelViewSet):
             created_by=request.user,
             expires_at=serializer.validated_data.get('expires_at'),
         )
-        payload = ApiKeyCreatedSerializer(api_key).data
+        payload = ApiKeySerializer(api_key).data
         payload['secret'] = secret
         return Response(payload, status=status.HTTP_201_CREATED)
 
