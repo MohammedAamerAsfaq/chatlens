@@ -27,6 +27,7 @@ const ENDPOINTS = [
   { method: 'GET', path: '/chats/', scope: 'data:read', description: 'List and retrieve chats.' },
   { method: 'GET', path: '/messages/', scope: 'data:read', description: 'List messages. Supports an optional ?chat=<id> filter.' },
   { method: 'GET', path: '/outbound-messages/', scope: 'data:read', description: 'Status of messages sent through this API.' },
+  { method: 'GET', path: '/inquiries/', scope: 'data:read', description: 'List buying/selling inquiries. Supports optional ?status= and ?inquiry_type= filters.' },
   { method: 'POST', path: '/send-message/', scope: 'messages:send', description: 'Send an outbound WhatsApp message.' },
   { method: 'GET / POST', path: '/webhooks/', scope: 'webhooks:manage', description: 'List or create webhook subscriptions.' },
   { method: 'PATCH / DELETE', path: '/webhooks/{id}/', scope: 'webhooks:manage', description: 'Update or remove a webhook subscription.' },

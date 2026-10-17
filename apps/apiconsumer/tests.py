@@ -8,6 +8,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.tenancy.models import CommunicationAccount, Company, CompanyMembership, ConnectionProvider
+from apps.trading.models import Inquiry
 from apps.whatsapp_bridge.models import WhatsAppAccount
 
 from .models import ApiKey, WebhookDeliveryAttempt, WebhookSubscription
@@ -112,6 +113,62 @@ class ApiKeyAuthenticationTests(TestCase):
         response = self._auth(self.secret)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['results'] if 'results' in response.json() else response.json(), [])
+
+
+class InquiryViewSetTests(TestCase):
+    def setUp(self):
+        self.company = _make_company()
+        self.owner = User.objects.create_user(username='owner-inquiry')
+        self.account = _make_account(self.company, self.owner)
+        self.api_key, self.secret = ApiKey.generate(
+            company=self.company, name='Inquiry key', scopes=[ApiKey.SCOPE_DATA_READ],
+        )
+        self.client = APIClient()
+        self.url = reverse('external-inquiry-list')
+
+    def _make_inquiry(self, company, **overrides):
+        defaults = {
+            'company': company, 'account': self.account, 'inquiry_type': 'buy',
+            'summary': 'WTB iPhone 17 Pro Max', 'dedup_key': 'buy:iphone-17:1:1',
+            'source_type': 'direct', 'first_seen_at': timezone.now(),
+        }
+        defaults.update(overrides)
+        return Inquiry.objects.create(**defaults)
+
+    def test_lists_inquiries_for_the_keys_company(self):
+        inquiry = self._make_inquiry(self.company)
+        response = self.client.get(self.url, HTTP_AUTHORIZATION=f'Api-Key {self.secret}')
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        rows = body['results'] if 'results' in body else body
+        self.assertEqual([row['id'] for row in rows], [inquiry.pk])
+
+    def test_cross_tenant_inquiries_are_not_visible(self):
+        other_company = _make_company(name='Other Inquiry Co', slug='other-inquiry-co')
+        other_account = _make_account(other_company, self.owner)
+        Inquiry.objects.create(
+            company=other_company, account=other_account, inquiry_type='sell',
+            summary='Other company inquiry', dedup_key='sell:x:1:1',
+            source_type='direct', first_seen_at=timezone.now(),
+        )
+        response = self.client.get(self.url, HTTP_AUTHORIZATION=f'Api-Key {self.secret}')
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        rows = body['results'] if 'results' in body else body
+        self.assertEqual(rows, [])
+
+    def test_filters_by_status_and_inquiry_type(self):
+        self._make_inquiry(self.company, status='open', inquiry_type='buy', dedup_key='buy:a:1:1')
+        closed = self._make_inquiry(self.company, status='closed', inquiry_type='sell', dedup_key='sell:b:1:1')
+        response = self.client.get(f'{self.url}?status=closed', HTTP_AUTHORIZATION=f'Api-Key {self.secret}')
+        body = response.json()
+        rows = body['results'] if 'results' in body else body
+        self.assertEqual([row['id'] for row in rows], [closed.pk])
+
+    def test_requires_data_read_scope(self):
+        _, secret = ApiKey.generate(company=self.company, name='No scopes', scopes=[])
+        response = self.client.get(self.url, HTTP_AUTHORIZATION=f'Api-Key {secret}')
+        self.assertEqual(response.status_code, 403)
 
 
 class SendMessageViewTests(TestCase):

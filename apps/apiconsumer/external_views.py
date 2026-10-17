@@ -2,11 +2,12 @@ from rest_framework import status, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.trading.models import Inquiry
 from apps.whatsapp_bridge.models import OutboundMessage, WhatsAppAccount, WhatsAppChat, WhatsAppContact, WhatsAppMessage
 
 from .authentication import ApiKeyAuthentication
 from .external_serializers import (
-    ChatSerializer, ContactSerializer, MessageSerializer, OutboundMessageSerializer,
+    ChatSerializer, ContactSerializer, InquirySerializer, MessageSerializer, OutboundMessageSerializer,
     SendMessageSerializer, WebhookDeliveryAttemptSerializer, WebhookSubscriptionCreatedSerializer,
     WebhookSubscriptionSerializer,
 )
@@ -73,6 +74,19 @@ class OutboundMessageViewSet(ExternalApiMixin, viewsets.ReadOnlyModelViewSet):
         return OutboundMessage.objects.filter(
             company=self.request.auth.company,
         ).order_by('-created_at')
+
+
+class InquiryViewSet(ExternalApiMixin, viewsets.ReadOnlyModelViewSet):
+    required_scope = ApiKey.SCOPE_DATA_READ
+    serializer_class = InquirySerializer
+
+    def get_queryset(self):
+        qs = Inquiry.objects.filter(company=self.request.auth.company)
+        if value := self.request.query_params.get('status'):
+            qs = qs.filter(status=value)
+        if value := self.request.query_params.get('inquiry_type'):
+            qs = qs.filter(inquiry_type=value)
+        return qs.order_by('-first_seen_at')
 
 
 class SendMessageView(ExternalApiMixin, APIView):
