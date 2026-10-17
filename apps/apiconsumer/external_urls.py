@@ -3,7 +3,8 @@ from rest_framework.routers import DefaultRouter
 
 from .external_views import (
     ChatViewSet, ContactViewSet, InquiryViewSet, MessageViewSet, OutboundMessageViewSet, PingView,
-    ProductMentionsView, SendMessageView, WebhookDeliveryAttemptViewSet, WebhookSubscriptionViewSet,
+    ProductMentionsView, ProductViewSet, SendMessageView, WebhookDeliveryAttemptViewSet,
+    WebhookSubscriptionViewSet,
 )
 
 router = DefaultRouter()
@@ -11,6 +12,7 @@ router.register('contacts', ContactViewSet, basename='external-contact')
 router.register('chats', ChatViewSet, basename='external-chat')
 router.register('messages', MessageViewSet, basename='external-message')
 router.register('inquiries', InquiryViewSet, basename='external-inquiry')
+router.register('products', ProductViewSet, basename='external-product')
 router.register('outbound-messages', OutboundMessageViewSet, basename='external-outbound-message')
 router.register('webhooks', WebhookSubscriptionViewSet, basename='external-webhook')
 

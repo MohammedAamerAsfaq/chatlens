@@ -351,6 +351,71 @@ class ProductMentionsViewTests(TestCase):
         self.assertEqual(response.status_code, 400)
 
 
+class ProductViewSetTests(TestCase):
+    def setUp(self):
+        self.company = _make_company()
+        self.api_key, self.secret = ApiKey.generate(
+            company=self.company, name='Products key', scopes=[ApiKey.SCOPE_DATA_READ],
+        )
+        self.client = APIClient()
+        self.url = reverse('external-product-list')
+
+    def _auth(self, params=''):
+        return self.client.get(f'{self.url}{params}', HTTP_AUTHORIZATION=f'Api-Key {self.secret}')
+
+    def _ids(self, response):
+        body = response.json()
+        rows = body['results'] if 'results' in body else body
+        return [row['id'] for row in rows]
+
+    def test_defaults_to_tracked_products_only(self):
+        tracked = Product.objects.create(company=self.company, name='Tracked', tracking=True)
+        Product.objects.create(company=self.company, name='Untracked', tracking=False)
+        response = self._auth()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._ids(response), [tracked.pk])
+
+    def test_tracking_false_returns_untracked_products(self):
+        Product.objects.create(company=self.company, name='Tracked', tracking=True)
+        untracked = Product.objects.create(company=self.company, name='Untracked', tracking=False)
+        response = self._auth('?tracking=false')
+        self.assertEqual(self._ids(response), [untracked.pk])
+
+    def test_is_active_filter(self):
+        active = Product.objects.create(company=self.company, name='Active', is_active=True)
+        Product.objects.create(company=self.company, name='Inactive', is_active=False)
+        response = self._auth('?is_active=true')
+        self.assertEqual(self._ids(response), [active.pk])
+
+    def test_search_filters_by_name_brand_sku(self):
+        match = Product.objects.create(company=self.company, name='iPhone 17 Pro Max', brand='Apple', sku='IP17PM')
+        Product.objects.create(company=self.company, name='Galaxy S30', brand='Samsung', sku='GS30')
+        response = self._auth('?search=iphone')
+        self.assertEqual(self._ids(response), [match.pk])
+
+    def test_cross_tenant_products_are_not_visible(self):
+        other_company = _make_company(name='Other Products Co', slug='other-products-co')
+        Product.objects.create(company=other_company, name='Not mine')
+        response = self._auth()
+        self.assertEqual(self._ids(response), [])
+
+    def test_response_excludes_cost_price(self):
+        Product.objects.create(company=self.company, name='Has cost', cost_price=100, sale_price=200)
+        response = self._auth()
+        body = response.json()
+        rows = body['results'] if 'results' in body else body
+        self.assertNotIn('cost_price', rows[0])
+
+    def test_invalid_boolean_param_returns_400(self):
+        response = self._auth('?tracking=maybe')
+        self.assertEqual(response.status_code, 400)
+
+    def test_requires_data_read_scope(self):
+        _, secret = ApiKey.generate(company=self.company, name='No scopes', scopes=[])
+        response = self.client.get(self.url, HTTP_AUTHORIZATION=f'Api-Key {secret}')
+        self.assertEqual(response.status_code, 403)
+
+
 class SendMessageViewTests(TestCase):
     def setUp(self):
         self.company = _make_company()

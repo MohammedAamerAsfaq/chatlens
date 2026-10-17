@@ -9,14 +9,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.trading.models import Inquiry, InquiryProduct
+from apps.trading.models import Inquiry, InquiryProduct, Product
 from apps.whatsapp_bridge.models import OutboundMessage, WhatsAppAccount, WhatsAppChat, WhatsAppContact, WhatsAppMessage
 
 from .authentication import ApiKeyAuthentication
 from .external_serializers import (
     ChatSerializer, ContactSerializer, InquirySerializer, MessageSerializer, OutboundMessageSerializer,
-    SendMessageSerializer, WebhookDeliveryAttemptSerializer, WebhookSubscriptionCreatedSerializer,
-    WebhookSubscriptionSerializer,
+    ProductSerializer, SendMessageSerializer, WebhookDeliveryAttemptSerializer,
+    WebhookSubscriptionCreatedSerializer, WebhookSubscriptionSerializer,
 )
 from .models import ApiKey, ApiKeyUsageLog, WebhookDeliveryAttempt, WebhookSubscription
 from .pagination import ApiKeyPageNumberPagination
@@ -34,6 +34,17 @@ def _parse_query_datetime(request, param):
     if timezone.is_naive(value):
         value = timezone.make_aware(value)
     return value
+
+
+def _parse_query_bool(request, param, default=None):
+    raw = request.query_params.get(param)
+    if raw is None or raw == '':
+        return default
+    if raw.lower() in ('true', '1'):
+        return True
+    if raw.lower() in ('false', '0'):
+        return False
+    raise ValidationError({param: [f'{param} must be true or false.']})
 
 
 class ExternalApiMixin:
@@ -129,6 +140,30 @@ class InquiryViewSet(ExternalApiMixin, viewsets.ReadOnlyModelViewSet):
         if value := _parse_query_datetime(self.request, 'first_seen_before'):
             qs = qs.filter(first_seen_at__lte=value)
         return qs.order_by('-first_seen_at')
+
+
+class ProductViewSet(ExternalApiMixin, viewsets.ReadOnlyModelViewSet):
+    """The product catalog itself — what's tracked, not how often it's been mentioned.
+
+    See ProductMentionsView for WTB/WTS mention counts per product.
+    """
+
+    required_scope = ApiKey.SCOPE_DATA_READ
+    serializer_class = ProductSerializer
+
+    def get_queryset(self):
+        qs = Product.objects.filter(company=self.request.auth.company)
+        tracking = _parse_query_bool(self.request, 'tracking', default=True)
+        if tracking is not None:
+            qs = qs.filter(tracking=tracking)
+        is_active = _parse_query_bool(self.request, 'is_active')
+        if is_active is not None:
+            qs = qs.filter(is_active=is_active)
+        if value := self.request.query_params.get('category'):
+            qs = qs.filter(category__iexact=value)
+        if value := self.request.query_params.get('search'):
+            qs = qs.filter(Q(name__icontains=value) | Q(brand__icontains=value) | Q(sku__icontains=value))
+        return qs.order_by('brand', 'name')
 
 
 class ProductMentionsView(ExternalApiMixin, APIView):

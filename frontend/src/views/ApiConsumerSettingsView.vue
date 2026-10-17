@@ -29,6 +29,7 @@ const ENDPOINTS = [
   { method: 'GET', path: '/messages/', scope: 'data:read', description: 'List messages. Supports an optional ?chat=<id> filter.' },
   { method: 'GET', path: '/outbound-messages/', scope: 'data:read', description: 'Status of messages sent through this API.' },
   { method: 'GET', path: '/inquiries/', scope: 'data:read', description: 'List buying/selling inquiries. Optional ?status=, ?inquiry_type=, ?first_seen_after=, ?first_seen_before= (ISO 8601) filters. Paginated.' },
+  { method: 'GET', path: '/products/', scope: 'data:read', description: 'The product catalog. Defaults to tracked products only. Optional ?tracking=, ?is_active=, ?category=, ?search= filters. Paginated.' },
   { method: 'GET', path: '/product-mentions/', scope: 'data:read', description: 'Per-product WTB/WTS mention counts over a date range. ?first_seen_after=, ?first_seen_before= (default: last 30 days), ?search=, ?limit= (default 100, max 500). Not paginated — returns one grouped summary.' },
   { method: 'POST', path: '/send-message/', scope: 'messages:send', description: 'Send an outbound WhatsApp message.' },
   { method: 'GET / POST', path: '/webhooks/', scope: 'webhooks:manage', description: 'List or create webhook subscriptions.' },
@@ -51,6 +52,7 @@ const QUICK_START_STEPS = [
 const FILTER_REFERENCE = [
   { path: '/messages/', params: '?chat=<id>' },
   { path: '/inquiries/', params: '?status=&inquiry_type=&first_seen_after=&first_seen_before=' },
+  { path: '/products/', params: '?tracking=&is_active=&category=&search=' },
   { path: '/product-mentions/', params: '?first_seen_after=&first_seen_before=&search=&limit=' },
 ]
 
@@ -74,6 +76,7 @@ const CURL_EXAMPLES = [
       + '  -d \'{"whatsapp_account_id": 1, "destination_jid": "971500000000@s.whatsapp.net", "text": "Hello"}\'',
   },
   { title: 'Product mentions in the last 7 days', command: 'curl "' + API_BASE_URL + '/product-mentions/?first_seen_after=2026-10-10T00:00:00Z" \\\n  -H "Authorization: Api-Key <prefix>.<secret>"' },
+  { title: 'Search the tracked product catalog', command: 'curl "' + API_BASE_URL + '/products/?search=iphone" \\\n  -H "Authorization: Api-Key <prefix>.<secret>"' },
 ]
 
 const WEBHOOK_VERIFY_SNIPPET = 'import hmac, hashlib\n\n'

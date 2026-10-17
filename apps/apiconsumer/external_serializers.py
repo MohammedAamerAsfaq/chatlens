@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.trading.models import Inquiry
+from apps.trading.models import Inquiry, Product
 from apps.whatsapp_bridge.models import OutboundMessage, WhatsAppChat, WhatsAppContact, WhatsAppMessage
 
 from .models import WebhookDeliveryAttempt, WebhookSubscription
@@ -46,6 +46,15 @@ class InquirySerializer(serializers.ModelSerializer):
         fields = [
             'id', 'contact', 'inquiry_type', 'status', 'products', 'summary', 'remarks',
             'source_type', 'first_seen_at', 'closed_at', 'created_at', 'updated_at',
+        ]
+
+
+class ProductSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Product
+        fields = [
+            'id', 'name', 'brand', 'category', 'sku', 'is_active', 'tracking',
+            'qty', 'sale_price', 'currency', 'created_at', 'updated_at',
         ]
 
 
