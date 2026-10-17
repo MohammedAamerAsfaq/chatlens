@@ -21,6 +21,23 @@ const SCOPE_OPTIONS = [
 ]
 const SCOPE_LABELS = { 'data:read': 'Read', 'messages:send': 'Send', 'webhooks:manage': 'Webhooks' }
 
+const API_BASE_URL = '/api/external/v1'
+const ENDPOINTS = [
+  { method: 'GET', path: '/contacts/', scope: 'data:read', description: 'List and retrieve WhatsApp contacts.' },
+  { method: 'GET', path: '/chats/', scope: 'data:read', description: 'List and retrieve chats.' },
+  { method: 'GET', path: '/messages/', scope: 'data:read', description: 'List messages. Supports an optional ?chat=<id> filter.' },
+  { method: 'GET', path: '/outbound-messages/', scope: 'data:read', description: 'Status of messages sent through this API.' },
+  { method: 'POST', path: '/send-message/', scope: 'messages:send', description: 'Send an outbound WhatsApp message.' },
+  { method: 'GET / POST', path: '/webhooks/', scope: 'webhooks:manage', description: 'List or create webhook subscriptions.' },
+  { method: 'PATCH / DELETE', path: '/webhooks/{id}/', scope: 'webhooks:manage', description: 'Update or remove a webhook subscription.' },
+  { method: 'GET', path: '/webhooks/{id}/deliveries/', scope: 'webhooks:manage', description: 'Delivery attempt log for one subscription.' },
+]
+function methodTone(method) {
+  if (method.startsWith('GET')) return 'neutral'
+  if (method.startsWith('POST')) return 'success'
+  return 'warning'
+}
+
 const columns = [
   { key: 'name', label: 'Name' },
   { key: 'key_prefix', label: 'Key' },
@@ -122,6 +139,27 @@ onMounted(loadKeys)
     <UiPageHeader eyebrow="External access" title="API Consumer" description="Issue API keys so external parties can read company data, send messages, and receive webhooks from ChatLens." />
     <UiNotice v-if="notice" :tone="notice.tone">{{ notice.message }}</UiNotice>
 
+    <UiCard title="Available endpoints" subtitle="Everything a key can reach, depending on the scopes it was granted.">
+      <UiNotice tone="info">
+        Base URL: <code>{{ API_BASE_URL }}</code> &middot; Authenticate with <code>Authorization: Api-Key &lt;prefix&gt;.&lt;secret&gt;</code>
+      </UiNotice>
+      <div class="endpoints-table">
+        <table>
+          <thead>
+            <tr><th>Method</th><th>Path</th><th>Scope</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="endpoint in ENDPOINTS" :key="endpoint.path + endpoint.method">
+              <td><UiBadge :tone="methodTone(endpoint.method)">{{ endpoint.method }}</UiBadge></td>
+              <td><code>{{ API_BASE_URL }}{{ endpoint.path }}</code></td>
+              <td><UiBadge tone="neutral">{{ SCOPE_LABELS[endpoint.scope] }}</UiBadge></td>
+              <td>{{ endpoint.description }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </UiCard>
+
     <UiCard v-if="createdKey" title="New API key created" subtitle="Copy this secret now. It will not be shown again.">
       <div class="secret-row">
         <code class="secret-value">{{ createdKey.secret }}</code>
@@ -177,4 +215,9 @@ onMounted(loadKeys)
 <style scoped>
 .secret-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .secret-value { flex: 1 1 auto; min-width: 0; overflow-x: auto; padding: 8px 12px; background: var(--ui-surface-muted, rgba(0,0,0,.04)); border-radius: var(--ui-radius-sm); font-size: .86rem; }
+.endpoints-table { overflow-x: auto; margin-top: var(--ui-gap-md); }
+.endpoints-table table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+.endpoints-table th { text-align: left; padding: 8px 12px; color: var(--ui-text-muted); font-weight: 600; border-bottom: 1px solid var(--ui-border, rgba(0,0,0,.08)); }
+.endpoints-table td { padding: 8px 12px; border-bottom: 1px solid var(--ui-border, rgba(0,0,0,.06)); vertical-align: top; }
+.endpoints-table code { font-size: .82rem; }
 </style>
