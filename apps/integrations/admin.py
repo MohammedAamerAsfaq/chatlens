@@ -1,7 +1,7 @@
 from django.contrib import admin
 
 from .models import (
-    AdministrativeArea, City, Country, IntegrationConnection, IntegrationSyncRun,
+    AdministrativeArea, City, Country, IntegrationConnection, IntegrationSyncRun, Locality,
 )
 
 
@@ -28,6 +28,16 @@ class AdministrativeAreaAdmin(admin.ModelAdmin):
 class CityAdmin(admin.ModelAdmin):
     list_display = ('name', 'country', 'administrative_area', 'population', 'is_active')
     list_filter = ('country', 'is_active')
+    search_fields = ('name',)
+
+
+@admin.register(Locality)
+class LocalityAdmin(admin.ModelAdmin):
+    list_display = (
+        'name', 'country', 'administrative_area', 'city', 'feature_code',
+        'mapping_status', 'is_active',
+    )
+    list_filter = ('country', 'administrative_area', 'mapping_status', 'is_active')
     search_fields = ('name',)
 
 

@@ -202,7 +202,7 @@ tenure_type: freehold | long_lease | lease_99_year
 
 For Local opportunities, the selected UAE emirate is stored as structured location criteria. Regional and International remain supported scopes, but their selectable geography must come from configured location data rather than hard-coded assumptions. Ownership eligibility and tenure are separate fields because a Freehold property can still have a Locals Only, GCC Only, or All eligibility rule.
 
-The global geography prerequisite is now implemented in `apps.integrations`: control administrators can synchronize countries, first-level administrative areas, and cities from GeoNames through the durable `integrations` queue. Property-address foreign keys and locality/project enrichment remain a later phase; existing raw and normalized address values must remain intact during that alignment. See `Global Geography and Integrations Implementation.md`.
+The global geography hierarchy is now implemented in `apps.integrations`: control administrators can synchronize countries, first-level administrative areas, city anchors, and localities from GeoNames through the durable `integrations` queue. GeoNames administrative seats become city anchors; other populated places become localities and remain explicitly unmapped when no reliable city parent is supplied. Company-owned project/building masters complete the canonical path. Property addresses can reference every canonical level while preserving all raw and normalized source values. See `Global Geography and Integrations Implementation.md`.
 
 These values belong to the requirement, offered-property candidate, property, or listing context where applicable. They must not be stored as permanent ClientPulse classifications because one client may have several opportunities with different eligibility, tenure, location, and activity requirements.
 
@@ -302,6 +302,14 @@ Store searchable location fields separately from descriptive property data:
 - postal code;
 - latitude and longitude;
 - normalized location text.
+
+The canonical hierarchy is:
+
+```text
+Country -> Emirate/Administrative Area -> City -> Locality/Community -> Project/Building
+```
+
+`Country`, `AdministrativeArea`, `City`, and `Locality` are shared platform reference data. `PropertyDevelopment` is directly company-owned and distinguishes projects from buildings; a building may reference a parent project. `PropertyAddress` stores nullable protected foreign keys to each level in addition to the raw fields above. Canonical mapping is additive: it never replaces imported text, coordinates, or normalized-location values.
 
 ### 5.3 PropertyMedia
 

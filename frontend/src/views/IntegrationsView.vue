@@ -34,6 +34,7 @@ const levelOptions = [
   { value: 'country', label: 'Countries' },
   { value: 'area', label: 'States / administrative areas' },
   { value: 'city', label: 'Cities' },
+  { value: 'locality', label: 'Localities / communities' },
 ]
 const countryOptions = [{ value: 'AE', label: 'United Arab Emirates (AE)' }]
 const locationColumns = computed(() => {
@@ -41,13 +42,17 @@ const locationColumns = computed(() => {
     { key: 'name', label: 'Name', sortable: false },
     { key: 'country_code', label: 'Country' },
   ]
-  if (level.value === 'city') common.push({ key: 'administrative_area_name', label: 'Administrative area' })
+  if (['city', 'locality'].includes(level.value)) common.push({ key: 'administrative_area_name', label: 'Administrative area' })
+  if (level.value === 'locality') common.push(
+    { key: 'city_name', label: 'City' },
+    { key: 'mapping_status', label: 'Mapping' },
+  )
   if (level.value === 'area') common.push({ key: 'code', label: 'Code' })
   return [
     ...common,
     { key: 'latitude', label: 'Latitude' },
     { key: 'longitude', label: 'Longitude' },
-    ...(level.value === 'city' ? [{ key: 'population', label: 'Population' }, { key: 'timezone', label: 'Timezone' }] : []),
+    ...(['city', 'locality'].includes(level.value) ? [{ key: 'population', label: 'Population' }, { key: 'timezone', label: 'Timezone' }] : []),
   ]
 })
 const runColumns = [
@@ -74,7 +79,7 @@ function formatDate(value) {
 }
 function summarizeCounters(counters) {
   if (!counters || !Object.keys(counters).length) return '-'
-  return `${counters.administrative_areas_total || 0} areas, ${counters.cities_total || 0} cities`
+  return `${counters.administrative_areas_total || 0} areas, ${counters.cities_total || 0} cities, ${counters.localities_total || 0} localities`
 }
 function statusTone(status) {
   return status === 'succeeded' || status === 'ready' ? 'success' : status === 'failed' || status === 'error' ? 'danger' : 'warning'
@@ -154,11 +159,12 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
     <section class="integration-metrics">
       <UiMetric label="Countries" :value="overview?.geography.countries || 0" hint="Active master records" tone="success" />
       <UiMetric label="States / areas" :value="overview?.geography.administrative_areas || 0" hint="Administrative level 1" />
-      <UiMetric label="Cities" :value="overview?.geography.cities || 0" hint="Geocoded places" />
+      <UiMetric label="Cities" :value="overview?.geography.cities || 0" hint="Administrative city anchors" />
+      <UiMetric label="Localities" :value="overview?.geography.localities || 0" :hint="`${overview?.geography.unmapped_localities || 0} awaiting city mapping`" />
     </section>
 
     <div class="integration-grid">
-      <UiCard title="GeoNames geography" subtitle="Canonical country, state, and city source. Platform-managed and shared by every company.">
+      <UiCard title="GeoNames geography" subtitle="Canonical country, state, city, and locality source. Platform-managed and shared by every company.">
         <div v-if="loading" class="integration-state">Loading configuration...</div>
         <template v-else>
           <UiFormField label="GeoNames username" hint="Use a GeoNames account username, not an email address or password.">
@@ -203,7 +209,7 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
 </template>
 
 <style scoped>
-.integration-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--ui-gap-md);margin-bottom:var(--ui-gap-lg)}
+.integration-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--ui-gap-md);margin-bottom:var(--ui-gap-lg)}
 .integration-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--ui-gap-lg);margin-bottom:var(--ui-gap-lg)}
 .integration-grid :deep(.ui-card){height:100%}.integration-grid :deep(.ui-card__body){display:flex;flex-direction:column;gap:18px}
 .integration-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:auto}.integration-status{display:flex;align-items:center;gap:12px;color:var(--ui-text-muted);font-size:.86rem}

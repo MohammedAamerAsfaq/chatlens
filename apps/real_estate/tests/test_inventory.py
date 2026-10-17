@@ -6,9 +6,10 @@ from django.utils import timezone
 
 from apps.real_estate.models import (
     ActivityType, ClassificationStatus, Listing, Property, PropertyCandidate,
-    PropertyRequirement, RealEstateOpportunity, InventorySourceType,
+    PropertyAddress, PropertyDevelopment, PropertyRequirement, RealEstateOpportunity, InventorySourceType,
     OwnershipEligibility, TenureType,
 )
+from apps.integrations.models import AdministrativeArea, City, Country, Locality
 from apps.real_estate.services.candidate_service import promote_candidate
 from apps.real_estate.services.extraction_projection import project_extraction
 from apps.tenancy.models import Company, CompanyMembership
@@ -170,3 +171,79 @@ class RealEstateInventoryTests(TestCase):
         self.assertTrue(property_record.is_tracked)
         self.assertEqual(property_record.tenure_type, TenureType.FREEHOLD)
         self.assertEqual(property_record.attributes['parking'], '2')
+
+    def test_property_address_accepts_consistent_canonical_hierarchy(self):
+        country, area, city, locality = self._geography()
+        project = PropertyDevelopment.objects.create(
+            company=self.company, locality=locality, development_type='project',
+            name='Marina Heights', normalized_name='marina heights',
+        )
+        property_record = Property.objects.create(
+            company=self.company, title='Marina apartment', property_type=self.types['apartment'],
+        )
+        address = PropertyAddress(
+            company=self.company, property=property_record, country_master=country,
+            administrative_area_master=area, city_master=city, locality_master=locality,
+            development_master=project, community='Original imported community',
+        )
+
+        address.full_clean()
+        self.assertEqual(address.community, 'Original imported community')
+
+    def test_property_address_rejects_locality_from_another_city(self):
+        country, area, city, locality = self._geography()
+        other_city = City.objects.create(
+            country=country, administrative_area=area, name='Hatta', normalized_name='hatta',
+            geoname_id=290112, feature_code='PPLA3', latitude=24.8000, longitude=56.1200,
+        )
+        property_record = Property.objects.create(
+            company=self.company, title='Invalid hierarchy', property_type=self.types['apartment'],
+        )
+        address = PropertyAddress(
+            company=self.company, property=property_record, country_master=country,
+            administrative_area_master=area, city_master=other_city, locality_master=locality,
+        )
+
+        with self.assertRaises(ValidationError):
+            address.full_clean()
+
+    def test_development_parent_must_be_same_company_project(self):
+        _, _, _, locality = self._geography()
+        foreign_project = PropertyDevelopment.objects.create(
+            company=self.other, locality=locality, development_type='project',
+            name='Foreign project', normalized_name='foreign project',
+        )
+        building = PropertyDevelopment(
+            company=self.company, locality=locality, parent=foreign_project,
+            development_type='building', name='Tower A', normalized_name='tower a',
+        )
+
+        with self.assertRaises(ValidationError):
+            building.full_clean()
+
+    def _geography(self):
+        country, _ = Country.objects.get_or_create(
+            iso2='AE', defaults={'name': 'United Arab Emirates', 'normalized_name': 'united arab emirates'},
+        )
+        area, _ = AdministrativeArea.objects.get_or_create(
+            geoname_id=292224,
+            defaults={'country': country, 'name': 'Dubai', 'normalized_name': 'dubai'},
+        )
+        city, _ = City.objects.get_or_create(
+            geoname_id=292223,
+            defaults={
+                'country': country, 'administrative_area': area, 'name': 'Dubai',
+                'normalized_name': 'dubai', 'feature_code': 'PPLA',
+                'latitude': 25.0773, 'longitude': 55.3093,
+            },
+        )
+        locality, _ = Locality.objects.get_or_create(
+            geoname_id=1200001,
+            defaults={
+                'country': country, 'administrative_area': area, 'city': city,
+                'name': 'Dubai Marina', 'normalized_name': 'dubai marina',
+                'feature_code': 'PPLX', 'latitude': 25.0805, 'longitude': 55.1403,
+                'mapping_status': Locality.MAPPING_MAPPED,
+            },
+        )
+        return country, area, city, locality

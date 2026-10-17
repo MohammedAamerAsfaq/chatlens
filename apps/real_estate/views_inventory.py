@@ -7,9 +7,12 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from apps.real_estate.api_base import CompanyOwnedViewSet
-from apps.real_estate.models import Listing, Property, PropertyAddress, PropertyMedia, PropertyType
+from apps.real_estate.models import (
+    Listing, Property, PropertyAddress, PropertyDevelopment, PropertyMedia, PropertyType,
+)
 from apps.real_estate.serializers import (
-    ListingSerializer, PropertyAddressSerializer, PropertyMediaSerializer, PropertySerializer,
+    ListingSerializer, PropertyAddressSerializer, PropertyDevelopmentSerializer,
+    PropertyMediaSerializer, PropertySerializer,
     PropertyTypeSerializer,
 )
 from apps.real_estate.services.inventory_export import property_export_response
@@ -40,7 +43,11 @@ class PropertyTypeViewSet(CompanyOwnedViewSet):
 
 
 class PropertyViewSet(CompanyOwnedViewSet):
-    queryset = Property.objects.select_related('assigned_to', 'property_type').prefetch_related('media')
+    queryset = Property.objects.select_related(
+        'assigned_to', 'property_type', 'address', 'address__country_master',
+        'address__administrative_area_master', 'address__city_master',
+        'address__locality_master', 'address__development_master',
+    ).prefetch_related('media')
     serializer_class = PropertySerializer
     read_permission = 'real_estate.properties.view'
     write_permission = 'real_estate.properties.manage'
@@ -142,10 +149,39 @@ class PropertyViewSet(CompanyOwnedViewSet):
 
 
 class PropertyAddressViewSet(CompanyOwnedViewSet):
-    queryset = PropertyAddress.objects.select_related('property')
+    queryset = PropertyAddress.objects.select_related(
+        'property', 'country_master', 'administrative_area_master', 'city_master',
+        'locality_master', 'development_master',
+    )
     serializer_class = PropertyAddressSerializer
     read_permission = 'real_estate.properties.view'
     write_permission = 'real_estate.properties.manage'
+
+
+class PropertyDevelopmentViewSet(CompanyOwnedViewSet):
+    queryset = PropertyDevelopment.objects.select_related('locality', 'parent')
+    serializer_class = PropertyDevelopmentSerializer
+    read_permission = 'real_estate.properties.view'
+    write_permission = 'real_estate.properties.manage'
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.request.query_params.get('include_inactive') != 'true':
+            queryset = queryset.filter(is_active=True)
+        if value := self.request.query_params.get('locality_id'):
+            queryset = queryset.filter(locality_id=value)
+        if value := self.request.query_params.get('type'):
+            queryset = queryset.filter(development_type=value)
+        if search := self.request.query_params.get('search'):
+            queryset = queryset.filter(
+                Q(name__icontains=search) | Q(normalized_name__icontains=search)
+                | Q(developer_name__icontains=search)
+            )
+        return queryset
+
+    def perform_destroy(self, instance):
+        instance.is_active = False
+        instance.save(update_fields=['is_active', 'updated_at'])
 
 
 class PropertyMediaViewSet(CompanyOwnedViewSet):

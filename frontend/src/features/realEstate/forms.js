@@ -13,6 +13,8 @@ export function emptyAddress() {
   return {
     country: '', state_region: '', city: '', community: '', project_building: '', street: '',
     unit_number: '', postal_code: '', latitude: '', longitude: '', normalized_location: '',
+    country_master: null, administrative_area_master: null, city_master: null,
+    locality_master: null, development_master: null,
   }
 }
 

@@ -7,6 +7,7 @@ from apps.real_estate.models import (
     PropertyType,
     PropertyTypeFieldDefinition,
     PropertyAddress,
+    PropertyDevelopment,
     PropertyEmbedding,
     PropertyCandidate,
     CandidateEmbedding,
@@ -74,6 +75,16 @@ class PropertyCandidateAdmin(admin.ModelAdmin):
 
 
 admin.site.register(PropertyAddress)
+
+
+@admin.register(PropertyDevelopment)
+class PropertyDevelopmentAdmin(admin.ModelAdmin):
+    list_display = (
+        'name', 'development_type', 'company', 'locality', 'parent',
+        'is_verified', 'is_active',
+    )
+    list_filter = ('company', 'development_type', 'is_verified', 'is_active')
+    search_fields = ('name', 'developer_name')
 admin.site.register(PropertyMedia)
 
 

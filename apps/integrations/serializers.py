@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import AdministrativeArea, City, Country, IntegrationSyncRun
+from .models import AdministrativeArea, City, Country, IntegrationSyncRun, Locality
 
 
 class CountrySerializer(serializers.ModelSerializer):
@@ -29,6 +29,20 @@ class CitySerializer(serializers.ModelSerializer):
         fields = (
             'id', 'country_code', 'administrative_area_name', 'name', 'feature_code',
             'latitude', 'longitude', 'population', 'timezone', 'is_active', 'source_updated_at',
+        )
+
+
+class LocalitySerializer(serializers.ModelSerializer):
+    country_code = serializers.CharField(source='country.iso2', read_only=True)
+    administrative_area_name = serializers.CharField(source='administrative_area.name', read_only=True)
+    city_name = serializers.CharField(source='city.name', read_only=True)
+
+    class Meta:
+        model = Locality
+        fields = (
+            'id', 'country_code', 'administrative_area_name', 'city_name', 'name',
+            'feature_code', 'latitude', 'longitude', 'population', 'timezone',
+            'mapping_status', 'is_active', 'source_updated_at',
         )
 
 

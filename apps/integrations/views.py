@@ -11,10 +11,12 @@ from apps.queue_management.services import enqueue_task
 from apps.tenancy.services.access import control_company_for_platform_admin, is_platform_admin
 from apps.tenancy.services.authorization import has_company_permission
 from .connectors import GeoNamesClient, GeoNamesError
-from .models import AdministrativeArea, City, Country, IntegrationConnection, IntegrationSyncRun
+from .models import (
+    AdministrativeArea, City, Country, IntegrationConnection, IntegrationSyncRun, Locality,
+)
 from .serializers import (
     AdministrativeAreaSerializer, CitySerializer, CountrySerializer,
-    IntegrationSyncRunSerializer,
+    IntegrationSyncRunSerializer, LocalitySerializer,
 )
 
 
@@ -57,6 +59,10 @@ def overview(request):
             'countries': Country.objects.filter(is_active=True).count(),
             'administrative_areas': AdministrativeArea.objects.filter(is_active=True).count(),
             'cities': City.objects.filter(is_active=True).count(),
+            'localities': Locality.objects.filter(is_active=True).count(),
+            'unmapped_localities': Locality.objects.filter(
+                is_active=True, mapping_status=Locality.MAPPING_UNMAPPED,
+            ).count(),
         },
         'runs': IntegrationSyncRunSerializer(runs, many=True).data,
     })
@@ -174,18 +180,26 @@ def locations(request):
         'country': (Country.objects.all(), CountrySerializer),
         'area': (AdministrativeArea.objects.select_related('country'), AdministrativeAreaSerializer),
         'city': (City.objects.select_related('country', 'administrative_area'), CitySerializer),
+        'locality': (
+            Locality.objects.select_related('country', 'administrative_area', 'city'),
+            LocalitySerializer,
+        ),
     }
     if level not in models:
-        raise ValidationError({'level': 'Use country, area, or city.'})
+        raise ValidationError({'level': 'Use country, area, city, or locality.'})
     queryset, serializer = models[level]
     queryset = queryset.filter(is_active=True)
     if level != 'country':
         queryset = queryset.filter(country__iso2=country_code)
     if search:
         queryset = queryset.filter(Q(name__icontains=search) | Q(normalized_name__icontains=search))
+    if level in {'city', 'locality'} and request.query_params.get('area_id'):
+        queryset = queryset.filter(administrative_area_id=request.query_params['area_id'])
+    if level == 'locality' and request.query_params.get('city_id'):
+        queryset = queryset.filter(city_id=request.query_params['city_id'])
     try:
         page = max(1, int(request.query_params.get('page', 1)))
-        page_size = max(1, min(100, int(request.query_params.get('page_size', 25))))
+        page_size = max(1, min(3000, int(request.query_params.get('page_size', 25))))
     except (TypeError, ValueError):
         page, page_size = 1, 25
     count = queryset.count()

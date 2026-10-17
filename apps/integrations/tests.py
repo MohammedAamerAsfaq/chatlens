@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from apps.integrations.models import AdministrativeArea, City, Country, IntegrationConnection
+from apps.integrations.models import AdministrativeArea, City, Country, IntegrationConnection, Locality
 from apps.integrations.services.geography_sync import sync_country
 from apps.queue_management.models import QueueDefinition
 from apps.task_management.models import BackgroundTask
@@ -35,6 +35,12 @@ class FakeGeoNamesClient:
                 'lat': '25.0773', 'lng': '55.3093', 'population': 3478300,
                 'fcode': 'PPLA', 'timezone': {'timeZoneId': 'Asia/Dubai'},
             },
+            {
+                'name': 'Dubai Marina', 'geonameId': 1200001, 'adminCode1': '03',
+                'adminName2': 'Dubai', 'lat': '25.0805', 'lng': '55.1403',
+                'population': 55052, 'fcode': 'PPLX',
+                'timezone': {'timeZoneId': 'Asia/Dubai'},
+            },
             {'name': 'Invalid coordinates', 'geonameId': 999999, 'adminCode1': '03'},
         ]
 
@@ -55,11 +61,24 @@ class GeographySyncTests(TestCase):
         country = Country.objects.get(iso2='AE')
         area = AdministrativeArea.objects.get(country=country, code='03')
         city = City.objects.get(country=country, name='Dubai')
+        locality = Locality.objects.get(country=country, name='Dubai Marina')
         self.assertEqual(country.normalized_name, 'united arab emirates')
         self.assertEqual(city.administrative_area, area)
         self.assertEqual(city.timezone, 'Asia/Dubai')
+        self.assertEqual(locality.city, city)
+        self.assertEqual(locality.mapping_status, Locality.MAPPING_MAPPED)
         self.assertEqual(counters['cities_total'], 1)
-        self.assertEqual(counters['cities_skipped'], 1)
+        self.assertEqual(counters['cities_skipped'], 0)
+        self.assertEqual(counters['localities_total'], 1)
+        self.assertEqual(counters['localities_mapped'], 1)
+        self.assertEqual(counters['localities_skipped'], 1)
+
+    @patch('apps.integrations.services.geography_sync.GeoNamesClient', FakeGeoNamesClient)
+    def test_populated_place_is_not_stored_as_a_city(self):
+        sync_country(self.connection, 'AE')
+
+        self.assertFalse(City.objects.filter(name='Dubai Marina', is_active=True).exists())
+        self.assertTrue(Locality.objects.filter(name='Dubai Marina', is_active=True).exists())
 
 
 class IntegrationApiTests(TestCase):
@@ -183,3 +202,27 @@ class IntegrationApiTests(TestCase):
             '/api/integrations/geography-source/', {'username': 'not-allowed'}, format='json',
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_locations_endpoint_exposes_locality_hierarchy(self):
+        country = Country.objects.create(
+            iso2='AE', name='United Arab Emirates', normalized_name='united arab emirates',
+        )
+        area = AdministrativeArea.objects.create(
+            country=country, name='Dubai', normalized_name='dubai', geoname_id=292224,
+        )
+        city = City.objects.create(
+            country=country, administrative_area=area, name='Dubai', normalized_name='dubai',
+            geoname_id=292223, feature_code='PPLA', latitude=25.0773, longitude=55.3093,
+        )
+        Locality.objects.create(
+            country=country, administrative_area=area, city=city,
+            name='Dubai Marina', normalized_name='dubai marina', geoname_id=1200001,
+            feature_code='PPLX', latitude=25.0805, longitude=55.1403,
+            mapping_status=Locality.MAPPING_MAPPED,
+        )
+
+        response = self.client.get('/api/integrations/locations/?level=locality&city_id=%s' % city.pk)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['city_name'], 'Dubai')

@@ -153,6 +153,56 @@ class City(models.Model):
         return f'{self.name}, {self.country.iso2}'
 
 
+class Locality(models.Model):
+    MAPPING_MAPPED = 'mapped'
+    MAPPING_UNMAPPED = 'unmapped'
+    MAPPING_REVIEW = 'review'
+    MAPPING_CHOICES = [
+        (MAPPING_MAPPED, 'Mapped'),
+        (MAPPING_UNMAPPED, 'Unmapped'),
+        (MAPPING_REVIEW, 'Needs review'),
+    ]
+
+    country = models.ForeignKey(Country, on_delete=models.PROTECT, related_name='localities')
+    administrative_area = models.ForeignKey(
+        AdministrativeArea, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='localities',
+    )
+    city = models.ForeignKey(
+        City, null=True, blank=True, on_delete=models.PROTECT, related_name='localities',
+    )
+    name = models.CharField(max_length=150)
+    normalized_name = models.CharField(max_length=150, db_index=True)
+    geoname_id = models.PositiveBigIntegerField(unique=True)
+    feature_code = models.CharField(max_length=20, blank=True)
+    latitude = models.DecimalField(max_digits=10, decimal_places=7)
+    longitude = models.DecimalField(max_digits=10, decimal_places=7)
+    population = models.PositiveBigIntegerField(default=0)
+    timezone = models.CharField(max_length=80, blank=True)
+    alternate_names = models.JSONField(default=list, blank=True)
+    source_payload = models.JSONField(default=dict, blank=True)
+    mapping_status = models.CharField(
+        max_length=20, choices=MAPPING_CHOICES, default=MAPPING_UNMAPPED, db_index=True,
+    )
+    is_active = models.BooleanField(default=True, db_index=True)
+    source_updated_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'geo_locality'
+        ordering = ['country__name', 'name']
+        indexes = [
+            models.Index(
+                fields=['country', 'administrative_area', 'city', 'normalized_name'],
+                name='geo_locality_hierarchy_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.name}, {self.country.iso2}'
+
+
 class IntegrationSyncRun(models.Model):
     STATUS_PENDING = 'pending'
     STATUS_RUNNING = 'running'

@@ -25,6 +25,7 @@ from .property import Property
 from .property_type import PropertyType
 from .property_type_field import PropertyTypeFieldDefinition
 from .property_address import PropertyAddress
+from .property_development import PropertyDevelopment
 from .property_media import PropertyMedia
 from .requirement import PropertyRequirement
 from .parse_log import RealEstateParseLog
@@ -54,6 +55,7 @@ __all__ = [
     'PropertyTypeFieldDefinition',
     'PropertyEmbedding',
     'PropertyAddress',
+    'PropertyDevelopment',
     'PropertyCandidate',
     'PropertyMedia',
     'PropertyRequirement',

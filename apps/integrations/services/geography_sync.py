@@ -6,7 +6,10 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.integrations.connectors import GeoNamesClient
-from apps.integrations.models import AdministrativeArea, City, Country
+from apps.integrations.models import AdministrativeArea, City, Country, Locality
+
+
+CITY_FEATURE_CODES = frozenset({'PPLC', 'PPLA', 'PPLA2', 'PPLA3', 'PPLA4'})
 
 
 def normalize_name(value):
@@ -41,12 +44,40 @@ def _country_coordinates(row):
     return latitude, longitude
 
 
+def _place_defaults(row, country, area, now):
+    timezone_data = row.get('timezone') or {}
+    return {
+        'country': country,
+        'administrative_area': area,
+        'name': row['name'],
+        'normalized_name': normalize_name(row['name']),
+        'feature_code': row.get('fcode') or row.get('featureCode') or '',
+        'latitude': decimal_or_none(row.get('lat')),
+        'longitude': decimal_or_none(row.get('lng')),
+        'population': max(0, int(row.get('population') or 0)),
+        'timezone': timezone_data.get('timeZoneId', '') if isinstance(timezone_data, dict) else '',
+        'alternate_names': alternate_names(row),
+        'source_payload': row,
+        'is_active': True,
+        'source_updated_at': now,
+    }
+
+
+def _resolve_locality_city(row, area, cities_by_name):
+    if not area:
+        return None
+    # GeoNames does not expose a reliable city parent for every populated-place row.
+    # Only accept an explicit matching administrative locality; never guess by distance.
+    parent_name = normalize_name(row.get('adminName2') or '')
+    return cities_by_name.get((area.pk, parent_name)) if parent_name else None
+
+
 def sync_country(connection, country_code='AE'):
     username = connection.configuration.get('username', '')
     client = GeoNamesClient(username)
     country_row = client.country(country_code)
     area_rows = client.administrative_areas(country_code)
-    city_rows = client.cities(country_code)
+    place_rows = client.cities(country_code)
     now = timezone.now()
     latitude, longitude = _country_coordinates(country_row)
 
@@ -84,32 +115,59 @@ def sync_country(connection, country_code='AE'):
             created_areas += int(created)
         AdministrativeArea.objects.filter(country=country, level=1).exclude(pk__in=area_ids).update(is_active=False)
 
+        city_rows = [
+            row for row in place_rows
+            if (row.get('fcode') or row.get('featureCode') or '') in CITY_FEATURE_CODES
+        ]
+        locality_rows = [
+            row for row in place_rows
+            if (row.get('fcode') or row.get('featureCode') or '') not in CITY_FEATURE_CODES
+        ]
         city_ids = set()
         created_cities = 0
         skipped_cities = 0
         for row in city_rows:
-            city_latitude = decimal_or_none(row.get('lat'))
-            city_longitude = decimal_or_none(row.get('lng'))
-            if city_latitude is None or city_longitude is None:
+            defaults = _place_defaults(
+                row, country, areas_by_code.get(row.get('adminCode1') or ''), now,
+            )
+            if defaults['latitude'] is None or defaults['longitude'] is None:
                 skipped_cities += 1
                 continue
-            timezone_data = row.get('timezone') or {}
             city, created = City.objects.update_or_create(
-                geoname_id=int(row['geonameId']), defaults={
-                    'country': country,
-                    'administrative_area': areas_by_code.get(row.get('adminCode1') or ''),
-                    'name': row['name'], 'normalized_name': normalize_name(row['name']),
-                    'feature_code': row.get('fcode') or row.get('featureCode') or '',
-                    'latitude': city_latitude, 'longitude': city_longitude,
-                    'population': max(0, int(row.get('population') or 0)),
-                    'timezone': timezone_data.get('timeZoneId', '') if isinstance(timezone_data, dict) else '',
-                    'alternate_names': alternate_names(row), 'source_payload': row,
-                    'is_active': True, 'source_updated_at': now,
-                },
+                geoname_id=int(row['geonameId']), defaults=defaults,
             )
             city_ids.add(city.pk)
             created_cities += int(created)
         City.objects.filter(country=country).exclude(pk__in=city_ids).update(is_active=False)
+
+        cities_by_name = {
+            (city.administrative_area_id, city.normalized_name): city
+            for city in City.objects.filter(country=country, is_active=True)
+        }
+        locality_ids = set()
+        created_localities = 0
+        mapped_localities = 0
+        skipped_localities = 0
+        for row in locality_rows:
+            area = areas_by_code.get(row.get('adminCode1') or '')
+            defaults = _place_defaults(row, country, area, now)
+            if defaults['latitude'] is None or defaults['longitude'] is None:
+                skipped_localities += 1
+                continue
+            city = _resolve_locality_city(row, area, cities_by_name)
+            defaults.update({
+                'city': city,
+                'mapping_status': (
+                    Locality.MAPPING_MAPPED if city else Locality.MAPPING_UNMAPPED
+                ),
+            })
+            locality, created = Locality.objects.update_or_create(
+                geoname_id=int(row['geonameId']), defaults=defaults,
+            )
+            locality_ids.add(locality.pk)
+            created_localities += int(created)
+            mapped_localities += int(bool(city))
+        Locality.objects.filter(country=country).exclude(pk__in=locality_ids).update(is_active=False)
 
     return {
         'country_code': country.iso2, 'country_created': country_created,
@@ -117,4 +175,9 @@ def sync_country(connection, country_code='AE'):
         'administrative_areas_created': created_areas,
         'cities_total': len(city_ids), 'cities_created': created_cities,
         'cities_skipped': skipped_cities,
+        'localities_total': len(locality_ids),
+        'localities_created': created_localities,
+        'localities_mapped': mapped_localities,
+        'localities_unmapped': len(locality_ids) - mapped_localities,
+        'localities_skipped': skipped_localities,
     }

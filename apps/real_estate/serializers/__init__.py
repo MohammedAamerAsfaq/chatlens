@@ -1,5 +1,5 @@
 from .inventory import (
-    ListingSerializer, PropertyAddressSerializer, PropertyMediaSerializer,
+    ListingSerializer, PropertyAddressSerializer, PropertyDevelopmentSerializer, PropertyMediaSerializer,
     PropertySerializer, PropertyTypeFieldDefinitionSerializer, PropertyTypeSerializer,
 )
 from .opportunities import OpportunitySerializer, PropertyCandidateSerializer, PropertyRequirementSerializer
@@ -8,6 +8,7 @@ from .mock_inquiry import RealEstateMockInquiryRunSerializer, RealEstateMockInqu
 
 __all__ = [
     'ListingSerializer', 'OpportunitySerializer', 'PropertyAddressSerializer',
+    'PropertyDevelopmentSerializer',
     'PropertyCandidateSerializer', 'PropertyMediaSerializer', 'PropertyRequirementSerializer',
     'PropertySerializer', 'PropertyTypeFieldDefinitionSerializer', 'PropertyTypeSerializer',
     'RealEstateMockSourceRecordSerializer',
