@@ -114,10 +114,32 @@ async function submitCreate() {
   } finally { creating.value = false }
 }
 
+function legacyCopy(text) {
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.focus()
+  textarea.select()
+  const succeeded = document.execCommand('copy')
+  document.body.removeChild(textarea)
+  if (!succeeded) throw new Error('execCommand copy failed')
+}
+
 async function copySecret() {
-  await navigator.clipboard.writeText(createdKey.value.secret)
-  copied.value = true
-  setTimeout(() => { copied.value = false }, 1500)
+  const text = createdKey.value.secret
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      legacyCopy(text)
+    }
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 1500)
+  } catch {
+    showNotice('danger', 'Could not copy automatically (this page is not served over HTTPS). Select the key text and copy it manually.')
+  }
 }
 function dismissCreatedKey() { createdKey.value = null }
 
