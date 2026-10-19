@@ -33,6 +33,9 @@ class IntegrationConnection(models.Model):
         max_length=255, blank=True,
         help_text='Reference to an external secret; secret values are not stored here.',
     )
+    # Matches the existing AI provider credential pattern. API responses must
+    # expose only a masked value and accept this field as write-only.
+    secret_value = models.TextField(blank=True, editable=False)
     is_enabled = models.BooleanField(default=False)
     status = models.CharField(max_length=30, default=STATUS_NOT_CONFIGURED, choices=[
         (STATUS_NOT_CONFIGURED, 'Not configured'),
@@ -244,3 +247,8 @@ class IntegrationSyncRun(models.Model):
                 name='unique_active_integration_sync',
             ),
         ]
+
+
+# Kept in a separate module so provider-specific controls do not inflate the
+# shared geography model file. Importing here lets Django discover the models.
+from .models_google import GeographyExternalReference, IntegrationUsagePeriod  # noqa: E402,F401

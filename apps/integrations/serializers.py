@@ -23,11 +23,12 @@ class AdministrativeAreaSerializer(serializers.ModelSerializer):
 class CitySerializer(serializers.ModelSerializer):
     country_code = serializers.CharField(source='country.iso2', read_only=True)
     administrative_area_name = serializers.CharField(source='administrative_area.name', read_only=True)
+    administrative_area_id = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = City
         fields = (
-            'id', 'country_code', 'administrative_area_name', 'name', 'feature_code',
+            'id', 'country_code', 'administrative_area_id', 'administrative_area_name', 'name', 'feature_code',
             'latitude', 'longitude', 'population', 'timezone', 'is_active', 'source_updated_at',
         )
 
@@ -36,11 +37,24 @@ class LocalitySerializer(serializers.ModelSerializer):
     country_code = serializers.CharField(source='country.iso2', read_only=True)
     administrative_area_name = serializers.CharField(source='administrative_area.name', read_only=True)
     city_name = serializers.CharField(source='city.name', read_only=True)
+    administrative_area_id = serializers.IntegerField(read_only=True)
+    google_reference = serializers.SerializerMethodField()
+
+    def get_google_reference(self, obj):
+        reference = next((item for item in obj.external_references.all() if item.provider == 'google_maps'), None)
+        if not reference:
+            return None
+        return {
+            'place_id': reference.external_id,
+            'status': reference.status,
+            'verified_at': reference.verified_at,
+        }
 
     class Meta:
         model = Locality
         fields = (
-            'id', 'country_code', 'administrative_area_name', 'city_name', 'name',
+            'id', 'country_code', 'administrative_area_id', 'administrative_area_name',
+            'city_name', 'name', 'google_reference',
             'feature_code', 'latitude', 'longitude', 'population', 'timezone',
             'mapping_status', 'is_active', 'source_updated_at',
         )

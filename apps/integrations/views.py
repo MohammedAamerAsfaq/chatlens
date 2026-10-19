@@ -1,5 +1,5 @@
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -12,12 +12,14 @@ from apps.tenancy.services.access import control_company_for_platform_admin, is_
 from apps.tenancy.services.authorization import has_company_permission
 from .connectors import GeoNamesClient, GeoNamesError
 from .models import (
-    AdministrativeArea, City, Country, IntegrationConnection, IntegrationSyncRun, Locality,
+    AdministrativeArea, City, Country, GeographyExternalReference,
+    IntegrationConnection, IntegrationSyncRun, Locality,
 )
 from .serializers import (
     AdministrativeAreaSerializer, CitySerializer, CountrySerializer,
     IntegrationSyncRunSerializer, LocalitySerializer,
 )
+from .services.google_maps import google_maps_connection, source_data as google_maps_source_data
 
 
 def _require(request, code):
@@ -55,6 +57,7 @@ def overview(request):
     return Response({
         'can_manage_platform': is_platform_admin(request.user),
         'geonames': _source_data(source) if source else None,
+        'google_maps': google_maps_source_data(google_maps_connection()),
         'geography': {
             'countries': Country.objects.filter(is_active=True).count(),
             'administrative_areas': AdministrativeArea.objects.filter(is_active=True).count(),
@@ -181,7 +184,12 @@ def locations(request):
         'area': (AdministrativeArea.objects.select_related('country'), AdministrativeAreaSerializer),
         'city': (City.objects.select_related('country', 'administrative_area'), CitySerializer),
         'locality': (
-            Locality.objects.select_related('country', 'administrative_area', 'city'),
+            Locality.objects.select_related('country', 'administrative_area', 'city').prefetch_related(
+                Prefetch(
+                    'external_references',
+                    queryset=GeographyExternalReference.objects.filter(provider='google_maps'),
+                ),
+            ),
             LocalitySerializer,
         ),
     }

@@ -1,7 +1,8 @@
 from django.contrib import admin
 
 from .models import (
-    AdministrativeArea, City, Country, IntegrationConnection, IntegrationSyncRun, Locality,
+    AdministrativeArea, City, Country, GeographyExternalReference, IntegrationConnection,
+    IntegrationSyncRun, IntegrationUsagePeriod, Locality,
 )
 
 
@@ -45,3 +46,15 @@ class LocalityAdmin(admin.ModelAdmin):
 class IntegrationSyncRunAdmin(admin.ModelAdmin):
     list_display = ('id', 'connection', 'resource', 'country_code', 'status', 'created_at')
     list_filter = ('status', 'resource', 'country_code')
+
+
+@admin.register(GeographyExternalReference)
+class GeographyExternalReferenceAdmin(admin.ModelAdmin):
+    list_display = ('locality', 'city', 'provider', 'external_id', 'status', 'verified_at')
+    list_filter = ('provider', 'status')
+    search_fields = ('locality__name', 'city__name', 'external_id')
+
+
+@admin.register(IntegrationUsagePeriod)
+class IntegrationUsagePeriodAdmin(admin.ModelAdmin):
+    list_display = ('connection', 'period_start', 'request_count', 'updated_at')
