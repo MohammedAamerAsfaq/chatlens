@@ -9,6 +9,7 @@ class GoogleMapsError(RuntimeError):
 
 class GoogleMapsClient:
     BASE_URL = 'https://places.googleapis.com/v1'
+    GEOCODING_URL = 'https://maps.googleapis.com/maps/api/geocode/json'
 
     def __init__(self, api_key, *, timeout=20, session=None):
         if not str(api_key or '').strip():
@@ -57,6 +58,27 @@ class GoogleMapsClient:
             params={'sessionToken': session_token},
         )
 
+    def reverse_geocode(self, latitude, longitude):
+        try:
+            response = self.session.get(
+                self.GEOCODING_URL,
+                params={
+                    'latlng': f'{latitude},{longitude}',
+                    'key': self.api_key,
+                    'language': 'en',
+                },
+                timeout=self.timeout,
+            )
+            payload = response.json()
+            response.raise_for_status()
+        except (requests.RequestException, ValueError) as exc:
+            message = self._error_message(locals().get('payload'))
+            raise GoogleMapsError(message or f'Google Maps request failed: {exc}') from exc
+        if payload.get('status') not in {'OK', 'ZERO_RESULTS'}:
+            raise GoogleMapsError(payload.get('error_message') or payload.get('status'))
+        results = payload.get('results') or []
+        return self._normalize_geocode_result(results[0]) if results else None
+
     def _request(self, method, endpoint, *, field_mask, **kwargs):
         headers = {
             'X-Goog-Api-Key': self.api_key,
@@ -79,5 +101,25 @@ class GoogleMapsClient:
     def _error_message(payload):
         if not isinstance(payload, dict):
             return ''
+        if payload.get('error_message'):
+            return str(payload['error_message'])
         error = payload.get('error') or {}
         return str(error.get('message') or '')
+
+    @staticmethod
+    def _normalize_geocode_result(result):
+        location = (result.get('geometry') or {}).get('location') or {}
+        return {
+            'id': result.get('place_id') or '',
+            'formattedAddress': result.get('formatted_address') or '',
+            'addressComponents': [{
+                'longText': component.get('long_name') or '',
+                'shortText': component.get('short_name') or '',
+                'types': component.get('types') or [],
+            } for component in result.get('address_components') or []],
+            'location': {
+                'latitude': location.get('lat'),
+                'longitude': location.get('lng'),
+            },
+            'types': result.get('types') or [],
+        }

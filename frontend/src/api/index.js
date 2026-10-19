@@ -167,6 +167,10 @@ export const integrationsApi = {
   // POST avoids IIS/WebDAV intercepting PUT before the request reaches Django.
   saveGoogleMaps: data => http.post('/integrations/google-maps/', data),
   testGoogleMaps: () => http.post('/integrations/google-maps/test/'),
+  propertyMapConfig: () => http.get('/integrations/google-maps/property-map-config/'),
+  propertyAddressSuggestions: data => http.post('/integrations/google-maps/property-address-suggestions/', data),
+  propertyPlaceDetails: data => http.post('/integrations/google-maps/property-place-details/', data),
+  propertyReverseGeocode: data => http.post('/integrations/google-maps/property-reverse-geocode/', data),
   googleLocalitySuggestions: (localityId, data) => http.post(`/integrations/google-maps/localities/${localityId}/suggestions/`, data),
   resolveGoogleLocality: (localityId, data) => http.post(`/integrations/google-maps/localities/${localityId}/resolve/`, data),
 }

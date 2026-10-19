@@ -47,6 +47,7 @@ const pageDescriptions = {
   'clientpulse-settings': 'Configure ClientPulse automation and policies.',
   'clientpulse-reminders': 'Plan and track customer follow-up reminders.',
   'real-estate-properties': 'Maintain verified company-owned property inventory and media.',
+  'real-estate-property-create': 'Create a property and map its trusted geography and source address.',
   'real-estate-listings': 'Manage sale and lease listings without duplicating physical properties.',
   'real-estate-candidates': 'Review AI-extracted property offers before they enter trusted inventory.',
   'real-estate-mock-data': 'Preview Excel source rows against the proposed Real Estate test-data schema.',

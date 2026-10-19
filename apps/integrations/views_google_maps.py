@@ -59,10 +59,15 @@ def google_maps_source(request):
     api_key = str(request.data.get('api_key') or '').strip()
     if not api_key and not (connection and connection.secret_value):
         raise ValidationError({'api_key': 'Google Maps API key is required.'})
+    configuration = dict(connection.configuration or {}) if connection else {}
+    configuration['monthly_request_limit'] = request_limit
+    browser_api_key = str(request.data.get('browser_api_key') or '').strip()
+    if browser_api_key:
+        configuration['browser_api_key'] = browser_api_key
     defaults = {
         'company': None,
         'display_name': 'Google Maps Geography',
-        'configuration': {'monthly_request_limit': request_limit},
+        'configuration': configuration,
         'secret_reference': '',
         'is_enabled': bool(request.data.get('is_enabled', False)),
         'created_by': request.user,

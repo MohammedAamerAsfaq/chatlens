@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faBoxArchive, faCrosshairs, faEyeSlash, faImages, faPenToSquare } from '@fortawesome/free-solid-svg-icons'
 import { realEstateApi } from '@/api'
@@ -17,13 +18,14 @@ import PropertyImportModal from '@/features/realEstate/components/PropertyImport
 import PropertyMediaModal from '@/features/realEstate/components/PropertyMediaModal.vue'
 import PropertyTypeManagerModal from '@/features/realEstate/components/PropertyTypeManagerModal.vue'
 import { apiError, downloadBlob } from '@/features/realEstate/apiErrors'
-import { cleanPayload } from '@/features/realEstate/forms'
+import { persistProperty } from '@/features/realEstate/propertyPersistence'
 import {
   inventoryFilters, ownershipEligibilityOptions, propertyStatuses, tenureOptions, title,
 } from '@/features/realEstate/options'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
+const router = useRouter()
 const rows = ref([]), total = ref(0), page = ref(1), pageSize = ref(25), loading = ref(false)
 const sortKey = ref('updated_at'), sortDirection = ref('desc'), error = ref('')
 const filters = reactive({
@@ -102,14 +104,8 @@ async function repairEmbeddings() {
 function openEditor(record = null) { editor.record = record; editor.open = true }
 async function saveProperty(values) {
   editor.busy = true; error.value = ''
-  const { address, ...propertyValues } = values
-  const numeric = ['bedrooms', 'bathrooms', 'built_up_area', 'plot_area', 'completion_year']
-  const addressPayload = cleanPayload(address, ['latitude', 'longitude'])
   try {
-    const response = editor.record ? await realEstateApi.updateProperty(editor.record.id, cleanPayload(propertyValues, numeric)) : await realEstateApi.createProperty(cleanPayload(propertyValues, numeric))
-    const hasAddress = Object.values(address).some(value => value !== '' && value != null)
-    if (response.data.address?.id) await realEstateApi.updateAddress(response.data.address.id, addressPayload)
-    else if (hasAddress) await realEstateApi.createAddress({ ...addressPayload, property: response.data.id })
+    await persistProperty(values, editor.record)
     editor.open = false; await load()
   } catch (exc) { error.value = apiError(exc, 'Unable to save the property.') }
   finally { editor.busy = false }
@@ -141,7 +137,7 @@ watch([page, pageSize, sortKey, sortDirection], load)
 onMounted(() => Promise.all([load(), loadEmbeddingStatus(), loadPropertyTypes()]))
 </script>
 
-<template><UiPage width="wide"><UiPageHeader eyebrow="Real Estate Inventory" title="Properties" description="Maintain verified physical property records independently from sale and lease listings."><template #actions><UiBadge :tone="embeddings.error ? 'danger' : (embeddings.pending || embeddings.missing) ? 'warning' : 'success'">Embeddings {{ embeddings.embedded }}/{{ embeddings.total }}</UiBadge><UiButton v-if="canManage" @click="typeManager.open = true">Property types</UiButton><UiButton v-if="canManage" @click="developmentManager.open = true">Projects / buildings</UiButton><UiButton v-if="canManage" :loading="embeddings.busy" @click="repairEmbeddings">Repair embeddings</UiButton><UiButton @click="exportAll">Export CSV</UiButton><UiButton v-if="canManage" @click="importer.open = true">Import CSV</UiButton><UiButton v-if="canManage" variant="primary" @click="openEditor()">+ Add property</UiButton></template></UiPageHeader><UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
+<template><UiPage width="wide"><UiPageHeader eyebrow="Real Estate Inventory" title="Properties" description="Maintain verified physical property records independently from sale and lease listings."><template #actions><UiBadge :tone="embeddings.error ? 'danger' : (embeddings.pending || embeddings.missing) ? 'warning' : 'success'">Embeddings {{ embeddings.embedded }}/{{ embeddings.total }}</UiBadge><UiButton v-if="canManage" @click="typeManager.open = true">Property types</UiButton><UiButton v-if="canManage" @click="developmentManager.open = true">Projects / buildings</UiButton><UiButton v-if="canManage" :loading="embeddings.busy" @click="repairEmbeddings">Repair embeddings</UiButton><UiButton @click="exportAll">Export CSV</UiButton><UiButton v-if="canManage" @click="importer.open = true">Import CSV</UiButton><UiButton v-if="canManage" variant="primary" @click="router.push({ name: 'real-estate-property-create' })">+ Add property</UiButton></template></UiPageHeader><UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
   <UiDataTable class="properties-table" :columns="columns" :rows="rows" :loading="loading" :total="total" :page="page" :page-size="pageSize" :sort-key="sortKey" :sort-direction="sortDirection" :search="filters.search" persist-key="real-estate-properties" search-placeholder="Search title, reference, or project..." empty-title="No properties match these filters." @update:page="page = $event" @update:page-size="pageSize = $event; page = 1" @update:sort-key="sortKey = $event" @update:sort-direction="sortDirection = $event" @update:search="filters.search = $event" @refresh="load">
     <template #filters><UiSelect v-model="filters.inventory_type" :options="inventoryFilters" /><UiSelect v-model="filters.property_type" :options="filterTypes" /><UiSelect v-model="filters.status" :options="filterStatuses" /><UiSelect v-model="filters.ownership_eligibility" :options="filterEligibility" /><UiSelect v-model="filters.tenure_type" :options="filterTenure" /></template>
     <template #cell-title="{ row }"><strong>{{ row.title }}</strong><small class="subline">{{ row.reference_code || `#${row.id}` }}</small></template>

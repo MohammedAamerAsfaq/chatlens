@@ -23,10 +23,23 @@ class FakeGoogleMapsClient:
     def place_details(self, place_id, *, session_token):
         return {
             'id': place_id,
-            'addressComponents': [{
-                'shortText': 'AE', 'longText': 'United Arab Emirates', 'types': ['country'],
-            }],
+            'formattedAddress': 'Dubai Marina, Dubai, United Arab Emirates',
+            'location': {'latitude': 25.0805, 'longitude': 55.1403},
+            'addressComponents': [
+                {'longText': 'Dubai Marina', 'types': ['neighborhood']},
+                {'longText': 'Dubai', 'types': ['locality']},
+                {'longText': 'Dubai', 'types': ['administrative_area_level_1']},
+                {
+                    'shortText': 'AE', 'longText': 'United Arab Emirates',
+                    'types': ['country'],
+                },
+            ],
         }
+
+    def reverse_geocode(self, latitude, longitude):
+        details = self.place_details('google-dubai-marina', session_token='reverse')
+        details['location'] = {'latitude': latitude, 'longitude': longitude}
+        return details
 
 
 class GoogleMapsApiTests(TestCase):
@@ -63,10 +76,11 @@ class GoogleMapsApiTests(TestCase):
             latitude=25.0805, longitude=55.1403,
         )
 
-    def configure(self, limit=100):
+    def configure(self, limit=100, browser_key='browser-google-maps-key'):
         response = self.client.post('/api/integrations/google-maps/', {
             'monthly_request_limit': limit, 'is_enabled': True,
             'api_key': 'test-google-maps-key',
+            'browser_api_key': browser_key,
         }, format='json')
         self.assertEqual(response.status_code, 200)
         return IntegrationConnection.objects.get(provider='google_maps')
@@ -76,14 +90,69 @@ class GoogleMapsApiTests(TestCase):
         self.assertEqual(connection.secret_reference, '')
         self.assertEqual(connection.secret_value, 'test-google-maps-key')
         self.assertNotIn('api_key', connection.configuration)
+        self.assertEqual(connection.configuration['browser_api_key'], 'browser-google-maps-key')
         overview = self.client.get('/api/integrations/overview/')
         self.assertEqual(overview.status_code, 200)
         google = overview.data['google_maps']
         self.assertTrue(google['api_key_configured'])
         self.assertEqual(google['api_key_masked'], 'test****-key')
+        self.assertTrue(google['browser_api_key_configured'])
+        self.assertNotContains(overview, 'browser-google-maps-key')
         self.assertNotContains(overview, 'test-google-maps-key')
         self.assertNotIn('secret_value', google)
         self.assertNotIn('secret_reference', google)
+
+    def test_property_map_config_returns_browser_key_to_property_manager(self):
+        self.configure()
+        response = self.client.get('/api/integrations/google-maps/property-map-config/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['browser_api_key'], 'browser-google-maps-key')
+
+    @patch('apps.integrations.views_property_maps.client_for', return_value=FakeGoogleMapsClient())
+    def test_property_address_search_returns_source_fields_and_coordinates(self, client_for):
+        connection = self.configure()
+        suggestions = self.client.post(
+            '/api/integrations/google-maps/property-address-suggestions/',
+            {
+                'query': 'Dubai Marina', 'country_code': 'AE',
+                'session_token': 'property-session',
+            }, format='json',
+        )
+        self.assertEqual(suggestions.status_code, 200)
+        details = self.client.post(
+            '/api/integrations/google-maps/property-place-details/',
+            {
+                'place_id': suggestions.data['results'][0]['place_id'],
+                'country_code': 'AE', 'session_token': 'property-session',
+            }, format='json',
+        )
+        self.assertEqual(details.status_code, 200)
+        self.assertEqual(details.data['address']['community'], 'Dubai Marina')
+        self.assertEqual(details.data['address']['city'], 'Dubai')
+        self.assertEqual(details.data['address']['latitude'], 25.0805)
+        self.assertEqual(
+            IntegrationUsagePeriod.objects.get(connection=connection).request_count, 2,
+        )
+
+    @patch('apps.integrations.views_property_maps.client_for', return_value=FakeGoogleMapsClient())
+    def test_property_map_click_reverse_geocodes_source_address(self, client_for):
+        connection = self.configure()
+        response = self.client.post(
+            '/api/integrations/google-maps/property-reverse-geocode/',
+            {'latitude': 25.0805, 'longitude': 55.1403, 'country_code': 'AE'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['address']['state_region'], 'Dubai')
+        self.assertEqual(response.data['address']['city'], 'Dubai')
+        self.assertEqual(response.data['address']['community'], 'Dubai Marina')
+        self.assertEqual(
+            response.data['address']['normalized_location'],
+            'Dubai Marina, Dubai, United Arab Emirates',
+        )
+        self.assertEqual(
+            IntegrationUsagePeriod.objects.get(connection=connection).request_count, 1,
+        )
 
     def test_blank_key_preserves_existing_credential_and_status(self):
         connection = self.configure()
@@ -97,6 +166,7 @@ class GoogleMapsApiTests(TestCase):
         self.assertEqual(connection.secret_value, 'test-google-maps-key')
         self.assertEqual(connection.status, IntegrationConnection.STATUS_READY)
         self.assertEqual(connection.configuration['monthly_request_limit'], 250)
+        self.assertEqual(connection.configuration['browser_api_key'], 'browser-google-maps-key')
 
     @patch('apps.integrations.views_google_maps.client_for', return_value=FakeGoogleMapsClient())
     def test_manual_resolution_records_place_id_and_canonical_city(self, client_for):

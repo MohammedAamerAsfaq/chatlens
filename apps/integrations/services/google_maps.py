@@ -54,6 +54,12 @@ def source_data(connection):
         'scope': connection.scope,
         'api_key_configured': bool(connection.secret_value),
         'api_key_masked': masked_secret(connection.secret_value),
+        'browser_api_key_configured': bool(
+            (connection.configuration or {}).get('browser_api_key', '')
+        ),
+        'browser_api_key_masked': masked_secret(
+            (connection.configuration or {}).get('browser_api_key', '')
+        ),
         'is_enabled': connection.is_enabled,
         'status': connection.status,
         'last_checked_at': connection.last_checked_at,
@@ -109,3 +115,39 @@ def place_country_code(details):
         if 'country' in (component.get('types') or []):
             return str(component.get('shortText') or '').upper()
     return ''
+
+
+def property_address(details):
+    components = {}
+    for component in details.get('addressComponents') or []:
+        for component_type in component.get('types') or []:
+            components.setdefault(component_type, component)
+
+    def long_value(*types):
+        for component_type in types:
+            value = (components.get(component_type) or {}).get('longText')
+            if value:
+                return value
+        return ''
+
+    location = details.get('location') or {}
+    street = ' '.join(filter(None, [
+        long_value('street_number'), long_value('route'),
+    ]))
+    return {
+        'country': long_value('country'),
+        'state_region': long_value('administrative_area_level_1'),
+        'city': long_value(
+            'locality', 'postal_town', 'administrative_area_level_2',
+        ),
+        'community': long_value(
+            'sublocality_level_1', 'sublocality', 'neighborhood',
+        ),
+        'project_building': long_value('premise'),
+        'street': street,
+        'unit_number': long_value('subpremise'),
+        'postal_code': long_value('postal_code'),
+        'latitude': location.get('latitude'),
+        'longitude': location.get('longitude'),
+        'normalized_location': details.get('formattedAddress') or '',
+    }

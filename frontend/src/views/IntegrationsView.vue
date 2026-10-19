@@ -22,6 +22,7 @@ const username = ref('')
 const enabled = ref(true)
 const googleEnabled = ref(false)
 const googleApiKey = ref('')
+const googleBrowserApiKey = ref('')
 const googleMonthlyLimit = ref(100)
 const countryCode = ref('AE')
 const level = ref('city')
@@ -132,6 +133,7 @@ async function loadOverview(silent = false) {
     enabled.value = data.geonames?.is_enabled ?? true
     googleEnabled.value = data.google_maps?.is_enabled ?? false
     googleApiKey.value = ''
+    googleBrowserApiKey.value = ''
     googleMonthlyLimit.value = data.google_maps?.usage?.monthly_request_limit || 100
   } catch (error) {
     showNotice('danger', errorMessage(error, 'Unable to load integrations.'))
@@ -190,8 +192,10 @@ async function saveGoogleMaps() {
       is_enabled: googleEnabled.value,
     }
     if (googleApiKey.value) payload.api_key = googleApiKey.value
+    if (googleBrowserApiKey.value) payload.browser_api_key = googleBrowserApiKey.value
     await integrationsApi.saveGoogleMaps(payload)
     googleApiKey.value = ''
+    googleBrowserApiKey.value = ''
     await loadOverview(true)
     showNotice('success', 'Google Maps API configuration saved. Test the connection before resolving localities.')
   } catch (error) { showNotice('danger', errorMessage(error, 'Unable to save Google Maps configuration.')) }
@@ -331,10 +335,13 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
     </section>
 
     <section v-else class="provider-panel">
-      <UiCard title="Google Maps APIs configuration" subtitle="Configure Places API access for operator-requested locality verification. GeoNames remains the canonical source.">
+      <UiCard title="Google Maps APIs configuration" subtitle="Configure Places, reverse geocoding, and interactive maps. GeoNames remains the canonical source.">
         <div class="google-config">
-          <UiFormField label="Google Maps API key" :hint="overview?.google_maps?.api_key_configured ? `Configured: ${overview.google_maps.api_key_masked}. Leave blank to keep it.` : 'Enter a key with Places API (New) enabled.'">
+          <UiFormField label="Server Google Maps API key" :hint="overview?.google_maps?.api_key_configured ? `Configured: ${overview.google_maps.api_key_masked}. Leave blank to keep it.` : 'Enter a server-restricted key with Places API (New) and Geocoding API enabled.'">
             <UiInput v-model="googleApiKey" type="password" :disabled="!overview?.can_manage_platform" placeholder="Enter API key" autocomplete="new-password" />
+          </UiFormField>
+          <UiFormField label="Browser map API key" :hint="overview?.google_maps?.browser_api_key_configured ? `Configured: ${overview.google_maps.browser_api_key_masked}. Leave blank to keep it.` : 'Use a separate HTTP-referrer-restricted key with Maps JavaScript API enabled.'">
+            <UiInput v-model="googleBrowserApiKey" type="password" :disabled="!overview?.can_manage_platform" placeholder="Enter browser map key" autocomplete="new-password" />
           </UiFormField>
           <UiFormField label="Monthly request cap" hint="Hard application cap across autocomplete and place-detail requests.">
             <UiInput v-model="googleMonthlyLimit" type="number" min="1" max="100000" :disabled="!overview?.can_manage_platform" />
@@ -347,6 +354,7 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
           <div class="integration-status">
             <UiBadge :tone="statusTone(overview?.google_maps?.status)">{{ overview?.google_maps?.status || 'not configured' }}</UiBadge>
             <span>{{ overview?.google_maps?.api_key_configured ? 'API key configured' : 'API key required' }}</span>
+            <span>{{ overview?.google_maps?.browser_api_key_configured ? 'Interactive map configured' : 'Interactive map key required' }}</span>
             <span>{{ overview?.google_maps?.usage?.request_count || 0 }} / {{ overview?.google_maps?.usage?.monthly_request_limit || googleMonthlyLimit }} requests this month</span>
           </div>
           <div class="integration-actions google-config-actions">
@@ -395,7 +403,7 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
 .integration-grid :deep(.ui-card){height:100%}.integration-grid :deep(.ui-card__body){display:flex;flex-direction:column;gap:18px}
 .integration-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:auto}.integration-status{display:flex;align-items:center;gap:12px;color:var(--ui-text-muted);font-size:.86rem}
 .integration-error{margin:0;color:var(--ui-danger);font-size:.86rem}.integration-state{padding:24px;text-align:center;color:var(--ui-text-muted)}
-.google-config{display:grid;grid-template-columns:minmax(320px,2fr) minmax(180px,.8fr) minmax(300px,1.1fr);gap:var(--ui-gap-lg);align-items:start}
+.google-config{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--ui-gap-lg);align-items:start}
 .google-toggle-panel{display:flex;min-height:72px;align-items:center;padding:12px 14px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-md);background:var(--ui-surface-muted)}
 .google-config-footer{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-top:18px;padding-top:16px;border-top:1px solid var(--ui-border)}
 .google-config-actions{flex:none;margin:0}.resolver-form{display:grid;gap:18px}.resolver-search{display:grid;grid-template-columns:1fr auto;gap:10px}.resolver-results{display:grid;gap:8px}.resolver-results label{display:flex;gap:12px;padding:14px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-md);cursor:pointer}.resolver-results label.selected{border-color:var(--ui-primary);background:var(--ui-primary-soft)}.resolver-results span{display:grid;gap:3px}.resolver-results small{color:var(--ui-text-muted)}

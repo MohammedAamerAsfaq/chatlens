@@ -19,7 +19,7 @@ export const primaryNavigation = [
   },
   {
     id: 'real-estate', label: 'Real Estate', to: '/real-estate/properties', industries: ['real_estate'],
-    routes: ['real-estate-properties', 'real-estate-listings', 'real-estate-candidates'],
+    routes: ['real-estate-properties', 'real-estate-property-create', 'real-estate-listings', 'real-estate-candidates'],
     children: [
       { label: 'Properties', to: '/real-estate/properties', route: 'real-estate-properties' },
       { label: 'Listings', to: '/real-estate/listings', route: 'real-estate-listings' },
