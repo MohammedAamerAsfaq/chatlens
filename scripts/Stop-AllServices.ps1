@@ -52,7 +52,10 @@ foreach ($entry in $ServicesInOrder) {
         Stop-NssmServiceForConfiguration -NssmPath $NssmPath -ServiceName $name -TimeoutSeconds $entry.TimeoutSeconds
         Write-Host "$name stopped."
     } catch {
-        Write-Error "Failed to stop $name`: $($_.Exception.Message)"
+        # Write-Warning, not Write-Error: with $ErrorActionPreference = 'Stop' in effect,
+        # Write-Error itself becomes a terminating statement and would abort the loop
+        # after the first failure instead of continuing to the remaining services.
+        Write-Warning "Failed to stop $name`: $($_.Exception.Message)"
         $failed += $name
     }
 }

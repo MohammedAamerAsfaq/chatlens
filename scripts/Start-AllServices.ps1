@@ -32,13 +32,27 @@ foreach ($name in $ServiceNames) {
         continue
     }
 
-    Write-Host "Starting $name..."
+    Write-Host "Starting $name (currently $($service.Status))..."
     try {
-        Start-Service -Name $name
+        if ($service.Status -eq 'Paused') {
+            try {
+                Resume-Service -Name $name
+            } catch {
+                # Most NSSM-wrapped services don't implement pause/continue control codes,
+                # so Resume-Service fails against them; fall back to a full stop+start.
+                Stop-Service -Name $name -Force
+                Start-Service -Name $name
+            }
+        } else {
+            Start-Service -Name $name
+        }
         Wait-NssmServiceState -ServiceName $name -DesiredStatus 'Running' -TimeoutSeconds $TimeoutSeconds | Out-Null
         Write-Host "$name is running."
     } catch {
-        Write-Error "Failed to start $name`: $($_.Exception.Message)"
+        # Write-Warning, not Write-Error: with $ErrorActionPreference = 'Stop' in effect,
+        # Write-Error itself becomes a terminating statement and would abort the whole
+        # loop after the first failure instead of continuing to the remaining services.
+        Write-Warning "Failed to start $name`: $($_.Exception.Message)"
         $failed += $name
     }
 }
