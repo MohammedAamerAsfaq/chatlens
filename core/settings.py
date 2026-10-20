@@ -19,6 +19,8 @@ DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
+CSRF_TRUSTED_ORIGINS = ['https://legendme.yourconnectivity.com:6789/']
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
