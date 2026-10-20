@@ -6,6 +6,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'NssmServiceControl.ps1')
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $logRoot = Join-Path $repoRoot 'logs\services'
 if (-not $PythonPath) {
@@ -57,6 +58,9 @@ if ($service -and $service.Status -eq 'Running') {
     }
     throw "$ServiceName is running with outdated parameters. Stop it safely, then run this script again to apply the Real Estate queue list."
 }
+if ($service) {
+    Stop-NssmServiceForConfiguration -NssmPath $NssmPath -ServiceName $ServiceName
+}
 if (-not $service) {
     & $NssmPath install $ServiceName $PythonPath $arguments
     if ($LASTEXITCODE -ne 0) { throw "NSSM could not install $ServiceName." }
@@ -86,7 +90,5 @@ foreach ($setting in $settings) {
     if ($LASTEXITCODE -ne 0) { throw "Failed to configure NSSM setting '$($setting[0])'." }
 }
 
-& $NssmPath start $ServiceName
-if ($LASTEXITCODE -ne 0) { throw "NSSM could not start $ServiceName." }
-(Get-Service -Name $ServiceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+Start-NssmServiceSafely -NssmPath $NssmPath -ServiceName $ServiceName | Out-Null
 Write-Host "$ServiceName is running and serving: $($queues -join ', ')."

@@ -6,6 +6,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'NssmServiceControl.ps1')
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $workerRoot = Join-Path $repoRoot 'whatsapp-worker'
 $logRoot = Join-Path $repoRoot 'logs\services'
@@ -41,6 +42,9 @@ if ($service -and $service.Status -eq 'Running') {
     Write-Host "$ServiceName is already running."
     exit 0
 }
+if ($service) {
+    Stop-NssmServiceForConfiguration -NssmPath $NssmPath -ServiceName $ServiceName
+}
 
 New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
 if (-not $service) {
@@ -72,7 +76,5 @@ foreach ($setting in $settings) {
     if ($LASTEXITCODE -ne 0) { throw "Failed to configure NSSM setting '$($setting[0])'." }
 }
 
-& $NssmPath start $ServiceName
-if ($LASTEXITCODE -ne 0) { throw "NSSM could not start $ServiceName." }
-(Get-Service -Name $ServiceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+Start-NssmServiceSafely -NssmPath $NssmPath -ServiceName $ServiceName | Out-Null
 Write-Host "$ServiceName is running from $workerRoot."

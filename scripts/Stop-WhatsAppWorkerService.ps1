@@ -6,6 +6,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'NssmServiceControl.ps1')
 if (-not $NssmPath) {
     $nssmCommand = Get-Command nssm.exe -ErrorAction SilentlyContinue
     $NssmPath = @(
@@ -27,12 +28,9 @@ if ($service.Status -eq 'Stopped') {
 }
 
 Write-Host "Requesting graceful stop for $ServiceName..."
-& $NssmPath stop $ServiceName
-if ($LASTEXITCODE -ne 0) { throw "NSSM could not request a stop for $ServiceName." }
-$service = Get-Service -Name $ServiceName
 try {
-    $service.WaitForStatus('Stopped', [TimeSpan]::FromSeconds($TimeoutSeconds))
+    Stop-NssmServiceForConfiguration -NssmPath $NssmPath -ServiceName $ServiceName -TimeoutSeconds $TimeoutSeconds
 } catch {
-    throw "$ServiceName did not stop within $TimeoutSeconds seconds. It was not force-killed; inspect its service logs."
+    throw "$ServiceName did not stop within $TimeoutSeconds seconds. It was not force-killed; inspect its service logs. $($_.Exception.Message)"
 }
 Write-Host "$ServiceName stopped gracefully."
