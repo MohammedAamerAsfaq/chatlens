@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.db import connections
 from django.db.migrations.executor import MigrationExecutor
@@ -9,7 +11,7 @@ from django.views.decorators.http import require_GET
 
 from apps.task_management.models import BackgroundTask, BackgroundTaskSchedule
 from apps.tenancy.models import Company
-from apps.whatsapp_bridge.models import WhatsAppAccount
+from apps.whatsapp_bridge.models import DroppedMessage, ResolutionStatus, WhatsAppAccount, WhatsAppUnresolvedMessage
 from apps.whatsapp_bridge.views import _verify_internal_token
 from .models import BackgroundWorker, QueueDefinition
 
@@ -17,6 +19,8 @@ from .models import BackgroundWorker, QueueDefinition
 HEARTBEAT_STALE_SECONDS = 90
 RECENT_FAILURES_LIMIT = 20
 ERROR_TRUNCATE_CHARS = 1000
+RECENT_MESSAGE_ISSUES_LIMIT = 30
+MESSAGE_TEXT_TRUNCATE_CHARS = 300
 
 
 def _is_stale(last_heartbeat_at, now):
@@ -120,6 +124,94 @@ def _schedules():
     ))
 
 
+def _dropped_messages(now):
+    qs = DroppedMessage.objects.select_related('account__communication_account__company')
+    last_24h = now - timedelta(hours=24)
+    by_reason = {
+        row['reason']: row['count']
+        for row in qs.values('reason').annotate(count=Count('id')).order_by('-count')
+    }
+    by_account = [
+        {
+            'account_id': row['account_id'],
+            'account_name': row['account__display_name'],
+            'company_name': row['account__communication_account__company__name'],
+            'count': row['count'],
+        }
+        for row in qs.values(
+            'account_id', 'account__display_name', 'account__communication_account__company__name',
+        ).annotate(count=Count('id')).order_by('-count')[:20]
+    ]
+    recent = [
+        {
+            'id': row.pk,
+            'account_id': row.account_id,
+            'reason': row.reason,
+            'raw_jid': row.raw_jid,
+            'from_me': row.from_me,
+            'has_message': row.has_message,
+            'created_at': row.created_at,
+            'resolved_at': row.resolved_at,
+        }
+        for row in qs.order_by('-created_at')[:RECENT_MESSAGE_ISSUES_LIMIT]
+    ]
+    return {
+        'total': qs.count(),
+        'last_24h': qs.filter(created_at__gte=last_24h).count(),
+        'still_unresolved': qs.filter(resolved_at__isnull=True).count(),
+        'by_reason': by_reason,
+        'by_account': by_account,
+        'recent': recent,
+    }
+
+
+def _unresolved_messages(now):
+    qs = WhatsAppUnresolvedMessage.objects.select_related('account__communication_account__company')
+    last_24h = now - timedelta(hours=24)
+    by_status = {
+        row['resolution_status']: row['count']
+        for row in qs.values('resolution_status').annotate(count=Count('id')).order_by('-count')
+    }
+    by_account = [
+        {
+            'account_id': row['account_id'],
+            'account_name': row['account__display_name'],
+            'company_name': row['account__communication_account__company__name'],
+            'count': row['count'],
+        }
+        for row in qs.values(
+            'account_id', 'account__display_name', 'account__communication_account__company__name',
+        ).annotate(count=Count('id')).order_by('-count')[:20]
+    ]
+    recent = [
+        {
+            'id': row.pk,
+            'account_id': row.account_id,
+            'raw_jid': row.raw_jid,
+            'lid_jid': row.lid_jid,
+            'participant_jid': row.participant_jid,
+            'from_me': row.from_me,
+            'message_type': row.message_type,
+            'message_text': (row.message_text or '')[:MESSAGE_TEXT_TRUNCATE_CHARS],
+            'push_name': row.push_name,
+            'is_history': row.is_history,
+            'resolution_status': row.resolution_status,
+            'resolution_error': row.resolution_error,
+            'created_at': row.created_at,
+            'resolved_at': row.resolved_at,
+        }
+        for row in qs.order_by('-created_at')[:RECENT_MESSAGE_ISSUES_LIMIT]
+    ]
+    return {
+        'total': qs.count(),
+        'last_24h': qs.filter(created_at__gte=last_24h).count(),
+        'pending': qs.filter(resolution_status=ResolutionStatus.PENDING).count(),
+        'by_status': by_status,
+        'by_account': by_account,
+        'recent': recent,
+    }
+
+
 def _recent_failures():
     rows = BackgroundTask.objects.filter(
         status=BackgroundTask.STATUS_FAILED,
@@ -159,4 +251,6 @@ def internal_diagnostics(request):
         'queues': _queues(now),
         'schedules': _schedules(),
         'recent_failures': _recent_failures(),
+        'dropped_messages': _dropped_messages(now),
+        'unresolved_messages': _unresolved_messages(now),
     })

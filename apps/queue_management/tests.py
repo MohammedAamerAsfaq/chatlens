@@ -340,7 +340,7 @@ class InternalDiagnosticsTests(TestCase):
 
     def test_returns_global_snapshot_across_companies(self):
         from apps.tenancy.models import CommunicationAccount, Company, ConnectionProvider
-        from apps.whatsapp_bridge.models import WhatsAppAccount
+        from apps.whatsapp_bridge.models import DroppedMessage, WhatsAppAccount, WhatsAppUnresolvedMessage
 
         company = Company.objects.create(name='Diagnostics Co', slug='diagnostics-co')
         owner = User.objects.create_user(username='diagnostics-owner', password='pw')
@@ -348,10 +348,16 @@ class InternalDiagnosticsTests(TestCase):
         communication_account = CommunicationAccount.objects.create(
             company=company, provider=provider, channel='whatsapp', name='Diagnostics WhatsApp',
         )
-        WhatsAppAccount.objects.create(
+        account = WhatsAppAccount.objects.create(
             owner=owner, communication_account=communication_account,
             display_name='Diagnostics Account', phone_number='971500000999',
             worker_session_id='diagnostics-account', session_status='connected',
+        )
+        DroppedMessage.objects.create(account=account, reason='unresolvable_lid', raw_jid='123@lid')
+        DroppedMessage.objects.create(account=account, reason='unresolvable_lid', raw_jid='456@lid')
+        WhatsAppUnresolvedMessage.objects.create(
+            account=account, raw_jid='789@lid', lid_jid='789@lid',
+            message_text='WTB iPhone', resolution_status='pending',
         )
         BackgroundWorker.objects.create(
             worker_id='diagnostics-worker', hostname='test-host', process_id=1,
@@ -371,14 +377,17 @@ class InternalDiagnosticsTests(TestCase):
         response = self.client.get(self.url, HTTP_X_INTERNAL_TOKEN='test-internal-token')
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        for key in ('companies', 'whatsapp_accounts', 'workers', 'queues', 'schedules', 'recent_failures'):
+        for key in (
+            'companies', 'whatsapp_accounts', 'workers', 'queues', 'schedules',
+            'recent_failures', 'dropped_messages', 'unresolved_messages',
+        ):
             self.assertIn(key, body)
 
         self.assertIn('Diagnostics Co', [row['name'] for row in body['companies']])
-        account = next(row for row in body['whatsapp_accounts'] if row['display_name'] == 'Diagnostics Account')
-        self.assertEqual(account['company_name'], 'Diagnostics Co')
-        self.assertEqual(account['session_status'], 'connected')
-        self.assertTrue(account['heartbeat_stale'])  # never received a heartbeat
+        account_row = next(row for row in body['whatsapp_accounts'] if row['display_name'] == 'Diagnostics Account')
+        self.assertEqual(account_row['company_name'], 'Diagnostics Co')
+        self.assertEqual(account_row['session_status'], 'connected')
+        self.assertTrue(account_row['heartbeat_stale'])  # never received a heartbeat
 
         worker = next(row for row in body['workers'] if row['worker_id'] == 'diagnostics-worker')
         self.assertFalse(worker['heartbeat_stale'])
@@ -386,3 +395,15 @@ class InternalDiagnosticsTests(TestCase):
         failure = next(row for row in body['recent_failures'] if row['task_key'] == 'tests.failure')
         self.assertEqual(failure['last_error'], 'boom')
         self.assertEqual(failure['company_name'], 'Diagnostics Co')
+
+        dropped = body['dropped_messages']
+        self.assertEqual(dropped['by_reason']['unresolvable_lid'], 2)
+        self.assertEqual(dropped['by_account'][0]['account_name'], 'Diagnostics Account')
+        self.assertEqual(dropped['by_account'][0]['count'], 2)
+        self.assertEqual(len(dropped['recent']), 2)
+
+        unresolved = body['unresolved_messages']
+        self.assertEqual(unresolved['by_status']['pending'], 1)
+        self.assertEqual(unresolved['pending'], 1)
+        self.assertEqual(unresolved['recent'][0]['message_text'], 'WTB iPhone')
+        self.assertEqual(unresolved['recent'][0]['lid_jid'], '789@lid')
