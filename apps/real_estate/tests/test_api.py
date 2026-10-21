@@ -11,12 +11,14 @@ from rest_framework.test import APIClient
 from openpyxl import Workbook
 
 from apps.real_estate.models import (
-    ActivityType, ClassificationStatus, Listing, Property, PropertyCandidate, PropertyRequirement,
-    PropertyType, RealEstateMockSourceRecord, RealEstateOpportunity, RealEstatePromptConfig,
+    ActivityType, ClassificationStatus, Listing, OpportunityItem, Property,
+    PropertyCandidate, PropertyRequirement, PropertyType,
+    RealEstateMockSourceRecord, RealEstateOpportunity, RealEstatePromptConfig,
 )
 from apps.task_management.models import BackgroundTask
 from apps.tenancy.models import Company, CompanyMembership
 from apps.real_estate.services.property_types import seed_default_property_types
+from apps.real_estate.services.extraction_projection import project_extraction
 
 
 class RealEstateApiTests(TestCase):
@@ -282,11 +284,10 @@ class RealEstateApiTests(TestCase):
             summary='Buyer needs a Marina apartment', original_message='WTB Marina two bedroom',
             first_seen_at=timezone.now(),
         )
-        PropertyRequirement.objects.create(
-            company=self.company, opportunity=buying,
-            acceptable_locations=['Dubai Marina'], acceptable_property_types=['apartment'],
-            bedrooms_min=2, bedrooms_max=2, budget_max=2500000,
-        )
+        project_extraction(buying, {'properties': [{
+            'property_type': 'apartment', 'locations': ['Dubai Marina'],
+            'bedrooms': 2, 'budget_max': 2500000,
+        }]})
         RealEstateOpportunity.objects.create(
             company=self.company, activity_type=ActivityType.SELLING,
             classification_status=ClassificationStatus.CLASSIFIED,
@@ -308,12 +309,82 @@ class RealEstateApiTests(TestCase):
         self.assertEqual(row['id'], buying.pk)
         self.assertEqual(row['requirement']['acceptable_locations'], ['Dubai Marina'])
         self.assertIsNone(row['property_candidate'])
+        self.assertEqual(len(row['items']), 1)
+        self.assertEqual(row['items'][0]['location_raw'], 'Dubai Marina')
 
         response = self.client.patch(
             f'/api/real-estate/opportunities/{buying.pk}/', {'status': 'qualified'}, format='json',
         )
         self.assertEqual(response.status_code, 200, response.json())
         self.assertEqual(response.json()['status'], 'qualified')
+
+    def test_supply_item_can_create_property_without_creating_listing(self):
+        opportunity = RealEstateOpportunity.objects.create(
+            company=self.company, activity_type=ActivityType.SELLING,
+            classification_status=ClassificationStatus.CLASSIFIED,
+            summary='Owner offers a Marina apartment', first_seen_at=timezone.now(),
+        )
+        project_extraction(opportunity, {'properties': [{
+            'title': 'Marina apartment', 'property_type': 'apartment',
+            'location': 'Dubai Marina', 'asking_price': 2200000,
+        }]})
+        item = opportunity.items.get()
+
+        response = self.client.post(
+            f'/api/real-estate/opportunity-items/{item.pk}/create-property/', {}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.json())
+        item.refresh_from_db()
+        self.assertEqual(item.match_status, OpportunityItem.MATCH_LINKED)
+        self.assertEqual(item.property.title, 'Marina apartment')
+        self.assertEqual(item.property.inventory_source_type, 'floating')
+        self.assertEqual(item.property.address.normalized_location, 'Dubai Marina')
+        self.assertFalse(Listing.objects.filter(property=item.property).exists())
+
+    def test_demand_item_cannot_create_physical_property(self):
+        opportunity = RealEstateOpportunity.objects.create(
+            company=self.company, activity_type=ActivityType.BUYING,
+            classification_status=ClassificationStatus.CLASSIFIED,
+            first_seen_at=timezone.now(),
+        )
+        project_extraction(opportunity, {'properties': [{
+            'property_type': 'apartment', 'location': 'Dubai Marina',
+        }]})
+
+        response = self.client.post(
+            f'/api/real-estate/opportunity-items/{opportunity.items.get().pk}/create-property/',
+            {}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertFalse(Property.objects.filter(company=self.company).exists())
+
+    def test_property_market_activity_reports_linked_opportunities(self):
+        property_record = Property.objects.create(
+            company=self.company, title='Linked villa', property_type=self.types['villa'],
+        )
+        opportunity = RealEstateOpportunity.objects.create(
+            company=self.company, activity_type=ActivityType.SELLING,
+            classification_status=ClassificationStatus.CLASSIFIED,
+            summary='Owner offers a linked villa', first_seen_at=timezone.now(),
+        )
+        item = OpportunityItem.objects.create(
+            company=self.company, opportunity=opportunity, sequence=1,
+            item_kind=OpportunityItem.KIND_SUPPLY,
+            amount_role=OpportunityItem.AMOUNT_ASKING,
+            property=property_record, match_status=OpportunityItem.MATCH_LINKED,
+            link_method=OpportunityItem.LINK_MANUAL,
+        )
+
+        response = self.client.get(
+            f'/api/real-estate/properties/{property_record.pk}/market-activity/',
+        )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()['total'], 1)
+        self.assertEqual(response.json()['counts']['selling'], 1)
+        self.assertEqual(response.json()['recent'][0]['item_id'], item.pk)
 
     def test_csv_preview_then_import_is_explicit(self):
         csv_file = SimpleUploadedFile(

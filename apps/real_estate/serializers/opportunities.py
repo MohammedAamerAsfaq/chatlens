@@ -1,6 +1,8 @@
 from rest_framework import serializers
 
-from apps.real_estate.models import PropertyCandidate, PropertyRequirement, RealEstateOpportunity
+from apps.real_estate.models import (
+    OpportunityItem, PropertyCandidate, PropertyRequirement, RealEstateOpportunity,
+)
 from .base import CleanModelSerializer, CompanyPropertyTypeField
 
 
@@ -27,7 +29,31 @@ class PropertyCandidateSerializer(CleanModelSerializer):
         )
 
 
+class OpportunityItemSerializer(CleanModelSerializer):
+    property_type = CompanyPropertyTypeField(required=False, allow_null=True)
+    property_type_name = serializers.CharField(source='property_type.name', read_only=True)
+    property_title = serializers.CharField(source='property.title', read_only=True)
+    linked_by_name = serializers.SerializerMethodField()
+
+    @staticmethod
+    def get_linked_by_name(obj):
+        if not obj.linked_by:
+            return ''
+        return obj.linked_by.get_full_name() or obj.linked_by.get_username()
+
+    class Meta:
+        model = OpportunityItem
+        exclude = ('company',)
+        read_only_fields = (
+            'opportunity', 'sequence', 'item_kind', 'raw_extraction',
+            'property', 'match_status', 'match_confidence', 'link_method',
+            'linked_by', 'linked_at', 'legacy_requirement', 'legacy_candidate',
+            'created_at', 'updated_at',
+        )
+
+
 class OpportunitySerializer(CleanModelSerializer):
+    items = OpportunityItemSerializer(many=True, read_only=True)
     requirement = PropertyRequirementSerializer(read_only=True)
     property_candidate = PropertyCandidateSerializer(read_only=True)
     contact_name = serializers.SerializerMethodField()

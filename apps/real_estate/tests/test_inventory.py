@@ -5,9 +5,10 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.real_estate.models import (
-    ActivityType, ClassificationStatus, Listing, Property, PropertyCandidate,
-    PropertyAddress, PropertyDevelopment, PropertyRequirement, RealEstateOpportunity, InventorySourceType,
-    OwnershipEligibility, TenureType,
+    ActivityType, ClassificationStatus, InventorySourceType, Listing,
+    OpportunityItem, OwnershipEligibility, Property, PropertyAddress,
+    PropertyCandidate, PropertyDevelopment, PropertyRequirement,
+    RealEstateOpportunity, TenureType,
 )
 from apps.integrations.models import AdministrativeArea, City, Country, Locality
 from apps.real_estate.services.candidate_service import promote_candidate
@@ -72,6 +73,29 @@ class RealEstateInventoryTests(TestCase):
         self.assertIsInstance(projected, PropertyRequirement)
         self.assertEqual(projected.acceptable_locations, ['Dubai Marina'])
         self.assertFalse(PropertyCandidate.objects.filter(opportunity=opportunity).exists())
+        self.assertFalse(Property.objects.filter(company=self.company).exists())
+        item = opportunity.items.get()
+        self.assertEqual(item.item_kind, OpportunityItem.KIND_DEMAND)
+        self.assertEqual(item.legacy_requirement, projected)
+
+    def test_multiple_extracted_properties_create_separate_opportunity_items(self):
+        opportunity = self.opportunity(ActivityType.BUYING)
+
+        project_extraction(opportunity, {
+            'summary': 'Buyer wants either of two distinct units.',
+            'properties': [
+                {'property_type': 'apartment', 'location': 'Dubai Marina', 'bedrooms': 2},
+                {'property_type': 'villa', 'location': 'Arabian Ranches', 'bedrooms': 4},
+            ],
+            'property': {
+                'property_type': 'apartment', 'location': 'Dubai Marina', 'bedrooms': 2,
+            },
+        })
+
+        items = list(opportunity.items.order_by('sequence'))
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[0].location_raw, 'Dubai Marina')
+        self.assertEqual(items[1].location_raw, 'Arabian Ranches')
         self.assertFalse(Property.objects.filter(company=self.company).exists())
 
     def test_requirement_projection_enqueues_one_embedding_task(self):

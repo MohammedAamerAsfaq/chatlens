@@ -112,6 +112,7 @@ export const realEstateApi = {
   createProperty: data => http.post('/real-estate/properties/', data),
   updateProperty: (id, data) => http.patch(`/real-estate/properties/${id}/`, data),
   archiveProperty: id => http.delete(`/real-estate/properties/${id}/`),
+  propertyMarketActivity: id => http.get(`/real-estate/properties/${id}/market-activity/`),
   previewPropertyImport: file => {
     const data = new FormData()
     data.append('file', file)
@@ -153,6 +154,10 @@ export const realEstateApi = {
   archiveListing: id => http.delete(`/real-estate/listings/${id}/`),
   opportunities: (params = {}) => http.get('/real-estate/opportunities/', { params }),
   updateOpportunity: (id, data) => http.patch(`/real-estate/opportunities/${id}/`, data),
+  updateOpportunityItem: (id, data) => http.patch(`/real-estate/opportunity-items/${id}/`, data),
+  linkOpportunityItem: (id, propertyId) => http.post(`/real-estate/opportunity-items/${id}/link/`, { property_id: propertyId }),
+  unlinkOpportunityItem: id => http.post(`/real-estate/opportunity-items/${id}/unlink/`),
+  createPropertyFromOpportunityItem: id => http.post(`/real-estate/opportunity-items/${id}/create-property/`),
   candidates: (params = {}) => http.get('/real-estate/candidates/', { params }),
   updateCandidate: (id, data) => http.patch(`/real-estate/candidates/${id}/`, data),
   promoteCandidate: (id, data) => http.post(`/real-estate/candidates/${id}/promote/`, data),

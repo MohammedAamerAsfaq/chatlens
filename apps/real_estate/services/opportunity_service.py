@@ -6,13 +6,14 @@ from apps.real_estate.services.classification_contract import outcome_for_decisi
 
 def persist_opportunity(message, company, parsed):
     outcome = outcome_for_decision(parsed['decision'])
+    first_property = (parsed.get('properties') or [parsed.get('property') or {}])[0]
     defaults = {
         'company': company,
         'account': message.account,
         'contact': message.contact,
         'source_chat': message.chat,
         'activity_type': outcome.activity_type,
-        'market_scope': _market_scope((parsed.get('property') or {}).get('market_scope')),
+        'market_scope': _market_scope(first_property.get('market_scope')),
         'classification_status': outcome.status,
         'summary': parsed.get('summary', ''),
         'original_message': message.message_text or '',

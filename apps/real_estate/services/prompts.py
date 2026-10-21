@@ -30,7 +30,7 @@ Return one valid JSON object only. Do not use Markdown, comments, or explanatory
   "decision": "...",
   "summary": "one concise factual sentence describing intent and known property facts",
   "confidence": 0.0,
-  "property": {
+  "properties": [{
     "market_scope": "local|regional|international",
     "ownership_eligibility": "locals_only|gcc_only|all",
     "tenure_type": "freehold|long_lease|lease_99_year|",
@@ -62,7 +62,7 @@ Return one valid JSON object only. Do not use Markdown, comments, or explanatory
     "free_form_constraints": "",
     "description": "",
     "attributes": {}
-  }
+  }]
 }
 
 Extraction rules:
@@ -82,6 +82,9 @@ Extraction rules:
   maid's room, AC type, district cooling company, management company, master developer,
   facilities, roof height, decor status, floor, unit mix, gross floor area, use, or FAR.
 - For not_real_estate or needs_review, keep property fields empty except facts explicitly stated.
+- Return one properties entry for each distinct property or requirement in the message. Do not
+  merge different locations, property types, sizes, or prices into one entry. Return [] when no
+  property facts are present.
 """
 
 DEFAULT_MATCH_RERANK_PROMPT = """You are a strict real-estate match reranking agent.

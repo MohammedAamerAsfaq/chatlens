@@ -40,7 +40,15 @@ def parse_extraction_response(raw_response):
     parsed['decision'] = decision
     parsed['summary'] = str(parsed.get('summary') or '').strip()
     parsed['confidence'] = _confidence(parsed.get('confidence'))
-    parsed['property'] = parsed.get('property') if isinstance(parsed.get('property'), dict) else {}
+    supplied = parsed.get('properties')
+    if isinstance(supplied, list):
+        properties = [item for item in supplied if isinstance(item, dict)]
+    else:
+        legacy = parsed.get('property')
+        properties = [legacy] if isinstance(legacy, dict) and legacy else []
+    parsed['properties'] = properties
+    # Keep the old contract available while legacy projections are retired.
+    parsed['property'] = properties[0] if properties else {}
     return parsed
 
 
@@ -51,4 +59,3 @@ def _confidence(value):
     if not 0 <= numeric <= 1:
         raise ValueError('confidence must be between 0 and 1.')
     return numeric
-

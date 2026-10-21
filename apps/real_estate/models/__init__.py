@@ -17,6 +17,7 @@ from .embeddings import (
     RequirementEmbedding,
 )
 from .opportunity import RealEstateOpportunity
+from .opportunity_item import OpportunityItem
 from .candidate import PropertyCandidate
 from .listing import Listing
 from .mock_source_record import RealEstateMockSourceRecord
@@ -45,6 +46,7 @@ __all__ = [
     'EmbeddingStatus',
     'RealEstateAgentCallLog',
     'RealEstateOpportunity',
+    'OpportunityItem',
     'Listing',
     'RealEstateMockSourceRecord',
     'RealEstateMockInquiry',

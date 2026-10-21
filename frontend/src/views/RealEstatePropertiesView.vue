@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { faBoxArchive, faCrosshairs, faEyeSlash, faImages, faPenToSquare } from '@fortawesome/free-solid-svg-icons'
+import { faBoxArchive, faChartLine, faCrosshairs, faEyeSlash, faImages, faPenToSquare } from '@fortawesome/free-solid-svg-icons'
 import { realEstateApi } from '@/api'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
@@ -16,6 +16,7 @@ import PropertyEditorModal from '@/features/realEstate/components/PropertyEditor
 import PropertyDevelopmentManagerModal from '@/features/realEstate/components/PropertyDevelopmentManagerModal.vue'
 import PropertyImportModal from '@/features/realEstate/components/PropertyImportModal.vue'
 import PropertyMediaModal from '@/features/realEstate/components/PropertyMediaModal.vue'
+import PropertyMarketActivityModal from '@/features/realEstate/components/PropertyMarketActivityModal.vue'
 import PropertyTypeManagerModal from '@/features/realEstate/components/PropertyTypeManagerModal.vue'
 import { apiError, downloadBlob } from '@/features/realEstate/apiErrors'
 import { persistProperty } from '@/features/realEstate/propertyPersistence'
@@ -34,6 +35,7 @@ const filters = reactive({
 })
 const editor = reactive({ open: false, record: null, busy: false })
 const media = reactive({ open: false, property: null, busy: false })
+const market = reactive({ open: false, property: null, activity: null, loading: false })
 const importer = reactive({ open: false, rows: [], busy: false, error: '' })
 const archive = reactive({ open: false, record: null, busy: false })
 const embeddings = reactive({ total: 0, embedded: 0, pending: 0, error: 0, missing: 0, busy: false })
@@ -58,7 +60,7 @@ const columns = [
   { key: 'tenure_type', label: 'Tenure', width: '8rem' },
   { key: 'availability_status', label: 'Status', sortable: true, width: '7rem' },
   { key: 'media', label: 'Media', exportable: false, width: '5rem' },
-  { key: 'actions', label: '', exportable: false, width: '9rem', cellClass: 'property-actions-cell' },
+  { key: 'actions', label: '', exportable: false, width: '11rem', cellClass: 'property-actions-cell' },
 ]
 
 async function load() {
@@ -111,6 +113,12 @@ async function saveProperty(values) {
   finally { editor.busy = false }
 }
 function openMedia(record) { media.property = record; media.open = true }
+async function openMarketActivity(record) {
+  market.open = true; market.property = record; market.activity = null; market.loading = true
+  try { market.activity = (await realEstateApi.propertyMarketActivity(record.id)).data }
+  catch (exc) { error.value = apiError(exc, 'Unable to load property market activity.') }
+  finally { market.loading = false }
+}
 async function uploadMedia(values) {
   media.busy = true
   const data = new FormData(); data.append('property', media.property.id); data.append('media_type', values.media_type); data.append('caption', values.caption); data.append('is_primary', values.is_primary)
@@ -143,9 +151,9 @@ onMounted(() => Promise.all([load(), loadEmbeddingStatus(), loadPropertyTypes()]
     <template #cell-title="{ row }"><strong>{{ row.title }}</strong><small class="subline">{{ row.reference_code || `#${row.id}` }}</small></template>
     <template #cell-property_type="{ value }">{{ title(value) }}</template><template #cell-location="{ row }">{{ row.address?.normalized_location || [row.address?.community, row.address?.city].filter(Boolean).join(', ') || '-' }}</template>
     <template #cell-built_up_area="{ row }">{{ row.built_up_area ? `${row.built_up_area} ${row.area_unit}` : '-' }}</template><template #cell-inventory_source_type="{ row }"><UiBadge :tone="row.is_tracked ? 'success' : 'neutral'">{{ row.is_tracked ? 'Tracked' : title(row.inventory_source_type) }}</UiBadge><small v-if="row.is_tracked" class="subline">{{ title(row.inventory_source_type) }}</small></template><template #cell-tenure_type="{ value }">{{ value ? title(value) : '-' }}</template><template #cell-availability_status="{ value }"><UiBadge :tone="value === 'available' ? 'success' : 'neutral'">{{ title(value) }}</UiBadge></template>
-    <template #cell-media="{ row }">{{ row.media.length }}</template><template #cell-actions="{ row }"><div class="actions"><UiButton class="property-action" size="small" title="Manage media" aria-label="Manage media" @click.stop="openMedia(row)"><FontAwesomeIcon :icon="faImages" /></UiButton><UiButton v-if="canManage" class="property-action" size="small" :title="row.is_tracked ? 'Stop tracking' : 'Track property'" :aria-label="row.is_tracked ? 'Stop tracking' : 'Track property'" @click.stop="toggleTracked(row)"><FontAwesomeIcon :icon="row.is_tracked ? faEyeSlash : faCrosshairs" /></UiButton><UiButton v-if="canManage" class="property-action" size="small" title="Edit property" aria-label="Edit property" @click.stop="openEditor(row)"><FontAwesomeIcon :icon="faPenToSquare" /></UiButton><UiButton v-if="canManage" class="property-action" size="small" variant="danger" title="Archive property" aria-label="Archive property" @click.stop="archive.record = row; archive.open = true"><FontAwesomeIcon :icon="faBoxArchive" /></UiButton></div></template>
+    <template #cell-media="{ row }">{{ row.media.length }}</template><template #cell-actions="{ row }"><div class="actions"><UiButton class="property-action" size="small" title="Market activity" aria-label="Market activity" @click.stop="openMarketActivity(row)"><FontAwesomeIcon :icon="faChartLine" /></UiButton><UiButton class="property-action" size="small" title="Manage media" aria-label="Manage media" @click.stop="openMedia(row)"><FontAwesomeIcon :icon="faImages" /></UiButton><UiButton v-if="canManage" class="property-action" size="small" :title="row.is_tracked ? 'Stop tracking' : 'Track property'" :aria-label="row.is_tracked ? 'Stop tracking' : 'Track property'" @click.stop="toggleTracked(row)"><FontAwesomeIcon :icon="row.is_tracked ? faEyeSlash : faCrosshairs" /></UiButton><UiButton v-if="canManage" class="property-action" size="small" title="Edit property" aria-label="Edit property" @click.stop="openEditor(row)"><FontAwesomeIcon :icon="faPenToSquare" /></UiButton><UiButton v-if="canManage" class="property-action" size="small" variant="danger" title="Archive property" aria-label="Archive property" @click.stop="archive.record = row; archive.open = true"><FontAwesomeIcon :icon="faBoxArchive" /></UiButton></div></template>
   </UiDataTable>
-  <PropertyEditorModal :open="editor.open" :record="editor.record" :busy="editor.busy" :property-types="propertyTypeOptions" :property-type-records="propertyTypeRecords" @close="editor.open = false" @save="saveProperty" /><PropertyMediaModal :open="media.open" :property="media.property" :busy="media.busy" @close="media.open = false" @upload="uploadMedia" @remove="removeMedia" /><PropertyImportModal :open="importer.open" :rows="importer.rows" :busy="importer.busy" :error="importer.error" :property-types="propertyTypeOptions" :property-type-records="propertyTypeRecords" @close="importer.open = false" @preview="previewImport" @review="reviewImportRows" @import="importRows" /><PropertyTypeManagerModal :open="typeManager.open" :records="propertyTypeRecords" :busy="typeManager.busy" @close="typeManager.open = false" @save="savePropertyType" @deactivate="deactivatePropertyType" /><PropertyDevelopmentManagerModal :open="developmentManager.open" @close="developmentManager.open = false" @changed="load" @error="developmentError" /><UiConfirmModal :open="archive.open" title="Archive property" :message="`Archive ${archive.record?.title || 'this property'} and close its listings?`" confirm-label="Archive" danger :busy="archive.busy" @cancel="archive.open = false" @confirm="confirmArchive" />
+  <PropertyEditorModal :open="editor.open" :record="editor.record" :busy="editor.busy" :property-types="propertyTypeOptions" :property-type-records="propertyTypeRecords" @close="editor.open = false" @save="saveProperty" /><PropertyMediaModal :open="media.open" :property="media.property" :busy="media.busy" @close="media.open = false" @upload="uploadMedia" @remove="removeMedia" /><PropertyMarketActivityModal :open="market.open" :property="market.property" :activity="market.activity" :loading="market.loading" @close="market.open = false" /><PropertyImportModal :open="importer.open" :rows="importer.rows" :busy="importer.busy" :error="importer.error" :property-types="propertyTypeOptions" :property-type-records="propertyTypeRecords" @close="importer.open = false" @preview="previewImport" @review="reviewImportRows" @import="importRows" /><PropertyTypeManagerModal :open="typeManager.open" :records="propertyTypeRecords" :busy="typeManager.busy" @close="typeManager.open = false" @save="savePropertyType" @deactivate="deactivatePropertyType" /><PropertyDevelopmentManagerModal :open="developmentManager.open" @close="developmentManager.open = false" @changed="load" @error="developmentError" /><UiConfirmModal :open="archive.open" title="Archive property" :message="`Archive ${archive.record?.title || 'this property'} and close its listings?`" confirm-label="Archive" danger :busy="archive.busy" @cancel="archive.open = false" @confirm="confirmArchive" />
 </UiPage></template>
 
 <style scoped>
@@ -160,7 +168,7 @@ onMounted(() => Promise.all([load(), loadEmbeddingStatus(), loadPropertyTypes()]
 .properties-table :deep(.ui-data-table__viewport table){min-width:1280px}
 .properties-table :deep(.property-title-cell){min-width:19rem}
 .properties-table :deep(.property-location-cell){min-width:14rem;white-space:normal;overflow-wrap:break-word}
-.properties-table :deep(.property-actions-cell){min-width:9rem}
+.properties-table :deep(.property-actions-cell){min-width:11rem}
 @media(max-width:1100px){
   .properties-table :deep(.ui-data-table__filters){grid-template-columns:repeat(3,minmax(150px,1fr))}
 }

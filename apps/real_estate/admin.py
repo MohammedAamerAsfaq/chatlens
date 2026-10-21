@@ -9,7 +9,7 @@ from apps.real_estate.models import (
     PropertyAddress,
     PropertyDevelopment,
     PropertyEmbedding,
-    PropertyCandidate,
+    OpportunityItem, PropertyCandidate,
     CandidateEmbedding,
     PropertyMedia,
     PropertyRequirement,
@@ -97,6 +97,17 @@ class RealEstateOpportunityAdmin(admin.ModelAdmin):
     list_filter = ('company', 'activity_type', 'classification_status', 'status')
     search_fields = ('summary', 'original_message', 'deduplication_key')
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(OpportunityItem)
+class OpportunityItemAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'company', 'opportunity', 'item_kind', 'property_type',
+        'match_status', 'property', 'updated_at',
+    )
+    list_filter = ('company', 'item_kind', 'match_status', 'link_method')
+    search_fields = ('title', 'location_raw', 'opportunity__summary')
+    readonly_fields = ('created_at', 'updated_at', 'linked_at')
 
 
 @admin.register(RealEstatePromptConfig)

@@ -57,27 +57,14 @@ export function opportunityParty(item) {
 }
 
 export function opportunityFacts(item) {
-  return item.requirement ? requirementFacts(item.requirement) : candidateFacts(item.property_candidate)
-}
-
-function requirementFacts(record) {
+  const record = item.items?.[0]
   if (!record) return []
   return compact([
-    listFact(record.acceptable_locations),
-    listFact(record.acceptable_property_types),
-    rangeFact('Beds', record.bedrooms_min, record.bedrooms_max),
-    moneyRange(record.currency, record.budget_min, record.budget_max),
-    record.timeframe,
-  ])
-}
-
-function candidateFacts(record) {
-  if (!record) return []
-  return compact([
-    record.property_type ? title(record.property_type) : '',
     record.location_raw,
-    record.bedrooms != null ? `${cleanNumber(record.bedrooms)} beds` : '',
-    money(record.currency, record.asking_price),
+    record.property_type_name || title(record.property_type_label || ''),
+    rangeFact('Beds', record.bedrooms_min, record.bedrooms_max),
+    moneyRange(record.currency, record.amount_min, record.amount_max),
+    item.items.length > 1 ? `${item.items.length} property items` : '',
   ])
 }
 
@@ -103,10 +90,6 @@ function rangeFact(label, low, high) {
   if (low == null && high == null) return ''
   if (low != null && high != null) return `${label} ${cleanNumber(low)}-${cleanNumber(high)}`
   return `${label} ${cleanNumber(low ?? high)}${low == null ? ' max' : '+'}`
-}
-
-function listFact(value) {
-  return Array.isArray(value) ? value.filter(Boolean).slice(0, 2).join(', ') : ''
 }
 
 function cleanNumber(value) {

@@ -6,18 +6,25 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from apps.real_estate.api_base import CompanyOwnedViewSet
-from apps.real_estate.models import Listing, PropertyCandidate, PropertyRequirement, RealEstateOpportunity
+from apps.real_estate.models import (
+    Listing, OpportunityItem, Property, PropertyCandidate, PropertyRequirement,
+    RealEstateOpportunity,
+)
 from apps.real_estate.serializers import (
-    ListingSerializer, OpportunitySerializer, PropertyCandidateSerializer, PropertyRequirementSerializer,
+    ListingSerializer, OpportunityItemSerializer, OpportunitySerializer,
+    PropertyCandidateSerializer, PropertyRequirementSerializer,
 )
 from apps.real_estate.services.candidate_service import merge_candidate, promote_candidate, reject_candidate
+from apps.real_estate.services.opportunity_item_service import (
+    create_property_from_item, link_item, unlink_item,
+)
 
 
 class OpportunityViewSet(CompanyOwnedViewSet):
     queryset = RealEstateOpportunity.objects.select_related(
         'account', 'contact', 'assigned_to', 'source_chat',
         'requirement', 'property_candidate', 'property_candidate__property_type',
-    )
+    ).prefetch_related('items__property_type', 'items__property', 'items__linked_by')
     serializer_class = OpportunitySerializer
     read_permission = 'real_estate.opportunities.view'
     write_permission = 'real_estate.opportunities.update'
@@ -37,8 +44,57 @@ class OpportunityViewSet(CompanyOwnedViewSet):
                 | Q(contact__push_name__icontains=search)
                 | Q(contact__phone_number__icontains=search)
                 | Q(source_chat__name__icontains=search)
-            )
+                | Q(items__title__icontains=search)
+                | Q(items__location_raw__icontains=search)
+                | Q(items__property__title__icontains=search)
+            ).distinct()
         return qs
+
+
+class OpportunityItemViewSet(CompanyOwnedViewSet):
+    queryset = OpportunityItem.objects.select_related(
+        'opportunity', 'property_type', 'property', 'linked_by',
+    )
+    serializer_class = OpportunityItemSerializer
+    read_permission = 'real_estate.opportunities.view'
+    write_permission = 'real_estate.opportunities.update'
+    scope_filter_field = 'opportunity__assigned_to_id'
+    http_method_names = ['get', 'patch', 'post', 'head', 'options']
+
+    def create(self, request, *args, **kwargs):
+        return Response(
+            {'detail': 'Opportunity items are created only by extraction.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    @action(detail=True, methods=['post'])
+    def link(self, request, pk=None):
+        item = self.get_object()
+        property_record = Property.objects.filter(
+            company=self.active_company(), pk=request.data.get('property_id'), is_archived=False,
+        ).first()
+        if not property_record:
+            raise ValidationError({'property_id': 'A valid company property is required.'})
+        try:
+            item = link_item(item, property_record, request.user)
+        except DjangoValidationError as exc:
+            raise ValidationError(_validation_detail(exc)) from exc
+        return Response(self.get_serializer(item).data)
+
+    @action(detail=True, methods=['post'])
+    def unlink(self, request, pk=None):
+        return Response(self.get_serializer(unlink_item(self.get_object())).data)
+
+    @action(detail=True, methods=['post'], url_path='create-property')
+    def create_property(self, request, pk=None):
+        try:
+            item, property_record = create_property_from_item(self.get_object(), request.user)
+        except DjangoValidationError as exc:
+            raise ValidationError(_validation_detail(exc)) from exc
+        return Response({
+            'item': self.get_serializer(item).data,
+            'property_id': property_record.pk,
+        }, status=status.HTTP_201_CREATED)
 
 
 class RequirementViewSet(CompanyOwnedViewSet):

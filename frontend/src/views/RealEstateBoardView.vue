@@ -21,6 +21,7 @@ const search = ref('')
 const status = ref('')
 const activeLaneKey = ref(opportunityLanes[0].key)
 const selected = ref(null)
+const properties = ref([])
 const saving = ref(false)
 const globalError = ref('')
 const laneStates = reactive(Object.fromEntries(opportunityLanes.map(lane => [lane.key, {
@@ -72,6 +73,15 @@ async function loadAll() {
   await Promise.all(opportunityLanes.map(lane => loadLane(lane)))
 }
 
+async function loadProperties() {
+  try {
+    const { data } = await realEstateApi.properties({ page_size: 100, ordering: 'title' })
+    properties.value = data.results || data
+  } catch (exc) {
+    globalError.value = apiError(exc, 'Unable to load properties for matching.')
+  }
+}
+
 function loadMore(lane) {
   laneStates[lane.key].page += 1
   loadLane(lane, true)
@@ -94,12 +104,34 @@ async function saveStatus(nextStatus) {
   }
 }
 
+function replaceSelectedItem(updated) {
+  if (!selected.value) return
+  selected.value.items = selected.value.items.map(item => item.id === updated.id ? updated : item)
+  const state = laneStates[selected.value.activity_type]
+  const row = state?.rows.find(item => item.id === selected.value.id)
+  if (row) row.items = selected.value.items
+}
+
+async function itemAction(action, item, propertyId = null) {
+  saving.value = true; globalError.value = ''
+  try {
+    let response
+    if (action === 'link') response = await realEstateApi.linkOpportunityItem(item.id, propertyId)
+    else if (action === 'unlink') response = await realEstateApi.unlinkOpportunityItem(item.id)
+    else response = await realEstateApi.createPropertyFromOpportunityItem(item.id)
+    replaceSelectedItem(response.data.item || response.data)
+    if (action === 'create') await loadProperties()
+  } catch (exc) {
+    globalError.value = apiError(exc, 'Unable to update the property link.')
+  } finally { saving.value = false }
+}
+
 watch(status, loadAll)
 watch(search, () => {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(loadAll, 350)
 })
-onMounted(loadAll)
+onMounted(() => Promise.all([loadAll(), loadProperties()]))
 onBeforeUnmount(() => clearTimeout(searchTimer))
 </script>
 
@@ -124,7 +156,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
         </UiInput>
         <UiSelect v-model="status" :options="statusFilters" />
       </div>
-      <p>Only fully classified opportunities are shown. Demand lanes use requirements; supply lanes use reviewable property candidates.</p>
+      <p>Only fully classified opportunities are shown. Extracted property items can be linked to the property master without changing the source opportunity.</p>
     </UiCard>
 
     <div class="opportunity-board">
@@ -145,9 +177,13 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
       :open="Boolean(selected)"
       :opportunity="selected"
       :can-update="canUpdate"
+      :properties="properties"
       :busy="saving"
       @close="selected = null"
       @save="saveStatus"
+      @link-item="(item, propertyId) => itemAction('link', item, propertyId)"
+      @unlink-item="item => itemAction('unlink', item)"
+      @create-property="item => itemAction('create', item)"
     />
   </UiPage>
 </template>

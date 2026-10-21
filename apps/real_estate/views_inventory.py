@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import action
@@ -8,7 +8,8 @@ from rest_framework.response import Response
 
 from apps.real_estate.api_base import CompanyOwnedViewSet
 from apps.real_estate.models import (
-    Listing, Property, PropertyAddress, PropertyDevelopment, PropertyMedia, PropertyType,
+    Listing, OpportunityItem, Property, PropertyAddress, PropertyDevelopment,
+    PropertyMedia, PropertyType,
 )
 from apps.real_estate.serializers import (
     ListingSerializer, PropertyAddressSerializer, PropertyDevelopmentSerializer,
@@ -147,6 +148,27 @@ class PropertyViewSet(CompanyOwnedViewSet):
             })
         return Response(enqueue_backfill(company), status=status.HTTP_202_ACCEPTED)
 
+    @action(detail=True, methods=['get'], url_path='market-activity')
+    def market_activity(self, request, pk=None):
+        property_record = self.get_object()
+        items = OpportunityItem.objects.filter(
+            company=self.active_company(), property=property_record,
+        ).select_related('opportunity', 'opportunity__contact', 'opportunity__source_chat')
+        counts = {
+            row['opportunity__activity_type']: row['total']
+            for row in items.values('opportunity__activity_type').annotate(total=Count('id'))
+        }
+        recent = [{
+            'item_id': item.id,
+            'opportunity_id': item.opportunity_id,
+            'activity_type': item.opportunity.activity_type,
+            'party': _opportunity_party(item.opportunity),
+            'summary': item.opportunity.summary,
+            'match_status': item.match_status,
+            'first_seen_at': item.opportunity.first_seen_at,
+        } for item in items.order_by('-opportunity__first_seen_at')[:50]]
+        return Response({'counts': counts, 'total': items.count(), 'recent': recent})
+
 
 class PropertyAddressViewSet(CompanyOwnedViewSet):
     queryset = PropertyAddress.objects.select_related(
@@ -218,3 +240,10 @@ class ListingViewSet(CompanyOwnedViewSet):
         instance.archived_at = timezone.now()
         instance.status = 'closed'
         instance.save(update_fields=['is_archived', 'archived_at', 'status', 'updated_at'])
+
+
+def _opportunity_party(opportunity):
+    contact = opportunity.contact
+    if contact:
+        return contact.display_name or contact.push_name or contact.phone_number
+    return opportunity.source_chat.name if opportunity.source_chat else 'Unknown party'

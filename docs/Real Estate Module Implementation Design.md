@@ -646,11 +646,22 @@ Shared modules remain visible according to permission:
 
 Trading navigation, product inventory, product matching, price updates, and trading-only settings must be hidden and blocked for Real Estate companies.
 
-The Real Estate Opportunity Board uses four operational lanes: Buying, Selling, Leasing Inquiries, and Leasing Offers. The UI uses those exact labels and does not collapse both leasing activities into one lane. It is a company-scoped operational view over `RealEstateOpportunity`; it does not copy records into a separate board table. Buying and Leasing Inquiries display their one-to-one `PropertyRequirement`, while Selling and Leasing Offers display their one-to-one pending `PropertyCandidate`.
+The Real Estate Opportunity Board uses four operational lanes: Buying, Selling, Leasing Inquiries, and Leasing Offers. The UI uses those exact labels and does not collapse both leasing activities into one lane. It is a company-scoped operational view over `RealEstateOpportunity`; it does not copy records into a separate board table. Each opportunity contains one or more `OpportunityItem` records, one for every distinct property or requirement mentioned in the source message.
 
-Each lane loads and paginates independently so a busy lane does not block the other three. Shared search and workflow-status filters are applied server-side. The detail dialog exposes the original message, source, assigned user, extracted demand or supply fields, and controlled opportunity status updates. Only fully classified records appear; incomplete classifications and review-only outcomes remain outside the board until classification is resolved.
+Each lane loads and paginates independently so a busy lane does not block the other three. Shared search and workflow-status filters are applied server-side. The detail dialog exposes the original message, source, assigned user, every extracted item, and controlled opportunity status updates. A broker can link an item to an existing property, unlink it, or create a draft Floating property from a supply item. A demand item can never create physical inventory, and creating a property never creates a listing implicitly. Only fully classified records appear; incomplete classifications and review-only outcomes remain outside the board until classification is resolved.
 
-### 10.1 Prospect path interaction pattern
+### 10.1 Broker-centric record boundaries
+
+The operational model intentionally keeps two records independent:
+
+- `RealEstateOpportunity` is an incoming market event: who said what, through which account, when, and whether it is Buying, Selling, Leasing Inquiry, or Leasing Offer.
+- `Property` is the durable physical-property master and may exist before any opportunity, after an opportunity, or without one.
+
+`OpportunityItem` is the explicit bridge between them. It stores the structured property facts extracted from one market event and records whether the item is unmatched, suggested, linked, or rejected. Linking can be automatic only when a deterministic identifier such as an exact reference code resolves one property; otherwise the broker reviews and links manually.
+
+`Listing` remains a broker-approved commercial record for a known property's sale or lease terms. Incoming supply does not automatically become a listing. `PropertyRequirement` and `PropertyCandidate` remain temporary compatibility projections so the established embedding and matching pipeline continues to operate during gradual migration; they are not separate broker-facing concepts.
+
+### 10.2 Prospect path interaction pattern
 
 Do not introduce a separate step-by-step wizard. Follow the existing Trading interaction pattern:
 
@@ -957,6 +968,17 @@ Viewings, offers, deals, campaign automation, and advanced analytics should foll
 - Added explicit candidate promotion, merge, and rejection UI. Extracted candidates still cannot enter trusted inventory silently.
 - Added focused API and navigation tests while preserving the existing Trading routes for Trading companies.
 
+### Broker opportunity simplification completed on 21 October 2026
+
+- Added directly company-owned `OpportunityItem` records under each `RealEstateOpportunity`, allowing one message to describe multiple distinct properties without merging them.
+- Kept opportunities and physical properties independently valid while providing an auditable many-events-to-one-property link.
+- Added explicit link, unlink, and supply-item property creation actions. Demand items cannot create physical inventory, and no item action creates a listing automatically.
+- Changed the Opportunity Board detail view to show extracted items and broker linking actions instead of exposing legacy requirement/candidate implementation records.
+- Added property-level market activity showing how many Buying, Selling, Leasing Inquiry, and Leasing Offer items have been linked to that property.
+- Retained `PropertyRequirement` and `PropertyCandidate` only as compatibility projections for the existing embedding/matching pipeline. They can be removed after item-native matching is proven.
+- Added a data migration that converts existing requirements and candidates into opportunity items without modifying their source records.
+- Added regression coverage for multi-item extraction, company isolation, demand safeguards, explicit supply conversion, absence of implicit listings, and property activity aggregation.
+
 ### Real Estate embedding foundation completed on 12 October 2026
 
 - Added four separate, directly company-owned vector tables: `real_estate_property_embedding`, `real_estate_listing_embedding`, `real_estate_requirement_embedding`, and `real_estate_candidate_embedding`.
@@ -1041,7 +1063,9 @@ For a company with `industry_type = real_estate`:
 9. Properties shows the combined Real Estate embedding count. Repair queues missing, skipped, or failed property, listing, requirement, and candidate vectors.
 10. Properties can be filtered as Own, Authorized, Floating, or Tracked; tracking does not change source provenance.
 11. Property and candidate forms show only the system-defined fields configured for the selected company property type.
-12. The Opportunity Board separates Buying, Selling, Leasing Inquiries, and Leasing Offers, supports server-side search/status filters, independently loads each lane, and opens nested requirement/candidate details without creating duplicate board records.
+12. The Opportunity Board separates Buying, Selling, Leasing Inquiries, and Leasing Offers, supports server-side search/status filters, independently loads each lane, and shows every extracted opportunity item without creating duplicate board records.
+13. Supply items can be linked to an existing property or used to create a draft Floating property; demand items cannot create inventory, and neither action creates a listing.
+14. A property's Market Activity action shows all linked opportunity appearances and four-lane totals.
 
 ### Remaining phases
 

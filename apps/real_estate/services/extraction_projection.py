@@ -15,6 +15,9 @@ from apps.real_estate.models import (
     TenureType,
 )
 from apps.real_estate.services.property_attributes import normalize_attributes
+from apps.real_estate.services.opportunity_item_projection import (
+    sync_extracted_items,
+)
 from apps.real_estate.services.property_types import resolve_property_type, seed_default_property_types
 
 
@@ -24,12 +27,18 @@ def project_extraction(opportunity, parsed):
         return None
     settings, _ = RealEstateSettings.objects.get_or_create(company=opportunity.company)
     seed_default_property_types(opportunity.company)
-    payload = parsed.get('property') or {}
+    properties = parsed.get('properties')
+    payload = properties[0] if isinstance(properties, list) and properties else None
+    payload = payload if isinstance(payload, dict) else parsed.get('property') or {}
     if opportunity.activity_type in ActivityType.requirement_values():
         PropertyCandidate.objects.filter(opportunity=opportunity).delete()
-        return _project_requirement(opportunity, payload, parsed, settings)
+        record = _project_requirement(opportunity, payload, parsed, settings)
+        sync_extracted_items(opportunity, parsed, settings, legacy_requirement=record)
+        return record
     PropertyRequirement.objects.filter(opportunity=opportunity).delete()
-    return _project_candidate(opportunity, payload, parsed, settings)
+    record = _project_candidate(opportunity, payload, parsed, settings)
+    sync_extracted_items(opportunity, parsed, settings, legacy_candidate=record)
+    return record
 
 
 def _project_requirement(opportunity, payload, parsed, settings):
