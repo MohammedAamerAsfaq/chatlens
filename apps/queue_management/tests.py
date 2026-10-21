@@ -407,3 +407,95 @@ class InternalDiagnosticsTests(TestCase):
         self.assertEqual(unresolved['pending'], 1)
         self.assertEqual(unresolved['recent'][0]['message_text'], 'WTB iPhone')
         self.assertEqual(unresolved['recent'][0]['lid_jid'], '789@lid')
+
+
+@override_settings(INTERNAL_API_TOKEN='test-internal-token')
+class InternalDiagnosticsMessagesTests(TestCase):
+    messages_url = '/api/internal/diagnostics/messages/'
+    trace_url = '/api/internal/diagnostics/trace/'
+
+    def setUp(self):
+        from apps.tenancy.models import CommunicationAccount, Company, ConnectionProvider
+        from apps.whatsapp_bridge.models import WhatsAppAccount
+
+        self.company = Company.objects.create(name='Messages Diag Co', slug='messages-diag-co')
+        owner = User.objects.create_user(username='messages-diag-owner', password='pw')
+        provider = ConnectionProvider.objects.get(key='baileys')
+        communication_account = CommunicationAccount.objects.create(
+            company=self.company, provider=provider, channel='whatsapp', name='Messages Diag WhatsApp',
+        )
+        self.account = WhatsAppAccount.objects.create(
+            owner=owner, communication_account=communication_account,
+            display_name='Messages Diag Account', phone_number='971500000888',
+            worker_session_id='messages-diag-account',
+        )
+
+    def test_missing_token_is_rejected(self):
+        self.assertEqual(self.client.get(self.messages_url).status_code, 401)
+        self.assertEqual(self.client.get(self.trace_url).status_code, 401)
+
+    def test_messages_summary_covers_all_sources(self):
+        from apps.whatsapp_bridge.models import BaileysEvent, StuckReceipt, SyncLog, WorkerAlert
+
+        StuckReceipt.objects.create(
+            account=self.account, remote_jid='971500000111@s.whatsapp.net', message_id='stuck-1',
+        )
+        WorkerAlert.objects.create(
+            account=self.account, alert_type='decrypt_failure', severity='error', message='boom',
+        )
+        BaileysEvent.objects.create(
+            account=self.account, event_stage='filtered', status='skipped',
+            reason='unresolvable_lid', provider_message_id='msg-1',
+        )
+        SyncLog.objects.create(account=self.account, event_type='history_sync_started', status='ok')
+
+        response = self.client.get(
+            self.messages_url, {'account_id': self.account.pk}, HTTP_X_INTERNAL_TOKEN='test-internal-token',
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+
+        self.assertEqual(body['stuck_receipts']['total'], 1)
+        self.assertEqual(body['stuck_receipts']['unresolved'], 1)
+
+        self.assertEqual(body['worker_alerts']['total'], 1)
+        self.assertEqual(body['worker_alerts']['by_alert_type']['decrypt_failure'], 1)
+
+        self.assertEqual(body['baileys_events']['by_reason']['unresolvable_lid'], 1)
+        self.assertEqual(body['baileys_events']['by_stage']['filtered'], 1)
+
+        self.assertEqual(body['activity']['window_total'], 1)
+        self.assertEqual(body['activity']['recent'][0]['event_type'], 'history_sync_started')
+
+    def test_trace_requires_both_params(self):
+        response = self.client.get(
+            self.trace_url, {'account_id': self.account.pk}, HTTP_X_INTERNAL_TOKEN='test-internal-token',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_trace_returns_joined_timeline(self):
+        from apps.whatsapp_bridge.models import BaileysEvent, DroppedMessage
+
+        DroppedMessage.objects.create(account=self.account, msg_id='trace-me', reason='unresolvable_lid')
+        BaileysEvent.objects.create(
+            account=self.account, event_stage='filtered', status='skipped',
+            reason='unresolvable_lid', provider_message_id='trace-me',
+        )
+        response = self.client.get(
+            self.trace_url, {'account_id': self.account.pk, 'provider_message_id': 'trace-me'},
+            HTTP_X_INTERNAL_TOKEN='test-internal-token',
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body['found'])
+        self.assertEqual(body['outcome'], 'dropped')
+        sources = {event['source'] for event in body['timeline']}
+        self.assertIn('baileys_event', sources)
+        self.assertIn('dropped_message', sources)
+
+    def test_trace_unknown_account_returns_404(self):
+        response = self.client.get(
+            self.trace_url, {'account_id': 999999, 'provider_message_id': 'x'},
+            HTTP_X_INTERNAL_TOKEN='test-internal-token',
+        )
+        self.assertEqual(response.status_code, 404)
