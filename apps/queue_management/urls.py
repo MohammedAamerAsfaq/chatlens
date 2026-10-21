@@ -1,4 +1,5 @@
 from django.urls import path
+from .diagnostics_views import internal_diagnostics
 from .views import queue_overview, queue_settings, request_worker_stop, task_detail, task_list
 
 urlpatterns = [
@@ -7,4 +8,5 @@ urlpatterns = [
     path('task-queue/settings/', queue_settings, name='task-queue-settings'),
     path('task-queue/tasks/', task_list, name='task-queue-tasks'),
     path('task-queue/tasks/<int:task_id>/', task_detail, name='task-queue-task-detail'),
+    path('internal/diagnostics/', internal_diagnostics, name='internal-diagnostics'),
 ]

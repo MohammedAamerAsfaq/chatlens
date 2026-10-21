@@ -324,3 +324,65 @@ class DurableTaskQueueTests(TestCase):
         self.assertFalse(overview.json()['infrastructure_visible'])
         self.assertEqual(overview.json()['workers'], [])
         self.assertEqual(self.client.get('/api/task-queue/settings/').status_code, 403)
+
+
+@override_settings(INTERNAL_API_TOKEN='test-internal-token')
+class InternalDiagnosticsTests(TestCase):
+    url = '/api/internal/diagnostics/'
+
+    def test_missing_token_is_rejected(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 401)
+
+    def test_wrong_token_is_rejected(self):
+        response = self.client.get(self.url, HTTP_X_INTERNAL_TOKEN='wrong')
+        self.assertEqual(response.status_code, 401)
+
+    def test_returns_global_snapshot_across_companies(self):
+        from apps.tenancy.models import CommunicationAccount, Company, ConnectionProvider
+        from apps.whatsapp_bridge.models import WhatsAppAccount
+
+        company = Company.objects.create(name='Diagnostics Co', slug='diagnostics-co')
+        owner = User.objects.create_user(username='diagnostics-owner', password='pw')
+        provider = ConnectionProvider.objects.get(key='baileys')
+        communication_account = CommunicationAccount.objects.create(
+            company=company, provider=provider, channel='whatsapp', name='Diagnostics WhatsApp',
+        )
+        WhatsAppAccount.objects.create(
+            owner=owner, communication_account=communication_account,
+            display_name='Diagnostics Account', phone_number='971500000999',
+            worker_session_id='diagnostics-account', session_status='connected',
+        )
+        BackgroundWorker.objects.create(
+            worker_id='diagnostics-worker', hostname='test-host', process_id=1,
+            queue_names=['default'], status=BackgroundWorker.STATUS_RUNNING,
+            started_at=timezone.now(), last_heartbeat_at=timezone.now(),
+        )
+        _register_test_handler('tests.failure', _failing_handler)
+        failing_task = enqueue_task(
+            task_key='tests.failure', payload={'version': 1, 'value': 'diag'},
+            idempotency_key='diag-failure', company=company,
+        )
+        failing_task.status = BackgroundTask.STATUS_FAILED
+        failing_task.last_error = 'boom'
+        failing_task.finished_at = timezone.now()
+        failing_task.save(update_fields=['status', 'last_error', 'finished_at'])
+
+        response = self.client.get(self.url, HTTP_X_INTERNAL_TOKEN='test-internal-token')
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        for key in ('companies', 'whatsapp_accounts', 'workers', 'queues', 'schedules', 'recent_failures'):
+            self.assertIn(key, body)
+
+        self.assertIn('Diagnostics Co', [row['name'] for row in body['companies']])
+        account = next(row for row in body['whatsapp_accounts'] if row['display_name'] == 'Diagnostics Account')
+        self.assertEqual(account['company_name'], 'Diagnostics Co')
+        self.assertEqual(account['session_status'], 'connected')
+        self.assertTrue(account['heartbeat_stale'])  # never received a heartbeat
+
+        worker = next(row for row in body['workers'] if row['worker_id'] == 'diagnostics-worker')
+        self.assertFalse(worker['heartbeat_stale'])
+
+        failure = next(row for row in body['recent_failures'] if row['task_key'] == 'tests.failure')
+        self.assertEqual(failure['last_error'], 'boom')
+        self.assertEqual(failure['company_name'], 'Diagnostics Co')
