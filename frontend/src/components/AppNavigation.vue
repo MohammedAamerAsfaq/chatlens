@@ -5,6 +5,7 @@ import { workerAlertsApi, stuckReceiptsApi, unresolvedMessagesApi } from '@/api'
 import { useAuthStore } from '@/stores/auth.js'
 import { useConversationsStore } from '@/stores/conversations'
 import { industryHomePath, logsNavigation, moreNavigation, navigationItemVisible, primaryNavigation, settingsNavigation } from '@/navigation/navigation'
+import chatlensIcon from '@/assets/chatlens-icon.png'
 import '@/assets/app-navigation.css'
 
 const auth = useAuthStore()
@@ -103,7 +104,7 @@ onUnmounted(() => {
 <template>
   <header class="app-navigation">
     <div class="app-navigation__bar">
-      <RouterLink to="/" class="app-navigation__brand">ChatLens</RouterLink>
+      <RouterLink to="/" class="app-navigation__brand"><img :src="chatlensIcon" alt="" /><span>ChatLens</span></RouterLink>
       <div class="company-picker">
         <span>Company</span>
         <select :value="auth.currentCompany?.id" :disabled="switchingCompany || !auth.hasMultipleMemberships" @change="switchCompany">

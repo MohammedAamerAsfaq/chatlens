@@ -2,7 +2,7 @@
   <div class="login-page">
     <div class="login-card">
       <div class="login-logo">
-        <span class="logo-mark">CL</span>
+        <img class="logo-mark" src="@/assets/chatlens-icon.png" alt="" />
         <span class="logo-name">ChatLens</span>
       </div>
       <h1 class="login-title">Sign in</h1>
@@ -89,13 +89,8 @@ async function submit() {
   margin-bottom: 28px;
 }
 .logo-mark {
-  background: #111827;
-  color: #4ade80;
-  font-weight: 800;
-  font-size: 0.9rem;
-  letter-spacing: 0.03em;
-  padding: 4px 8px;
-  border-radius: 6px;
+  height: 36px;
+  width: auto;
 }
 .logo-name {
   font-size: 1.1rem;

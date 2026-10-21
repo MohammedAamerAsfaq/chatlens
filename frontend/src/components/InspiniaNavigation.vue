@@ -12,6 +12,7 @@ import InspiniaCustomizer from '@/components/navigation/InspiniaCustomizer.vue'
 import NavigationChevron from '@/components/navigation/NavigationChevron.vue'
 import NavigationIcon from '@/components/navigation/NavigationIcon.vue'
 import { DEFAULT_INSPINIA_CONFIG } from '@/themes/inspinia.js'
+import chatlensIcon from '@/assets/chatlens-icon.png'
 import '@/assets/inspinia-shell.css'
 
 const auth = useAuthStore()
@@ -105,7 +106,7 @@ onUnmounted(() => {
 <template>
   <div v-if="mobileOpen" class="inspinia-backdrop" @click="mobileOpen = false"></div>
   <aside class="inspinia-sidebar" :class="{ collapsed, mobile: mobileOpen }">
-    <div class="inspinia-brand"><span>CL</span><strong>ChatLens</strong></div>
+    <div class="inspinia-brand"><span><img :src="chatlensIcon" alt="ChatLens" /></span><strong>ChatLens</strong></div>
     <InspiniaSidebarProfile :username="auth.user?.username" :role="roleLabel" :collapsed="collapsed" @open-settings="openSettings" />
     <nav class="inspinia-menu">
       <p>Main</p>
