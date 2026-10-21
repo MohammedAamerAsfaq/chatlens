@@ -544,3 +544,57 @@ class ApiKeyRateThrottleTests(TestCase):
             self.assertEqual(response.status_code, 200)
         response = self.client.get(self.url, HTTP_AUTHORIZATION=f'Api-Key {self.secret}')
         self.assertEqual(response.status_code, 429)
+
+
+class ExternalDiagnosticsViewTests(TestCase):
+    def setUp(self):
+        self.company = _make_company()
+        self.owner = User.objects.create_user(username='owner-diag')
+        self.account = _make_account(self.company, self.owner)
+        self.api_key, self.secret = ApiKey.generate(
+            company=self.company, name='Diag key', scopes=[ApiKey.SCOPE_DATA_READ],
+        )
+        self.client = APIClient()
+        self.url = reverse('external-diagnostics')
+
+    def test_requires_data_read_scope(self):
+        _, secret = ApiKey.generate(company=self.company, name='No scopes', scopes=[])
+        response = self.client.get(self.url, HTTP_AUTHORIZATION=f'Api-Key {secret}')
+        self.assertEqual(response.status_code, 403)
+
+    def test_returns_only_this_companys_data(self):
+        from apps.whatsapp_bridge.models import DroppedMessage, StuckReceipt, WorkerAlert
+
+        other_company = _make_company(name='Other Diag Co', slug='other-diag-co')
+        other_owner = User.objects.create_user(username='other-diag-owner')
+        other_account = _make_account(other_company, other_owner)
+
+        DroppedMessage.objects.create(account=self.account, reason='unresolvable_lid', raw_jid='mine@lid')
+        DroppedMessage.objects.create(account=other_account, reason='unresolvable_lid', raw_jid='theirs@lid')
+        StuckReceipt.objects.create(account=self.account, remote_jid='x@s.whatsapp.net', message_id='m1')
+        WorkerAlert.objects.create(account=self.account, alert_type='decrypt_failure', severity='error', message='boom')
+
+        response = self.client.get(self.url, HTTP_AUTHORIZATION=f'Api-Key {self.secret}')
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+
+        self.assertEqual(body['dropped_messages']['total'], 1)
+        self.assertEqual(body['dropped_messages']['recent'][0]['raw_jid'], 'mine@lid')
+        self.assertEqual(body['stuck_receipts']['total'], 1)
+        self.assertEqual(body['worker_alerts']['total'], 1)
+
+    def test_hours_param_bounds_baileys_window(self):
+        from apps.whatsapp_bridge.models import BaileysEvent
+
+        old = timezone.now() - timezone.timedelta(days=5)
+        BaileysEvent.objects.create(
+            account=self.account, event_stage='filtered', status='skipped',
+            reason='unresolvable_lid', provider_message_id='old-one',
+        )
+        BaileysEvent.objects.filter(provider_message_id='old-one').update(created_at=old)
+
+        response = self.client.get(f'{self.url}?hours=1', HTTP_AUTHORIZATION=f'Api-Key {self.secret}')
+        self.assertEqual(response.json()['baileys_events']['window_total'], 0)
+
+        response = self.client.get(f'{self.url}?hours=240', HTTP_AUTHORIZATION=f'Api-Key {self.secret}')
+        self.assertEqual(response.json()['baileys_events']['window_total'], 1)

@@ -28,6 +28,7 @@ const ENDPOINTS = [
   { method: 'GET', path: '/chats/', scope: 'data:read', description: 'List and retrieve chats.' },
   { method: 'GET', path: '/messages/', scope: 'data:read', description: 'List messages. Supports an optional ?chat=<id> filter.' },
   { method: 'GET', path: '/outbound-messages/', scope: 'data:read', description: 'Status of messages sent through this API.' },
+  { method: 'GET', path: '/diagnostics/', scope: 'data:read', description: 'WhatsApp ingestion health for your company: dropped/unresolved messages, stuck receipts, worker alerts, Baileys event breakdown, recent activity. Optional ?hours= widens the event window (default 24).' },
   { method: 'GET', path: '/inquiries/', scope: 'data:read', description: 'List buying/selling inquiries. Optional ?status=, ?inquiry_type=, ?first_seen_after=, ?first_seen_before= (ISO 8601) filters. Paginated.' },
   { method: 'GET', path: '/products/', scope: 'data:read', description: 'The product catalog. Defaults to tracked products only. Optional ?tracking=, ?is_active=, ?category=, ?search= filters. Paginated.' },
   { method: 'GET', path: '/product-mentions/', scope: 'data:read', description: 'Per-product WTB/WTS mention counts over a date range. ?first_seen_after=, ?first_seen_before= (default: last 30 days), ?search=, ?limit= (default 100, max 500). Not paginated — returns one grouped summary.' },
@@ -77,6 +78,7 @@ const CURL_EXAMPLES = [
   },
   { title: 'Product mentions in the last 7 days', command: 'curl "' + API_BASE_URL + '/product-mentions/?first_seen_after=2026-10-10T00:00:00Z" \\\n  -H "Authorization: Api-Key <prefix>.<secret>"' },
   { title: 'Search the tracked product catalog', command: 'curl "' + API_BASE_URL + '/products/?search=iphone" \\\n  -H "Authorization: Api-Key <prefix>.<secret>"' },
+  { title: 'Why are my messages being dropped?', command: 'curl "' + API_BASE_URL + '/diagnostics/" \\\n  -H "Authorization: Api-Key <prefix>.<secret>"' },
 ]
 
 const WEBHOOK_VERIFY_SNIPPET = 'import hmac, hashlib\n\n'

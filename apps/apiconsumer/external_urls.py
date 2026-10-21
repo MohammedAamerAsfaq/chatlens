@@ -1,6 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
+from .external_diagnostics_views import DiagnosticsView
 from .external_views import (
     ChatViewSet, ContactViewSet, InquiryViewSet, MessageViewSet, OutboundMessageViewSet, PingView,
     ProductMentionsView, ProductViewSet, SendMessageView, WebhookDeliveryAttemptViewSet,
@@ -18,6 +19,7 @@ router.register('webhooks', WebhookSubscriptionViewSet, basename='external-webho
 
 urlpatterns = [
     path('ping/', PingView.as_view(), name='external-ping'),
+    path('diagnostics/', DiagnosticsView.as_view(), name='external-diagnostics'),
     path('product-mentions/', ProductMentionsView.as_view(), name='external-product-mentions'),
     path('send-message/', SendMessageView.as_view(), name='external-send-message'),
     path(
