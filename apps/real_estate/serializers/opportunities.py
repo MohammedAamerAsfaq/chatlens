@@ -4,18 +4,6 @@ from apps.real_estate.models import PropertyCandidate, PropertyRequirement, Real
 from .base import CleanModelSerializer, CompanyPropertyTypeField
 
 
-class OpportunitySerializer(CleanModelSerializer):
-    class Meta:
-        model = RealEstateOpportunity
-        exclude = ('company',)
-        read_only_fields = (
-            'source_message', 'account', 'contact', 'company_contact', 'source_chat',
-            'activity_type', 'classification_status', 'summary', 'original_message',
-            'confidence', 'matching_complete', 'deduplication_key', 'first_seen_at',
-            'created_at', 'updated_at',
-        )
-
-
 class PropertyRequirementSerializer(CleanModelSerializer):
     activity_type = serializers.CharField(source='opportunity.activity_type', read_only=True)
 
@@ -36,4 +24,37 @@ class PropertyCandidateSerializer(CleanModelSerializer):
         read_only_fields = (
             'opportunity', 'raw_extraction', 'review_status', 'promoted_property',
             'promoted_listing', 'reviewed_by', 'reviewed_at', 'created_at', 'updated_at',
+        )
+
+
+class OpportunitySerializer(CleanModelSerializer):
+    requirement = PropertyRequirementSerializer(read_only=True)
+    property_candidate = PropertyCandidateSerializer(read_only=True)
+    contact_name = serializers.SerializerMethodField()
+    contact_phone = serializers.CharField(source='contact.phone_number', read_only=True)
+    account_name = serializers.CharField(source='account.display_name', read_only=True)
+    source_chat_name = serializers.CharField(source='source_chat.name', read_only=True)
+    assigned_to_name = serializers.SerializerMethodField()
+
+    @staticmethod
+    def get_contact_name(obj):
+        contact = obj.contact
+        if not contact:
+            return ''
+        return contact.display_name or contact.push_name or contact.phone_number or contact.wa_contact_id
+
+    @staticmethod
+    def get_assigned_to_name(obj):
+        if not obj.assigned_to:
+            return ''
+        return obj.assigned_to.get_full_name() or obj.assigned_to.get_username()
+
+    class Meta:
+        model = RealEstateOpportunity
+        exclude = ('company',)
+        read_only_fields = (
+            'source_message', 'account', 'contact', 'company_contact', 'source_chat',
+            'activity_type', 'classification_status', 'summary', 'original_message',
+            'confidence', 'matching_complete', 'deduplication_key', 'first_seen_at',
+            'created_at', 'updated_at',
         )

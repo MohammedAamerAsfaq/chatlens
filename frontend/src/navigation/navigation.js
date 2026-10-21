@@ -18,9 +18,10 @@ export const primaryNavigation = [
     ],
   },
   {
-    id: 'real-estate', label: 'Real Estate', to: '/real-estate/properties', industries: ['real_estate'],
-    routes: ['real-estate-properties', 'real-estate-property-create', 'real-estate-listings', 'real-estate-candidates'],
+    id: 'real-estate', label: 'Real Estate', to: '/real-estate', industries: ['real_estate'],
+    routes: ['real-estate-board', 'real-estate-properties', 'real-estate-property-create', 'real-estate-listings', 'real-estate-candidates'],
     children: [
+      { label: 'Opportunity Board', to: '/real-estate', route: 'real-estate-board' },
       { label: 'Properties', to: '/real-estate/properties', route: 'real-estate-properties' },
       { label: 'Listings', to: '/real-estate/listings', route: 'real-estate-listings' },
       { label: 'Candidate Review', to: '/real-estate/candidates', route: 'real-estate-candidates' },
@@ -111,5 +112,5 @@ export function navigationItemVisible(item, context) {
 }
 
 export function industryHomePath(industry) {
-  return industry === 'real_estate' ? '/real-estate/properties' : '/'
+  return industry === 'real_estate' ? '/real-estate' : '/'
 }

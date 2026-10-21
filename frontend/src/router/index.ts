@@ -48,6 +48,7 @@ import ClientPulseProfileView from '../views/ClientPulseProfileView.vue'
 import ClientPulseSettingsView from '../views/ClientPulseSettingsView.vue'
 import ClientPulseRemindersView from '../views/ClientPulseRemindersView.vue'
 import RealEstatePropertiesView from '../views/RealEstatePropertiesView.vue'
+import RealEstateBoardView from '../views/RealEstateBoardView.vue'
 import RealEstatePropertyCreateView from '../views/RealEstatePropertyCreateView.vue'
 import RealEstateListingsView from '../views/RealEstateListingsView.vue'
 import RealEstateCandidatesView from '../views/RealEstateCandidatesView.vue'
@@ -110,6 +111,7 @@ const router = createRouter({
     { path: '/clientpulse/:id', name: 'clientpulse-profile', component: ClientPulseProfileView, meta: { title: 'Client Profile', permission: 'clientpulse.clients.view' } },
     { path: '/clientpulse-settings', name: 'clientpulse-settings', component: ClientPulseSettingsView, meta: { title: 'ClientPulse Settings', permission: 'settings.company.view' } },
     { path: '/clientpulse-reminders', name: 'clientpulse-reminders', component: ClientPulseRemindersView, meta: { title: 'ClientPulse Reminders', permission: 'clientpulse.reminders.view' } },
+    { path: '/real-estate', name: 'real-estate-board', component: RealEstateBoardView, meta: { title: 'Opportunity Board', permission: 'real_estate.opportunities.view', industries: ['real_estate'] } },
     { path: '/real-estate/properties', name: 'real-estate-properties', component: RealEstatePropertiesView, meta: { title: 'Properties', permission: 'real_estate.properties.view', industries: ['real_estate'] } },
     { path: '/real-estate/properties/new', name: 'real-estate-property-create', component: RealEstatePropertyCreateView, meta: { title: 'Add Property', permission: 'real_estate.properties.manage', industries: ['real_estate'] } },
     { path: '/real-estate/listings', name: 'real-estate-listings', component: RealEstateListingsView, meta: { title: 'Listings', permission: 'real_estate.listings.view', industries: ['real_estate'] } },
@@ -126,7 +128,7 @@ router.beforeEach(async (to) => {
   if (!auth.user) return { name: 'login' }
   const industries = to.meta.industries
   if (Array.isArray(industries) && !industries.includes(auth.currentCompany?.industry_type)) {
-    return auth.currentCompany?.industry_type === 'real_estate' ? { name: 'real-estate-properties' } : { name: 'sessions' }
+    return auth.currentCompany?.industry_type === 'real_estate' ? { name: 'real-estate-board' } : { name: 'sessions' }
   }
   if (typeof to.meta.permission === 'string' && !auth.hasPermission(to.meta.permission)) {
     return { name: 'sessions' }

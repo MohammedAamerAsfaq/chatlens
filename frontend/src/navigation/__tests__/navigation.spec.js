@@ -30,8 +30,8 @@ describe('industry-aware navigation', () => {
     expect(visible.map(item => item.route)).toContain('ai-instructions')
   })
 
-  it('lands a switched Real Estate company on its inventory', () => {
-    expect(industryHomePath('real_estate')).toBe('/real-estate/properties')
+  it('lands a switched Real Estate company on its opportunity board', () => {
+    expect(industryHomePath('real_estate')).toBe('/real-estate')
     expect(industryHomePath('trading')).toBe('/')
   })
 })

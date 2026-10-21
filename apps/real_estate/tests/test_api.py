@@ -11,8 +11,8 @@ from rest_framework.test import APIClient
 from openpyxl import Workbook
 
 from apps.real_estate.models import (
-    ActivityType, ClassificationStatus, Listing, Property, PropertyCandidate, PropertyType,
-    RealEstateMockSourceRecord, RealEstateOpportunity, RealEstatePromptConfig,
+    ActivityType, ClassificationStatus, Listing, Property, PropertyCandidate, PropertyRequirement,
+    PropertyType, RealEstateMockSourceRecord, RealEstateOpportunity, RealEstatePromptConfig,
 )
 from apps.task_management.models import BackgroundTask
 from apps.tenancy.models import Company, CompanyMembership
@@ -274,6 +274,46 @@ class RealEstateApiTests(TestCase):
         response = self.client.get('/api/real-estate/opportunities/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual([row['id'] for row in response.json()['results']], [assigned.pk])
+
+    def test_opportunity_board_filters_searches_and_embeds_lane_detail(self):
+        buying = RealEstateOpportunity.objects.create(
+            company=self.company, activity_type=ActivityType.BUYING,
+            classification_status=ClassificationStatus.CLASSIFIED,
+            summary='Buyer needs a Marina apartment', original_message='WTB Marina two bedroom',
+            first_seen_at=timezone.now(),
+        )
+        PropertyRequirement.objects.create(
+            company=self.company, opportunity=buying,
+            acceptable_locations=['Dubai Marina'], acceptable_property_types=['apartment'],
+            bedrooms_min=2, bedrooms_max=2, budget_max=2500000,
+        )
+        RealEstateOpportunity.objects.create(
+            company=self.company, activity_type=ActivityType.SELLING,
+            classification_status=ClassificationStatus.CLASSIFIED,
+            summary='Seller offers a villa', first_seen_at=timezone.now(),
+        )
+        RealEstateOpportunity.objects.create(
+            company=self.other, activity_type=ActivityType.BUYING,
+            classification_status=ClassificationStatus.CLASSIFIED,
+            summary='Other company Marina requirement', first_seen_at=timezone.now(),
+        )
+
+        response = self.client.get(
+            '/api/real-estate/opportunities/?activity_type=buying&classification_status=classified&search=Marina',
+        )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()['count'], 1)
+        row = response.json()['results'][0]
+        self.assertEqual(row['id'], buying.pk)
+        self.assertEqual(row['requirement']['acceptable_locations'], ['Dubai Marina'])
+        self.assertIsNone(row['property_candidate'])
+
+        response = self.client.patch(
+            f'/api/real-estate/opportunities/{buying.pk}/', {'status': 'qualified'}, format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()['status'], 'qualified')
 
     def test_csv_preview_then_import_is_explicit(self):
         csv_file = SimpleUploadedFile(

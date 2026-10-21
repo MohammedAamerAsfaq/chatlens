@@ -646,7 +646,9 @@ Shared modules remain visible according to permission:
 
 Trading navigation, product inventory, product matching, price updates, and trading-only settings must be hidden and blocked for Real Estate companies.
 
-The Real Estate dashboard should use four operational lanes: Buying, Selling, Leasing Inquiries, and Leasing Offers. The UI must use those exact labels and must not collapse both leasing activities into one lane.
+The Real Estate Opportunity Board uses four operational lanes: Buying, Selling, Leasing Inquiries, and Leasing Offers. The UI uses those exact labels and does not collapse both leasing activities into one lane. It is a company-scoped operational view over `RealEstateOpportunity`; it does not copy records into a separate board table. Buying and Leasing Inquiries display their one-to-one `PropertyRequirement`, while Selling and Leasing Offers display their one-to-one pending `PropertyCandidate`.
+
+Each lane loads and paginates independently so a busy lane does not block the other three. Shared search and workflow-status filters are applied server-side. The detail dialog exposes the original message, source, assigned user, extracted demand or supply fields, and controlled opportunity status updates. Only fully classified records appear; incomplete classifications and review-only outcomes remain outside the board until classification is resolved.
 
 ### 10.1 Prospect path interaction pattern
 
@@ -1028,7 +1030,7 @@ Queue concurrency, timeout, retry, and enablement remain database-owned and are 
 
 For a company with `industry_type = real_estate`:
 
-1. Switching to the company opens `/real-estate/properties`.
+1. Switching to the company opens `/real-estate`, which displays the company-scoped four-lane Opportunity Board.
 2. The sidebar shows Real Estate and hides Trading, Automation, Campaigns, Trading Reports, V2 settings, and Trading parsing logs.
 3. Properties can be created, edited, archived, filtered, exported, and assigned address/media records.
 4. Listings remain separate from physical properties and can be created, edited, verified, filtered, or closed.
@@ -1039,12 +1041,12 @@ For a company with `industry_type = real_estate`:
 9. Properties shows the combined Real Estate embedding count. Repair queues missing, skipped, or failed property, listing, requirement, and candidate vectors.
 10. Properties can be filtered as Own, Authorized, Floating, or Tracked; tracking does not change source provenance.
 11. Property and candidate forms show only the system-defined fields configured for the selected company property type.
+12. The Opportunity Board separates Buying, Selling, Leasing Inquiries, and Leasing Offers, supports server-side search/status filters, independently loads each lane, and opens nested requirement/candidate details without creating duplicate board records.
 
 ### Remaining phases
 
 - Explainable property matching and operator match review.
 - Real Estate workflow/settings UI for GatePass, prompts, direct agents, and KiwiRouter assignment.
-- Real Estate operational dashboard for the four activity lanes.
 - ClientPulse Real Estate activity projection and reminders.
 - Real Estate outbound workflows and campaign controls.
 - Accuracy, token, cost, latency, throughput, and queue performance reporting.

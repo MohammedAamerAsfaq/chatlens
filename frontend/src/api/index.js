@@ -151,6 +151,8 @@ export const realEstateApi = {
   createListing: data => http.post('/real-estate/listings/', data),
   updateListing: (id, data) => http.patch(`/real-estate/listings/${id}/`, data),
   archiveListing: id => http.delete(`/real-estate/listings/${id}/`),
+  opportunities: (params = {}) => http.get('/real-estate/opportunities/', { params }),
+  updateOpportunity: (id, data) => http.patch(`/real-estate/opportunities/${id}/`, data),
   candidates: (params = {}) => http.get('/real-estate/candidates/', { params }),
   updateCandidate: (id, data) => http.patch(`/real-estate/candidates/${id}/`, data),
   promoteCandidate: (id, data) => http.post(`/real-estate/candidates/${id}/promote/`, data),

@@ -14,7 +14,10 @@ from apps.real_estate.services.candidate_service import merge_candidate, promote
 
 
 class OpportunityViewSet(CompanyOwnedViewSet):
-    queryset = RealEstateOpportunity.objects.select_related('account', 'contact', 'assigned_to')
+    queryset = RealEstateOpportunity.objects.select_related(
+        'account', 'contact', 'assigned_to', 'source_chat',
+        'requirement', 'property_candidate', 'property_candidate__property_type',
+    )
     serializer_class = OpportunitySerializer
     read_permission = 'real_estate.opportunities.view'
     write_permission = 'real_estate.opportunities.update'
@@ -26,6 +29,15 @@ class OpportunityViewSet(CompanyOwnedViewSet):
         for param in ('activity_type', 'classification_status', 'status'):
             if value := self.request.query_params.get(param):
                 qs = qs.filter(**{param: value})
+        if search := self.request.query_params.get('search'):
+            qs = qs.filter(
+                Q(summary__icontains=search)
+                | Q(original_message__icontains=search)
+                | Q(contact__display_name__icontains=search)
+                | Q(contact__push_name__icontains=search)
+                | Q(contact__phone_number__icontains=search)
+                | Q(source_chat__name__icontains=search)
+            )
         return qs
 
 
