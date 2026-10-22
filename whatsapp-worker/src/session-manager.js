@@ -79,7 +79,10 @@ const DEBUG_WATCH_NAME_HINT = 'thamam';
 
 function _isDebugWatchTarget(msg) {
   const key = msg?.key || {};
-  const candidates = [key.remoteJid, key.participant, key.participantPn, key.senderPn].filter(Boolean);
+  // Same Baileys 7.x field rename as _buildPayload's resolution chain — additive, 2026-10-22.
+  const candidates = [
+    key.remoteJid, key.participant, key.participantAlt, key.remoteJidAlt, key.participantPn, key.senderPn,
+  ].filter(Boolean);
   if (candidates.some(jid => DEBUG_WATCH_JIDS.includes(jid))) return true;
   const name = (msg?.pushName || '').toLowerCase();
   return name.includes(DEBUG_WATCH_NAME_HINT);
@@ -1271,7 +1274,13 @@ class SessionManager {
     // Username JIDs will look like ahmed.mobile@s.whatsapp.net once the feature rolls out.
     const isUsernameJid = rawJid?.endsWith('@s.whatsapp.net')
       && !!rawJid && !/^\d+@/.test(rawJid);
-    const senderPn = msg.key.senderPn;
+    // Baileys 7.x (see whatsapp-worker/package.json) renamed this field to remoteJidAlt;
+    // msg.key.senderPn was never populated under that version, so this is an additive
+    // fallback chain, not a guess — kept for safety in case any Baileys code path still
+    // uses the old name for some message type this wasn't verified against. See
+    // node_modules/baileys/lib/Utils/decode-wa-message.js and Utils/generics.js
+    // (getKeyAuthor) for Baileys' own canonical field. 2026-10-22 fix — see git log.
+    const senderPn = msg.key.remoteJidAlt || msg.key.senderPn;
     const session = this.sessions.get(sessionId);
 
     // Computed here (rather than after resolution, as before) because the LID
@@ -1381,7 +1390,9 @@ class SessionManager {
     let rawSenderJid;
     if (isGroup) {
       const participant = msg.key.participant || rawJid;
-      const participantPn = msg.key.participantPn;
+      // Same Baileys 7.x rename as senderPn above — participantPn became participantAlt
+      // for group participants specifically. Additive fallback, same reasoning. 2026-10-22.
+      const participantPn = msg.key.participantAlt || msg.key.participantPn;
       if (participant?.endsWith('@lid')) {
         if (participantPn) {
           // Baileys provides real-time resolution — use it and cache for future messages.
@@ -1595,7 +1606,9 @@ class SessionManager {
     const key = msg?.key || {};
     const parsed = msg?.message ? this._parseMessage(msg) : {};
     const participant = key.participant || '';
-    const participantPn = key.participantPn || key.senderPn || '';
+    // Same Baileys 7.x field rename as _buildPayload's resolution chain — diagnostic-only
+    // here (BaileysEvent display fields), doesn't affect any drop/resolve decision. 2026-10-22.
+    const participantPn = key.participantAlt || key.remoteJidAlt || key.participantPn || key.senderPn || '';
     const remoteJid = key.remoteJid || '';
     const senderJid = key.fromMe ? remoteJid : (participantPn || participant || remoteJid);
     const senderNumber = senderJid?.endsWith('@s.whatsapp.net') ? senderJid.split('@')[0] : '';

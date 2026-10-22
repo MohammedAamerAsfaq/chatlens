@@ -200,6 +200,49 @@ test('D. group message from an unresolvable-cache LID participant resolves via p
   assert.equal(session.lidToPhone['43190593786026@lid'], '971521962376@s.whatsapp.net');
 });
 
+// --- C2/D2. Same as C/D but with Baileys 7.x's actual field names ---------
+// senderPn/participantPn were renamed to remoteJidAlt/participantAlt in the
+// installed Baileys version (7.0.0-rc14) - these two guard the additive
+// fallback added 2026-10-22 against a regression back to the all-drops state
+// these were written to catch (see git log for that commit).
+test('C2. inbound LID with remoteJidAlt (Baileys 7.x field name) resolves via source 1', async () => {
+  const { sm, session, djangoClient } = makeSessionManager();
+  const msg = makeMsg({
+    key: {
+      fromMe: false,
+      remoteJid: '16011805913098@lid',
+      remoteJidAlt: '971544732206@s.whatsapp.net',
+    },
+  });
+
+  const built = await sm._buildPayload(SESSION_ID, msg);
+
+  assert.ok(built);
+  assert.equal(built.payload.chat_id, '971544732206@s.whatsapp.net');
+  assert.equal(session.lidToPhone['16011805913098@lid'], '971544732206@s.whatsapp.net');
+  assert.equal(djangoClient.lookupLidMapping.mock.callCount(), 0);
+  assert.equal(djangoClient.sendUnresolvedMessage.mock.callCount(), 0);
+});
+
+test('D2. group message with participantAlt (Baileys 7.x field name) resolves via source 1', async () => {
+  const { sm, session } = makeSessionManager();
+  const msg = makeMsg({
+    key: {
+      fromMe: false,
+      remoteJid: '120363319193945178@g.us',
+      participant: '48130041090142@lid',
+      participantAlt: '94785851905@s.whatsapp.net',
+    },
+  });
+
+  const built = await sm._buildPayload(SESSION_ID, msg);
+
+  assert.ok(built);
+  assert.equal(built.payload.chat_type, 'group');
+  assert.equal(built.payload.sender_number, '94785851905');
+  assert.equal(session.lidToPhone['48130041090142@lid'], '94785851905@s.whatsapp.net');
+});
+
 // --- E. Outbound LID — memory cache hit -----------------------------------
 test('E. outbound LID resolves from a warm in-memory cache without a Django lookup', async () => {
   const { sm, djangoClient, session } = makeSessionManager();
