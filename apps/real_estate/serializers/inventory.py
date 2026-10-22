@@ -5,6 +5,7 @@ from apps.real_estate.models import (
     PropertyTypeFieldDefinition,
 )
 from .base import CleanModelSerializer, CompanyPropertyTypeField
+from .parties import PropertyPartyAssociationSerializer
 
 
 class PropertyTypeFieldDefinitionSerializer(serializers.ModelSerializer):
@@ -77,6 +78,9 @@ class PropertySerializer(CleanModelSerializer):
     property_type_name = serializers.CharField(source='property_type.name', read_only=True)
     address = PropertyAddressSerializer(read_only=True)
     media = PropertyMediaSerializer(many=True, read_only=True)
+    parent_title = serializers.CharField(source='parent.title', read_only=True)
+    child_count = serializers.IntegerField(read_only=True)
+    party_associations = PropertyPartyAssociationSerializer(many=True, read_only=True)
 
     class Meta:
         model = Property

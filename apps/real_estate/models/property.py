@@ -31,6 +31,9 @@ class Property(models.Model):
     property_type = models.ForeignKey(
         'real_estate.PropertyType', on_delete=models.PROTECT, related_name='properties',
     )
+    parent = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.SET_NULL, related_name='children',
+    )
     source_property_type_label = models.CharField(max_length=100, blank=True)
     market_scope = models.CharField(max_length=20, choices=MarketScope.choices, default=MarketScope.LOCAL)
     inventory_source_type = models.CharField(
@@ -75,6 +78,9 @@ class Property(models.Model):
         ), models.Index(
             fields=['company', 'inventory_source_type', 'is_tracked'],
             name='re_property_inventory_idx',
+        ), models.Index(
+            fields=['company', 'parent'],
+            name='re_property_parent_idx',
         )]
 
     def __str__(self):
@@ -84,6 +90,18 @@ class Property(models.Model):
         super().clean()
         if self.property_type_id and self.property_type.company_id != self.company_id:
             raise ValidationError({'property_type': 'The property type must belong to this company.'})
+        if self.parent_id:
+            if self.parent_id == self.pk:
+                raise ValidationError({'parent': 'A property cannot be its own parent.'})
+            if self.parent.company_id != self.company_id:
+                raise ValidationError({'parent': 'The parent property must belong to this company.'})
+            ancestor = self.parent
+            visited = set()
+            while ancestor:
+                if ancestor.pk == self.pk or ancestor.pk in visited:
+                    raise ValidationError({'parent': 'The property hierarchy cannot contain a cycle.'})
+                visited.add(ancestor.pk)
+                ancestor = ancestor.parent
         if not isinstance(self.attributes, dict):
             raise ValidationError({'attributes': 'Property attributes must be an object.'})
         if self.property_type_id:

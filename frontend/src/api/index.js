@@ -109,10 +109,19 @@ export const realEstateApi = {
   updatePropertyType: (id, data) => http.patch(`/real-estate/property-types/${id}/`, data),
   deactivatePropertyType: id => http.delete(`/real-estate/property-types/${id}/`),
   properties: (params = {}) => http.get('/real-estate/properties/', { params }),
+  propertyHierarchyOptions: () => http.get('/real-estate/properties/hierarchy-options/'),
   createProperty: data => http.post('/real-estate/properties/', data),
   updateProperty: (id, data) => http.patch(`/real-estate/properties/${id}/`, data),
   archiveProperty: id => http.delete(`/real-estate/properties/${id}/`),
   propertyMarketActivity: id => http.get(`/real-estate/properties/${id}/market-activity/`),
+  parties: (params = {}) => http.get('/real-estate/parties/', { params }),
+  createParty: data => http.post('/real-estate/parties/', data),
+  updateParty: (id, data) => http.patch(`/real-estate/parties/${id}/`, data),
+  deactivateParty: id => http.delete(`/real-estate/parties/${id}/`),
+  propertyPartyAssociations: (params = {}) => http.get('/real-estate/property-party-associations/', { params }),
+  createPropertyPartyAssociation: data => http.post('/real-estate/property-party-associations/', data),
+  updatePropertyPartyAssociation: (id, data) => http.patch(`/real-estate/property-party-associations/${id}/`, data),
+  deletePropertyPartyAssociation: id => http.delete(`/real-estate/property-party-associations/${id}/`),
   previewPropertyImport: file => {
     const data = new FormData()
     data.append('file', file)

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
+import { resolveRouterBase } from './base'
 import LoginView           from '../views/LoginView.vue'
 import SessionView          from '../views/SessionView.vue'
 import ConversationsView    from '../views/ConversationsView.vue'
@@ -60,7 +61,9 @@ import ApiConsumerSettingsView from '../views/ApiConsumerSettingsView.vue'
 const APP_TITLE = 'ChatLens'
 
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
+  // Vite's BASE_URL points to built assets (/static/frontend/) in production.
+  // Application history must stay independent so hard refreshes reach Django's SPA route.
+  history: createWebHistory(resolveRouterBase(import.meta.env.VITE_ROUTER_BASE)),
   routes: [
     { path: '/login', name: 'login', component: LoginView, meta: { public: true, title: 'Login' } },
     { path: '/', name: 'sessions', component: SessionView, meta: { title: 'Sessions' } },

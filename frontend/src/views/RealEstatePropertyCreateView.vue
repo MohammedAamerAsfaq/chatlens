@@ -8,10 +8,12 @@ import UiPage from '@/components/ui/UiPage.vue'
 import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import PropertyForm from '@/features/realEstate/components/PropertyForm.vue'
 import { apiError } from '@/features/realEstate/apiErrors'
+import { loadPropertyHierarchy } from '@/features/realEstate/propertyHierarchy'
 import { persistProperty } from '@/features/realEstate/propertyPersistence'
 
 const router = useRouter()
 const propertyTypeRecords = ref([])
+const properties = ref([])
 const busy = ref(false), error = ref('')
 const propertyTypes = computed(() => propertyTypeRecords.value
   .filter(record => record.is_active)
@@ -26,6 +28,10 @@ async function loadPropertyTypes() {
     error.value = apiError(exc, 'Unable to load property types.')
   }
 }
+async function loadProperties() {
+  try { properties.value = await loadPropertyHierarchy(realEstateApi) }
+  catch (exc) { error.value = apiError(exc, 'Unable to load the property hierarchy.') }
+}
 async function save(values) {
   busy.value = true; error.value = ''
   try {
@@ -35,7 +41,7 @@ async function save(values) {
     error.value = apiError(exc, 'Unable to save the property.')
   } finally { busy.value = false }
 }
-onMounted(loadPropertyTypes)
+onMounted(() => Promise.all([loadPropertyTypes(), loadProperties()]))
 </script>
 
 <template><UiPage width="wide">
@@ -43,5 +49,5 @@ onMounted(loadPropertyTypes)
     <template #actions><UiButton @click="router.push({ name: 'real-estate-properties' })">Cancel</UiButton><UiButton variant="primary" type="submit" form="property-create-form" :disabled="busy">{{ busy ? 'Saving...' : 'Save property' }}</UiButton></template>
   </UiPageHeader>
   <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
-  <PropertyForm form-id="property-create-form" :property-types="propertyTypes" :property-type-records="propertyTypeRecords" @submit="save" />
+  <PropertyForm form-id="property-create-form" :property-types="propertyTypes" :property-type-records="propertyTypeRecords" :properties="properties" @submit="save" />
 </UiPage></template>

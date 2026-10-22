@@ -23,8 +23,6 @@ export const primaryNavigation = [
     children: [
       { label: 'Opportunity Board', to: '/real-estate', route: 'real-estate-board' },
       { label: 'Properties', to: '/real-estate/properties', route: 'real-estate-properties' },
-      { label: 'Listings', to: '/real-estate/listings', route: 'real-estate-listings' },
-      { label: 'Candidate Review', to: '/real-estate/candidates', route: 'real-estate-candidates' },
     ],
   },
   {

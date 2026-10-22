@@ -16,6 +16,7 @@ const props = defineProps({
   record: { type: Object, default: null },
   propertyTypes: { type: Array, default: () => [] },
   propertyTypeRecords: { type: Array, default: () => [] },
+  properties: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['submit'])
 const form = reactive(emptyProperty())
@@ -23,6 +24,12 @@ const geography = reactive({ countries: [], areas: [], cities: [], localities: [
 const developments = ref([]), geographyError = ref('')
 const selectedType = computed(() => props.propertyTypeRecords.find(row => row.code === form.property_type))
 const fieldDefinitions = computed(() => selectedType.value?.field_definitions || [])
+const parentOptions = computed(() => [
+  { value: null, label: 'No parent property' },
+  ...props.properties
+    .filter(row => row.id !== props.record?.id)
+    .map(row => ({ value: row.id, label: `${row.title}${row.reference_code ? ` (${row.reference_code})` : ''}` })),
+])
 const selectedArea = computed(() => geography.areas.find(row => row.id === Number(form.address.administrative_area_master)))
 const selectedCity = computed(() => geography.cities.find(row => row.id === Number(form.address.city_master)))
 const selectedCountry = computed(() => geography.countries.find(row => row.id === Number(form.address.country_master)))
@@ -71,6 +78,7 @@ watch(() => form.address.development_master, value => { const row = developments
   <section><h3>Property details</h3><div class="re-form-grid">
     <UiFormField label="Title"><UiInput v-model="form.title" required /></UiFormField><UiFormField label="Reference code"><UiInput v-model="form.reference_code" /></UiFormField>
     <UiFormField label="Property type"><UiSelect v-model="form.property_type" :options="propertyTypes" /></UiFormField><UiFormField v-if="form.source_property_type_label" label="Original source type"><UiInput v-model="form.source_property_type_label" disabled /></UiFormField>
+    <UiFormField label="Parent property" hint="Optional hierarchy, for example Plot > Building > Unit." class="wide"><UiSelect v-model="form.parent" :options="parentOptions" searchable /></UiFormField>
     <UiRadioGroup v-model="form.availability_status" label="Availability" :options="propertyStatuses" /><UiRadioGroup v-model="form.market_scope" label="Market scope" :options="marketScopes" />
     <UiRadioGroup v-model="form.inventory_source_type" label="Inventory type" :options="inventorySourceTypes" /><UiRadioGroup v-model="form.ownership_eligibility" label="Ownership eligibility" :options="ownershipEligibilityOptions" />
     <UiRadioGroup v-model="form.tenure_type" label="Tenure" :options="tenureOptions" /><div class="tracking-field"><span>Inventory tracking</span><UiCheckbox v-model="form.is_tracked" label="Tracked inventory" description="Show this property in tracked inventory views." /></div>

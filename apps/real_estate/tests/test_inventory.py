@@ -6,9 +6,9 @@ from django.utils import timezone
 
 from apps.real_estate.models import (
     ActivityType, ClassificationStatus, InventorySourceType, Listing,
-    OpportunityItem, OwnershipEligibility, Property, PropertyAddress,
+    OpportunityItem, OwnershipEligibility, Party, Property, PropertyAddress,
     PropertyCandidate, PropertyDevelopment, PropertyRequirement,
-    RealEstateOpportunity, TenureType,
+    PropertyPartyAssociation, RealEstateOpportunity, TenureType,
 )
 from apps.integrations.models import AdministrativeArea, City, Country, Locality
 from apps.real_estate.services.candidate_service import promote_candidate
@@ -60,6 +60,61 @@ class RealEstateInventoryTests(TestCase):
         Listing.objects.create(**values)
         with self.assertRaises(IntegrityError), transaction.atomic():
             Listing.objects.create(**values)
+
+    def test_property_hierarchy_is_optional_and_tracks_children(self):
+        parent = Property.objects.create(
+            company=self.company, title='Plot 14', property_type=self.types['plot'],
+        )
+        child = Property.objects.create(
+            company=self.company, title='Building A', property_type=self.types['building'],
+            parent=parent,
+        )
+
+        self.assertEqual(child.parent, parent)
+        self.assertEqual(list(parent.children.all()), [child])
+
+    def test_property_hierarchy_rejects_cross_company_parent_and_cycles(self):
+        foreign = Property.objects.create(
+            company=self.other, title='Foreign plot', property_type=self.other_types['plot'],
+        )
+        child = Property(
+            company=self.company, title='Invalid child', property_type=self.types['building'],
+            parent=foreign,
+        )
+        with self.assertRaises(ValidationError):
+            child.full_clean()
+
+        parent = Property.objects.create(
+            company=self.company, title='Local plot', property_type=self.types['plot'],
+        )
+        child = Property.objects.create(
+            company=self.company, title='Local building', property_type=self.types['building'],
+            parent=parent,
+        )
+        parent.parent = child
+        with self.assertRaises(ValidationError):
+            parent.full_clean()
+
+    def test_property_party_association_is_company_scoped(self):
+        property_record = Property.objects.create(
+            company=self.company, title='Owned villa', property_type=self.types['villa'],
+        )
+        owner = Party.objects.create(company=self.company, first_name='Fatima', last_name='Ali')
+        association = PropertyPartyAssociation(
+            company=self.company, property=property_record, party=owner,
+            relationship_type='current_owner',
+        )
+        association.full_clean()
+        association.save()
+        self.assertEqual(property_record.party_associations.get().party, owner)
+
+        foreign_party = Party.objects.create(company=self.other, first_name='Foreign')
+        invalid = PropertyPartyAssociation(
+            company=self.company, property=property_record, party=foreign_party,
+            relationship_type='broker',
+        )
+        with self.assertRaises(ValidationError):
+            invalid.full_clean()
 
     def test_demand_projects_to_requirement_only(self):
         opportunity = self.opportunity(ActivityType.BUYING)

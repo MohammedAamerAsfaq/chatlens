@@ -45,10 +45,12 @@ class PropertyTypeViewSet(CompanyOwnedViewSet):
 
 class PropertyViewSet(CompanyOwnedViewSet):
     queryset = Property.objects.select_related(
-        'assigned_to', 'property_type', 'address', 'address__country_master',
+        'assigned_to', 'property_type', 'parent', 'address', 'address__country_master',
         'address__administrative_area_master', 'address__city_master',
         'address__locality_master', 'address__development_master',
-    ).prefetch_related('media')
+    ).prefetch_related('media', 'party_associations__party').annotate(
+        child_count=Count('children', distinct=True),
+    )
     serializer_class = PropertySerializer
     read_permission = 'real_estate.properties.view'
     write_permission = 'real_estate.properties.manage'
@@ -68,7 +70,13 @@ class PropertyViewSet(CompanyOwnedViewSet):
         if value := self.request.query_params.get('tenure_type'):
             qs = qs.filter(tenure_type=value)
         if search := self.request.query_params.get('search'):
-            qs = qs.filter(Q(title__icontains=search) | Q(reference_code__icontains=search) | Q(project_name__icontains=search))
+            qs = qs.filter(
+                Q(title__icontains=search) | Q(reference_code__icontains=search)
+                | Q(project_name__icontains=search) | Q(parent__title__icontains=search)
+                | Q(party_associations__party__first_name__icontains=search)
+                | Q(party_associations__party__last_name__icontains=search)
+                | Q(party_associations__party__organization_name__icontains=search)
+            ).distinct()
         allowed = {
             'title', 'property_type', 'bedrooms', 'built_up_area',
             'availability_status', 'inventory_source_type', 'updated_at',
@@ -79,6 +87,13 @@ class PropertyViewSet(CompanyOwnedViewSet):
             field = 'property_type__name' if ordering.lstrip('-') == 'property_type' else ordering.lstrip('-')
             qs = qs.order_by(f'{prefix}{field}')
         return qs
+
+    @action(detail=False, methods=['get'], url_path='hierarchy-options')
+    def hierarchy_options(self, request):
+        rows = super().get_queryset().filter(is_archived=False).order_by('title', 'id').values(
+            'id', 'title', 'reference_code', 'parent_id',
+        )
+        return Response(list(rows))
 
     def perform_destroy(self, instance):
         archived_at = timezone.now()

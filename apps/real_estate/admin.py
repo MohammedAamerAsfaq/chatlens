@@ -4,6 +4,8 @@ from apps.real_estate.models import (
     Listing,
     ListingEmbedding,
     Property,
+    Party,
+    PropertyPartyAssociation,
     PropertyType,
     PropertyTypeFieldDefinition,
     PropertyAddress,
@@ -49,6 +51,20 @@ class PropertyAdmin(admin.ModelAdmin):
     )
     search_fields = ('title', 'reference_code', 'project_name', 'developer')
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(Party)
+class PartyAdmin(admin.ModelAdmin):
+    list_display = ('id', 'company', 'display_name', 'party_kind', 'phone', 'email', 'is_active')
+    list_filter = ('company', 'party_kind', 'is_active')
+    search_fields = ('first_name', 'middle_name', 'last_name', 'organization_name', 'phone', 'email')
+
+
+@admin.register(PropertyPartyAssociation)
+class PropertyPartyAssociationAdmin(admin.ModelAdmin):
+    list_display = ('id', 'company', 'property', 'party', 'relationship_type', 'is_active')
+    list_filter = ('company', 'relationship_type', 'is_active')
+    search_fields = ('property__title', 'party__first_name', 'party__last_name', 'party__organization_name')
 
 
 @admin.register(Listing)

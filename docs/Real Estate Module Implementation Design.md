@@ -661,6 +661,10 @@ The operational model intentionally keeps two records independent:
 
 `Listing` remains a broker-approved commercial record for a known property's sale or lease terms. Incoming supply does not automatically become a listing. `PropertyRequirement` and `PropertyCandidate` remain temporary compatibility projections so the established embedding and matching pipeline continues to operate during gradual migration; they are not separate broker-facing concepts.
 
+Properties can optionally form a self-referencing hierarchy. A plot may contain a building and a building may contain a unit, but the application does not enforce a fixed sequence because valid structures vary by market and property type. Every parent and child must belong to the same company, self-links and cycles are rejected, and an unlinked property remains fully valid.
+
+Property ownership and related people are represented through a directly company-owned `Party` master and `PropertyPartyAssociation` records. A party stores a minimal person or organization identity, contact details, and address. Associations attach one or more parties to a property using an explicit role such as current owner, previous owner, landlord, tenant, authorized representative, developer, broker, or other. This preserves relationship history without copying owner details into the physical property record.
+
 ### 10.2 Prospect path interaction pattern
 
 Do not introduce a separate step-by-step wizard. Follow the existing Trading interaction pattern:
@@ -979,6 +983,14 @@ Viewings, offers, deals, campaign automation, and advanced analytics should foll
 - Added a data migration that converts existing requirements and candidates into opportunity items without modifying their source records.
 - Added regression coverage for multi-item extraction, company isolation, demand safeguards, explicit supply conversion, absence of implicit listings, and property activity aggregation.
 
+### Property hierarchy and parties completed on 22 October 2026
+
+- Added optional, cycle-safe property parent/child relationships without enforcing a fixed Plot/Building/Unit sequence.
+- Added a directly company-owned Party master for people and organizations with basic identity, contact, and address details.
+- Added role-based, company-isolated property-party associations so properties can retain current owners and other relationships independently.
+- Added hierarchy selection, hierarchy context, Party master management, and property association controls to the Properties UI.
+- Listings and Candidate Review remain implemented and directly addressable, but their navigation entries are hidden while the current workflow focuses on Opportunity Board and Properties.
+
 ### Real Estate embedding foundation completed on 12 October 2026
 
 - Added four separate, directly company-owned vector tables: `real_estate_property_embedding`, `real_estate_listing_embedding`, `real_estate_requirement_embedding`, and `real_estate_candidate_embedding`.
@@ -1055,9 +1067,9 @@ For a company with `industry_type = real_estate`:
 1. Switching to the company opens `/real-estate`, which displays the company-scoped four-lane Opportunity Board.
 2. The sidebar shows Real Estate and hides Trading, Automation, Campaigns, Trading Reports, V2 settings, and Trading parsing logs.
 3. Properties can be created, edited, archived, filtered, exported, and assigned address/media records.
-4. Listings remain separate from physical properties and can be created, edited, verified, filtered, or closed.
+4. Listings remain separate from physical properties. Their route remains available, but its navigation entry is temporarily hidden.
 5. CSV import requires preview before import, supports correction through the shared property editor, revalidates corrections server-side, and reports validation and duplicate problems.
-6. Candidate Review shows AI-extracted supply candidates without treating them as trusted inventory.
+6. Candidate Review remains available as an implementation route, but its navigation entry is temporarily hidden while broker review is consolidated around the Opportunity Board.
 7. Promotion creates a draft property/listing record; merge links to an existing listing; rejection preserves the audit trail.
 8. Task Operations shows the five Real Estate queues and their task lifecycle events.
 9. Properties shows the combined Real Estate embedding count. Repair queues missing, skipped, or failed property, listing, requirement, and candidate vectors.
@@ -1066,6 +1078,8 @@ For a company with `industry_type = real_estate`:
 12. The Opportunity Board separates Buying, Selling, Leasing Inquiries, and Leasing Offers, supports server-side search/status filters, independently loads each lane, and shows every extracted opportunity item without creating duplicate board records.
 13. Supply items can be linked to an existing property or used to create a draft Floating property; demand items cannot create inventory, and neither action creates a listing.
 14. A property's Market Activity action shows all linked opportunity appearances and four-lane totals.
+15. A property may optionally select another same-company property as its parent; cycles and cross-company links are rejected.
+16. The Parties action maintains company-owned people and organizations, while each property can associate multiple parties with explicit roles such as Current owner.
 
 ### Remaining phases
 

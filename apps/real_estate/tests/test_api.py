@@ -11,7 +11,7 @@ from rest_framework.test import APIClient
 from openpyxl import Workbook
 
 from apps.real_estate.models import (
-    ActivityType, ClassificationStatus, Listing, OpportunityItem, Property,
+    ActivityType, ClassificationStatus, Listing, OpportunityItem, Party, Property,
     PropertyCandidate, PropertyRequirement, PropertyType,
     RealEstateMockSourceRecord, RealEstateOpportunity, RealEstatePromptConfig,
 )
@@ -81,6 +81,42 @@ class RealEstateApiTests(TestCase):
         }, format='json')
         self.assertEqual(response.status_code, 201, response.json())
         self.assertEqual(Property.objects.get(pk=response.json()['id']).company, self.company)
+
+    def test_property_hierarchy_options_are_registered_and_company_scoped(self):
+        visible = Property.objects.create(
+            company=self.company, title='Local building', property_type=self.types['building'],
+        )
+        Property.objects.create(
+            company=self.other, title='Foreign building', property_type=self.other_types['building'],
+        )
+
+        response = self.client.get('/api/real-estate/properties/hierarchy-options/')
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json(), [{
+            'id': visible.pk,
+            'title': 'Local building',
+            'reference_code': '',
+            'parent_id': None,
+        }])
+
+    def test_party_endpoints_are_company_scoped_and_reject_foreign_links(self):
+        property_record = Property.objects.create(
+            company=self.company, title='Scoped villa', property_type=self.types['villa'],
+        )
+        visible = Party.objects.create(company=self.company, first_name='Visible owner')
+        hidden = Party.objects.create(company=self.other, first_name='Hidden owner')
+
+        response = self.client.get('/api/real-estate/parties/')
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual([row['id'] for row in response.json()['results']], [visible.pk])
+
+        response = self.client.post('/api/real-estate/property-party-associations/', {
+            'property': property_record.pk,
+            'party': hidden.pk,
+            'relationship_type': 'current_owner',
+        }, format='json')
+        self.assertEqual(response.status_code, 400, response.json())
 
     def test_mock_source_preview_returns_model_shaped_rows_without_persisting(self):
         workbook = Workbook()
