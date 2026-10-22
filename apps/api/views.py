@@ -14,7 +14,7 @@ from django.contrib.auth.models import User
 from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 from django.utils.dateparse import parse_date, parse_datetime
 from django.utils.timezone import now
 from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
@@ -957,7 +957,9 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = scope_queryset_to_visible_accounts(
-            WhatsAppChat.objects.select_related('contact', 'group').order_by('-last_message_at'),
+            WhatsAppChat.objects.select_related('contact', 'group').order_by(
+                F('last_message_at').desc(nulls_last=True), '-id',
+            ),
             self.request.user,
         )
         account_id = self.request.query_params.get('account')

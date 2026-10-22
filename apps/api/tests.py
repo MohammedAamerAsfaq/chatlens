@@ -267,6 +267,28 @@ class TenantScopedApiTests(TestCase):
         self.assertIs(rows[announcement_chat.id]['is_announcement'], True)
         self.assertIs(rows[regular_chat.id]['is_announcement'], False)
 
+    def test_chat_list_places_empty_chats_after_active_chats(self):
+        active_chat = WhatsAppChat.objects.create(
+            account=self.account_a,
+            wa_chat_id='971500000071@s.whatsapp.net',
+            chat_type='individual',
+            name='Active chat',
+            last_message_at=now(),
+        )
+        empty_chat = WhatsAppChat.objects.create(
+            account=self.account_a,
+            wa_chat_id='971500000072@s.whatsapp.net',
+            chat_type='individual',
+            name='Empty chat',
+        )
+        self.client.force_authenticate(self.user_a)
+
+        response = self.client.get(f'/api/chats/?account={self.account_a.id}')
+
+        self.assertEqual(response.status_code, 200)
+        chat_ids = [row['id'] for row in response.json()]
+        self.assertLess(chat_ids.index(active_chat.id), chat_ids.index(empty_chat.id))
+
     def test_selling_offer_bulk_customer_selection_matches_buying_options(self):
         customer = WhatsAppContact.objects.create(
             account=self.account_a,

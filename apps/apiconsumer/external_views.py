@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from django.db.models import Count, Max, Min, Q
+from django.db.models import Count, F, Max, Min, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import status, viewsets
@@ -98,7 +98,7 @@ class ChatViewSet(ExternalApiMixin, viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         return WhatsAppChat.objects.filter(
             account__communication_account__company=self.request.auth.company,
-        ).order_by('-last_message_at')
+        ).order_by(F('last_message_at').desc(nulls_last=True), '-id')
 
 
 class MessageViewSet(ExternalApiMixin, viewsets.ReadOnlyModelViewSet):
