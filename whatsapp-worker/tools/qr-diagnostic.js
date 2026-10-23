@@ -1,9 +1,9 @@
 'use strict';
 
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const fs = require('fs');
-const path = require('path');
 const pino = require('pino');
 const QRCode = require('qrcode');
 const { loadBaileys } = require('../src/baileys-loader');
