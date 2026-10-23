@@ -35,6 +35,9 @@
       <label class="toggle-label">
         <input type="checkbox" v-model="showInactive" /> Show inactive
       </label>
+      <label class="toggle-label">
+        <input type="checkbox" v-model="inStockOnly" /> In stock only
+      </label>
     </div>
 
     <!-- Smart Search — embedding-based, separate from the plain filter above. Handles
@@ -636,6 +639,7 @@ import { tradingApi } from '../api/index.js'
 const products    = ref([])
 const search      = ref('')
 const showInactive = ref(false)
+const inStockOnly  = ref(false)
 const saving      = ref(false)
 
 // Smart Search — separate embedding-based search, additive to the plain filter above.
@@ -769,6 +773,7 @@ function formatMoney(n) {
 const filtered = computed(() => {
   let list = products.value
   if (!showInactive.value) list = list.filter(p => p.is_active)
+  if (inStockOnly.value) list = list.filter(p => Number(p.qty ?? 0) > 0)
   if (search.value.trim()) {
     const q = search.value.toLowerCase()
     list = list.filter(p =>
