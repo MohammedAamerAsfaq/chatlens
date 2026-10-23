@@ -200,6 +200,11 @@ export const taskQueueApi = {
   stopWorker: (workerId) => http.post(`/task-queue/workers/${encodeURIComponent(workerId)}/stop/`),
 }
 
+export const aiOperationsApi = {
+  overview: () => http.get('/ai-operations/overview/'),
+  records: (params = {}) => http.get('/ai-operations/records/', { params }),
+}
+
 export const accountsApi = {
   list: (params) => http.get('/accounts/', { params }),
   create: (data) => http.post('/accounts/', data),

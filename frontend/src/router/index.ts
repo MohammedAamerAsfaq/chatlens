@@ -39,6 +39,7 @@ import GroupSellingOffersView from '../views/GroupSellingOffersView.vue'
 import TenantAdminView from '../views/TenantAdminView.vue'
 import V2MatchTrainingView from '../views/V2MatchTrainingView.vue'
 import TaskOperationsView from '../views/TaskOperationsView.vue'
+import AIOperationsView from '../views/AIOperationsView.vue'
 import TaskQueueSettingsView from '../views/TaskQueueSettingsView.vue'
 import KiwiRouterView from '../views/KiwiRouterView.vue'
 import InquiryForwardingView from '../views/InquiryForwardingView.vue'
@@ -105,6 +106,7 @@ const router = createRouter({
     { path: '/tenant-admin', name: 'tenant-admin', component: TenantAdminView, meta: { title: 'Tenant Admin' } },
     { path: '/v2-match-training', name: 'v2-match-training', component: V2MatchTrainingView, meta: { title: 'V2 Match Training', industries: ['trading'] } },
     { path: '/task-operations', name: 'task-operations', component: TaskOperationsView, meta: { title: 'Task Operations' } },
+    { path: '/ai-operations', name: 'ai-operations', component: AIOperationsView, meta: { title: 'AI Operations', requiresCompanyAdmin: true } },
     { path: '/task-queues', name: 'task-queues', component: TaskQueueSettingsView, meta: { title: 'Task & Queues' } },
     { path: '/kiwi-router', name: 'kiwi-router', component: KiwiRouterView, meta: { title: 'KiwiRouter' } },
     { path: '/inquiry-forwarding', name: 'inquiry-forwarding', component: InquiryForwardingView, meta: { title: 'Inquiry Forwarding', industries: ['trading'] } },

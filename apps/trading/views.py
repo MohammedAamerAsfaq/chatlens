@@ -42,7 +42,7 @@ from .serializers import (
     AutomatedPriceCaptureSerializer,
     InquiryForwardingRuleSerializer,
 )
-from apps.tenancy.permissions import TenantRolePermission
+from apps.tenancy.permissions import CompanyAdminPermission, TenantRolePermission
 from .services.product_cache import invalidate as invalidate_product_cache
 
 logger = logging.getLogger(__name__)
@@ -2634,7 +2634,7 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
 
 
 class AgentCallLogViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyAdminPermission]
 
     def get_queryset(self):
         qs = AgentCallLog.objects.filter(
@@ -2702,7 +2702,7 @@ class AiParsingLogPagination(PageNumberPagination):
 
 class AiParsingLogViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AiParsingLogSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyAdminPermission]
     pagination_class = AiParsingLogPagination
 
     def get_queryset(self):
@@ -2721,7 +2721,7 @@ class AiParsingLogViewSet(viewsets.ReadOnlyModelViewSet):
 
 class AiParseV2LogViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AiParseV2LogSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyAdminPermission]
     pagination_class = AiParsingLogPagination
 
     def get_queryset(self):

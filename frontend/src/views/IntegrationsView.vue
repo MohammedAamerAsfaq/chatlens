@@ -56,7 +56,17 @@ const levelOptions = [
   { value: 'city', label: 'Cities' },
   { value: 'locality', label: 'Localities / communities' },
 ]
-const countryOptions = [{ value: 'AE', label: 'United Arab Emirates (AE)' }]
+const countryOptions = [
+  { value: 'AE', label: 'United Arab Emirates (AE)' },
+  { value: 'SA', label: 'Saudi Arabia (SA)' },
+  { value: 'QA', label: 'Qatar (QA)' },
+  { value: 'KW', label: 'Kuwait (KW)' },
+  { value: 'BH', label: 'Bahrain (BH)' },
+  { value: 'OM', label: 'Oman (OM)' },
+]
+const selectedCountry = computed(() => (
+  countryOptions.find(option => option.value === countryCode.value) || countryOptions[0]
+))
 const locationColumns = computed(() => {
   const common = [
     { key: 'name', label: 'Name', sortable: false },
@@ -309,13 +319,13 @@ onBeforeUnmount(() => window.clearInterval(pollTimer))
           </template>
         </UiCard>
 
-        <UiCard title="Geography synchronization" subtitle="Start with UAE, then add another ISO country code when regional expansion is required.">
+        <UiCard title="Geography synchronization" subtitle="Synchronize canonical geography for the six Gulf Cooperation Council countries.">
           <UiFormField label="Country">
             <UiSelect v-model="countryCode" :options="countryOptions" />
           </UiFormField>
           <UiNotice tone="info">Sync runs in the durable <strong>integrations</strong> queue. Existing records are updated in place; missing source records are deactivated, not deleted.</UiNotice>
           <div class="integration-actions">
-            <UiButton variant="primary" :disabled="!overview?.can_manage_platform || !overview?.geonames?.is_enabled || !!action || hasActiveRun" @click="startSync">{{ action === 'sync' ? 'Queueing...' : hasActiveRun ? 'Sync in progress' : 'Sync UAE geography' }}</UiButton>
+            <UiButton variant="primary" :disabled="!overview?.can_manage_platform || !overview?.geonames?.is_enabled || !!action || hasActiveRun" @click="startSync">{{ action === 'sync' ? 'Queueing...' : hasActiveRun ? 'Sync in progress' : `Sync ${selectedCountry.label} geography` }}</UiButton>
           </div>
         </UiCard>
       </div>

@@ -7,11 +7,12 @@ from apps.ai_providers.models import AIProviderConfig, KiwiRouter
 from apps.real_estate.models import RealEstateAgentCallLog, RealEstatePromptConfig
 from apps.real_estate.services.prompts import DEFAULT_PROMPTS
 from apps.tenancy.models import Company
+from apps.tenancy.permissions import CompanyAdminPermission
 from apps.tenancy.services.access import default_company_for_user
 
 
 class RealEstatePromptViewSet(viewsets.GenericViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyAdminPermission]
 
     def company(self):
         company = default_company_for_user(self.request.user)

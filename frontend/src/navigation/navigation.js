@@ -88,6 +88,7 @@ export const settingsNavigation = [
 ]
 
 export const logsNavigation = [
+  { label: 'AI Operations', to: '/ai-operations', route: 'ai-operations', requiresCompanyAdmin: true },
   { label: 'Activity', to: '/activity', route: 'activity' },
   { label: 'Message Logs', to: '/message-logs', route: 'message-logs' },
   { label: 'Dropped', to: '/dropped-messages', route: 'dropped-messages' },

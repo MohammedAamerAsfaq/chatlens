@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { industryHomePath, navigationItemVisible, primaryNavigation, settingsNavigation } from '../navigation'
+import { industryHomePath, logsNavigation, navigationItemVisible, primaryNavigation, settingsNavigation } from '../navigation'
 
 const context = industry => ({ industry, canManageTenants: false, hasPermission: () => true })
 
@@ -47,5 +47,12 @@ describe('company-admin-gated navigation', () => {
   it('shows API Consumer settings to company admins, including control-account admins', () => {
     const visible = settingsNavigation.filter(item => navigationItemVisible(item, adminContext(true)))
     expect(visible.map(item => item.route)).toContain('api-consumer-settings')
+  })
+
+  it('shows AI Operations only to company admins', () => {
+    const adminLogs = logsNavigation.filter(item => navigationItemVisible(item, adminContext(true)))
+    const memberLogs = logsNavigation.filter(item => navigationItemVisible(item, adminContext(false)))
+    expect(adminLogs.map(item => item.route)).toContain('ai-operations')
+    expect(memberLogs.map(item => item.route)).not.toContain('ai-operations')
   })
 })
