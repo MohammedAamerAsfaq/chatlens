@@ -7,9 +7,12 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from apps.real_estate.models import RealEstateAgentCallLog, RealEstateParseLog
 from apps.tenancy.models import CommunicationAccount, Company, CompanyMembership, ConnectionProvider
 from apps.trading.models import Inquiry, InquiryProduct, Product
-from apps.whatsapp_bridge.models import WhatsAppAccount
+from apps.whatsapp_bridge.models import (
+    ChatType, MessageDirection, MessageType, WhatsAppAccount, WhatsAppChat, WhatsAppContact, WhatsAppMessage,
+)
 
 from .models import ApiKey, WebhookDeliveryAttempt, WebhookSubscription
 from .task_handlers import deliver_webhook
@@ -598,3 +601,129 @@ class ExternalDiagnosticsViewTests(TestCase):
 
         response = self.client.get(f'{self.url}?hours=240', HTTP_AUTHORIZATION=f'Api-Key {self.secret}')
         self.assertEqual(response.json()['baileys_events']['window_total'], 1)
+
+
+class ExternalRealEstateDiagnosticsViewTests(TestCase):
+    def setUp(self):
+        self.company = _make_company(name='Diag Real Estate', slug='diag-real-estate')
+        self.company.industry_type = Company.INDUSTRY_REAL_ESTATE
+        self.company.save(update_fields=['industry_type'])
+        self.owner = User.objects.create_user(username='owner-re-diag')
+        self.account = _make_account(self.company, self.owner)
+        self.chat = WhatsAppChat.objects.create(
+            account=self.account, wa_chat_id='971500000002@s.whatsapp.net', chat_type=ChatType.INDIVIDUAL,
+        )
+        self.message = WhatsAppMessage.objects.create(
+            account=self.account, chat=self.chat, provider_message_id='re-diag-message-1',
+            direction=MessageDirection.INBOUND, message_type=MessageType.TEXT,
+            message_text='Looking for a 2BR in Marina.', message_time=timezone.now(),
+        )
+        self.api_key, self.secret = ApiKey.generate(
+            company=self.company, name='RE Diag key', scopes=[ApiKey.SCOPE_DATA_READ],
+        )
+        self.client = APIClient()
+        self.diagnostics_url = reverse('external-real-estate-diagnostics')
+        self.parse_logs_url = reverse('external-real-estate-parse-log-list')
+        self.agent_calls_url = reverse('external-real-estate-agent-call-list')
+
+    def _auth(self):
+        return {'HTTP_AUTHORIZATION': f'Api-Key {self.secret}'}
+
+    def test_requires_data_read_scope(self):
+        _, secret = ApiKey.generate(company=self.company, name='No scopes', scopes=[])
+        response = self.client.get(self.diagnostics_url, HTTP_AUTHORIZATION=f'Api-Key {secret}')
+        self.assertEqual(response.status_code, 403)
+
+    def test_diagnostics_overview_scoped_to_own_company(self):
+        other_company = _make_company(name='Other RE Co', slug='other-re-co')
+        other_company.industry_type = Company.INDUSTRY_REAL_ESTATE
+        other_company.save(update_fields=['industry_type'])
+
+        RealEstateParseLog.objects.create(
+            company=self.company, message=self.message, account=self.account, chat=self.chat,
+            status=RealEstateParseLog.STATUS_ERROR, gate_decision='real_estate', error='boom',
+        )
+        RealEstateAgentCallLog.objects.create(
+            company=self.company, purpose=RealEstateAgentCallLog.PURPOSE_GATE,
+            provider='openrouter', model='test-model', success=False, error='call failed',
+        )
+        RealEstateAgentCallLog.objects.create(
+            company=other_company, purpose=RealEstateAgentCallLog.PURPOSE_GATE,
+            provider='openrouter', model='test-model', success=True,
+        )
+
+        response = self.client.get(self.diagnostics_url, **self._auth())
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['parse_logs']['window_total'], 1)
+        self.assertEqual(body['parse_logs']['by_status'], {'error': 1})
+        self.assertEqual(len(body['parse_logs']['recent_errors']), 1)
+        self.assertEqual(body['agent_calls']['window_total'], 1)
+        self.assertEqual(body['agent_calls']['by_purpose']['gate']['failures'], 1)
+
+    def test_stuck_in_progress_detection(self):
+        stuck = RealEstateParseLog.objects.create(
+            company=self.company, message=self.message, account=self.account, chat=self.chat,
+            status=RealEstateParseLog.STATUS_GATE_RUNNING,
+        )
+        RealEstateParseLog.objects.filter(pk=stuck.pk).update(
+            created_at=timezone.now() - timezone.timedelta(minutes=30),
+        )
+        response = self.client.get(self.diagnostics_url, **self._auth())
+        self.assertEqual(response.json()['parse_logs']['stuck_in_progress']['count'], 1)
+
+    def test_parse_log_viewset_returns_full_cycle_detail(self):
+        RealEstateParseLog.objects.create(
+            company=self.company, message=self.message, account=self.account, chat=self.chat,
+            status=RealEstateParseLog.STATUS_COMPLETE, gate_decision='real_estate',
+            gate_request={'messages': ['x']}, extraction_result={'decision': 'buying'},
+        )
+        response = self.client.get(self.parse_logs_url, **self._auth())
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['count'], 1)
+        row = body['results'][0]
+        self.assertEqual(row['message_id'], self.message.pk)
+        self.assertEqual(row['gate_request'], {'messages': ['x']})
+        self.assertEqual(row['extraction_result'], {'decision': 'buying'})
+
+    def test_parse_log_viewset_filters_by_status(self):
+        RealEstateParseLog.objects.create(
+            company=self.company, message=self.message, account=self.account, chat=self.chat,
+            status=RealEstateParseLog.STATUS_COMPLETE,
+        )
+        response = self.client.get(f'{self.parse_logs_url}?status=error', **self._auth())
+        self.assertEqual(response.json()['count'], 0)
+
+    def test_agent_call_viewset_excludes_other_companies(self):
+        other_company = _make_company(name='Other RE Co 2', slug='other-re-co-2')
+        other_company.industry_type = Company.INDUSTRY_REAL_ESTATE
+        other_company.save(update_fields=['industry_type'])
+        RealEstateAgentCallLog.objects.create(
+            company=self.company, purpose=RealEstateAgentCallLog.PURPOSE_EXTRACTION,
+            provider='openrouter', model='test-model', success=True,
+        )
+        RealEstateAgentCallLog.objects.create(
+            company=other_company, purpose=RealEstateAgentCallLog.PURPOSE_EXTRACTION,
+            provider='openrouter', model='test-model', success=True,
+        )
+        response = self.client.get(self.agent_calls_url, **self._auth())
+        body = response.json()
+        self.assertEqual(body['count'], 1)
+        self.assertEqual(body['results'][0]['purpose'], 'extraction')
+
+    def test_agent_call_viewset_filters_by_purpose_and_success(self):
+        RealEstateAgentCallLog.objects.create(
+            company=self.company, purpose=RealEstateAgentCallLog.PURPOSE_GATE,
+            provider='openrouter', model='test-model', success=True,
+        )
+        RealEstateAgentCallLog.objects.create(
+            company=self.company, purpose=RealEstateAgentCallLog.PURPOSE_EXTRACTION,
+            provider='openrouter', model='test-model', success=False,
+        )
+        response = self.client.get(f'{self.agent_calls_url}?purpose=gate', **self._auth())
+        self.assertEqual(response.json()['count'], 1)
+
+        response = self.client.get(f'{self.agent_calls_url}?success=false', **self._auth())
+        self.assertEqual(response.json()['count'], 1)
+        self.assertEqual(response.json()['results'][0]['purpose'], 'extraction')
