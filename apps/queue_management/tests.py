@@ -218,9 +218,13 @@ class DurableTaskQueueTests(TestCase):
             payload={'version': 1, 'value': 'scheduled'}, schedule_type=BackgroundTaskSchedule.TYPE_ONE_OFF,
             next_run_at=timezone.now() - timedelta(seconds=1),
         )
-        result = enqueue_due_schedules()
+        # result['enqueued'] is a global count across every due schedule, not just this
+        # one (other schedules — e.g. platform maintenance ones seeded by migrations —
+        # can legitimately also be due at test time), so assert on this schedule's own
+        # effects instead of the shared counter.
+        enqueue_due_schedules()
         schedule.refresh_from_db()
-        self.assertEqual(result['enqueued'], 1)
+        self.assertTrue(BackgroundTask.objects.filter(correlation_id__startswith=f'schedule:{schedule.pk}:').exists())
         self.assertFalse(schedule.is_active)
         self.assertIsNone(schedule.next_run_at)
 

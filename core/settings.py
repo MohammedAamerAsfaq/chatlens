@@ -177,6 +177,13 @@ WHATSAPP_CAPACITY_MAX_AGE_SECONDS = int(os.getenv('WHATSAPP_CAPACITY_MAX_AGE_SEC
 EMBEDDING_DIMENSIONS = 512  # voyage-3-lite fixed output size
 EMBEDDING_BATCH_SIZE = int(os.getenv('EMBEDDING_BATCH_SIZE', '128'))  # max texts per Voyage request
 
+# --- BackgroundTask retention (apps/task_management maintenance.prune_background_tasks) ---
+# Terminal rows older than these windows are deleted. Failed tasks get a longer window
+# since they're worth keeping around for debugging; succeeded/cancelled ones are just
+# routine noise (e.g. interval-scheduled scans that found nothing to do every run).
+BACKGROUND_TASK_RETENTION_DAYS_SUCCEEDED = int(os.getenv('BACKGROUND_TASK_RETENTION_DAYS_SUCCEEDED', '7'))
+BACKGROUND_TASK_RETENTION_DAYS_FAILED = int(os.getenv('BACKGROUND_TASK_RETENTION_DAYS_FAILED', '30'))
+
 # --- Read-first controls (Phase 1: no sending) ---
 SEND_MESSAGE_ENABLED = False
 AUTO_REPLY_ENABLED = False

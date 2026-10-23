@@ -154,6 +154,58 @@ def reconcile_stale_v2_pass1(payload, context):
     return {'reconciled': _reconcile_stale_pass1_logs()}
 
 
+_PRUNE_BATCH_SIZE = 1000
+# Caps rows deleted per invocation so one run of a backlog (e.g. the first run after
+# this task is deployed against years of accumulated history) never holds the worker
+# for too long. The interval schedule re-runs this task regularly, so a large backlog
+# just gets chipped away over several runs instead of needing to finish in one.
+_PRUNE_MAX_BATCHES_PER_RUN = 50
+
+
+def _delete_in_batches(queryset):
+    from apps.task_management.models import BackgroundTask
+
+    deleted_total = 0
+    for _ in range(_PRUNE_MAX_BATCHES_PER_RUN):
+        ids = list(queryset.values_list('id', flat=True)[:_PRUNE_BATCH_SIZE])
+        if not ids:
+            break
+        BackgroundTask.objects.filter(id__in=ids).delete()
+        deleted_total += len(ids)
+        if len(ids) < _PRUNE_BATCH_SIZE:
+            break
+    return deleted_total
+
+
+@task_handler(key='maintenance.prune_background_tasks', default_queue='default', payload_validator=validate_any_v1_payload)
+def prune_background_tasks(payload, context):
+    """Delete terminal BackgroundTask rows past their retention window.
+
+    Rows in an active status (pending/claimed/running/retrying) are never touched,
+    regardless of age — this only clears out history that's already done its job.
+    BackgroundTaskEvent rows cascade-delete with their parent task automatically.
+    """
+    from datetime import timedelta
+
+    from django.conf import settings
+    from django.utils import timezone
+
+    from apps.task_management.models import BackgroundTask
+
+    now = timezone.now()
+    succeeded_cutoff = now - timedelta(days=settings.BACKGROUND_TASK_RETENTION_DAYS_SUCCEEDED)
+    failed_cutoff = now - timedelta(days=settings.BACKGROUND_TASK_RETENTION_DAYS_FAILED)
+
+    deleted_succeeded = _delete_in_batches(BackgroundTask.objects.filter(
+        status__in=(BackgroundTask.STATUS_SUCCEEDED, BackgroundTask.STATUS_CANCELLED),
+        created_at__lt=succeeded_cutoff,
+    ))
+    deleted_failed = _delete_in_batches(BackgroundTask.objects.filter(
+        status=BackgroundTask.STATUS_FAILED, created_at__lt=failed_cutoff,
+    ))
+    return {'deleted_succeeded_or_cancelled': deleted_succeeded, 'deleted_failed': deleted_failed}
+
+
 @task_handler(key='reports.generate', default_queue='reports', payload_validator=validate_any_v1_payload, retry_safe=False)
 def generate_report(payload, context):
     return _not_migrated(payload, context)
