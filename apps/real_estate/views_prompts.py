@@ -4,7 +4,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.ai_providers.models import AIProviderConfig, KiwiRouter
-from apps.real_estate.models import RealEstateAgentCallLog, RealEstatePromptConfig
+from apps.real_estate.models import (
+    RealEstateAgentCallLog, RealEstateOpportunity, RealEstatePromptConfig, RealEstateSettings,
+)
 from apps.real_estate.services.prompts import DEFAULT_PROMPTS
 from apps.tenancy.models import Company
 from apps.tenancy.permissions import CompanyAdminPermission
@@ -13,6 +15,15 @@ from apps.tenancy.services.access import default_company_for_user
 
 class RealEstatePromptViewSet(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, CompanyAdminPermission]
+    # Reading the card display config must work for every board viewer so the board
+    # actually renders the admin's chosen layout for everyone, not just admins —
+    # only saving changes is admin-gated.
+    _read_only_for_any_member = {('card_field_config', 'GET'), ('card_action_config', 'GET')}
+
+    def get_permissions(self):
+        if (self.action, self.request.method) in self._read_only_for_any_member:
+            return [IsAuthenticated()]
+        return super().get_permissions()
 
     def company(self):
         company = default_company_for_user(self.request.user)
@@ -141,3 +152,47 @@ class RealEstatePromptViewSet(viewsets.GenericViewSet):
             'success': row.success, 'error': row.error, 'wa_message_id': row.wa_message_id,
             'created_at': row.created_at.isoformat(), 'input_cost': None, 'output_cost': None,
         } for row in rows[:200]])
+
+    @action(detail=False, methods=['get', 'put'], url_path='card-field-config')
+    def card_field_config(self, request):
+        """Ordered list of field ids (see frontend cardFields.js registry) to show on
+        Opportunity Board cards. Opaque ids — the frontend registry is the single
+        source of truth for what each one means and renders as; this just persists
+        the admin's chosen subset/order per company."""
+        company = self.company()
+        if not company:
+            return Response({'detail': 'A Real Estate company is required.'}, status=403)
+        settings_row, _ = RealEstateSettings.objects.get_or_create(company=company)
+        if request.method == 'GET':
+            return Response({'fields': settings_row.card_field_config})
+        fields = request.data.get('fields')
+        if not isinstance(fields, list) or not all(isinstance(value, str) for value in fields):
+            return Response({'error': 'fields must be a list of strings'}, status=400)
+        settings_row.card_field_config = fields
+        settings_row.save(update_fields=['card_field_config', 'updated_at'])
+        return Response({'fields': settings_row.card_field_config})
+
+    @action(detail=False, methods=['get', 'put'], url_path='card-action-config')
+    def card_action_config(self, request):
+        """Which RealEstateOpportunity.status values get a quick-set button in the card
+        footer, in what order, and how many render inline before the rest collapse into
+        a 'More' dropdown. No new status/action concept — these are the opportunity's
+        existing status values, just exposed as one-click buttons."""
+        company = self.company()
+        if not company:
+            return Response({'detail': 'A Real Estate company is required.'}, status=403)
+        settings_row, _ = RealEstateSettings.objects.get_or_create(company=company)
+        if request.method == 'GET':
+            return Response(settings_row.card_action_config or {'statuses': [], 'max_inline': 2})
+        statuses = request.data.get('statuses')
+        max_inline = request.data.get('max_inline', 2)
+        if not isinstance(statuses, list) or not all(isinstance(value, str) for value in statuses):
+            return Response({'error': 'statuses must be a list of strings'}, status=400)
+        valid_statuses = {value for value, _ in RealEstateOpportunity.STATUS_CHOICES}
+        if not set(statuses) <= valid_statuses:
+            return Response({'error': 'statuses contains an unknown status value'}, status=400)
+        if not isinstance(max_inline, int) or max_inline < 0:
+            return Response({'error': 'max_inline must be a non-negative integer'}, status=400)
+        settings_row.card_action_config = {'statuses': statuses, 'max_inline': max_inline}
+        settings_row.save(update_fields=['card_action_config', 'updated_at'])
+        return Response(settings_row.card_action_config)

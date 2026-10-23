@@ -41,6 +41,16 @@ class RealEstateSettings(models.Model):
         default=0.7000,
         validators=[MinValueValidator(0), MaxValueValidator(1)],
     )
+    # Ordered list of field ids from frontend/src/features/realEstate/cardFields.js to
+    # show on Opportunity Board cards. Empty list means "use the card's built-in default
+    # layout" — this is deliberately a plain list of opaque ids rather than a richer
+    # structure so the frontend registry stays the single source of truth for what each
+    # id means/renders as.
+    card_field_config = models.JSONField(default=list, blank=True)
+    # {"statuses": [...RealEstateOpportunity.STATUS_CHOICES ids], "max_inline": int} —
+    # which status values get a quick-set button in the card footer, in what order, and
+    # how many render inline before the rest collapse into a "More" dropdown.
+    card_action_config = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -1,30 +1,29 @@
 <!-- eslint-disable vue/block-lang -->
 <script setup>
-import UiButton from '@/components/ui/UiButton.vue'
+import { computed } from 'vue'
+import UiPagination from '@/components/ui/UiPagination.vue'
 import OpportunityCard from './OpportunityCard.vue'
 
-defineProps({
+const props = defineProps({
   lane: { type: Object, required: true },
   state: { type: Object, required: true },
   expanded: { type: Boolean, default: false },
+  columns: { type: Number, default: 1 },
+  pageSize: { type: Number, default: 20 },
+  fieldIds: { type: Array, default: undefined },
+  actionConfig: { type: Object, default: undefined },
 })
-defineEmits(['load-more', 'open'])
+defineEmits(['change-page', 'open', 'set-status'])
+
+const totalPages = computed(() => Math.max(1, Math.ceil(props.state.total / props.pageSize)))
 </script>
 
 <template>
   <section
     class="opportunity-lane"
     :class="[`opportunity-lane--${lane.tone}`, { 'is-expanded': expanded }]"
+    :style="{ '--lane-columns': columns }"
   >
-    <header class="opportunity-lane__header">
-      <div>
-        <p>{{ lane.shortLabel }}</p>
-        <h2>{{ lane.label }} <span>{{ state.total }}</span></h2>
-        <small>{{ lane.description }}</small>
-      </div>
-      <i class="opportunity-lane__mark" aria-hidden="true"></i>
-    </header>
-
     <div class="opportunity-lane__body">
       <div v-if="state.loading && !state.rows.length" class="opportunity-lane__empty">Loading records...</div>
       <div v-else-if="state.error" class="opportunity-lane__empty is-error">{{ state.error }}</div>
@@ -34,18 +33,22 @@ defineEmits(['load-more', 'open'])
         :key="row.id"
         :opportunity="row"
         :lane="lane"
+        :field-ids="fieldIds"
+        :action-config="actionConfig"
         @open="$emit('open', $event)"
+        @set-status="(opportunity, status) => $emit('set-status', opportunity, status)"
       />
     </div>
 
-    <footer v-if="state.rows.length < state.total" class="opportunity-lane__footer">
-      <UiButton size="small" :disabled="state.loading" @click="$emit('load-more', lane)">
-        {{ state.loading ? 'Loading...' : `Load more (${state.total - state.rows.length})` }}
-      </UiButton>
+    <footer v-if="state.total > 0" class="opportunity-lane__footer">
+      <UiPagination :page="state.page" :pages="totalPages" @change="page => $emit('change-page', lane, page)" />
     </footer>
   </section>
 </template>
 
 <style scoped>
-.opportunity-lane{--lane-color:#238b75;display:flex;min-width:0;min-height:520px;max-height:calc(100vh - 270px);flex-direction:column;border:1px solid var(--ui-border);border-radius:var(--ui-radius-lg);background:color-mix(in srgb,var(--lane-color) 5%,var(--ui-surface));overflow:hidden}.opportunity-lane--selling{--lane-color:#d4862c}.opportunity-lane--lease-inquiry{--lane-color:#3b72c4}.opportunity-lane--lease-offer{--lane-color:#a25f83}.opportunity-lane__header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px;border-bottom:1px solid color-mix(in srgb,var(--lane-color) 24%,var(--ui-border));background:color-mix(in srgb,var(--lane-color) 10%,var(--ui-surface))}.opportunity-lane__header p{margin:0 0 3px;color:var(--lane-color);font-size:.62rem;font-weight:900;letter-spacing:.13em;text-transform:uppercase}.opportunity-lane__header h2{margin:0;color:var(--ui-text-strong);font-size:1rem}.opportunity-lane__header h2 span{display:inline-flex;min-width:24px;height:24px;align-items:center;justify-content:center;margin-left:5px;border-radius:50%;background:var(--ui-surface);color:var(--lane-color);font-size:.7rem}.opportunity-lane__header small{display:block;margin-top:5px;color:var(--ui-text-muted);font-size:.67rem;line-height:1.35}.opportunity-lane__mark{width:9px;height:34px;border-radius:var(--ui-radius-pill);background:var(--lane-color)}.opportunity-lane__body{display:flex;min-height:0;flex:1;flex-direction:column;gap:10px;padding:10px;overflow-y:auto}.opportunity-lane.is-expanded{max-height:calc(100vh - 315px)}.opportunity-lane.is-expanded .opportunity-lane__body{display:grid;grid-template-columns:minmax(0,1fr);align-content:start;padding:12px}.opportunity-lane.is-expanded .opportunity-lane__empty{grid-column:1/-1}.opportunity-lane__empty{display:flex;min-height:160px;align-items:center;justify-content:center;padding:20px;color:var(--ui-text-subtle);font-size:.75rem;text-align:center}.opportunity-lane__empty.is-error{color:var(--ui-danger)}.opportunity-lane__footer{padding:9px;border-top:1px solid var(--ui-border);text-align:center}.opportunity-lane__footer :deep(.ui-button){width:100%}@media(max-width:1190px){.opportunity-lane{max-height:640px}.opportunity-lane.is-expanded{max-height:640px}}@media(max-width:680px){.opportunity-lane{min-height:420px;max-height:620px}}
+.opportunity-lane{--lane-color:#238b75;display:flex;min-width:0;min-height:520px;max-height:calc(100vh - 270px);flex-direction:column;border:1px solid var(--ui-border);border-radius:var(--ui-radius-lg);background:color-mix(in srgb,var(--lane-color) 5%,var(--ui-surface));overflow:hidden}.opportunity-lane--selling{--lane-color:#d4862c}.opportunity-lane--lease-inquiry{--lane-color:#3b72c4}.opportunity-lane--lease-offer{--lane-color:#a25f83}.opportunity-lane__body{display:flex;min-height:0;flex:1;flex-direction:column;gap:10px;padding:10px;overflow-y:auto}/* Expanded (single-lane board) mode deliberately has no max-height/scroll trap - the lane
+   grows to fit every card and the page itself scrolls, so nothing ever looks clipped at a
+   fixed pixel boundary the way a bounded inner-scroll panel did. */
+.opportunity-lane.is-expanded{max-height:none;overflow:visible}.opportunity-lane.is-expanded .opportunity-lane__body{display:grid;grid-template-columns:repeat(var(--lane-columns,1),minmax(0,1fr));align-content:start;overflow-y:visible;padding:12px}.opportunity-lane.is-expanded .opportunity-lane__empty{grid-column:1/-1}.opportunity-lane__empty{display:flex;min-height:160px;align-items:center;justify-content:center;padding:20px;color:var(--ui-text-subtle);font-size:.75rem;text-align:center}.opportunity-lane__empty.is-error{color:var(--ui-danger)}.opportunity-lane__footer{padding:9px;border-top:1px solid var(--ui-border)}.opportunity-lane__footer :deep(.ui-pagination){margin-top:0;justify-content:center}@media(max-width:1190px){.opportunity-lane:not(.is-expanded){max-height:640px}.opportunity-lane.is-expanded .opportunity-lane__body{grid-template-columns:repeat(min(var(--lane-columns,1),2),minmax(0,1fr))}}@media(max-width:680px){.opportunity-lane:not(.is-expanded){min-height:420px;max-height:620px}.opportunity-lane.is-expanded .opportunity-lane__body{grid-template-columns:minmax(0,1fr)}}
 </style>

@@ -80,7 +80,7 @@ export function money(currency, value) {
   return `${currency || 'AED'} ${Number(value).toLocaleString()}`
 }
 
-function moneyRange(currency, low, high) {
+export function moneyRange(currency, low, high) {
   if (low == null && high == null) return ''
   if (low != null && high != null) return `${money(currency, low)} - ${Number(high).toLocaleString()}`
   return low != null ? `From ${money(currency, low)}` : `Up to ${money(currency, high)}`

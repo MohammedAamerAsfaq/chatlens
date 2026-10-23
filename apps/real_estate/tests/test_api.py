@@ -52,6 +52,84 @@ class RealEstateApiTests(TestCase):
         self.assertEqual(prompt.body, 'Company-specific Real Estate extraction instruction.')
         self.assertFalse(RealEstatePromptConfig.objects.filter(company=self.other).exists())
 
+    def test_card_field_config_defaults_empty_and_saves_company_scoped_list(self):
+        response = self.client.get('/api/real-estate/prompts/card-field-config/')
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json(), {'fields': []})
+
+        response = self.client.put(
+            '/api/real-estate/prompts/card-field-config/',
+            {'fields': ['party_name', 'property_type', 'location']}, format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json(), {'fields': ['party_name', 'property_type', 'location']})
+
+        from apps.real_estate.models import RealEstateSettings
+        self.assertEqual(
+            RealEstateSettings.objects.get(company=self.company).card_field_config,
+            ['party_name', 'property_type', 'location'],
+        )
+
+    def test_card_field_config_rejects_non_string_list(self):
+        response = self.client.put(
+            '/api/real-estate/prompts/card-field-config/', {'fields': ['ok', 5]}, format='json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_card_action_config_defaults_and_saves(self):
+        response = self.client.get('/api/real-estate/prompts/card-action-config/')
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json(), {'statuses': [], 'max_inline': 2})
+
+        response = self.client.put(
+            '/api/real-estate/prompts/card-action-config/',
+            {'statuses': ['qualified', 'won', 'lost'], 'max_inline': 2}, format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json(), {'statuses': ['qualified', 'won', 'lost'], 'max_inline': 2})
+
+    def test_card_action_config_rejects_unknown_status(self):
+        response = self.client.put(
+            '/api/real-estate/prompts/card-action-config/',
+            {'statuses': ['not_a_real_status'], 'max_inline': 2}, format='json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_card_configs_readable_by_any_member_but_writable_only_by_admins(self):
+        member_user = get_user_model().objects.create_user('api-estate-member')
+        CompanyMembership.objects.create(
+            company=self.company, user=member_user, role=CompanyMembership.ROLE_USER,
+        )
+        member_client = APIClient()
+        member_client.force_authenticate(member_user)
+
+        response = member_client.get('/api/real-estate/prompts/card-field-config/')
+        self.assertEqual(response.status_code, 200, response.json())
+        response = member_client.get('/api/real-estate/prompts/card-action-config/')
+        self.assertEqual(response.status_code, 200, response.json())
+
+        response = member_client.put(
+            '/api/real-estate/prompts/card-field-config/', {'fields': ['party_name']}, format='json',
+        )
+        self.assertEqual(response.status_code, 403)
+        response = member_client.put(
+            '/api/real-estate/prompts/card-action-config/', {'statuses': [], 'max_inline': 2}, format='json',
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_card_configs_are_company_scoped(self):
+        other_user = get_user_model().objects.create_user('api-estate-other-owner')
+        CompanyMembership.objects.create(
+            company=self.other, user=other_user, role=CompanyMembership.ROLE_SUPER_USER,
+        )
+        self.client.put(
+            '/api/real-estate/prompts/card-field-config/', {'fields': ['party_name']}, format='json',
+        )
+        other_client = APIClient()
+        other_client.force_authenticate(other_user)
+        response = other_client.get('/api/real-estate/prompts/card-field-config/')
+        self.assertEqual(response.json(), {'fields': []})
+
     def test_properties_are_company_scoped_and_archived_on_delete(self):
         visible = Property.objects.create(company=self.company, title='Visible flat', property_type=self.types['apartment'])
         listing = Listing.objects.create(

@@ -64,9 +64,10 @@
 .ui-table td { padding: 12px 13px; border-bottom: 1px solid var(--ui-border); }
 .ui-table tr:last-child td { border-bottom: 0; }
 .ui-table--compact th,.ui-table--compact td { padding-top: 8px; padding-bottom: 8px; }
-.ui-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 12px; }
-.ui-pagination button,.ui-pagination span { padding: 7px 10px; border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-sm); background: var(--ui-surface); color: var(--ui-text-muted); font-size: .74rem; }
-.ui-pagination button { cursor: pointer; }
+.ui-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 12px; }
+.ui-pagination span { padding: 7px 10px; border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-sm); background: var(--ui-surface); color: var(--ui-text-muted); font-size: .74rem; }
+.ui-pagination button { display: flex; width: 30px; height: 30px; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-sm); background: var(--ui-surface); color: var(--ui-text-muted); font-size: .74rem; cursor: pointer; }
+.ui-pagination button:hover:not(:disabled) { border-color: var(--ui-primary); background: var(--ui-primary-soft); color: var(--ui-primary); }
 .ui-pagination button:disabled { opacity: .45; cursor: not-allowed; }
 .theme-inspinia .ui-page-header { margin-bottom: 16px; }
 .theme-inspinia .ui-page-header h1 { font-size: 1.35rem; }
