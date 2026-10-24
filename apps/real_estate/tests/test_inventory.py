@@ -203,6 +203,33 @@ class RealEstateInventoryTests(TestCase):
         self.assertTrue(apartment.field_definitions.filter(code='floor').exists())
         self.assertEqual(resolve_property_type(self.company, 'land').code, 'plot')
 
+    def test_resolve_property_type_falls_back_on_empty_value_not_just_unmatched_text(self):
+        # fallback=True must apply when there's no text to match at all, not only when
+        # there's text that fails to match - an empty/missing extraction is exactly the
+        # case a caller most needs the "Other" default for.
+        self.assertIsNone(resolve_property_type(self.company, ''))
+        self.assertEqual(resolve_property_type(self.company, '', fallback=True).code, 'other')
+        self.assertEqual(resolve_property_type(self.company, None, fallback=True).code, 'other')
+
+    def test_supply_item_with_no_extracted_property_type_falls_back_to_other_and_can_create_property(self):
+        from apps.real_estate.models import RealEstateSettings
+        from apps.real_estate.services.opportunity_item_projection import sync_extracted_items
+        from apps.real_estate.services.opportunity_item_service import create_property_from_item
+
+        opportunity = self.opportunity(ActivityType.SELLING)
+        settings_row, _ = RealEstateSettings.objects.get_or_create(company=self.company)
+        parsed = {
+            'summary': 'Unit 101 for sale',
+            'properties': [{'title': 'Unit 101', 'price': {'amount': 500000}}],
+        }
+        items = sync_extracted_items(opportunity, parsed, settings_row)
+        item = items[0]
+        self.assertEqual(item.property_type_id, self.types['other'].id)
+
+        linked_item, property_record = create_property_from_item(item, self.user)
+        self.assertEqual(property_record.property_type_id, self.types['other'].id)
+        self.assertEqual(linked_item.match_status, OpportunityItem.MATCH_LINKED)
+
     def test_inventory_source_and_tracking_are_independent(self):
         property_record = Property.objects.create(
             company=self.company,

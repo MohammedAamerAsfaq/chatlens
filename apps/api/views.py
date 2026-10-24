@@ -14,6 +14,7 @@ from django.contrib.auth.models import User
 from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
+from django.db.models.deletion import ProtectedError
 from django.db.models import Count, F, Q
 from django.utils.dateparse import parse_date, parse_datetime
 from django.utils.timezone import now
@@ -319,10 +320,48 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
             )
         except Exception:
             pass
-        with transaction.atomic():
-            account.delete()  # cascades to chats, messages, contacts, sync_logs
-            if communication_account:
-                communication_account.delete()
+        force = str(request.query_params.get('force', '')).lower() == 'true'
+        try:
+            with transaction.atomic():
+                account.delete()  # cascades to chats, messages, contacts, sync_logs
+                if communication_account:
+                    communication_account.delete()
+        except ProtectedError as exc:
+            # Real Estate pipeline records (RealEstateOpportunity/RealEstateParseLog/
+            # RealEstateMockInquiryRun) deliberately use on_delete=PROTECT so deleting
+            # a WhatsApp connection can never silently wipe out business data (leads,
+            # opportunities, parse history) - unless the caller explicitly opts in via
+            # ?force=true, confirming they understand those records go too.
+            if not force:
+                blocking_models = sorted({obj.__class__._meta.verbose_name for obj in exc.args[1]})
+                return Response(
+                    {
+                        'detail': (
+                            'This account cannot be deleted because it still has linked records '
+                            f'({", ".join(blocking_models)}) that must be preserved. '
+                            'Remove or reassign those first.'
+                        ),
+                        'blocking_models': blocking_models,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+            from apps.real_estate.models import RealEstateMockInquiryRun, RealEstateOpportunity, RealEstateParseLog
+            try:
+                with transaction.atomic():
+                    RealEstateParseLog.objects.filter(account=account).delete()
+                    RealEstateMockInquiryRun.objects.filter(mock_account=account).delete()
+                    RealEstateOpportunity.objects.filter(account=account).delete()
+                    account.delete()
+                    if communication_account:
+                        communication_account.delete()
+            except ProtectedError as exc2:
+                # Something still blocks it that force-delete doesn't know how to clear
+                # (e.g. a PROTECT relation added later) - fail loud rather than guess.
+                blocking_models = sorted({obj.__class__._meta.verbose_name for obj in exc2.args[1]})
+                return Response(
+                    {'detail': f'Still blocked by linked records: {", ".join(blocking_models)}.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['patch'], url_path='update-settings')

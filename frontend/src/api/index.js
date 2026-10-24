@@ -162,6 +162,7 @@ export const realEstateApi = {
   updateListing: (id, data) => http.patch(`/real-estate/listings/${id}/`, data),
   archiveListing: id => http.delete(`/real-estate/listings/${id}/`),
   opportunities: (params = {}) => http.get('/real-estate/opportunities/', { params }),
+  getOpportunity: (id) => http.get(`/real-estate/opportunities/${id}/`),
   updateOpportunity: (id, data) => http.patch(`/real-estate/opportunities/${id}/`, data),
   getCardFieldConfig: () => http.get('/real-estate/prompts/card-field-config/'),
   setCardFieldConfig: fields => http.put('/real-estate/prompts/card-field-config/', { fields }),
@@ -217,7 +218,7 @@ export const accountsApi = {
   getQR: (id) => http.get(`/accounts/${id}/qr/`),
   disconnect: (id) => http.post(`/accounts/${id}/disconnect/`),
   softDisconnect: (id) => http.post(`/accounts/${id}/soft-disconnect/`),
-  delete: (id) => http.delete(`/accounts/${id}/`),
+  delete: (id, { force = false } = {}) => http.delete(`/accounts/${id}/`, { params: force ? { force: true } : undefined }),
   updateSettings: (id, data) => http.patch(`/accounts/${id}/update-settings/`, data),
   preflightMessage: (id, destinationJid) => http.post(`/accounts/${id}/message-preflight/`, {
     destination_jid: destinationJid,

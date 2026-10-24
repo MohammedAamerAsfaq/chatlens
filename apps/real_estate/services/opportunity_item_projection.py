@@ -42,8 +42,12 @@ def sync_extracted_items(
 def _item_values(opportunity, payload, parsed, settings, kind):
     payload = payload if isinstance(payload, dict) else {}
     type_labels = _strings(payload.get('property_types') or payload.get('property_type'))
+    # Use the first label whenever at least one was extracted (previously required
+    # exactly one, so 0 or 2+ labels both silently dropped to no lookup at all - the
+    # common real case is 0 labels, e.g. a listing whose extraction never named a
+    # property type, which is exactly when SUPPLY items most need the fallback below).
     property_type = resolve_property_type(
-        opportunity.company, type_labels[0] if len(type_labels) == 1 else None,
+        opportunity.company, type_labels[0] if type_labels else None,
         fallback=kind == OpportunityItem.KIND_SUPPLY,
     )
     locations = _strings(payload.get('locations') or payload.get('location'))

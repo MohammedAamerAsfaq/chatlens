@@ -14,6 +14,9 @@ const showSettings      = ref(false)
 const showDeleteConfirm = ref(false)
 const exportBeforeDelete = ref(true)
 const deleting          = ref(false)
+const deleteError       = ref('')
+const deleteBlockingModels = ref([])
+const confirmForce      = ref(false)
 const savingSettings    = ref(false)
 const connecting        = ref(false)
 const capacity          = ref(null)
@@ -153,8 +156,9 @@ function telemetryClass(section) {
   return 'bg-amber-100 text-amber-700'
 }
 
-async function confirmDelete() {
+async function confirmDelete(force = false) {
   deleting.value = true
+  deleteError.value = ''
   try {
     if (exportBeforeDelete.value) {
       await store.exportAccount(
@@ -162,11 +166,20 @@ async function confirmDelete() {
         `chatlens-${props.account.phone_number || props.account.id}.json`,
       )
     }
-    await store.deleteAccount(props.account.id)
+    await store.deleteAccount(props.account.id, { force })
+    showDeleteConfirm.value = false
     emit('refresh')
+  } catch (error) {
+    // Deliberately keep the modal open so the reason stays visible - e.g. the account
+    // can't be deleted while Real Estate records (opportunities, parse history) are
+    // still linked to it, which the backend reports as a 409 with a specific detail
+    // and the list of blocking model names, used below to offer a confirmed force-delete.
+    deleteError.value = error.response?.data?.detail || 'Unable to delete this account.'
+    deleteBlockingModels.value = error.response?.status === 409
+      ? (error.response?.data?.blocking_models || [])
+      : []
   } finally {
     deleting.value = false
-    showDeleteConfirm.value = false
   }
 }
 
@@ -658,7 +671,7 @@ onUnmounted(() => {
     <!-- Delete button -->
     <div class="border-t border-gray-100 pt-2">
       <button
-        @click="showDeleteConfirm = true"
+        @click="deleteError = ''; deleteBlockingModels = []; confirmForce = false; showDeleteConfirm = true"
         class="w-full text-sm text-red-500 hover:text-red-700 hover:bg-red-50 py-1.5 rounded-lg transition-colors"
       >
         Delete Account
@@ -673,7 +686,24 @@ onUnmounted(() => {
           and all its chats and messages. This cannot be undone.
         </p>
         <UiCheckbox v-model="exportBeforeDelete" label="Export chat history as JSON before deleting" />
-        <template #footer><UiButton :disabled="deleting" @click="showDeleteConfirm = false">Cancel</UiButton><UiButton variant="danger" :disabled="deleting" @click="confirmDelete">{{ deleting ? (exportBeforeDelete ? 'Exporting…' : 'Deleting…') : 'Delete Account' }}</UiButton></template>
+        <p v-if="deleteError" class="mt-2 text-xs text-red-600 break-words">{{ deleteError }}</p>
+        <UiCheckbox
+          v-if="deleteBlockingModels.length"
+          v-model="confirmForce"
+          class="mt-2"
+          :label="`I understand this also permanently deletes: ${deleteBlockingModels.join(', ')}`"
+        />
+        <template #footer>
+          <UiButton :disabled="deleting" @click="showDeleteConfirm = false">Cancel</UiButton>
+          <UiButton
+            v-if="!deleteBlockingModels.length"
+            variant="danger" :disabled="deleting" @click="confirmDelete()"
+          >{{ deleting ? (exportBeforeDelete ? 'Exporting…' : 'Deleting…') : 'Delete Account' }}</UiButton>
+          <UiButton
+            v-else
+            variant="danger" :disabled="deleting || !confirmForce" @click="confirmDelete(true)"
+          >{{ deleting ? 'Deleting…' : 'Delete Everything Anyway' }}</UiButton>
+        </template>
   </UiModal>
 </template>
 

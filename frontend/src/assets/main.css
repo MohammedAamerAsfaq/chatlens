@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+/* The app shell (.app-root / .app-view, see App.vue + inspinia-shell.css) owns all
+   scrolling itself - there's no legitimate reason for the document/window to also be
+   independently scrollable. Without this, a second native browser-level scrollbar can
+   appear alongside .app-view's own, even though normal wheel-over-content scrolling
+   never actually uses it (confirmed via direct testing: document.documentElement had
+   real, functional scroll range separate from .app-view's). */
+html, body {
+  overflow: hidden;
+}
+
 @keyframes chat-flash {
   0%   { background-color: #fef08a; }
   70%  { background-color: #fef08a; }

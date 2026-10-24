@@ -51,8 +51,8 @@ export const useAccountsStore = defineStore('accounts', () => {
     return updated
   }
 
-  async function deleteAccount(id) {
-    await accountsApi.delete(id)
+  async function deleteAccount(id, { force = false } = {}) {
+    await accountsApi.delete(id, { force })
     accounts.value = accounts.value.filter(a => a.id !== id)
   }
 

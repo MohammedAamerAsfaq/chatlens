@@ -1,6 +1,7 @@
 <!-- eslint-disable vue/block-lang -->
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { realEstateApi } from '@/api'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCard from '@/components/ui/UiCard.vue'
@@ -9,7 +10,6 @@ import UiNotice from '@/components/ui/UiNotice.vue'
 import UiPage from '@/components/ui/UiPage.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTabs from '@/components/ui/UiTabs.vue'
-import OpportunityDetailModal from '@/features/realEstate/components/OpportunityDetailModal.vue'
 import OpportunityLane from '@/features/realEstate/components/OpportunityLane.vue'
 import { opportunityLanes, opportunityStatuses, statusFilters } from '@/features/realEstate/boardOptions'
 import { cardFields, defaultCardFieldIds } from '@/features/realEstate/cardFields'
@@ -39,6 +39,7 @@ function loadStoredPageSize() {
 }
 
 const auth = useAuthStore()
+const router = useRouter()
 const search = ref('')
 const status = ref('')
 const activeLaneKey = ref(opportunityLanes[0].key)
@@ -61,8 +62,6 @@ watch(pageSize, value => {
   for (const lane of opportunityLanes) laneStates[lane.key].page = 1
   loadAll()
 })
-const selected = ref(null)
-const properties = ref([])
 const saving = ref(false)
 const globalError = ref('')
 const cardFieldIds = ref([...defaultCardFieldIds])
@@ -73,7 +72,6 @@ const cardConfigError = ref('')
 const laneStates = reactive(Object.fromEntries(opportunityLanes.map(lane => [lane.key, {
   rows: [], total: 0, page: 1, loading: false, error: '', requestId: 0,
 }])))
-const canUpdate = computed(() => auth.hasPermission('real_estate.opportunities.update'))
 const totalOpportunities = computed(() => opportunityLanes.reduce((sum, lane) => sum + laneStates[lane.key].total, 0))
 const laneTabs = computed(() => opportunityLanes.map(lane => ({
   value: lane.key,
@@ -116,15 +114,6 @@ async function loadAll() {
   await Promise.all(opportunityLanes.map(lane => loadLane(lane)))
 }
 
-async function loadProperties() {
-  try {
-    const { data } = await realEstateApi.properties({ page_size: 100, ordering: 'title' })
-    properties.value = data.results || data
-  } catch (exc) {
-    globalError.value = apiError(exc, 'Unable to load properties for matching.')
-  }
-}
-
 function goToPage(lane, page) {
   laneStates[lane.key].page = page
   loadLane(lane, { resetPage: false })
@@ -135,7 +124,6 @@ async function setOpportunityStatus(opportunity, nextStatus) {
   globalError.value = ''
   try {
     const { data } = await realEstateApi.updateOpportunity(opportunity.id, { status: nextStatus })
-    if (selected.value?.id === data.id) selected.value = data
     const state = laneStates[data.activity_type]
     const index = state?.rows.findIndex(row => row.id === data.id) ?? -1
     if (index >= 0) state.rows[index] = data
@@ -144,11 +132,6 @@ async function setOpportunityStatus(opportunity, nextStatus) {
   } finally {
     saving.value = false
   }
-}
-
-function saveStatus(nextStatus) {
-  if (!selected.value) return
-  return setOpportunityStatus(selected.value, nextStatus)
 }
 
 async function loadCardConfig() {
@@ -207,34 +190,12 @@ function setCardActionMaxInline(value) {
   saveCardActionConfig(cardActionConfig.value.statuses || [], maxInline)
 }
 
-function replaceSelectedItem(updated) {
-  if (!selected.value) return
-  selected.value.items = selected.value.items.map(item => item.id === updated.id ? updated : item)
-  const state = laneStates[selected.value.activity_type]
-  const row = state?.rows.find(item => item.id === selected.value.id)
-  if (row) row.items = selected.value.items
-}
-
-async function itemAction(action, item, propertyId = null) {
-  saving.value = true; globalError.value = ''
-  try {
-    let response
-    if (action === 'link') response = await realEstateApi.linkOpportunityItem(item.id, propertyId)
-    else if (action === 'unlink') response = await realEstateApi.unlinkOpportunityItem(item.id)
-    else response = await realEstateApi.createPropertyFromOpportunityItem(item.id)
-    replaceSelectedItem(response.data.item || response.data)
-    if (action === 'create') await loadProperties()
-  } catch (exc) {
-    globalError.value = apiError(exc, 'Unable to update the property link.')
-  } finally { saving.value = false }
-}
-
 watch(status, loadAll)
 watch(search, () => {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(loadAll, 350)
 })
-onMounted(() => Promise.all([loadAll(), loadProperties(), loadCardConfig()]))
+onMounted(() => Promise.all([loadAll(), loadCardConfig()]))
 onBeforeUnmount(() => clearTimeout(searchTimer))
 </script>
 
@@ -321,23 +282,10 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
         :action-config="cardActionConfig"
         expanded
         @change-page="goToPage"
-        @open="selected = $event"
+        @open="opportunity => router.push({ name: 'real-estate-opportunity-detail', params: { id: opportunity.id } })"
         @set-status="setOpportunityStatus"
       />
     </div>
-
-    <OpportunityDetailModal
-      :open="Boolean(selected)"
-      :opportunity="selected"
-      :can-update="canUpdate"
-      :properties="properties"
-      :busy="saving"
-      @close="selected = null"
-      @save="saveStatus"
-      @link-item="(item, propertyId) => itemAction('link', item, propertyId)"
-      @unlink-item="item => itemAction('unlink', item)"
-      @create-property="item => itemAction('create', item)"
-    />
   </UiPage>
 </template>
 

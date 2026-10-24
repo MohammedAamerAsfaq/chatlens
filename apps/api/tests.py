@@ -9,6 +9,7 @@ from rest_framework.test import APIClient
 from unittest.mock import patch
 
 from apps.chatlens_core.models import SystemSettings
+from apps.real_estate.models import RealEstateOpportunity
 from apps.tenancy.models import CommunicationAccount, Company, CompanyMembership, ConnectionProvider
 from apps.trading.models import (
     BuyingInquiry, FormattedPriceList, Inquiry, InquiryProduct, MessageClassification, Product, PromptConfig,
@@ -188,6 +189,29 @@ class TenantScopedApiTests(TestCase):
         response = self.client.delete(f'/api/accounts/{self.account_a.pk}/')
         self.assertEqual(response.status_code, 204)
         self.assertFalse(CommunicationAccount.objects.filter(pk=communication_account_id).exists())
+
+    @patch('apps.api.views.requests.post')
+    def test_account_delete_with_linked_real_estate_data_returns_clear_conflict_not_500(self, worker_post):
+        opportunity = RealEstateOpportunity.objects.create(
+            company=self.company_a, account=self.account_a, first_seen_at=now(),
+        )
+        self.client.force_authenticate(self.user_a)
+        response = self.client.delete(f'/api/accounts/{self.account_a.pk}/')
+        self.assertEqual(response.status_code, 409, response.json())
+        self.assertIn('detail', response.json())
+        self.assertTrue(WhatsAppAccount.objects.filter(pk=self.account_a.pk).exists())
+        self.assertTrue(RealEstateOpportunity.objects.filter(pk=opportunity.pk).exists())
+
+    @patch('apps.api.views.requests.post')
+    def test_account_delete_with_force_true_removes_linked_real_estate_data_too(self, worker_post):
+        opportunity = RealEstateOpportunity.objects.create(
+            company=self.company_a, account=self.account_a, first_seen_at=now(),
+        )
+        self.client.force_authenticate(self.user_a)
+        response = self.client.delete(f'/api/accounts/{self.account_a.pk}/?force=true')
+        self.assertEqual(response.status_code, 204, response.content)
+        self.assertFalse(WhatsAppAccount.objects.filter(pk=self.account_a.pk).exists())
+        self.assertFalse(RealEstateOpportunity.objects.filter(pk=opportunity.pk).exists())
 
     def test_resolve_direct_chat_creates_and_reuses_contact_chat(self):
         contact = WhatsAppContact.objects.create(

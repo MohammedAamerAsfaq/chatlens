@@ -39,21 +39,24 @@ def resolve_property_type(company, value, *, active_only=True, fallback=False):
     if isinstance(value, PropertyType):
         return value if value.company_id == company.pk else None
     text = str(value or '').strip()
-    if not text:
-        return None
-    queryset = PropertyType.objects.filter(company=company)
-    if active_only:
-        queryset = queryset.filter(is_active=True)
-    code = normalize_property_type_code(text)
-    match = queryset.filter(code=code).first() or queryset.filter(name__iexact=text).first()
-    if not match:
-        folded = text.casefold()
-        match = next(
-            (record for record in queryset if folded in {
-                str(alias).strip().casefold() for alias in record.aliases
-            }),
-            None,
-        )
+    match = None
+    if text:
+        queryset = PropertyType.objects.filter(company=company)
+        if active_only:
+            queryset = queryset.filter(is_active=True)
+        code = normalize_property_type_code(text)
+        match = queryset.filter(code=code).first() or queryset.filter(name__iexact=text).first()
+        if not match:
+            folded = text.casefold()
+            match = next(
+                (record for record in queryset if folded in {
+                    str(alias).strip().casefold() for alias in record.aliases
+                }),
+                None,
+            )
+    # An empty/unrecognized value with fallback=True still needs a resolution - that's
+    # exactly the case a caller requests fallback for (e.g. a for-sale listing whose
+    # extraction didn't produce any property type at all), not just a near-miss label.
     if match or not fallback:
         return match
     seed_default_property_types(company)
