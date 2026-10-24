@@ -29,6 +29,7 @@ class OpportunityViewSet(CompanyOwnedViewSet):
     read_permission = 'real_estate.opportunities.view'
     write_permission = 'real_estate.opportunities.update'
     scope_filter_field = 'assigned_to_id'
+    account_scope_field = 'account'
     http_method_names = ['get', 'put', 'patch', 'head', 'options']
 
     def get_queryset(self):
@@ -59,6 +60,7 @@ class OpportunityItemViewSet(CompanyOwnedViewSet):
     read_permission = 'real_estate.opportunities.view'
     write_permission = 'real_estate.opportunities.update'
     scope_filter_field = 'opportunity__assigned_to_id'
+    account_scope_field = 'opportunity__account'
     http_method_names = ['get', 'patch', 'post', 'head', 'options']
 
     def create(self, request, *args, **kwargs):
@@ -103,6 +105,7 @@ class RequirementViewSet(CompanyOwnedViewSet):
     read_permission = 'real_estate.opportunities.view'
     write_permission = 'real_estate.opportunities.update'
     scope_filter_field = 'opportunity__assigned_to_id'
+    account_scope_field = 'opportunity__account'
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -119,6 +122,7 @@ class CandidateViewSet(CompanyOwnedViewSet):
     read_permission = 'real_estate.opportunities.view'
     write_permission = 'real_estate.opportunities.update'
     scope_filter_field = 'opportunity__assigned_to_id'
+    account_scope_field = 'opportunity__account'
     http_method_names = ['get', 'put', 'patch', 'post', 'head', 'options']
 
     def permission_code_for(self, request):

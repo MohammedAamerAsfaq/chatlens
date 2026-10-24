@@ -4,9 +4,16 @@ def user_payload(user):
     }
 
 
-def _communication_accounts(contact):
+def _visible_whatsapp_contacts(contact, visible_account_ids):
+    contacts = contact.whatsapp_contacts.all()
+    if visible_account_ids is not None:
+        contacts = [item for item in contacts if item.account_id in visible_account_ids]
+    return contacts
+
+
+def _communication_accounts(contact, visible_account_ids=None):
     accounts = {}
-    for item in contact.whatsapp_contacts.all():
+    for item in _visible_whatsapp_contacts(contact, visible_account_ids):
         account = item.account
         accounts[account.pk] = {
             'id': account.pk,
@@ -18,7 +25,7 @@ def _communication_accounts(contact):
     return list(accounts.values())
 
 
-def profile_payload(profile, *, detail=False):
+def profile_payload(profile, *, detail=False, visible_account_ids=None):
     contact = profile.contact
     last_contacted_at = _latest_timestamp(
         profile.last_contacted_at,
@@ -56,7 +63,7 @@ def profile_payload(profile, *, detail=False):
         'last_replied_at': last_replied_at,
         'next_follow_up_at': next_follow_up_at,
         'do_not_contact': profile.do_not_contact,
-        'communication_accounts': _communication_accounts(contact),
+        'communication_accounts': _communication_accounts(contact, visible_account_ids),
         'tags': [{
             'id': item.tag_id, 'name': item.tag.name, 'color': item.tag.color,
         } for item in profile.tag_assignments.all()],
@@ -100,7 +107,7 @@ def profile_payload(profile, *, detail=False):
                 'sending_enabled': item.account.outbound_sending_enabled,
                 'direct_sending_enabled': item.account.direct_sending_enabled,
                 'image_sending_enabled': item.account.image_sending_enabled,
-            } for item in contact.whatsapp_contacts.select_related('account')],
+            } for item in _visible_whatsapp_contacts(contact, visible_account_ids)],
         })
     return data
 

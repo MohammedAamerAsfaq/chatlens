@@ -37,16 +37,14 @@ def seed_company_roles(company):
             },
         )
         roles[key] = role
-        grants = [
-            CompanyRolePermission(
+        specs = {item['code']: item for item in PERMISSION_SPECS}
+        for code in ROLE_GRANTS[key]:
+            CompanyRolePermission.objects.update_or_create(
                 company=company,
                 role=role,
                 permission=definitions[code],
-                record_scope=default_scope(key, next(item for item in PERMISSION_SPECS if item['code'] == code)),
+                defaults={'record_scope': default_scope(key, specs[code])},
             )
-            for code in ROLE_GRANTS[key]
-        ]
-        CompanyRolePermission.objects.bulk_create(grants, ignore_conflicts=True)
     return roles
 
 

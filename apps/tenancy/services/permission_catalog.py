@@ -18,9 +18,10 @@ PERMISSION_SPECS = [
     _permission('conversations.messages.view', scoped=True),
     _permission('conversations.messages.send', scoped=True, sensitive=True),
     _permission('conversations.contacts.update', scoped=True),
-    _permission('conversations.accounts.manage', sensitive=True),
-    _permission('trading.board.view'),
-    _permission('trading.inquiries.update'),
+    _permission('conversations.accounts.view', scoped=True),
+    _permission('conversations.accounts.manage', scoped=True, sensitive=True),
+    _permission('trading.board.view', scoped=True),
+    _permission('trading.inquiries.update', scoped=True),
     _permission('trading.matches.manage'),
     _permission('trading.products.view'),
     _permission('trading.products.manage'),
@@ -95,7 +96,8 @@ MANAGER_CODES = {
 }
 USER_CODES = {
     'conversations.chats.view', 'conversations.messages.view', 'conversations.messages.send',
-    'conversations.contacts.update', 'trading.board.view', 'trading.inquiries.update',
+    'conversations.contacts.update', 'conversations.accounts.view',
+    'trading.board.view', 'trading.inquiries.update',
     'trading.products.view', 'campaigns.campaigns.view', 'clientpulse.clients.view',
     'real_estate.board.view', 'real_estate.opportunities.view',
     'real_estate.opportunities.update', 'real_estate.properties.view',
@@ -106,7 +108,10 @@ USER_CODES = {
 }
 CAMPAIGN_CODES = {
     code for code in ALL_CODES if code.startswith('campaigns.')
-} | {'trading.products.view', 'conversations.chats.view', 'conversations.messages.send', 'reports.company.view'}
+} | {
+    'trading.products.view', 'conversations.accounts.view',
+    'conversations.chats.view', 'conversations.messages.send', 'reports.company.view',
+}
 INTEGRATION_CODES = {
     code for code in ALL_CODES if code.startswith('integrations.')
 } | {'tasks.company.view'}
@@ -123,6 +128,6 @@ ROLE_GRANTS = {
 
 
 def default_scope(role_key, permission_spec):
-    if role_key == 'user' and permission_spec['supports_scope']:
+    if role_key in {'user', 'viewer', 'campaign_operator'} and permission_spec['supports_scope']:
         return SCOPE_ASSIGNED
     return SCOPE_ALL

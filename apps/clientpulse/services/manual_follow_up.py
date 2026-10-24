@@ -1,4 +1,5 @@
 from apps.clientpulse.models import ClientActivity, ClientPulseSettings, ContactConsent
+from apps.clientpulse.services.communication_access import visible_clientpulse_accounts
 from apps.whatsapp_bridge.models import OutboundAsset, WhatsAppContact
 from apps.whatsapp_bridge.outbound.message_service import create_outbound_message
 
@@ -22,12 +23,13 @@ def _validate_profile(profile):
         raise ValueError('client_do_not_contact')
 
 
-def _linked_contact(profile, contact_id):
+def _linked_contact(profile, actor, contact_id):
     contact = WhatsAppContact.objects.select_related(
         'account__communication_account',
     ).filter(
         pk=contact_id, company_contact=profile.contact,
         account__communication_account__company=profile.company,
+        account__in=visible_clientpulse_accounts(actor, profile.company),
     ).first()
     if not contact:
         raise ValueError('whatsapp_contact_not_linked')
@@ -40,7 +42,7 @@ def queue_manual_follow_up(*, profile, actor, contact_id, text, asset_id=None,
                            idempotency_key, confirm_new_chat=False):
     _validate_profile(profile)
     consent = _consent_decision(profile)
-    contact = _linked_contact(profile, contact_id)
+    contact = _linked_contact(profile, actor, contact_id)
     asset = None
     if asset_id:
         asset = OutboundAsset.objects.filter(pk=asset_id, company=profile.company).first()

@@ -16,7 +16,11 @@ from apps.real_estate.models import (
     RealEstateMockSourceRecord, RealEstateOpportunity, RealEstatePromptConfig,
 )
 from apps.task_management.models import BackgroundTask
-from apps.tenancy.models import Company, CompanyMembership
+from apps.tenancy.models import (
+    CommunicationAccount, CommunicationAccountAssignment, Company, CompanyMembership,
+    ConnectionProvider,
+)
+from apps.whatsapp_bridge.models import WhatsAppAccount
 from apps.real_estate.services.property_types import seed_default_property_types
 from apps.real_estate.services.extraction_projection import project_extraction
 
@@ -373,12 +377,33 @@ class RealEstateApiTests(TestCase):
         response = self.client.get('/api/real-estate/properties/')
         self.assertEqual(response.status_code, 403)
 
-    def test_agent_sees_only_assigned_opportunities(self):
+    def test_agent_sees_assigned_manual_and_assigned_account_opportunities(self):
         agent = get_user_model().objects.create_user('estate-agent')
-        CompanyMembership.objects.create(
+        membership = CompanyMembership.objects.create(
             company=self.company, user=agent, role=CompanyMembership.ROLE_USER,
         )
-        assigned = RealEstateOpportunity.objects.create(
+        provider = ConnectionProvider.objects.get(key='baileys')
+        visible_communication = CommunicationAccount.objects.create(
+            company=self.company, provider=provider, channel=provider.channel,
+            name='Visible estate account',
+        )
+        hidden_communication = CommunicationAccount.objects.create(
+            company=self.company, provider=provider, channel=provider.channel,
+            name='Hidden estate account',
+        )
+        visible_account = WhatsAppAccount.objects.create(
+            owner=self.user, communication_account=visible_communication,
+            display_name='Visible estate account', worker_session_id='visible-estate-account',
+        )
+        hidden_account = WhatsAppAccount.objects.create(
+            owner=self.user, communication_account=hidden_communication,
+            display_name='Hidden estate account', worker_session_id='hidden-estate-account',
+        )
+        CommunicationAccountAssignment.objects.create(
+            company=self.company, communication_account=visible_communication,
+            membership=membership, assigned_by=self.user,
+        )
+        assigned_manual = RealEstateOpportunity.objects.create(
             company=self.company, assigned_to=agent, activity_type=ActivityType.BUYING,
             classification_status=ClassificationStatus.CLASSIFIED, first_seen_at=timezone.now(),
         )
@@ -386,10 +411,23 @@ class RealEstateApiTests(TestCase):
             company=self.company, assigned_to=self.user, activity_type=ActivityType.SELLING,
             classification_status=ClassificationStatus.CLASSIFIED, first_seen_at=timezone.now(),
         )
+        visible_from_account = RealEstateOpportunity.objects.create(
+            company=self.company, account=visible_account, assigned_to=self.user,
+            activity_type=ActivityType.SELLING,
+            classification_status=ClassificationStatus.CLASSIFIED, first_seen_at=timezone.now(),
+        )
+        RealEstateOpportunity.objects.create(
+            company=self.company, account=hidden_account, assigned_to=agent,
+            activity_type=ActivityType.SELLING,
+            classification_status=ClassificationStatus.CLASSIFIED, first_seen_at=timezone.now(),
+        )
         self.client.force_authenticate(agent)
         response = self.client.get('/api/real-estate/opportunities/')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual([row['id'] for row in response.json()['results']], [assigned.pk])
+        self.assertSetEqual(
+            {row['id'] for row in response.json()['results']},
+            {assigned_manual.pk, visible_from_account.pk},
+        )
 
     def test_opportunity_board_filters_searches_and_embeds_lane_detail(self):
         buying = RealEstateOpportunity.objects.create(

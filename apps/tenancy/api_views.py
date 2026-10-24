@@ -10,7 +10,9 @@ from apps.tenancy.models import (
     MembershipRoleAssignment, PermissionDefinition,
 )
 from apps.tenancy.services.access import active_membership_for_user, default_company_for_user
-from apps.tenancy.services.authorization import bump_authorization_version, has_company_permission
+from apps.tenancy.services.authorization import (
+    bump_authorization_version, has_company_permission, permission_scope_for_membership,
+)
 from apps.tenancy.services.enrollment_service import CompanyEnrollmentService
 
 
@@ -41,6 +43,7 @@ def _role_payload(role):
 
 
 def _membership_payload(membership):
+    account_scope = permission_scope_for_membership(membership, 'conversations.accounts.view')
     return {
         'id': membership.pk, 'is_active': membership.is_active,
         'authorization_version': membership.authorization_version,
@@ -49,6 +52,12 @@ def _membership_payload(membership):
             {'id': item.role_id, 'key': item.role.key, 'name': item.role.name, 'is_owner_role': item.role.is_owner_role}
             for item in membership.role_assignments.select_related('role').filter(role__is_active=True).order_by('role__name')
         ],
+        'account_access_scope': account_scope,
+        'has_all_account_access': account_scope == 'all',
+        'communication_account_ids': list(
+            membership.communication_account_assignments.filter(is_active=True)
+            .values_list('communication_account_id', flat=True)
+        ),
     }
 
 

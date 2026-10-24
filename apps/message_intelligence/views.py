@@ -7,7 +7,32 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 
+from apps.tenancy.services.access import visible_accounts_queryset
+
 logger = logging.getLogger(__name__)
+
+
+def _visible_account_id(request, raw_account_id):
+    try:
+        account_id = int(raw_account_id)
+    except (TypeError, ValueError):
+        return None
+    return (
+        visible_accounts_queryset(request.user)
+        .filter(pk=account_id)
+        .values_list('pk', flat=True)
+        .first()
+    )
+
+
+def _visible_messages(request, queryset, raw_account_id=None):
+    if raw_account_id not in (None, ''):
+        account_id = _visible_account_id(request, raw_account_id)
+        if account_id is None:
+            return None
+        return queryset.filter(account_id=account_id)
+    visible_account_ids = visible_accounts_queryset(request.user).values('pk')
+    return queryset.filter(account_id__in=visible_account_ids)
 
 
 @api_view(['POST'])
@@ -23,9 +48,13 @@ def semantic_search_view(request):
     if not account_id:
         return Response({'error': 'account_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
+    visible_account_id = _visible_account_id(request, account_id)
+    if visible_account_id is None:
+        return Response({'detail': 'Account not found.'}, status=status.HTTP_404_NOT_FOUND)
+
     try:
         from .services.embedding_service import semantic_search
-        hits = semantic_search(query, account_id=account_id, top_k=top_k)
+        hits = semantic_search(query, account_id=visible_account_id, top_k=top_k)
     except Exception as exc:
         logger.exception('semantic_search_view error')
         return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -55,9 +84,13 @@ def embedding_status_view(request):
     from apps.whatsapp_bridge.models import WhatsAppMessage
 
     account_id = request.query_params.get('account_id')
-    qs = WhatsAppMessage.objects.filter(message_text__gt='')
-    if account_id:
-        qs = qs.filter(account_id=account_id)
+    qs = _visible_messages(
+        request,
+        WhatsAppMessage.objects.filter(message_text__gt=''),
+        account_id,
+    )
+    if qs is None:
+        return Response({'detail': 'Account not found.'}, status=status.HTTP_404_NOT_FOUND)
 
     total    = qs.count()
     embedded = qs.filter(embedding__isnull=False).count()
@@ -77,14 +110,14 @@ def embedding_backfill_view(request):
     account_id = request.data.get('account_id')
     limit      = int(request.data.get('limit', 500))
 
-    qs = (
+    qs = _visible_messages(request, (
         WhatsAppMessage.objects
         .filter(message_text__gt='')
         .filter(Q(embedding__isnull=True))
         .order_by('id')
-    )
-    if account_id:
-        qs = qs.filter(account_id=account_id)
+    ), account_id)
+    if qs is None:
+        return Response({'detail': 'Account not found.'}, status=status.HTTP_404_NOT_FOUND)
 
     pending = qs.count()
     if pending == 0:

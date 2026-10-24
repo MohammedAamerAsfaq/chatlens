@@ -10,7 +10,10 @@ from unittest.mock import patch
 
 from apps.chatlens_core.models import SystemSettings
 from apps.real_estate.models import RealEstateOpportunity
-from apps.tenancy.models import CommunicationAccount, Company, CompanyMembership, ConnectionProvider
+from apps.tenancy.models import (
+    CommunicationAccount, CommunicationAccountAssignment, Company,
+    CompanyMembership, ConnectionProvider,
+)
 from apps.trading.models import (
     BuyingInquiry, FormattedPriceList, Inquiry, InquiryProduct, MessageClassification, Product, PromptConfig,
     SellingOffer, SellingOfferProduct,
@@ -682,6 +685,13 @@ class TenantScopedApiTests(TestCase):
         self.assertIsNotNone(account.communication_account_id)
         self.assertEqual(account.communication_account.company_id, self.company_a.id)
         self.assertEqual(account.communication_account.provider.key, 'baileys')
+        assignment = CommunicationAccountAssignment.objects.get(
+            communication_account=account.communication_account,
+            membership__company=self.company_a,
+            membership__user=self.user_a,
+        )
+        self.assertEqual(assignment.access_level, CommunicationAccountAssignment.ACCESS_OWNER)
+        self.assertTrue(assignment.is_active)
         self.assertIsNotNone(account.primary_endpoint_id)
         self.assertEqual(account.primary_endpoint.value, '971500000010')
         self.assertFalse(account.outbound_sending_enabled)

@@ -11,7 +11,9 @@ from apps.clientpulse.models import ClientProfile
 from apps.clientpulse.services.conversation_conversion import (
     ConversationConversionError, convert_conversation_contact, find_conversion_target,
 )
-from apps.clientpulse.services.communication_access import visible_clientpulse_accounts
+from apps.clientpulse.services.communication_access import (
+    visible_clientpulse_account_ids, visible_clientpulse_accounts,
+)
 from apps.tenancy.services.access import default_company_for_user
 from apps.whatsapp_bridge.models import WhatsAppContact
 
@@ -90,6 +92,7 @@ def convert_conversation_contact_view(request, whatsapp_contact_id):
     ).filter(
         pk=whatsapp_contact_id,
         account__communication_account__company=company,
+        account__in=visible_clientpulse_accounts(request.user, company),
     ).first()
     if not whatsapp_contact:
         return Response({'detail': 'WhatsApp contact not found.'}, status=status.HTTP_404_NOT_FOUND)
@@ -121,5 +124,8 @@ def convert_conversation_contact_view(request, whatsapp_contact_id):
     return Response({
         'created': created,
         'changed': changed,
-        'profile': profile_payload(_profile(profile.pk), detail=True),
+        'profile': profile_payload(
+            _profile(profile.pk), detail=True,
+            visible_account_ids=visible_clientpulse_account_ids(request.user, company),
+        ),
     }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)

@@ -6,7 +6,8 @@ from rest_framework.test import APIClient
 from apps.clientpulse.models import ClientActivity, ClientProfile, ClientPulseSettings, ContactConsent
 from apps.task_management.models import BackgroundTask
 from apps.tenancy.models import (
-    CommunicationAccount, Company, CompanyContact, CompanyMembership, ConnectionProvider,
+    CommunicationAccount, CommunicationAccountAssignment, Company, CompanyContact,
+    CompanyMembership, ConnectionProvider,
 )
 from apps.whatsapp_bridge.models import OutboundAsset, OutboundMessage, WhatsAppAccount, WhatsAppContact
 
@@ -133,3 +134,26 @@ class ManualFollowUpTests(TestCase):
         self.client.force_authenticate(agent)
         response = self._send()
         self.assertEqual(response.status_code, 404)
+
+    def test_profile_owner_cannot_send_through_unassigned_account(self):
+        agent = get_user_model().objects.create_user('follow-up-profile-owner')
+        membership = CompanyMembership.objects.create(
+            company=self.company, user=agent, role=CompanyMembership.ROLE_USER,
+        )
+        self.profile.owner = membership
+        self.profile.save(update_fields=['owner', 'updated_at'])
+        self.client.force_authenticate(agent)
+
+        response = self._send()
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(response.data['code'], 'whatsapp_contact_not_linked')
+        self.assertFalse(OutboundMessage.objects.exists())
+
+        CommunicationAccountAssignment.objects.create(
+            company=self.company,
+            communication_account=self.account.communication_account,
+            membership=membership,
+        )
+        response = self._send()
+        self.assertEqual(response.status_code, 201, response.data)

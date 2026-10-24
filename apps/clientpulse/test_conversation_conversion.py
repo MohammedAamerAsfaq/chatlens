@@ -4,8 +4,8 @@ from rest_framework.test import APIClient
 
 from apps.clientpulse.models import ClientActivity, ClientProfile
 from apps.tenancy.models import (
-    CommunicationAccount, Company, CompanyContact, CompanyContactIdentity,
-    CompanyMembership, ConnectionProvider,
+    CommunicationAccount, CommunicationAccountAssignment, Company,
+    CompanyContact, CompanyContactIdentity, CompanyMembership, ConnectionProvider,
 )
 from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppContact
 
@@ -133,7 +133,7 @@ class ConversationConversionTests(TestCase):
 
     def test_non_admin_candidate_list_only_includes_owned_accounts(self):
         member = get_user_model().objects.create_user('conversation-member')
-        CompanyMembership.objects.create(
+        member_membership = CompanyMembership.objects.create(
             company=self.company, user=member, role=CompanyMembership.ROLE_USER,
         )
         communication = CommunicationAccount.objects.create(
@@ -142,6 +142,10 @@ class ConversationConversionTests(TestCase):
         )
         member_account = WhatsAppAccount.objects.create(
             owner=member, communication_account=communication,
+        )
+        CommunicationAccountAssignment.objects.create(
+            company=self.company, communication_account=communication,
+            membership=member_membership,
         )
         owned = WhatsAppContact.objects.create(
             account=member_account, wa_contact_id='971500005555@s.whatsapp.net',
@@ -154,6 +158,18 @@ class ConversationConversionTests(TestCase):
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data['count'], 1)
         self.assertEqual(response.data['results'][0]['id'], owned.pk)
+
+    def test_non_admin_cannot_convert_contact_from_unassigned_account(self):
+        member = get_user_model().objects.create_user('unassigned-conversation-member')
+        CompanyMembership.objects.create(
+            company=self.company, user=member, role=CompanyMembership.ROLE_USER,
+        )
+        self.client.force_authenticate(member)
+
+        response = self._convert('lead')
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(ClientProfile.objects.exists())
 
     def test_company_admin_candidate_list_includes_other_users_accounts(self):
         colleague = get_user_model().objects.create_user('conversation-colleague')

@@ -6,7 +6,7 @@ from django.db.models import Count, F, Max, Min, Prefetch, Q, Sum
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import now, make_aware, is_naive
 from datetime import timedelta, date as _date, datetime as _datetime, time as _time
-from rest_framework import viewsets, mixins, status
+from rest_framework import viewsets, mixins, permissions, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import PageNumberPagination
@@ -20,6 +20,8 @@ from apps.tenancy.services.access import (
     scope_queryset_to_visible_companies,
     visible_accounts_queryset,
 )
+from apps.tenancy.api_permissions import CompanyPermissionRequired
+from apps.tenancy.services.authorization import permission_scope
 from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, NonInventoryProduct, NonInventoryProductMention, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_GATE_V2_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, BuyingInquiryGroup, BuyingInquiryProduct, BuyingInquirySupplier, BuyingInquirySupplierSource, BuyingInquiryStatus, CampaignAudience, CampaignMessageMode, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture, InquiryForwardingExclusion, InquiryForwardingRule, InquiryForwardingTarget, SellingOffer, SellingOfferCustomer, SellingOfferCustomerSource, SellingOfferGroup, SellingOfferProduct, SellingOfferStatus
 from .serializers import (
     ProductSerializer,
@@ -118,6 +120,55 @@ def _visible_rule_queryset(user, qs=None):
     return qs.filter(
         Q(sources__contact__account__in=visible_account_ids) |
         Q(sources__group__account__in=visible_account_ids)
+    ).distinct()
+
+
+def _visible_inquiry_queryset(user, qs=None):
+    qs = qs if qs is not None else Inquiry.objects.all()
+    qs = scope_queryset_to_visible_companies(qs, user, company_field='company')
+    return scope_queryset_to_visible_accounts(qs, user, account_field='account')
+
+
+def _visible_inquiry_product_queryset(user, qs=None):
+    qs = qs if qs is not None else InquiryProduct.objects.all()
+    qs = scope_queryset_to_visible_companies(qs, user, company_field='company')
+    return scope_queryset_to_visible_accounts(qs, user, account_field='account')
+
+
+def _has_all_account_access(user):
+    company = default_company_for_user(user)
+    return bool(
+        company
+        and permission_scope(user, 'conversations.accounts.view', company) == 'all'
+    )
+
+
+def _visible_buying_inquiry_queryset(user, qs=None):
+    """Scope campaigns by creator and recipient accounts, not a nullable account hint."""
+    qs = qs if qs is not None else BuyingInquiry.objects.all()
+    qs = scope_queryset_to_visible_companies(qs, user, company_field='company')
+    if _has_all_account_access(user):
+        return qs.distinct()
+    visible_account_ids = visible_accounts_queryset(user).values('pk')
+    return qs.filter(
+        Q(created_by=user)
+        | Q(account__in=visible_account_ids)
+        | Q(suppliers__contact__account__in=visible_account_ids)
+        | Q(groups__group__account__in=visible_account_ids)
+    ).distinct()
+
+
+def _visible_selling_offer_queryset(user, qs=None):
+    """Keep drafts owned by the user and campaigns targeting visible accounts."""
+    qs = qs if qs is not None else SellingOffer.objects.all()
+    qs = scope_queryset_to_visible_companies(qs, user, company_field='company')
+    if _has_all_account_access(user):
+        return qs.distinct()
+    visible_account_ids = visible_accounts_queryset(user).values('pk')
+    return qs.filter(
+        Q(created_by=user)
+        | Q(customers__contact__account__in=visible_account_ids)
+        | Q(groups__group__account__in=visible_account_ids)
     ).distinct()
 
 
@@ -836,8 +887,10 @@ class ProductViewSet(viewsets.ModelViewSet):
         start, end = _resolve_date_range(request)
         account_id = request.query_params.get('account')
 
-        qs = Inquiry.objects.filter(first_seen_at__gte=start, first_seen_at__lt=end)
-        qs = scope_queryset_to_visible_companies(qs, request.user, company_field='company')
+        qs = _visible_inquiry_queryset(
+            request.user,
+            Inquiry.objects.filter(first_seen_at__gte=start, first_seen_at__lt=end),
+        )
         if account_id:
             visible_account = _visible_account_or_none(request.user, account_id)
             qs = qs.filter(account=visible_account) if visible_account else qs.none()
@@ -873,7 +926,14 @@ class InquiryViewSet(viewsets.GenericViewSet,
                      mixins.ListModelMixin,
                      mixins.RetrieveModelMixin,
                      mixins.UpdateModelMixin):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+
+    def permission_code_for(self, request):
+        return (
+            'trading.inquiries.update'
+            if request.method not in permissions.SAFE_METHODS
+            else 'trading.board.view'
+        )
 
     def get_serializer_class(self):
         if self.action == 'retrieve':
@@ -881,10 +941,9 @@ class InquiryViewSet(viewsets.GenericViewSet,
         return InquirySerializer
 
     def get_queryset(self):
-        qs = scope_queryset_to_visible_companies(
-            Inquiry.objects.select_related('account', 'contact').prefetch_related('contact__role_tags').order_by('-first_seen_at'),
+        qs = _visible_inquiry_queryset(
             self.request.user,
-            company_field='company',
+            Inquiry.objects.select_related('account', 'contact').prefetch_related('contact__role_tags').order_by('-first_seen_at'),
         )
         p = self.request.query_params
 
@@ -1627,8 +1686,10 @@ class InquiryViewSet(viewsets.GenericViewSet,
             return Response({'detail': 'hours must be a positive number'}, status=status.HTTP_400_BAD_REQUEST)
 
         cutoff = now() - timedelta(hours=hours)
-        qs = Inquiry.objects.filter(status=InquiryStatus.OPEN, first_seen_at__lte=cutoff)
-        qs = scope_queryset_to_visible_companies(qs, request.user, company_field='company')
+        qs = _visible_inquiry_queryset(
+            request.user,
+            Inquiry.objects.filter(status=InquiryStatus.OPEN, first_seen_at__lte=cutoff),
+        )
 
         account_id = request.data.get('account')
         if account_id:
@@ -1643,8 +1704,10 @@ class InquiryViewSet(viewsets.GenericViewSet,
         start, end = _resolve_date_range(request)
         account_id = request.query_params.get('account')
 
-        qs = Inquiry.objects.filter(first_seen_at__gte=start, first_seen_at__lt=end)
-        qs = scope_queryset_to_visible_companies(qs, request.user, company_field='company')
+        qs = _visible_inquiry_queryset(
+            request.user,
+            Inquiry.objects.filter(first_seen_at__gte=start, first_seen_at__lt=end),
+        )
         if account_id:
             visible_account = _visible_account_or_none(request.user, account_id)
             qs = qs.filter(account=visible_account) if visible_account else qs.none()
@@ -1784,8 +1847,12 @@ class InquiryViewSet(viewsets.GenericViewSet,
             raise ValidationError({'detail': f'Unsupported sort value: {sort_val}'})
 
         start, end = _resolve_date_range(request)
-        qs = Inquiry.objects.filter(first_seen_at__gte=start, first_seen_at__lt=end).select_related('account', 'contact')
-        qs = scope_queryset_to_visible_companies(qs, request.user, company_field='company')
+        qs = _visible_inquiry_queryset(
+            request.user,
+            Inquiry.objects.filter(
+                first_seen_at__gte=start, first_seen_at__lt=end,
+            ).select_related('account', 'contact'),
+        )
 
         if status_val and status_val != 'all':
             qs = qs.filter(status=status_val)
@@ -1990,7 +2057,7 @@ class InquiryProductPagination(PageNumberPagination):
 
 class InquiryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin):
     serializer_class = InquiryProductSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
     pagination_class = InquiryProductPagination
     ordering_map = {
         'created_newest': ('-created_at', '-id'),
@@ -2002,6 +2069,13 @@ class InquiryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixi
         'decision': ('decision_status', '-created_at', '-id'),
         'match': ('match_status', '-created_at', '-id'),
     }
+
+    def permission_code_for(self, request):
+        return (
+            'trading.board.view'
+            if request.method in permissions.SAFE_METHODS
+            else 'trading.inquiries.update'
+        )
 
     def get_queryset(self):
         qs = (
@@ -2017,7 +2091,7 @@ class InquiryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixi
                 'product',
             )
         )
-        qs = scope_queryset_to_visible_companies(qs, self.request.user, company_field='company')
+        qs = _visible_inquiry_product_queryset(self.request.user, qs)
         p = self.request.query_params
 
         if account_id := p.get('account'):
@@ -2446,7 +2520,10 @@ class NonInventoryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin,
 
 class MessageClassificationViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
     serializer_class   = MessageClassificationSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+
+    def permission_code_for(self, request):
+        return 'trading.board.view'
 
     def get_queryset(self):
         qs = MessageClassification.objects.order_by('-classified_at')
@@ -2954,8 +3031,17 @@ class BuyingInquiryPagination(PageNumberPagination):
 
 class BuyingInquiryViewSet(viewsets.ModelViewSet):
     serializer_class = BuyingInquirySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
     pagination_class = BuyingInquiryPagination
+
+    def permission_code_for(self, request):
+        if request.method in permissions.SAFE_METHODS:
+            return 'campaigns.campaigns.view'
+        if request.method == 'POST' and self.action == 'create':
+            return 'campaigns.campaigns.create'
+        if self.action == 'destroy':
+            return 'campaigns.campaigns.delete'
+        return 'campaigns.campaigns.update'
 
     def get_queryset(self):
         qs = (
@@ -2969,7 +3055,7 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
             )
             .order_by('-created_at', '-id')
         )
-        qs = scope_queryset_to_visible_companies(qs, self.request.user, company_field='company')
+        qs = _visible_buying_inquiry_queryset(self.request.user, qs)
         if self.action == 'list':
             qs = qs.filter(audience_type=self.request.query_params.get('audience_type') or CampaignAudience.CONTACTS)
         if status_ := self.request.query_params.get('status'):
@@ -3534,7 +3620,16 @@ class SellingOfferPagination(PageNumberPagination):
 
 class SellingOfferViewSet(viewsets.ModelViewSet):
     serializer_class = SellingOfferSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+
+    def permission_code_for(self, request):
+        if request.method in permissions.SAFE_METHODS:
+            return 'campaigns.campaigns.view'
+        if request.method == 'POST' and self.action in {'create', 'create_full_price_list'}:
+            return 'campaigns.campaigns.create'
+        if self.action == 'destroy':
+            return 'campaigns.campaigns.delete'
+        return 'campaigns.campaigns.update'
 
     _FORMAT_POSITIONS = {'prefix', 'suffix'}
 
@@ -3563,7 +3658,7 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
             )
             .order_by('-created_at', '-id')
         )
-        qs = scope_queryset_to_visible_companies(qs, self.request.user, company_field='company')
+        qs = _visible_selling_offer_queryset(self.request.user, qs)
         if self.action == 'list':
             qs = qs.filter(audience_type=self.request.query_params.get('audience_type') or CampaignAudience.CONTACTS)
         if status_ := self.request.query_params.get('status'):
@@ -4113,7 +4208,10 @@ class ReportViewSet(viewsets.ViewSet):
     """Cross-cutting reporting endpoints — not tied to one model's CRUD surface the
     way ProductViewSet/InquiryViewSet are, so it lives on its own instead of being
     bolted onto whichever viewset happens to own the most of the numbers."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+
+    def permission_code_for(self, request):
+        return 'reports.company.view'
 
     @action(detail=False, methods=['get'], url_path='summary')
     def summary(self, request):
@@ -4143,7 +4241,7 @@ class ReportViewSet(viewsets.ViewSet):
         )
         inquiries_qs = Inquiry.objects.filter(first_seen_at__gte=start, first_seen_at__lt=end)
         messages_qs = scope_queryset_to_visible_accounts(messages_qs, request.user, account_field='account')
-        inquiries_qs = scope_queryset_to_visible_companies(inquiries_qs, request.user, company_field='company')
+        inquiries_qs = _visible_inquiry_queryset(request.user, inquiries_qs)
         if account_id:
             visible_account = _visible_account_or_none(request.user, account_id)
             if visible_account:
@@ -4234,7 +4332,7 @@ class ReportViewSet(viewsets.ViewSet):
             )
             .select_related('product')
         )
-        qs = scope_queryset_to_visible_companies(qs, request.user, company_field='company')
+        qs = _visible_inquiry_product_queryset(request.user, qs)
         if search:
             qs = qs.filter(
                 Q(product__name__icontains=search)
@@ -4311,11 +4409,7 @@ class ReportViewSet(viewsets.ViewSet):
             created_at__lt=end,
             audience_type=CampaignAudience.CONTACTS,
         )
-        offers_qs = scope_queryset_to_visible_companies(
-            offers_qs,
-            request.user,
-            company_field='company',
-        )
+        offers_qs = _visible_selling_offer_queryset(request.user, offers_qs)
         if search:
             offers_qs = offers_qs.filter(
                 Q(name__icontains=search)

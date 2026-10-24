@@ -10,6 +10,7 @@ from apps.clientpulse.models import ClientProfile, ClientPulseSettings, ClientTa
 from apps.clientpulse.serializers import ClientProfileInputSerializer
 from apps.clientpulse.services.profile_service import create_profile, record_activity, update_profile
 from apps.clientpulse.services.directory_metrics import with_directory_metrics
+from apps.clientpulse.services.communication_access import visible_clientpulse_account_ids
 from apps.tenancy.models import CompanyMembership
 from apps.tenancy.services.access import default_company_for_user
 
@@ -36,6 +37,13 @@ class ClientPagination(PageNumberPagination):
 def _related(queryset):
     return queryset.select_related('contact', 'owner__user').prefetch_related(
         'tag_assignments__tag', 'contact__whatsapp_contacts__account',
+    )
+
+
+def _payload(request, profile, *, detail=False):
+    account_ids = visible_clientpulse_account_ids(request.user, profile.company)
+    return profile_payload(
+        profile, detail=detail, visible_account_ids=account_ids,
     )
 
 
@@ -79,7 +87,12 @@ def clients_view(request):
             company, request.user, contact_data, profile_data,
             data.get('identities', []), tag_ids,
         )
-        return Response(profile_payload(_related(ClientProfile.objects).get(pk=profile.pk), detail=True), status=201)
+        return Response(
+            _payload(
+                request, _related(ClientProfile.objects).get(pk=profile.pk), detail=True,
+            ),
+            status=201,
+        )
 
     queryset = with_directory_metrics(_related(scoped_profiles(request)))
     requested_status = request.query_params.get('status', 'active')
@@ -115,7 +128,10 @@ def clients_view(request):
     )
     paginator = ClientPagination()
     page = paginator.paginate_queryset(queryset, request)
-    return paginator.get_paginated_response([profile_payload(item) for item in page])
+    account_ids = visible_clientpulse_account_ids(request.user, company)
+    return paginator.get_paginated_response([
+        profile_payload(item, visible_account_ids=account_ids) for item in page
+    ])
 
 
 @api_view(['GET', 'PATCH'])
@@ -141,7 +157,7 @@ def client_detail_view(request, profile_id):
             profile_data['owner'] = owner
         update_profile(profile, request.user, contact_data, profile_data, tag_ids if 'tag_ids' in data else None)
     profile = _related(ClientProfile.objects).get(pk=profile.pk)
-    return Response(profile_payload(profile, detail=True))
+    return Response(_payload(request, profile, detail=True))
 
 
 def _set_client_active_state(request, profile_id, active):

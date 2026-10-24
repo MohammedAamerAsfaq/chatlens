@@ -1,5 +1,6 @@
 from .account_endpoint import AccountEndpoint
 from .communication_account import CommunicationAccount
+from .communication_account_assignment import CommunicationAccountAssignment
 from .company import Company
 from .company_contact import CompanyContact
 from .company_contact_identity import CompanyContactIdentity
@@ -13,6 +14,7 @@ from .user_company_preference import UserCompanyPreference
 __all__ = [
     'AccountEndpoint',
     'CommunicationAccount',
+    'CommunicationAccountAssignment',
     'Company',
     'CompanyContact',
     'CompanyContactIdentity',

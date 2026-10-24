@@ -19,7 +19,7 @@ from django.db.models import Count, F, Q
 from django.utils.dateparse import parse_date, parse_datetime
 from django.utils.timezone import now
 from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
-from rest_framework import mixins, viewsets, status
+from rest_framework import mixins, permissions, viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -31,9 +31,10 @@ from apps.whatsapp_bridge.models import (
     BaileysEvent, OutboundAsset, OutboundMessage,
 )
 from apps.tenancy.models import (
-    AccountEndpoint, CommunicationAccount, Company, CompanyMembership,
-    UserCompanyPreference,
+    AccountEndpoint, CommunicationAccount, CommunicationAccountAssignment,
+    Company, CompanyMembership, UserCompanyPreference,
 )
+from apps.tenancy.api_permissions import CompanyPermissionRequired
 from apps.tenancy.services.access import (
     active_membership_for_user,
     available_companies_queryset,
@@ -89,8 +90,15 @@ class OutboundMessagePagination(PageNumberPagination):
 
 class OutboundAssetViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = OutboundAssetSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
     http_method_names = ['get', 'post', 'head', 'options']
+
+    def permission_code_for(self, request):
+        return (
+            'conversations.messages.send'
+            if request.method not in permissions.SAFE_METHODS
+            else 'conversations.messages.view'
+        )
 
     def get_queryset(self):
         company = default_company_for_user(self.request.user)
@@ -117,8 +125,15 @@ class OutboundAssetViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSe
 
 class OutboundMessageViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = OutboundMessageSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
     pagination_class = OutboundMessagePagination
+
+    def permission_code_for(self, request):
+        return (
+            'conversations.messages.send'
+            if self.action in {'cancel', 'retry'}
+            else 'conversations.messages.view'
+        )
 
     def get_queryset(self):
         queryset = OutboundMessage.objects.select_related(
@@ -257,7 +272,14 @@ def _visible_account_or_none(user, account_id):
 
 class WhatsAppAccountViewSet(viewsets.ModelViewSet):
     serializer_class = WhatsAppAccountSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+
+    def permission_code_for(self, request):
+        if self.action in {'list', 'retrieve', 'sync_progress', 'export', 'storage', 'message_logs'}:
+            return 'conversations.accounts.view'
+        if self.action in {'create_message', 'message_preflight'}:
+            return 'conversations.messages.send'
+        return 'conversations.accounts.manage'
 
     def get_queryset(self):
         queryset = visible_accounts_queryset(
@@ -307,6 +329,20 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
                 account.primary_endpoint = endpoint
                 update_fields.append('primary_endpoint')
             account.save(update_fields=update_fields)
+            membership = CompanyMembership.objects.filter(
+                company=company, user=owner, is_active=True,
+            ).first()
+            if membership:
+                CommunicationAccountAssignment.objects.update_or_create(
+                    company=company,
+                    communication_account=comm_account,
+                    membership=membership,
+                    defaults={
+                        'access_level': CommunicationAccountAssignment.ACCESS_OWNER,
+                        'is_active': True,
+                        'assigned_by': owner,
+                    },
+                )
 
 
     def destroy(self, request, *args, **kwargs):
@@ -992,7 +1028,14 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
 
 class ChatViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ChatSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+
+    def permission_code_for(self, request):
+        if self.action in {'info', 'group_info', 'messages'}:
+            return 'conversations.messages.view'
+        if self.action == 'set_ai_parsing':
+            return 'conversations.accounts.manage'
+        return 'conversations.chats.view'
 
     def get_queryset(self):
         qs = scope_queryset_to_visible_accounts(
@@ -1751,9 +1794,16 @@ class UnresolvedMessageViewSet(viewsets.ReadOnlyModelViewSet):
 
 class ContactViewSet(viewsets.ModelViewSet):
     serializer_class = ContactDetailSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
     pagination_class = ActivityPagination
     http_method_names = ['get', 'patch', 'head', 'options']
+
+    def permission_code_for(self, request):
+        return (
+            'conversations.contacts.update'
+            if request.method not in permissions.SAFE_METHODS
+            else 'conversations.chats.view'
+        )
 
     ORDERING_FIELDS = {
         'display_name':  ['display_name', 'push_name', 'phone_number'],
@@ -1898,8 +1948,11 @@ class ContactViewSet(viewsets.ModelViewSet):
 
 
 class GroupViewSet(viewsets.ReadOnlyModelViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
     pagination_class = ActivityPagination
+
+    def permission_code_for(self, request):
+        return 'conversations.chats.view'
 
     def get_serializer_class(self):
         if self.action == 'retrieve':

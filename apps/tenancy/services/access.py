@@ -121,9 +121,26 @@ def company_for_message(message):
 def visible_accounts_queryset(user, qs: QuerySet | None = None) -> QuerySet:
     qs = qs if qs is not None else WhatsAppAccount.objects.all()
     active_company = default_company_for_user(user)
-    if active_company is not None:
-        return qs.filter(communication_account__company=active_company).distinct()
-    return qs.none()
+    if active_company is None:
+        return qs.none()
+
+    from apps.tenancy.services.authorization import permission_scope
+
+    scope = permission_scope(user, 'conversations.accounts.view', active_company)
+    company_qs = qs.filter(communication_account__company=active_company)
+    if scope == 'all':
+        return company_qs.distinct()
+    if scope not in {'own', 'assigned'}:
+        return qs.none()
+
+    assignment_filter = {
+        'communication_account__user_assignments__membership__user': user,
+        'communication_account__user_assignments__membership__is_active': True,
+        'communication_account__user_assignments__is_active': True,
+    }
+    if scope == 'own':
+        assignment_filter['communication_account__user_assignments__access_level'] = 'owner'
+    return company_qs.filter(**assignment_filter).distinct()
 
 
 def scope_queryset_to_visible_accounts(qs: QuerySet, user, account_field: str = 'account') -> QuerySet:

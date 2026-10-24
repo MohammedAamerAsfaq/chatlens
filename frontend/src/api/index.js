@@ -40,6 +40,10 @@ export const companyAccessApi = {
   users: () => http.get('/company/users/'),
   createUser: (data) => http.post('/company/users/', data),
   updateUser: (id, data) => http.patch(`/company/users/${id}/`, data),
+  communicationAccounts: () => http.get('/company/communication-accounts/'),
+  updateUserCommunicationAccounts: (id, data) => http.put(
+    `/company/users/${id}/communication-accounts/`, data,
+  ),
   roles: () => http.get('/company/roles/'),
   createRole: (data) => http.post('/company/roles/', data),
   updateRole: (id, data) => http.patch(`/company/roles/${id}/`, data),

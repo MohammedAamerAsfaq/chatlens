@@ -5,7 +5,10 @@ from rest_framework.test import APIClient
 from apps.clientpulse.models import (
     ClientActivity, ClientProfile, ClientPulseSettings, ClientTag, ContactConsent,
 )
-from apps.tenancy.models import Company, CompanyContact, CompanyMembership
+from apps.tenancy.models import (
+    CommunicationAccount, CommunicationAccountAssignment, Company, CompanyContact,
+    CompanyMembership, ConnectionProvider,
+)
 from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppContact
 
 
@@ -207,8 +210,15 @@ class ClientPulseApiTests(TestCase):
 
     def test_client_list_includes_linked_communication_accounts(self):
         profile = self._profile('Account-linked Client', owner=self.owner_membership)
+        provider = ConnectionProvider.objects.create(
+            key='crm-list-baileys', name='CRM List Baileys', channel='whatsapp',
+        )
+        communication = CommunicationAccount.objects.create(
+            company=self.company, provider=provider, channel='whatsapp', name='Sales Line',
+        )
         account = WhatsAppAccount.objects.create(
-            owner=self.owner_user, display_name='Sales Line', phone_number='971500000001',
+            owner=self.owner_user, communication_account=communication,
+            display_name='Sales Line', phone_number='971500000001',
         )
         WhatsAppContact.objects.create(
             account=account, company_contact=profile.contact,
@@ -221,3 +231,46 @@ class ClientPulseApiTests(TestCase):
             'name': 'Sales Line', 'phone_number': '971500000001',
             'session_status': account.session_status,
         }])
+
+    def test_client_payload_hides_unassigned_linked_accounts(self):
+        profile = self._profile('Scoped Account Client', owner=self.agent_membership)
+        provider = ConnectionProvider.objects.create(
+            key='crm-scope-baileys', name='CRM Scope Baileys', channel='whatsapp',
+        )
+        assigned_communication = CommunicationAccount.objects.create(
+            company=self.company, provider=provider, channel='whatsapp', name='Assigned Line',
+        )
+        hidden_communication = CommunicationAccount.objects.create(
+            company=self.company, provider=provider, channel='whatsapp', name='Hidden Line',
+        )
+        assigned_account = WhatsAppAccount.objects.create(
+            owner=self.agent_user, communication_account=assigned_communication,
+        )
+        hidden_account = WhatsAppAccount.objects.create(
+            owner=self.owner_user, communication_account=hidden_communication,
+        )
+        WhatsAppContact.objects.create(
+            account=assigned_account, company_contact=profile.contact,
+            wa_contact_id='971511111112@s.whatsapp.net',
+        )
+        WhatsAppContact.objects.create(
+            account=hidden_account, company_contact=profile.contact,
+            wa_contact_id='971511111113@s.whatsapp.net',
+        )
+        CommunicationAccountAssignment.objects.create(
+            company=self.company, communication_account=assigned_communication,
+            membership=self.agent_membership,
+        )
+        self.client.force_authenticate(self.agent_user)
+
+        response = self.client.get(f'/api/clientpulse/clients/{profile.pk}/')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(
+            [item['id'] for item in response.data['communication_accounts']],
+            [assigned_account.pk],
+        )
+        self.assertEqual(
+            [item['account_id'] for item in response.data['whatsapp_contacts']],
+            [assigned_account.pk],
+        )

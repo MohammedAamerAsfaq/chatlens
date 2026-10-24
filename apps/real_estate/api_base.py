@@ -1,9 +1,10 @@
+from django.db.models import Q
 from rest_framework import permissions, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 
 from apps.tenancy.models import Company
-from apps.tenancy.services.access import default_company_for_user
+from apps.tenancy.services.access import default_company_for_user, visible_accounts_queryset
 from apps.tenancy.services.authorization import has_company_permission, permission_scope
 
 
@@ -30,6 +31,12 @@ class RealEstatePermission(permissions.BasePermission):
         if not company or getattr(obj, 'company_id', None) != company.pk:
             return False
         scope = permission_scope(request.user, view.permission_code_for(request), company)
+        if scope == 'assigned' and view.account_scope_field:
+            account = obj
+            for part in view.account_scope_field.split('__'):
+                account = getattr(account, part, None)
+            if account is not None:
+                return visible_accounts_queryset(request.user).filter(pk=account.pk).exists()
         if scope == 'assigned' and view.scope_filter_field:
             current = obj
             for part in view.scope_filter_field.split('__'):
@@ -44,6 +51,7 @@ class CompanyOwnedViewSet(viewsets.ModelViewSet):
     read_permission = ''
     write_permission = ''
     scope_filter_field = ''
+    account_scope_field = ''
 
     def active_company(self):
         company = default_company_for_user(self.request.user)
@@ -58,7 +66,21 @@ class CompanyOwnedViewSet(viewsets.ModelViewSet):
         company = self.active_company()
         qs = self.queryset.filter(company=company)
         scope = permission_scope(self.request.user, self.permission_code_for(self.request), company)
-        if scope == 'assigned' and self.scope_filter_field:
+        if self.account_scope_field:
+            visible_accounts = Q(**{
+                f'{self.account_scope_field}__in': visible_accounts_queryset(
+                    self.request.user,
+                ).values('pk'),
+            })
+            account_is_null = Q(**{f'{self.account_scope_field}__isnull': True})
+            if scope == 'assigned' and self.scope_filter_field:
+                qs = qs.filter(
+                    visible_accounts
+                    | (account_is_null & Q(**{self.scope_filter_field: self.request.user.pk}))
+                )
+            else:
+                qs = qs.filter(visible_accounts | account_is_null)
+        elif scope == 'assigned' and self.scope_filter_field:
             qs = qs.filter(**{self.scope_filter_field: self.request.user.pk})
         return qs
 

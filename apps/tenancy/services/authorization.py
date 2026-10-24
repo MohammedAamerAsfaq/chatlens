@@ -42,6 +42,24 @@ def effective_permission_grants(user, company=None):
     return (grants or _legacy_grants(membership)), membership
 
 
+def permission_grants_for_membership(membership):
+    rows = CompanyRolePermission.objects.filter(
+        role__membership_assignments__membership=membership,
+        role__membership_assignments__company=membership.company,
+        role__is_active=True,
+        permission__is_active=True,
+    ).values_list('permission__code', 'record_scope')
+    grants = {}
+    for code, scope in rows:
+        if SCOPE_WEIGHT[scope] > SCOPE_WEIGHT.get(grants.get(code), 0):
+            grants[code] = scope
+    return grants or _legacy_grants(membership)
+
+
+def permission_scope_for_membership(membership, permission_code):
+    return permission_grants_for_membership(membership).get(permission_code)
+
+
 def has_company_permission(user, permission_code, company=None):
     grants, _ = effective_permission_grants(user, company)
     return permission_code in grants

@@ -12,7 +12,9 @@ import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 
 const users = ref([])
 const roles = ref([])
+const communicationAccounts = ref([])
 const roleDrafts = reactive({})
+const accountDrafts = reactive({})
 const loading = ref(true)
 const busy = ref('')
 const error = ref('')
@@ -27,12 +29,16 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [usersResponse, rolesResponse] = await Promise.all([
-      companyAccessApi.users(), companyAccessApi.roles(),
+    const [usersResponse, rolesResponse, accountsResponse] = await Promise.all([
+      companyAccessApi.users(), companyAccessApi.roles(), companyAccessApi.communicationAccounts(),
     ])
     users.value = usersResponse.data
     roles.value = rolesResponse.data.filter(role => role.is_active)
-    users.value.forEach(user => { roleDrafts[user.id] = user.roles.map(role => role.id) })
+    communicationAccounts.value = accountsResponse.data
+    users.value.forEach(user => {
+      roleDrafts[user.id] = user.roles.map(role => role.id)
+      accountDrafts[user.id] = [...user.communication_account_ids]
+    })
   } catch (exc) {
     error.value = message(exc, 'Unable to load company users.')
   } finally {
@@ -44,6 +50,16 @@ function toggleRole(membershipId, roleId) {
   const selected = new Set(roleDrafts[membershipId] || [])
   selected.has(roleId) ? selected.delete(roleId) : selected.add(roleId)
   roleDrafts[membershipId] = [...selected]
+}
+
+function toggleAccount(membershipId, accountId) {
+  const selected = new Set(accountDrafts[membershipId] || [])
+  selected.has(accountId) ? selected.delete(accountId) : selected.add(accountId)
+  accountDrafts[membershipId] = [...selected]
+}
+
+function ownsAccount(user, account) {
+  return account.owner_user_id === user.user.id
 }
 
 async function createUser() {
@@ -63,10 +79,14 @@ async function saveUser(user) {
   busy.value = `save-${user.id}`
   error.value = ''; success.value = ''
   try {
-    const { data } = await companyAccessApi.updateUser(user.id, { role_ids: roleDrafts[user.id] })
+    await companyAccessApi.updateUser(user.id, { role_ids: roleDrafts[user.id] })
+    const { data } = await companyAccessApi.updateUserCommunicationAccounts(user.id, {
+      communication_account_ids: accountDrafts[user.id] || [],
+    })
     const index = users.value.findIndex(item => item.id === user.id)
     users.value[index] = data
     roleDrafts[user.id] = data.roles.map(role => role.id)
+    accountDrafts[user.id] = [...data.communication_account_ids]
     success.value = `Access updated for ${user.user.username}.`
   } catch (exc) {
     error.value = message(exc, 'Unable to update user access.')
@@ -92,7 +112,7 @@ onMounted(load)
 <template>
   <UiPage width="wide" class="company-users-page">
     <UiPageHeader eyebrow="Company access" title="Users" description="Create company users, assign multiple roles, and suspend access without deleting business records." />
-    <UiNotice tone="warning">RBAC is active for user and role administration. Existing application areas will move from legacy role checks to permission codes route by route.</UiNotice>
+    <UiNotice tone="info">Roles control what a user can do. Communication-account assignments control which Inbox, inquiry, and opportunity records the user can access.</UiNotice>
     <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
     <UiNotice v-if="success" tone="success">{{ success }}</UiNotice>
 
@@ -114,7 +134,24 @@ onMounted(load)
         <article v-for="user in users" :key="user.id" :class="['user-card', { inactive: !user.is_active }]">
           <div class="identity"><div class="avatar">{{ user.user.username.slice(0, 1).toUpperCase() }}</div><div><h3>{{ user.user.username }}</h3><p>{{ user.user.email }}</p></div><UiBadge :tone="user.is_active ? 'success' : 'neutral'">{{ user.is_active ? 'Active' : 'Suspended' }}</UiBadge></div>
           <div class="roles"><strong>Roles</strong><label v-for="role in roles" :key="role.id"><input type="checkbox" :checked="(roleDrafts[user.id] || []).includes(role.id)" @change="toggleRole(user.id, role.id)" />{{ role.name }}</label></div>
-          <div class="actions"><UiButton variant="primary" size="small" :disabled="busy === `save-${user.id}` || !(roleDrafts[user.id] || []).length" @click="saveUser(user)">Save roles</UiButton><UiButton v-if="user.is_active" variant="danger" size="small" :disabled="busy === `active-${user.id}`" @click="setActive(user, false)">Suspend</UiButton><UiButton v-else size="small" :disabled="busy === `active-${user.id}`" @click="setActive(user, true)">Reactivate</UiButton></div>
+          <div class="accounts">
+            <strong>Communication accounts</strong>
+            <p v-if="user.has_all_account_access" class="all-access">All company accounts through assigned role.</p>
+            <template v-else-if="communicationAccounts.length">
+              <label v-for="account in communicationAccounts" :key="account.id">
+                <input
+                  type="checkbox"
+                  :checked="(accountDrafts[user.id] || []).includes(account.id)"
+                  :disabled="ownsAccount(user, account)"
+                  @change="toggleAccount(user.id, account.id)"
+                />
+                <span>{{ account.display_name || account.name }}</span>
+                <small>{{ account.phone_number || account.channel }}{{ ownsAccount(user, account) ? ' · owner' : '' }}</small>
+              </label>
+            </template>
+            <p v-else class="empty-accounts">No communication accounts are configured.</p>
+          </div>
+          <div class="actions"><UiButton variant="primary" size="small" :disabled="busy === `save-${user.id}` || !(roleDrafts[user.id] || []).length" @click="saveUser(user)">Save access</UiButton><UiButton v-if="user.is_active" variant="danger" size="small" :disabled="busy === `active-${user.id}`" @click="setActive(user, false)">Suspend</UiButton><UiButton v-else size="small" :disabled="busy === `active-${user.id}`" @click="setActive(user, true)">Reactivate</UiButton></div>
         </article>
       </div>
     </UiCard>

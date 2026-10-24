@@ -7,8 +7,8 @@ from rest_framework.test import APIClient
 
 from apps.clientpulse.models import ClientProfile
 from apps.tenancy.models import (
-    CommunicationAccount, Company, CompanyContact, CompanyMembership,
-    ConnectionProvider,
+    CommunicationAccount, CommunicationAccountAssignment, Company, CompanyContact,
+    CompanyMembership, ConnectionProvider,
 )
 from apps.whatsapp_bridge.models import (
     ChatType, MessageDirection, MessageType, WhatsAppAccount, WhatsAppChat,
@@ -58,6 +58,11 @@ class ClientConversationHistoryTests(TestCase):
         )
         account = WhatsAppAccount.objects.create(
             owner=owner, communication_account=communication, display_name=name,
+        )
+        membership = CompanyMembership.objects.get(company=self.company, user=owner)
+        CommunicationAccountAssignment.objects.create(
+            company=self.company, communication_account=communication,
+            membership=membership,
         )
         contact = WhatsAppContact.objects.create(
             account=account, company_contact=self.contact,
@@ -124,7 +129,7 @@ class ClientConversationHistoryTests(TestCase):
         self.assertEqual(response.data['count'], 1)
         self.assertEqual(response.data['results'][0]['id'], self.admin_message.pk)
 
-    def test_regular_user_sees_only_an_owned_linked_account(self):
+    def test_regular_user_sees_only_an_assigned_linked_account(self):
         self.client.force_authenticate(self.member)
         response = self.client.get(
             f'/api/clientpulse/clients/{self.profile.pk}/conversations/',
