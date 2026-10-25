@@ -6,7 +6,8 @@ from .views_inventory import (
     PropertyViewSet,
 )
 from .views_opportunities import (
-    CandidateViewSet, OpportunityItemViewSet, OpportunityViewSet, RequirementViewSet,
+    CandidateViewSet, InquiryMediumViewSet, OpportunityItemViewSet, OpportunityViewSet,
+    RequirementViewSet,
 )
 from .views_mock_source import MockSourceRecordViewSet
 from .views_mock_inquiry import MockInquiryViewSet
@@ -21,6 +22,7 @@ router.register('real-estate/property-developments', PropertyDevelopmentViewSet,
 router.register('real-estate/property-media', PropertyMediaViewSet, basename='real-estate-property-media')
 router.register('real-estate/listings', ListingViewSet, basename='real-estate-listings')
 router.register('real-estate/opportunities', OpportunityViewSet, basename='real-estate-opportunities')
+router.register('real-estate/inquiry-media', InquiryMediumViewSet, basename='real-estate-inquiry-media')
 router.register('real-estate/opportunity-items', OpportunityItemViewSet, basename='real-estate-opportunity-items')
 router.register('real-estate/requirements', RequirementViewSet, basename='real-estate-requirements')
 router.register('real-estate/candidates', CandidateViewSet, basename='real-estate-candidates')

@@ -59,7 +59,7 @@ def _item_values(opportunity, payload, parsed, settings, kind):
         amount_max = payload.get('budget_max') or money.get('max')
     else:
         amount = payload.get('asking_price') or money.get('amount') or money.get('value')
-        amount_max = amount
+        amount_max = money.get('max') or amount
     attributes = payload.get('attributes') if isinstance(payload.get('attributes'), dict) else {}
     if property_type:
         attributes = normalize_attributes(property_type, attributes, strict=False)

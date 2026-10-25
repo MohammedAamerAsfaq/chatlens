@@ -7,22 +7,25 @@ from rest_framework.response import Response
 
 from apps.real_estate.api_base import CompanyOwnedViewSet
 from apps.real_estate.models import (
-    Listing, OpportunityItem, Property, PropertyCandidate, PropertyRequirement,
+    InquiryMedium, Listing, OpportunityItem, Property, PropertyCandidate, PropertyRequirement,
     RealEstateOpportunity,
 )
 from apps.real_estate.serializers import (
-    ListingSerializer, OpportunityItemSerializer, OpportunitySerializer,
+    InquiryMediumSerializer, ListingSerializer, ManualOpportunitySerializer,
+    OpportunityItemSerializer, OpportunitySerializer,
     PropertyCandidateSerializer, PropertyRequirementSerializer,
 )
 from apps.real_estate.services.candidate_service import merge_candidate, promote_candidate, reject_candidate
 from apps.real_estate.services.opportunity_item_service import (
     create_property_from_item, link_item, unlink_item,
 )
+from apps.real_estate.services.inquiry_media import seed_default_inquiry_media
+from apps.real_estate.services.manual_opportunities import create_manual_opportunity
 
 
 class OpportunityViewSet(CompanyOwnedViewSet):
     queryset = RealEstateOpportunity.objects.select_related(
-        'account', 'contact', 'assigned_to', 'source_chat',
+        'account', 'contact', 'assigned_to', 'source_chat', 'inquiry_medium',
         'requirement', 'property_candidate', 'property_candidate__property_type',
     ).prefetch_related('items__property_type', 'items__property', 'items__linked_by')
     serializer_class = OpportunitySerializer
@@ -30,7 +33,7 @@ class OpportunityViewSet(CompanyOwnedViewSet):
     write_permission = 'real_estate.opportunities.update'
     scope_filter_field = 'assigned_to_id'
     account_scope_field = 'account'
-    http_method_names = ['get', 'put', 'patch', 'head', 'options']
+    http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -45,11 +48,54 @@ class OpportunityViewSet(CompanyOwnedViewSet):
                 | Q(contact__push_name__icontains=search)
                 | Q(contact__phone_number__icontains=search)
                 | Q(source_chat__name__icontains=search)
+                | Q(source_party_name__icontains=search)
+                | Q(source_contact_detail__icontains=search)
+                | Q(source_reference__icontains=search)
                 | Q(items__title__icontains=search)
                 | Q(items__location_raw__icontains=search)
                 | Q(items__property__title__icontains=search)
             ).distinct()
         return qs
+
+    def create(self, request, *args, **kwargs):
+        return Response(
+            {'detail': 'Use the manual endpoint to create an opportunity.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    @action(detail=False, methods=['post'], url_path='manual')
+    def manual(self, request):
+        company = self.active_company()
+        serializer = ManualOpportunitySerializer(
+            data=request.data, context={'request': request, 'company': company},
+        )
+        serializer.is_valid(raise_exception=True)
+        opportunity = create_manual_opportunity(
+            company=company, user=request.user, validated_data=serializer.validated_data,
+        )
+        return Response(
+            OpportunitySerializer(opportunity, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class InquiryMediumViewSet(CompanyOwnedViewSet):
+    queryset = InquiryMedium.objects.all()
+    serializer_class = InquiryMediumSerializer
+    read_permission = 'real_estate.opportunities.view'
+    write_permission = 'real_estate.opportunities.update'
+    http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
+
+    def get_queryset(self):
+        seed_default_inquiry_media(self.active_company())
+        queryset = super().get_queryset()
+        if self.request.query_params.get('include_inactive', '').lower() != 'true':
+            queryset = queryset.filter(is_active=True)
+        return queryset
+
+    def perform_destroy(self, instance):
+        instance.is_active = False
+        instance.save(update_fields=['is_active', 'updated_at'])
 
 
 class OpportunityItemViewSet(CompanyOwnedViewSet):

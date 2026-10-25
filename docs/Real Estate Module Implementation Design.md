@@ -680,6 +680,14 @@ The shared fields and conditional sections must be reusable components, but thei
 
 A physical `Property` is not itself Buying, Selling, Leasing Inquiry, or Leasing Offer. Activity belongs to a `RealEstateOpportunity`; sale or lease commercial terms belong to a `Listing`. This separation allows the same physical property to be offered for sale, offered for lease, or retained without an active listing at different times.
 
+### 10.3 Manual inquiry capture
+
+The Opportunity Board provides a permission-controlled **New inquiry** action. It opens a full-page form that captures the same structured facts as the AI extraction contract and supports all four activity lanes. Saving does not introduce a separate manual-inquiry model: it creates a classified `RealEstateOpportunity`, projects its property entries through the established extraction projection, and returns the user to the selected board lane.
+
+`InquiryMedium` is a company-owned master used by manual opportunities. Each company is seeded with Phone, Email, WhatsApp, Telegram, Signal, Website, and Meeting; authorized users can add future media without a schema change. Generic party, contact-detail, and source-reference fields preserve non-WhatsApp origins without creating fake WhatsApp accounts, contacts, chats, or messages. Existing AI-created WhatsApp opportunities remain valid because the medium and generic source fields are nullable.
+
+The manual form and API enforce company scoping for media and assignees. Demand activities create requirement projections; supply activities create candidate projections; every distinct property section creates its own `OpportunityItem`. Exact property reference codes may use the existing deterministic auto-linking rule, while ambiguous records remain available for broker review.
+
 ## 11. ClientPulse Integration
 
 Real Estate opportunities should link to `CompanyContact` and ClientPulse profiles. ClientPulse should display:

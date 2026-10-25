@@ -57,8 +57,9 @@ class OpportunitySerializer(CleanModelSerializer):
     requirement = PropertyRequirementSerializer(read_only=True)
     property_candidate = PropertyCandidateSerializer(read_only=True)
     contact_name = serializers.SerializerMethodField()
-    contact_phone = serializers.CharField(source='contact.phone_number', read_only=True)
+    contact_phone = serializers.SerializerMethodField()
     account_name = serializers.CharField(source='account.display_name', read_only=True)
+    inquiry_medium_name = serializers.CharField(source='inquiry_medium.name', read_only=True)
     source_chat_name = serializers.CharField(source='source_chat.name', read_only=True)
     assigned_to_name = serializers.SerializerMethodField()
 
@@ -66,8 +67,12 @@ class OpportunitySerializer(CleanModelSerializer):
     def get_contact_name(obj):
         contact = obj.contact
         if not contact:
-            return ''
+            return obj.source_party_name
         return contact.display_name or contact.push_name or contact.phone_number or contact.wa_contact_id
+
+    @staticmethod
+    def get_contact_phone(obj):
+        return obj.contact.phone_number if obj.contact else obj.source_contact_detail
 
     @staticmethod
     def get_assigned_to_name(obj):
@@ -80,6 +85,7 @@ class OpportunitySerializer(CleanModelSerializer):
         exclude = ('company',)
         read_only_fields = (
             'source_message', 'account', 'contact', 'company_contact', 'source_chat',
+            'inquiry_medium', 'source_party_name', 'source_contact_detail', 'source_reference',
             'activity_type', 'classification_status', 'summary', 'original_message',
             'confidence', 'matching_complete', 'deduplication_key', 'first_seen_at',
             'created_at', 'updated_at',

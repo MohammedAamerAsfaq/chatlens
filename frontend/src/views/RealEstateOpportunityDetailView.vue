@@ -130,7 +130,11 @@ onMounted(() => Promise.all([load(), loadProperties()]))
         </div>
         <dl>
           <div><dt>Received</dt><dd>{{ formatDate(opportunity.first_seen_at) }}</dd></div>
-          <div><dt>Source</dt><dd>{{ opportunity.source_chat_name || 'Direct message' }}</dd></div>
+          <div><dt>Medium</dt><dd>{{ opportunity.inquiry_medium_name || 'WhatsApp' }}</dd></div>
+          <div><dt>Party</dt><dd>{{ opportunityParty(opportunity) }}</dd></div>
+          <div><dt>Contact</dt><dd>{{ opportunity.contact_phone || '-' }}</dd></div>
+          <div><dt>Source</dt><dd>{{ opportunity.source_chat_name || opportunity.source_reference || 'Manual entry' }}</dd></div>
+          <div v-if="opportunity.source_reference"><dt>Reference</dt><dd>{{ opportunity.source_reference }}</dd></div>
           <div><dt>Account</dt><dd>{{ opportunity.account_name || '-' }}</dd></div>
           <div><dt>Assigned</dt><dd>{{ opportunity.assigned_to_name || 'Unassigned' }}</dd></div>
         </dl>

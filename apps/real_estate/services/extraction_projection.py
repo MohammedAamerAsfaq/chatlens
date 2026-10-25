@@ -69,7 +69,9 @@ def _project_requirement(opportunity, payload, parsed, settings):
         'timeframe': str(payload.get('timeframe') or '')[:255],
         'required_amenities': _list(payload.get('required_amenities')),
         'preferred_amenities': _list(payload.get('preferred_amenities') or payload.get('amenities')),
-        'free_form_constraints': str(payload.get('constraints') or ''),
+        'free_form_constraints': str(
+            payload.get('free_form_constraints') or payload.get('constraints') or ''
+        ),
         'extraction_confidence': _decimal(parsed.get('confidence')),
         'raw_extraction': payload,
     }
@@ -96,9 +98,9 @@ def _project_candidate(opportunity, payload, parsed, settings):
         'property_type': property_type,
         'attributes': _normalized_attributes(property_type, payload.get('attributes')),
         'location_raw': str(payload.get('location') or _first(payload.get('locations')) or '')[:500],
-        'bedrooms': _decimal(payload.get('bedrooms')),
-        'bathrooms': _decimal(payload.get('bathrooms')),
-        'area': _decimal(payload.get('area') if not isinstance(payload.get('area'), dict) else payload['area'].get('value')),
+        'bedrooms': _decimal(payload.get('bedrooms') or payload.get('bedrooms_min')),
+        'bathrooms': _decimal(payload.get('bathrooms') or payload.get('bathrooms_min')),
+        'area': _decimal(_candidate_area(payload)),
         'area_unit': _choice(payload.get('area_unit'), set(AreaUnit.values), settings.default_area_unit),
         'asking_price': _decimal(payload.get('asking_price') or price.get('value') or price.get('amount')),
         'currency': str(payload.get('currency') or price.get('currency') or settings.default_currency).upper()[:3],
@@ -131,6 +133,13 @@ def _projection_record(model, opportunity, defaults):
 
 def _mapping(value):
     return value if isinstance(value, dict) else {}
+
+
+def _candidate_area(payload):
+    area = payload.get('area')
+    if isinstance(area, dict):
+        return area.get('value') or area.get('min')
+    return area or payload.get('area_min')
 
 
 def _list(value):

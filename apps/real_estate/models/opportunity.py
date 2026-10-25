@@ -66,6 +66,16 @@ class RealEstateOpportunity(models.Model):
         on_delete=models.SET_NULL,
         related_name='real_estate_opportunities',
     )
+    inquiry_medium = models.ForeignKey(
+        'real_estate.InquiryMedium',
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name='opportunities',
+    )
+    source_party_name = models.CharField(max_length=255, blank=True)
+    source_contact_detail = models.CharField(max_length=255, blank=True)
+    source_reference = models.CharField(max_length=255, blank=True)
     activity_type = models.CharField(
         max_length=30,
         choices=ActivityType.choices,
@@ -171,6 +181,8 @@ class RealEstateOpportunity(models.Model):
             errors['contact'] = 'The WhatsApp contact must belong to the selected account.'
         if self.company_contact_id and self.company_contact.company_id != self.company_id:
             errors['company_contact'] = 'The contact must belong to this company.'
+        if self.inquiry_medium_id and self.inquiry_medium.company_id != self.company_id:
+            errors['inquiry_medium'] = 'The inquiry medium must belong to this company.'
         if self.source_chat_id and self.account_id and self.source_chat.account_id != self.account_id:
             errors['source_chat'] = 'The source chat must belong to the selected account.'
         if self.source_message_id and self.account_id and self.source_message.account_id != self.account_id:

@@ -1,7 +1,7 @@
 <!-- eslint-disable vue/block-lang -->
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { realEstateApi } from '@/api'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCard from '@/components/ui/UiCard.vue'
@@ -39,10 +39,14 @@ function loadStoredPageSize() {
 }
 
 const auth = useAuthStore()
+const route = useRoute()
 const router = useRouter()
 const search = ref('')
 const status = ref('')
-const activeLaneKey = ref(opportunityLanes[0].key)
+const requestedLane = opportunityLanes.some(lane => lane.key === route.query.lane)
+  ? route.query.lane
+  : opportunityLanes[0].key
+const activeLaneKey = ref(requestedLane)
 const columns = ref(loadStoredColumns())
 watch(columns, value => {
   try {
@@ -195,6 +199,9 @@ watch(search, () => {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(loadAll, 350)
 })
+watch(() => route.query.lane, value => {
+  if (opportunityLanes.some(lane => lane.key === value)) activeLaneKey.value = value
+})
 onMounted(() => Promise.all([loadAll(), loadCardConfig()]))
 onBeforeUnmount(() => clearTimeout(searchTimer))
 </script>
@@ -210,6 +217,13 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
         <UiSelect v-model="status" :options="statusFilters" />
       </div>
       <div class="board-actions">
+        <UiButton
+          v-if="auth.hasPermission('real_estate.opportunities.update')"
+          variant="primary"
+          @click="router.push({ name: 'real-estate-opportunity-create' })"
+        >
+          <i class="fa-solid fa-plus"></i> New inquiry
+        </UiButton>
         <div class="board-field board-field--columns">
           <span class="board-field__label">Columns</span>
           <div class="board-columns" role="group" aria-label="Cards per row">
@@ -227,7 +241,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
         <UiButton v-if="auth.isCompanyAdmin" size="small" @click="cardConfigOpen = !cardConfigOpen">
           Card Display{{ cardConfigOpen ? ' ▴' : ' ▾' }}
         </UiButton>
-        <UiButton variant="primary" @click="loadAll">Refresh board</UiButton>
+        <UiButton @click="loadAll"><i class="fa-solid fa-rotate"></i> Refresh board</UiButton>
       </div>
     </UiCard>
 
