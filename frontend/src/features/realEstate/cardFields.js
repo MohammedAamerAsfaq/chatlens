@@ -19,6 +19,10 @@ export const cardFields = [
     getValue: opportunity => opportunity.contact_phone || opportunity.source_chat_name || '',
   },
   {
+    id: 'account_name', label: 'Communication Account', section: 'header',
+    getValue: opportunity => opportunity.account_name || '',
+  },
+  {
     id: 'inquiry_type', label: 'Inquiry Type', section: 'body',
     getValue: opportunity => title(opportunity.activity_type || ''),
   },
@@ -60,5 +64,5 @@ export const cardFieldsById = Object.fromEntries(cardFields.map(field => [field.
 
 // Today's hard-coded layout, used whenever a company has no card_field_config saved yet.
 export const defaultCardFieldIds = [
-  'party_name', 'date_time', 'property_type', 'location', 'property_value', 'sender',
+  'party_name', 'account_name', 'date_time', 'property_type', 'location', 'property_value', 'sender',
 ]

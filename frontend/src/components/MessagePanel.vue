@@ -21,6 +21,38 @@ function chatKind(waId) {
 }
 
 const isGroup = computed(() => chatKind(store.selectedChat?.wa_chat_id) === 'group')
+
+// Per-chat AI toggle: null=inherit → true=force on → false=force off → null
+function nextAiParsing(current) {
+  if (current === null || current === undefined) return true
+  if (current === true) return false
+  return null  // false → back to inherit
+}
+
+function aiParsingLabel(val) {
+  if (val === true)  return 'AI: ON'
+  if (val === false) return 'AI: OFF'
+  return 'AI: auto'
+}
+
+function aiParsingClass(val) {
+  if (val === true)  return 'ai-on'
+  if (val === false) return 'ai-off'
+  return 'ai-auto'
+}
+
+const savingChatAi = ref(false)
+
+async function toggleChatAi() {
+  const chatId = store.selectedChatId
+  if (!chatId || savingChatAi.value) return
+  savingChatAi.value = true
+  try {
+    await store.setChatAiParsing(chatId, nextAiParsing(store.selectedChat?.ai_parsing))
+  } finally {
+    savingChatAi.value = false
+  }
+}
 const draft = ref(props.initialDraft)
 const sending = ref(false)
 const sendError = ref('')
@@ -346,9 +378,18 @@ watch(lightbox, (val) => {
           @converted="emit('clientpulse-converted', $event)"
         />
 
-        <!-- Loaded badge (not part of the clickable area) -->
-        <div class="ml-auto shrink-0 text-xs text-gray-400 bg-white rounded-full px-2 py-1 border border-gray-200">
-          {{ store.messages.length }} loaded
+        <!-- Per-chat AI toggle + loaded badge (not part of the clickable area) -->
+        <div class="ml-auto shrink-0 flex items-center gap-2">
+          <button
+            v-if="store.selectedChatId"
+            @click="toggleChatAi"
+            :class="['ai-badge', aiParsingClass(store.selectedChat?.ai_parsing)]"
+            :disabled="savingChatAi"
+            :title="aiParsingLabel(store.selectedChat?.ai_parsing) + ' — click to change'"
+          >{{ aiParsingLabel(store.selectedChat?.ai_parsing) }}</button>
+          <div class="text-xs text-gray-400 bg-white rounded-full px-2 py-1 border border-gray-200">
+            {{ store.messages.length }} loaded
+          </div>
         </div>
       </div>
 
@@ -687,6 +728,24 @@ watch(lightbox, (val) => {
 .message-panel__identity {
   max-width: min(48%, 32rem);
 }
+
+.ai-badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 1px 4px;
+  border: none;
+  cursor: pointer;
+  line-height: 1.4;
+  transition: opacity 0.15s;
+}
+.ai-badge:disabled { opacity: 0.5; cursor: not-allowed; }
+.ai-on   { background: #dcfce7; color: #15803d; }
+.ai-on:hover:not(:disabled)   { background: #bbf7d0; }
+.ai-off  { background: #fee2e2; color: #b91c1c; }
+.ai-off:hover:not(:disabled)  { background: #fecaca; }
+.ai-auto { background: #f3f4f6; border: 1px solid var(--ui-border-strong); color: #6b7280; }
+.ai-auto:hover:not(:disabled) { background: #e5e7eb; }
 
 .msg-highlight .message-bubble {
   outline: 3px solid #f59e0b;

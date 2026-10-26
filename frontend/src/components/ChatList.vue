@@ -56,54 +56,6 @@ function formatTime(dt) {
   return d.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
-// AI parsing toggle: null=inherit → true=force on → false=force off → null
-function nextAiParsing(current) {
-  if (current === null || current === undefined) return true
-  if (current === true) return false
-  return null  // false → back to inherit
-}
-
-function aiParsingLabel(val) {
-  if (val === true)  return 'AI: ON'
-  if (val === false) return 'AI: OFF'
-  return 'AI: auto'
-}
-
-function aiParsingClass(val) {
-  if (val === true)  return 'ai-badge ai-on'
-  if (val === false) return 'ai-badge ai-off'
-  return 'ai-badge ai-auto'
-}
-
-const savingAi = ref(new Set())
-
-async function toggleAiParsing(event, chat) {
-  event.stopPropagation()  // don't select the chat
-  if (savingAi.value.has(chat.id)) return
-  savingAi.value = new Set([...savingAi.value, chat.id])
-  try {
-    await store.setChatAiParsing(chat.id, nextAiParsing(chat.ai_parsing))
-  } finally {
-    savingAi.value = new Set([...savingAi.value].filter(id => id !== chat.id))
-  }
-}
-
-// Account-level AI toggle
-// Scroll to and highlight a chat when navigated from Trading
-watch(() => store.highlightChatId, async (chatId) => {
-  if (!chatId) return
-  activeFilter.value = 'all'
-  await nextTick()
-  const el = document.querySelector(`[data-chat-id="${chatId}"]`)
-  if (!el) return
-  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  el.classList.add('chat-highlight')
-  setTimeout(() => {
-    el.classList.remove('chat-highlight')
-    store.highlightChatId = null
-  }, 3000)
-})
-
 const savingAccountAi = ref(false)
 
 async function toggleAccountAi() {
@@ -119,6 +71,21 @@ async function toggleAccountAi() {
     savingAccountAi.value = false
   }
 }
+
+// Scroll to and highlight a chat when navigated from Trading
+watch(() => store.highlightChatId, async (chatId) => {
+  if (!chatId) return
+  activeFilter.value = 'all'
+  await nextTick()
+  const el = document.querySelector(`[data-chat-id="${chatId}"]`)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  el.classList.add('chat-highlight')
+  setTimeout(() => {
+    el.classList.remove('chat-highlight')
+    store.highlightChatId = null
+  }, 3000)
+})
 </script>
 
 <template>
@@ -273,20 +240,6 @@ async function toggleAccountAi() {
               {{ chat.last_message_preview || 'No messages' }}
             </p>
             <div class="flex items-center gap-1 shrink-0">
-              <button
-                v-if="chat.ai_parsing !== null && chat.ai_parsing !== undefined"
-                @click="toggleAiParsing($event, chat)"
-                :class="aiParsingClass(chat.ai_parsing)"
-                :disabled="savingAi.has(chat.id)"
-                :title="aiParsingLabel(chat.ai_parsing) + ' — click to change'"
-              >{{ aiParsingLabel(chat.ai_parsing) }}</button>
-              <button
-                v-else
-                @click="toggleAiParsing($event, chat)"
-                class="ai-badge ai-auto"
-                :disabled="savingAi.has(chat.id)"
-                title="AI: auto (inherits account setting) — click to change"
-              ></button>
               <span
                 v-if="chat.unread_count > 0"
                 class="bg-green-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium"
@@ -300,25 +253,5 @@ async function toggleAccountAi() {
     </div>
   </div>
 </template>
-
-<style scoped>
-.ai-badge {
-  font-size: 0.65rem;
-  font-weight: 600;
-  border-radius: 4px;
-  padding: 1px 4px;
-  border: none;
-  cursor: pointer;
-  line-height: 1.4;
-  transition: opacity 0.15s;
-}
-.ai-badge:disabled { opacity: 0.5; cursor: not-allowed; }
-.ai-on   { background: #dcfce7; color: #15803d; }
-.ai-on:hover:not(:disabled)   { background: #bbf7d0; }
-.ai-off  { background: #fee2e2; color: #b91c1c; }
-.ai-off:hover:not(:disabled)  { background: #fecaca; }
-.ai-auto { background: #f3f4f6; color: #9ca3af; width: 8px; height: 8px; padding: 0; border-radius: 50%; }
-.ai-auto:hover:not(:disabled) { background: #e5e7eb; }
-</style>
 
 <style scoped src="@/assets/chat-list.css"></style>
