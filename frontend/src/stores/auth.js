@@ -50,6 +50,11 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = data
   }
 
+  async function updateAccount(payload) {
+    const { data } = await authApi.updateAccount(payload)
+    user.value = data
+  }
+
   async function updateUiTheme(uiTheme) {
     const { data } = await authApi.updatePreferences({ ui_theme: normalizeTheme(uiTheme) })
     user.value = data
@@ -85,6 +90,7 @@ export const useAuthStore = defineStore('auth', () => {
     login,
     selectCompany,
     updateCurrentCompanySettings,
+    updateAccount,
     updateUiTheme,
     updateInspiniaConfig,
     logout,

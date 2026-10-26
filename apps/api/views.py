@@ -11,6 +11,7 @@ from pathlib import Path
 import requests
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import JsonResponse, StreamingHttpResponse, HttpResponse
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
@@ -18,7 +19,10 @@ from django.db.models.deletion import ProtectedError
 from django.db.models import Count, F, Q
 from django.utils.dateparse import parse_date, parse_datetime
 from django.utils.timezone import now
-from django.contrib.auth import authenticate, login as auth_login, logout as auth_logout
+from django.contrib.auth import (
+    authenticate, login as auth_login, logout as auth_logout, update_session_auth_hash,
+)
+from django.contrib.auth.password_validation import validate_password
 from rest_framework import mixins, permissions, viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.pagination import PageNumberPagination
@@ -2281,6 +2285,42 @@ def auth_preferences_view(request):
         )
     preference.save(update_fields=[*update_fields, 'updated_at'])
     return Response(_serialize_auth_user(request.user))
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def auth_account_view(request):
+    user = request.user
+    current_password = request.data.get('current_password') or ''
+    if not user.check_password(current_password):
+        return Response({'detail': 'Current password is incorrect.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    update_fields = []
+    if 'email' in request.data:
+        email = str(request.data.get('email') or '').strip()
+        if not email:
+            return Response({'detail': 'email is required'}, status=status.HTTP_400_BAD_REQUEST)
+        if User.objects.exclude(pk=user.pk).filter(email=email).exists():
+            return Response({'detail': 'Email is already in use.'}, status=status.HTTP_400_BAD_REQUEST)
+        user.email = email
+        update_fields.append('email')
+
+    new_password = request.data.get('new_password') or ''
+    if new_password:
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as exc:
+            return Response({'detail': ' '.join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+        user.set_password(new_password)
+        update_fields.append('password')
+
+    if not update_fields:
+        return Response({'detail': 'Provide email or new_password.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    user.save(update_fields=update_fields)
+    if 'password' in update_fields:
+        update_session_auth_hash(request, user)
+    return Response(_serialize_auth_user(user))
 
 
 @api_view(['PATCH', 'DELETE'])

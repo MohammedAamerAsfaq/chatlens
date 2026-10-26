@@ -43,6 +43,7 @@ import AIOperationsView from '../views/AIOperationsView.vue'
 import TaskQueueSettingsView from '../views/TaskQueueSettingsView.vue'
 import KiwiRouterView from '../views/KiwiRouterView.vue'
 import InquiryForwardingView from '../views/InquiryForwardingView.vue'
+import AccountSettingsView from '../views/AccountSettingsView.vue'
 import CompanyUsersView from '../views/CompanyUsersView.vue'
 import CompanyRolesView from '../views/CompanyRolesView.vue'
 import ClientPulseDirectoryView from '../views/ClientPulseDirectoryView.vue'
@@ -112,6 +113,7 @@ const router = createRouter({
     { path: '/task-queues', name: 'task-queues', component: TaskQueueSettingsView, meta: { title: 'Task & Queues' } },
     { path: '/kiwi-router', name: 'kiwi-router', component: KiwiRouterView, meta: { title: 'KiwiRouter' } },
     { path: '/inquiry-forwarding', name: 'inquiry-forwarding', component: InquiryForwardingView, meta: { title: 'Inquiry Forwarding', industries: ['trading'] } },
+    { path: '/my-account', name: 'my-account', component: AccountSettingsView, meta: { title: 'My Account' } },
     { path: '/company-users', name: 'company-users', component: CompanyUsersView, meta: { title: 'Users', permission: 'users.memberships.view' } },
     { path: '/company-roles', name: 'company-roles', component: CompanyRolesView, meta: { title: 'Roles & Permissions', permission: 'users.roles.view' } },
     { path: '/clientpulse', name: 'clientpulse', component: ClientPulseDirectoryView, meta: { title: 'ClientPulse', permission: 'clientpulse.clients.view' } },

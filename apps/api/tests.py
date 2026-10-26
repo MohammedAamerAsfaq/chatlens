@@ -613,6 +613,54 @@ class TenantScopedApiTests(TestCase):
         other_company = self.client.get('/api/auth/me/').json()
         self.assertEqual(other_company['preferences']['inspinia_config']['skin'], 'default')
 
+    def test_user_can_change_own_email_with_current_password(self):
+        self.client.force_authenticate(self.user_a)
+        resp = self.client.patch(
+            '/api/auth/account/', {'email': 'new-a@example.com', 'current_password': 'pw'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['email'], 'new-a@example.com')
+        self.user_a.refresh_from_db()
+        self.assertEqual(self.user_a.email, 'new-a@example.com')
+
+    def test_email_change_rejects_wrong_current_password(self):
+        self.client.force_authenticate(self.user_a)
+        resp = self.client.patch(
+            '/api/auth/account/', {'email': 'new-a@example.com', 'current_password': 'wrong'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.user_a.refresh_from_db()
+        self.assertEqual(self.user_a.email, 'a@example.com')
+
+    def test_email_change_rejects_email_already_in_use(self):
+        self.client.force_authenticate(self.user_a)
+        resp = self.client.patch(
+            '/api/auth/account/', {'email': 'b@example.com', 'current_password': 'pw'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_user_can_change_own_password_and_session_stays_valid(self):
+        self.client.force_authenticate(self.user_a)
+        resp = self.client.patch(
+            '/api/auth/account/',
+            {'current_password': 'pw', 'new_password': 'Str0ng-NewPassw0rd!'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.user_a.refresh_from_db()
+        self.assertTrue(self.user_a.check_password('Str0ng-NewPassw0rd!'))
+        # Session/credentials should still be considered valid immediately after the change.
+        me = self.client.get('/api/auth/me/')
+        self.assertEqual(me.status_code, 200)
+
+    def test_password_change_rejects_weak_password(self):
+        self.client.force_authenticate(self.user_a)
+        resp = self.client.patch(
+            '/api/auth/account/', {'current_password': 'pw', 'new_password': '123'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.user_a.refresh_from_db()
+        self.assertTrue(self.user_a.check_password('pw'))
+
     def test_company_admin_can_toggle_current_company_ai_parsing(self):
         self.client.force_authenticate(self.user_a)
 

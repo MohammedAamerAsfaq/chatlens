@@ -34,6 +34,7 @@ export const authApi = {
   selectCompany: (company_id) => http.post('/auth/select-company/', { company_id }),
   updatePreferences: (data) => http.patch('/auth/preferences/', data),
   updateCurrentCompanySettings: (data) => http.patch('/auth/current-company-settings/', data),
+  updateAccount: (data) => http.patch('/auth/account/', data),
 }
 
 export const companyAccessApi = {

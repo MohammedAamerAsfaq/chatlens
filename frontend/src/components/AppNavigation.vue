@@ -160,6 +160,7 @@ onUnmounted(() => {
                 <option v-for="theme in auth.availableThemes" :key="theme.key" :value="theme.key">{{ theme.name }}</option>
               </select>
             </label>
+            <RouterLink to="/my-account" @click="openMenu = ''">My Account</RouterLink>
             <button type="button" @click="logout">Sign out</button>
           </div>
         </div>

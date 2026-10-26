@@ -144,7 +144,7 @@ onUnmounted(() => {
       <select class="inspinia-company-select" :value="auth.currentCompany?.id" :disabled="switching || !auth.hasMultipleMemberships" @change="switchCompany"><option v-for="membership in auth.memberships" :key="membership.company.id" :value="membership.company.id">{{ membership.company.name }}</option></select>
       <div class="inspinia-user">
         <button @click.stop="userOpen = !userOpen"><span>{{ auth.user?.username?.slice(0, 1)?.toUpperCase() }}</span><strong>{{ auth.user?.username }}</strong><NavigationChevron :open="userOpen" /></button>
-        <div v-if="userOpen" class="inspinia-user-menu" @click.stop><div><strong>{{ auth.user?.username }}</strong><small>{{ roleLabel }}</small></div><label>Interface theme<select :value="auth.uiTheme" :disabled="switching" @change="switchTheme"><option v-for="theme in auth.availableThemes" :key="theme.key" :value="theme.key">{{ theme.name }}</option></select></label><button class="signout" @click="logout">Sign out</button></div>
+        <div v-if="userOpen" class="inspinia-user-menu" @click.stop><div><strong>{{ auth.user?.username }}</strong><small>{{ roleLabel }}</small></div><label>Interface theme<select :value="auth.uiTheme" :disabled="switching" @change="switchTheme"><option v-for="theme in auth.availableThemes" :key="theme.key" :value="theme.key">{{ theme.name }}</option></select></label><RouterLink to="/my-account" @click="userOpen = false">My Account</RouterLink><button class="signout" @click="logout">Sign out</button></div>
       </div>
     </div>
   </header>

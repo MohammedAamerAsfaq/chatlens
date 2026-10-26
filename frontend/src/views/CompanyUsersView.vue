@@ -112,7 +112,6 @@ onMounted(load)
 <template>
   <UiPage width="wide" class="company-users-page">
     <UiPageHeader eyebrow="Company access" title="Users" description="Create company users, assign multiple roles, and suspend access without deleting business records." />
-    <UiNotice tone="info">Roles control what a user can do. Communication-account assignments control which Inbox, inquiry, and opportunity records the user can access.</UiNotice>
     <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
     <UiNotice v-if="success" tone="success">{{ success }}</UiNotice>
 
