@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
+import { logsNavigation, settingsNavigation } from '@/navigation/navigation'
 import { resolveRouterBase } from './base'
 import LoginView           from '../views/LoginView.vue'
 import SessionView          from '../views/SessionView.vue'
@@ -77,7 +78,7 @@ const router = createRouter({
     { path: '/integrations', name: 'integrations', component: IntegrationsView, meta: { title: 'Integrations', permission: 'integrations.connections.view' } },
     { path: '/api-consumer-settings', name: 'api-consumer-settings', component: ApiConsumerSettingsView, meta: { title: 'API Consumer', requiresCompanyAdmin: true } },
     { path: '/message-logs', name: 'message-logs', component: MessageLogsView, meta: { title: 'Message Logs' } },
-    { path: '/ai-providers', name: 'ai-providers', component: AIProvidersView, meta: { title: 'AI Providers' } },
+    { path: '/ai-providers', name: 'ai-providers', component: AIProvidersView, meta: { title: 'AI Providers', requiresCompanyAdmin: true } },
     { path: '/dropped-messages', name: 'dropped-messages', component: DroppedMessagesView, meta: { title: 'Dropped Messages' } },
     { path: '/worker-alerts', name: 'worker-alerts', component: WorkerAlertsView, meta: { title: 'Worker Alerts' } },
     { path: '/baileys-events', name: 'baileys-events', component: BaileysEventsView, meta: { title: 'Baileys Events' } },
@@ -104,7 +105,7 @@ const router = createRouter({
     { path: '/buying-inquiries', name: 'buying-inquiries', component: BuyingInquiriesView, meta: { title: 'Buying Inquiries', industries: ['trading'] } },
     { path: '/group-buying-inquiries', name: 'group-buying-inquiries', component: GroupBuyingInquiriesView, meta: { title: 'Group Buying Inquiries', industries: ['trading'] } },
     { path: '/group-selling-offers', name: 'group-selling-offers', component: GroupSellingOffersView, meta: { title: 'Group Selling Offers', industries: ['trading'] } },
-    { path: '/ai-instructions', name: 'ai-instructions', component: AIInstructionsView, meta: { title: 'AI Instructions', industries: ['trading', 'real_estate'] } },
+    { path: '/ai-instructions', name: 'ai-instructions', component: AIInstructionsView, meta: { title: 'AI Instructions', industries: ['trading', 'real_estate'], requiresCompanyAdmin: true } },
     { path: '/v2-settings', name: 'v2-settings', component: V2SettingsView, meta: { title: 'V2 Settings', industries: ['trading'] } },
     { path: '/tenant-admin', name: 'tenant-admin', component: TenantAdminView, meta: { title: 'Tenant Admin' } },
     { path: '/v2-match-training', name: 'v2-match-training', component: V2MatchTrainingView, meta: { title: 'V2 Match Training', industries: ['trading'] } },
@@ -132,6 +133,12 @@ const router = createRouter({
   ],
 })
 
+// 'sessions' (path '/') is excluded even though it's listed in settingsNavigation: it
+// doubles as the app's home/fallback route, and every permission check below redirects
+// here on denial — gating it the same way would create a redirect loop.
+const SETTINGS_ROUTES = new Set(settingsNavigation.map(item => item.route).filter(route => route !== 'sessions'))
+const OPERATIONS_ROUTES = new Set(logsNavigation.map(item => item.route))
+
 router.beforeEach(async (to) => {
   if (to.meta.public) return true
   const auth = useAuthStore()
@@ -140,6 +147,12 @@ router.beforeEach(async (to) => {
   const industries = to.meta.industries
   if (Array.isArray(industries) && !industries.includes(auth.currentCompany?.industry_type)) {
     return auth.currentCompany?.industry_type === 'real_estate' ? { name: 'real-estate-board' } : { name: 'sessions' }
+  }
+  if (SETTINGS_ROUTES.has(String(to.name)) && !auth.hasPermission('settings.company.view')) {
+    return { name: 'sessions' }
+  }
+  if (OPERATIONS_ROUTES.has(String(to.name)) && !auth.hasPermission('tasks.company.view')) {
+    return { name: 'sessions' }
   }
   if (typeof to.meta.permission === 'string' && !auth.hasPermission(to.meta.permission)) {
     return { name: 'sessions' }

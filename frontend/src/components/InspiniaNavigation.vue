@@ -36,8 +36,10 @@ const canShow = item => navigationItemVisible(item, {
   hasPermission: auth.hasPermission,
 })
 const primary = computed(() => primaryNavigation.filter(canShow))
-const settings = computed(() => settingsNavigation.filter(canShow))
-const logs = computed(() => logsNavigation.filter(canShow))
+const canShowSettings = computed(() => auth.hasPermission('settings.company.view'))
+const canShowOperations = computed(() => auth.hasPermission('tasks.company.view'))
+const settings = computed(() => canShowSettings.value ? settingsNavigation.filter(canShow) : [])
+const logs = computed(() => canShowOperations.value ? logsNavigation.filter(canShow) : [])
 const topbarSections = computed(() => primary.value.map(item => ({ ...item, children: item.children?.filter(canShow) || [] })))
 const topbarApps = computed(() => [...moreNavigation.filter(canShow), ...settings.value])
 const alertTotal = computed(() => Object.values(alerts.value).reduce((sum, value) => sum + value, 0))
@@ -120,10 +122,14 @@ onUnmounted(() => {
       <p>Workspace</p>
       <button class="inspinia-menu-link" :class="{ active: isUtilityOpen('directory', moreNavigation) }" @click="openSection('directory')"><NavigationIcon name="directory"/><span>Directory</span><NavigationChevron :open="isUtilityOpen('directory', moreNavigation)" /></button>
       <div v-if="isUtilityOpen('directory', moreNavigation) && !collapsed" class="inspinia-submenu"><RouterLink v-for="item in moreNavigation" :key="item.route" :to="item.to">{{ item.label }}</RouterLink></div>
-      <button class="inspinia-menu-link" :class="{ active: isUtilityOpen('settings', settings) }" @click="openSection('settings')"><NavigationIcon name="settings"/><span>Settings</span><NavigationChevron :open="isUtilityOpen('settings', settings)" /></button>
-      <div v-if="isUtilityOpen('settings', settings) && !collapsed" class="inspinia-submenu"><RouterLink v-for="item in settings" :key="item.route" :to="item.to">{{ item.label }}</RouterLink></div>
-      <button class="inspinia-menu-link" :class="{ active: isUtilityOpen('operations', logs) }" @click="openSection('operations')"><NavigationIcon name="operations"/><span>Operations</span><b v-if="alertTotal">{{ alertTotal > 99 ? '99+' : alertTotal }}</b><NavigationChevron :open="isUtilityOpen('operations', logs)" /></button>
-      <div v-if="isUtilityOpen('operations', logs) && !collapsed" class="inspinia-submenu"><RouterLink v-for="item in logs" :key="item.route" :to="item.to">{{ item.label }}</RouterLink></div>
+      <template v-if="canShowSettings">
+        <button class="inspinia-menu-link" :class="{ active: isUtilityOpen('settings', settings) }" @click="openSection('settings')"><NavigationIcon name="settings"/><span>Settings</span><NavigationChevron :open="isUtilityOpen('settings', settings)" /></button>
+        <div v-if="isUtilityOpen('settings', settings) && !collapsed" class="inspinia-submenu"><RouterLink v-for="item in settings" :key="item.route" :to="item.to">{{ item.label }}</RouterLink></div>
+      </template>
+      <template v-if="canShowOperations">
+        <button class="inspinia-menu-link" :class="{ active: isUtilityOpen('operations', logs) }" @click="openSection('operations')"><NavigationIcon name="operations"/><span>Operations</span><b v-if="alertTotal">{{ alertTotal > 99 ? '99+' : alertTotal }}</b><NavigationChevron :open="isUtilityOpen('operations', logs)" /></button>
+        <div v-if="isUtilityOpen('operations', logs) && !collapsed" class="inspinia-submenu"><RouterLink v-for="item in logs" :key="item.route" :to="item.to">{{ item.label }}</RouterLink></div>
+      </template>
     </nav>
   </aside>
 

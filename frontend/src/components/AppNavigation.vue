@@ -26,8 +26,10 @@ const canShow = item => navigationItemVisible(item, {
   hasPermission: auth.hasPermission,
 })
 const visiblePrimary = computed(() => primaryNavigation.filter(canShow))
-const visibleSettings = computed(() => settingsNavigation.filter(canShow))
-const visibleLogs = computed(() => logsNavigation.filter(canShow))
+const canShowSettings = computed(() => auth.hasPermission('settings.company.view'))
+const canShowOperations = computed(() => auth.hasPermission('tasks.company.view'))
+const visibleSettings = computed(() => canShowSettings.value ? settingsNavigation.filter(canShow) : [])
+const visibleLogs = computed(() => canShowOperations.value ? logsNavigation.filter(canShow) : [])
 const totalAlerts = computed(() => alerts.value.worker + alerts.value.receipts + alerts.value.messages)
 const routeName = computed(() => String(route.name || ''))
 const activePrimary = computed(() => visiblePrimary.value.find((item) => item.routes.includes(routeName.value)))
@@ -131,7 +133,7 @@ onUnmounted(() => {
       </nav>
 
       <nav class="utility-navigation" aria-label="Utilities">
-        <div class="navigation-menu">
+        <div v-if="canShowOperations" class="navigation-menu">
           <button type="button" class="utility-button" :class="{ active: activeUtility?.id === 'logs' }" aria-label="Operations and logs" @click.stop="toggleMenu('logs')">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9m5 10V5m5 14v-7m5 7V3"/></svg><span>Operations</span>
             <b v-if="totalAlerts">{{ totalAlerts > 99 ? '99+' : totalAlerts }}</b>
@@ -142,7 +144,7 @@ onUnmounted(() => {
             </RouterLink>
           </div>
         </div>
-        <div class="navigation-menu">
+        <div v-if="canShowSettings" class="navigation-menu">
           <button type="button" class="utility-button" :class="{ active: activeUtility?.id === 'settings' }" @click.stop="toggleMenu('settings')">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.55V21h-4v-.08A1.7 1.7 0 0 0 8.95 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.58 15 1.7 1.7 0 0 0 3 14H3v-4h.08A1.7 1.7 0 0 0 4.6 8.95a1.7 1.7 0 0 0-.34-1.88L4.2 7l2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.58 1.7 1.7 0 0 0 10 3V3h4v.08A1.7 1.7 0 0 0 15.05 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06L19.82 7l-.06.06A1.7 1.7 0 0 0 19.42 9 1.7 1.7 0 0 0 21 10h.08v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg><span>Settings</span>
           </button>
@@ -170,7 +172,7 @@ onUnmounted(() => {
     <div v-if="mobileOpen" class="mobile-navigation">
       <RouterLink v-for="item in visiblePrimary" :key="item.id" :to="item.to">{{ item.label }}</RouterLink>
       <RouterLink v-for="item in moreNavigation" :key="item.route" :to="item.to">{{ item.label }}</RouterLink>
-      <RouterLink to="/task-operations">Operations</RouterLink><RouterLink to="/">Settings</RouterLink>
+      <RouterLink v-if="canShowOperations" to="/task-operations">Operations</RouterLink><RouterLink v-if="canShowSettings" to="/">Settings</RouterLink>
       <button type="button" @click="logout">Sign out</button>
     </div>
 
