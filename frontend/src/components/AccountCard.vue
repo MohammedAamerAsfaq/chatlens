@@ -26,6 +26,7 @@ const capacityError     = ref('')
 
 // Local copy of settings for editing
 const localSettings = ref({
+  display_name:            props.account.display_name ?? '',
   sync_history:            props.account.sync_history ?? true,
   history_days:            props.account.history_days ?? '',
   idle_disconnect_minutes: props.account.idle_disconnect_minutes ?? 0,
@@ -101,6 +102,7 @@ async function saveSettings() {
   savingSettings.value = true
   try {
     await store.updateSettings(props.account.id, {
+      display_name:            localSettings.value.display_name.trim(),
       sync_history:            localSettings.value.sync_history,
       history_days:            localSettings.value.history_days === '' ? null : Number(localSettings.value.history_days),
       idle_disconnect_minutes: Number(localSettings.value.idle_disconnect_minutes) || 0,
@@ -453,6 +455,23 @@ onUnmounted(() => {
     <!-- Settings panel -->
     <div v-if="showSettings" class="account-card__settings border-t pt-3 flex flex-col gap-4">
 
+      <div class="flex flex-col gap-2">
+        <p class="text-xs text-gray-400 uppercase tracking-wide font-medium">Account Identity</p>
+        <label class="text-xs text-gray-500">
+          Communication account name
+          <input
+            v-model.trim="localSettings.display_name"
+            type="text"
+            maxlength="255"
+            required
+            class="mt-1 w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-green-500"
+          />
+        </label>
+        <p class="text-xs text-gray-400">
+          Used across Inbox, inquiry cards, campaigns, and account selectors. This does not change the linked WhatsApp profile or phone number.
+        </p>
+      </div>
+
       <!-- ── Sync history ───────────────────────── -->
       <div class="flex flex-col gap-2">
         <p class="text-xs text-gray-400 uppercase tracking-wide font-medium">Message History</p>
@@ -661,7 +680,7 @@ onUnmounted(() => {
 
       <button
         @click="saveSettings"
-        :disabled="savingSettings"
+        :disabled="savingSettings || !localSettings.display_name.trim()"
         class="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm py-1.5 rounded-lg transition-colors"
       >
         {{ savingSettings ? 'Saving…' : 'Save Settings' }}

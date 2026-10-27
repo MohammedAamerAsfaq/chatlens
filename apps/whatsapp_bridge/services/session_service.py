@@ -43,7 +43,9 @@ class SessionService:
 
         if payload.get('phone_number'):
             update_fields['phone_number'] = payload['phone_number']
-        if payload.get('display_name'):
+        # The account label is operator-managed. Use the WhatsApp profile name only
+        # to initialize an unnamed legacy account, never to overwrite a saved label.
+        if payload.get('display_name') and not account.display_name:
             update_fields['display_name'] = payload['display_name']
         if status == SessionStatus.CONNECTED and event_time:
             update_fields['last_connected_at'] = event_time
