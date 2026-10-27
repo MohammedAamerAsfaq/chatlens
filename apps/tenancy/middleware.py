@@ -1,4 +1,5 @@
 import logging
+import re
 
 from apps.tenancy.models import Company
 from django.http import JsonResponse
@@ -50,6 +51,13 @@ class TenantRoleMiddleware:
         '/api/inquiry-forwarding-rules/',
         '/api/product-price-update/',
     )
+    # WhatsAppAccountViewSet.toggle_ai is deliberately not admin-only (see
+    # apps.api.views._can_manage_account_ai) - a user assigned to the account can use
+    # it. This blanket prefix check runs ahead of (and is otherwise blind to) that
+    # per-action authorization, so it needs its own narrow carve-out.
+    ADMIN_PREFIX_EXCEPTIONS = (
+        re.compile(r'^/api/accounts/\d+/toggle-ai/$'),
+    )
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -88,9 +96,11 @@ class TenantRoleMiddleware:
             return self.get_response(request)
         if role == CompanyMembership.ROLE_VIEWER:
             return JsonResponse({'detail': 'Viewer access is read-only.'}, status=403)
-        if path.startswith(self.ADMIN_PREFIXES) and role not in {
-            CompanyMembership.ROLE_SUPER_USER, CompanyMembership.ROLE_ADMIN,
-        }:
+        if (
+            path.startswith(self.ADMIN_PREFIXES)
+            and not any(pattern.match(path) for pattern in self.ADMIN_PREFIX_EXCEPTIONS)
+            and role not in {CompanyMembership.ROLE_SUPER_USER, CompanyMembership.ROLE_ADMIN}
+        ):
             return JsonResponse({'detail': 'Company admin access required.'}, status=403)
         if path.startswith(self.MANAGER_PREFIXES) and role not in {
             CompanyMembership.ROLE_SUPER_USER,

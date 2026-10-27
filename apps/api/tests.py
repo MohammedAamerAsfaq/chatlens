@@ -848,7 +848,14 @@ class TenantScopedApiTests(TestCase):
             company=self.company_a, communication_account=self.account_a.communication_account,
             membership=membership,
         )
-        self.client.force_authenticate(agent)
+        # force_login (not force_authenticate) - this test must exercise the real
+        # session-based request so apps.tenancy.middleware.TenantRoleMiddleware's
+        # /api/accounts/ admin-prefix gate actually runs. force_authenticate leaves
+        # request.user as AnonymousUser at the Django-middleware layer (DRF only
+        # substitutes the real user inside the view, after middleware has already
+        # run), which silently skipped that check and let this test pass even while
+        # the real endpoint was still blocked for every non-admin role.
+        self.client.force_login(agent)
 
         resp = self.client.patch(
             f'/api/accounts/{self.account_a.pk}/toggle-ai/',
@@ -884,7 +891,7 @@ class TenantScopedApiTests(TestCase):
             company=self.company_a, communication_account=self.account_a.communication_account,
             membership=membership,
         )
-        self.client.force_authenticate(agent)
+        self.client.force_login(agent)  # see note above - must be a real session
 
         resp = self.client.patch(
             f'/api/accounts/{self.account_a.pk}/toggle-ai/',
@@ -901,7 +908,7 @@ class TenantScopedApiTests(TestCase):
         CompanyMembership.objects.create(
             company=self.company_a, user=agent, role=CompanyMembership.ROLE_USER,
         )
-        self.client.force_authenticate(agent)
+        self.client.force_login(agent)
 
         resp = self.client.patch(
             f'/api/accounts/{self.account_a.pk}/toggle-ai/',
@@ -921,7 +928,7 @@ class TenantScopedApiTests(TestCase):
         CompanyMembership.objects.create(
             company=self.company_b, user=agent, role=CompanyMembership.ROLE_SUPER_USER,
         )
-        self.client.force_authenticate(agent)
+        self.client.force_login(agent)
 
         resp = self.client.patch(
             f'/api/accounts/{self.account_a.pk}/toggle-ai/',
@@ -945,7 +952,7 @@ class TenantScopedApiTests(TestCase):
             company=self.company_a, communication_account=self.account_a.communication_account,
             membership=membership,
         )
-        self.client.force_authenticate(agent)
+        self.client.force_login(agent)
 
         resp = self.client.patch(
             f'/api/accounts/{self.account_a.pk}/update-settings/',
@@ -967,7 +974,7 @@ class TenantScopedApiTests(TestCase):
             company=self.company_a, communication_account=self.account_a.communication_account,
             membership=membership,
         )
-        self.client.force_authenticate(agent)
+        self.client.force_login(agent)
 
         resp = self.client.patch(
             f'/api/chats/{chat.pk}/set-ai-parsing/', {'ai_parsing': True}, format='json',
@@ -983,7 +990,7 @@ class TenantScopedApiTests(TestCase):
         CompanyMembership.objects.create(
             company=self.company_a, user=agent, role=CompanyMembership.ROLE_USER,
         )
-        self.client.force_authenticate(agent)
+        self.client.force_login(agent)
 
         resp = self.client.patch(
             f'/api/chats/{chat.pk}/set-ai-parsing/', {'ai_parsing': True}, format='json',
