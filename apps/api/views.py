@@ -25,6 +25,7 @@ from django.contrib.auth import (
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import mixins, permissions, viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -43,6 +44,7 @@ from apps.tenancy.services.access import (
     active_membership_for_user,
     available_companies_queryset,
     can_user_access_company,
+    company_for_whatsapp_account,
     default_company_for_user,
     is_control_company_admin,
     scope_queryset_to_visible_accounts,
@@ -50,7 +52,7 @@ from apps.tenancy.services.access import (
     visible_accounts_queryset,
 )
 from apps.tenancy.services.enrollment_service import CompanyEnrollmentService
-from apps.tenancy.services.authorization import effective_permission_grants
+from apps.tenancy.services.authorization import effective_permission_grants, has_company_permission
 from apps.tenancy.services.provider_service import ProviderService
 from apps.tenancy.ui_preferences import (
     INSPINIA_OPTIONS,
@@ -283,13 +285,37 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
             return 'conversations.accounts.view'
         if self.action in {'create_message', 'message_preflight'}:
             return 'conversations.messages.send'
-        if self.action == 'update_settings' and set(request.data.keys()) <= {'ai_parsing_enabled'}:
-            # Narrower than the full conversations.accounts.manage below - an assigned
-            # user can flip their own account's AI parsing without also getting rights to
-            # disconnect/delete/reconfigure it. Any other field in the same request falls
-            # through to the full manage check instead.
-            return 'conversations.accounts.toggle_ai'
         return 'conversations.accounts.manage'
+
+    def get_permissions(self):
+        if self.action == 'toggle_ai':
+            # Deliberately skips CompanyPermissionRequired (the role/permission-catalog
+            # check) - authorization here is purely "assigned to this account, or has
+            # full manage rights", checked directly in toggle_ai() below. Routing this
+            # through the catalog would make it depend on whatever permission a given
+            # role (built-in or admin-created custom role) happens to have been granted,
+            # which defeats the point: assignment alone must be sufficient.
+            return [IsAuthenticated()]
+        return super().get_permissions()
+
+    @staticmethod
+    def _can_toggle_ai(user, account):
+        company = default_company_for_user(user)
+        # toggle_ai() fetches the account by raw pk (bypassing get_queryset's company
+        # scoping, deliberately - see get_permissions), so this check must itself
+        # confirm the account belongs to the requester's own company before granting
+        # anything, or a user with manage rights in their own company could reach into
+        # another company's account.
+        if not company or company_for_whatsapp_account(account) != company:
+            return False
+        if has_company_permission(user, 'conversations.accounts.manage', company):
+            return True
+        if not account.communication_account_id:
+            return False
+        return CommunicationAccountAssignment.objects.filter(
+            communication_account_id=account.communication_account_id,
+            membership__user=user, membership__is_active=True, is_active=True,
+        ).exists()
 
     def get_queryset(self):
         queryset = visible_accounts_queryset(
@@ -419,6 +445,24 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
         settings_serializer = WhatsAppAccountSettingsSerializer(account, data=data, partial=True)
         settings_serializer.is_valid(raise_exception=True)
         settings_serializer.save()
+        return Response(WhatsAppAccountSerializer(account).data)
+
+    @action(detail=True, methods=['patch'], url_path='toggle-ai')
+    def toggle_ai(self, request, pk=None):
+        account = WhatsAppAccount.objects.filter(pk=pk).select_related('communication_account').first()
+        if not account:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if not self._can_toggle_ai(request.user, account):
+            raise PermissionDenied('You must be assigned to this account to change its AI parsing setting.')
+        enabled = request.data.get('ai_parsing_enabled')
+        if not isinstance(enabled, bool):
+            return Response({'detail': 'ai_parsing_enabled must be true or false'}, status=status.HTTP_400_BAD_REQUEST)
+        if enabled and not account.ai_parsing_enabled:
+            account.ai_parsing_enabled_at = now()
+        elif not enabled:
+            account.ai_parsing_enabled_at = None
+        account.ai_parsing_enabled = enabled
+        account.save(update_fields=['ai_parsing_enabled', 'ai_parsing_enabled_at'])
         return Response(WhatsAppAccountSerializer(account).data)
 
     @action(detail=True, methods=['post'], url_path='messages')

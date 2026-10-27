@@ -228,6 +228,7 @@ export const accountsApi = {
   softDisconnect: (id) => http.post(`/accounts/${id}/soft-disconnect/`),
   delete: (id, { force = false } = {}) => http.delete(`/accounts/${id}/`, { params: force ? { force: true } : undefined }),
   updateSettings: (id, data) => http.patch(`/accounts/${id}/update-settings/`, data),
+  toggleAi: (id, enabled) => http.patch(`/accounts/${id}/toggle-ai/`, { ai_parsing_enabled: enabled }),
   preflightMessage: (id, destinationJid) => http.post(`/accounts/${id}/message-preflight/`, {
     destination_jid: destinationJid,
   }),

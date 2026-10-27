@@ -20,11 +20,6 @@ PERMISSION_SPECS = [
     _permission('conversations.contacts.update', scoped=True),
     _permission('conversations.accounts.view', scoped=True),
     _permission('conversations.accounts.manage', scoped=True, sensitive=True),
-    # Deliberately narrower than conversations.accounts.manage (which also covers
-    # disconnect/delete/reconfigure) - just the per-account AI parsing on/off switch, so a
-    # user who has been assigned an account can run it day-to-day without full account
-    # management rights.
-    _permission('conversations.accounts.toggle_ai', scoped=True),
     _permission('trading.board.view', scoped=True),
     _permission('trading.inquiries.update', scoped=True),
     _permission('trading.matches.manage'),
@@ -101,7 +96,7 @@ MANAGER_CODES = {
 }
 USER_CODES = {
     'conversations.chats.view', 'conversations.messages.view', 'conversations.messages.send',
-    'conversations.contacts.update', 'conversations.accounts.view', 'conversations.accounts.toggle_ai',
+    'conversations.contacts.update', 'conversations.accounts.view',
     'trading.board.view', 'trading.inquiries.update',
     'trading.products.view', 'campaigns.campaigns.view', 'clientpulse.clients.view',
     'real_estate.board.view', 'real_estate.opportunities.view',

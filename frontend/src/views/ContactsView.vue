@@ -226,9 +226,7 @@ async function toggleGlobalAi() {
   if (!acc || savingGlobalAi.value) return
   savingGlobalAi.value = true
   try {
-    const { data } = await accountsApi.updateSettings(acc.id, {
-      ai_parsing_enabled: !acc.ai_parsing_enabled,
-    })
+    const { data } = await accountsApi.toggleAi(acc.id, !acc.ai_parsing_enabled)
     const idx = accounts.value.findIndex(a => a.id === acc.id)
     if (idx !== -1) accounts.value[idx] = { ...accounts.value[idx], ai_parsing_enabled: data.ai_parsing_enabled }
   } finally {

@@ -63,9 +63,7 @@ async function toggleAccountAi() {
   if (!account || savingAccountAi.value) return
   savingAccountAi.value = true
   try {
-    const { data } = await accountsApi.updateSettings(account.id, {
-      ai_parsing_enabled: !account.ai_parsing_enabled,
-    })
+    const { data } = await accountsApi.toggleAi(account.id, !account.ai_parsing_enabled)
     account.ai_parsing_enabled = data.ai_parsing_enabled
   } finally {
     savingAccountAi.value = false

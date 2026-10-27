@@ -851,7 +851,7 @@ class TenantScopedApiTests(TestCase):
         self.client.force_authenticate(agent)
 
         resp = self.client.patch(
-            f'/api/accounts/{self.account_a.pk}/update-settings/',
+            f'/api/accounts/{self.account_a.pk}/toggle-ai/',
             {'ai_parsing_enabled': True},
             format='json',
         )
@@ -860,7 +860,83 @@ class TenantScopedApiTests(TestCase):
         self.account_a.refresh_from_db()
         self.assertTrue(self.account_a.ai_parsing_enabled)
 
-    def test_assigned_user_cannot_bundle_other_settings_into_the_ai_toggle(self):
+    def test_assigned_user_with_custom_role_can_toggle_ai_without_any_explicit_grant(self):
+        # The check must not depend on a specific permission being granted to whatever
+        # role the company happens to use - account assignment alone is the gate. A
+        # custom role with an unrelated permission (and explicitly NOT accounts.manage,
+        # and not even conversations.accounts.view) stands in for "an admin-created role
+        # the built-in catalog knows nothing about".
+        from apps.tenancy.models import CompanyRole, CompanyRolePermission, MembershipRoleAssignment, PermissionDefinition
+
+        agent = get_user_model().objects.create_user(username='custom-role-agent', password='pw')
+        membership = CompanyMembership.objects.create(
+            company=self.company_a, user=agent, role=CompanyMembership.ROLE_USER,
+        )
+        role = CompanyRole.objects.create(company=self.company_a, key='field-agent', name='Field Agent')
+        MembershipRoleAssignment.objects.create(company=self.company_a, membership=membership, role=role)
+        unrelated = PermissionDefinition.objects.get_or_create(
+            code='trading.board.view', defaults={'area': 'trading', 'label': 'Board: View'},
+        )[0]
+        CompanyRolePermission.objects.create(
+            company=self.company_a, role=role, permission=unrelated, record_scope='all',
+        )
+        CommunicationAccountAssignment.objects.create(
+            company=self.company_a, communication_account=self.account_a.communication_account,
+            membership=membership,
+        )
+        self.client.force_authenticate(agent)
+
+        resp = self.client.patch(
+            f'/api/accounts/{self.account_a.pk}/toggle-ai/',
+            {'ai_parsing_enabled': True},
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.account_a.refresh_from_db()
+        self.assertTrue(self.account_a.ai_parsing_enabled)
+
+    def test_unassigned_user_cannot_toggle_ai_parsing_for_other_accounts(self):
+        agent = get_user_model().objects.create_user(username='unassigned-agent', password='pw')
+        CompanyMembership.objects.create(
+            company=self.company_a, user=agent, role=CompanyMembership.ROLE_USER,
+        )
+        self.client.force_authenticate(agent)
+
+        resp = self.client.patch(
+            f'/api/accounts/{self.account_a.pk}/toggle-ai/',
+            {'ai_parsing_enabled': True},
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 403)
+        self.account_a.refresh_from_db()
+        self.assertFalse(self.account_a.ai_parsing_enabled)
+
+    def test_toggle_ai_cannot_reach_an_account_in_another_company(self):
+        # toggle_ai() fetches the account by raw pk (not the company-scoped queryset),
+        # so an admin with full manage rights in their OWN company must not be able to
+        # use that to reach into a different company's account.
+        agent = get_user_model().objects.create_user(username='company-b-admin', password='pw')
+        CompanyMembership.objects.create(
+            company=self.company_b, user=agent, role=CompanyMembership.ROLE_SUPER_USER,
+        )
+        self.client.force_authenticate(agent)
+
+        resp = self.client.patch(
+            f'/api/accounts/{self.account_a.pk}/toggle-ai/',
+            {'ai_parsing_enabled': True},
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 403)
+        self.account_a.refresh_from_db()
+        self.assertFalse(self.account_a.ai_parsing_enabled)
+
+    def test_update_settings_still_requires_full_manage_even_for_ai_only_payload(self):
+        # /update-settings/ is the general-purpose endpoint (display name, sending
+        # limits, etc.) and intentionally has no narrow carve-out - an assigned-but-
+        # not-full-manage user must use the dedicated /toggle-ai/ endpoint instead.
         agent = get_user_model().objects.create_user(username='assigned-agent-2', password='pw')
         membership = CompanyMembership.objects.create(
             company=self.company_a, user=agent, role=CompanyMembership.ROLE_USER,
@@ -873,29 +949,11 @@ class TenantScopedApiTests(TestCase):
 
         resp = self.client.patch(
             f'/api/accounts/{self.account_a.pk}/update-settings/',
-            {'ai_parsing_enabled': True, 'display_name': 'Hijacked'},
-            format='json',
-        )
-
-        self.assertEqual(resp.status_code, 403)
-        self.account_a.refresh_from_db()
-        self.assertFalse(self.account_a.ai_parsing_enabled)
-        self.assertEqual(self.account_a.display_name, 'Account A')
-
-    def test_unassigned_user_cannot_toggle_ai_parsing_for_other_accounts(self):
-        agent = get_user_model().objects.create_user(username='unassigned-agent', password='pw')
-        CompanyMembership.objects.create(
-            company=self.company_a, user=agent, role=CompanyMembership.ROLE_USER,
-        )
-        self.client.force_authenticate(agent)
-
-        resp = self.client.patch(
-            f'/api/accounts/{self.account_a.pk}/update-settings/',
             {'ai_parsing_enabled': True},
             format='json',
         )
 
-        self.assertIn(resp.status_code, (403, 404))
+        self.assertEqual(resp.status_code, 403)
         self.account_a.refresh_from_db()
         self.assertFalse(self.account_a.ai_parsing_enabled)
 
