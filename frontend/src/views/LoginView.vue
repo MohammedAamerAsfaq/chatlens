@@ -42,6 +42,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.js'
+import { industryHomePath } from '@/navigation/navigation'
 
 const router   = useRouter()
 const auth     = useAuthStore()
@@ -56,7 +57,7 @@ async function submit() {
   loading.value = true
   try {
     await auth.login(username.value.trim(), password.value)
-    router.push({ name: 'sessions' })
+    router.push(industryHomePath(auth.currentCompany?.industry_type))
   } catch (e) {
     error.value = e.response?.data?.detail || 'Invalid credentials'
   } finally {
