@@ -186,6 +186,12 @@ const lastMessageId = computed(() =>
 
 watch(lastMessageId, async (newId) => {
   if (!newId || store.loadingOlderMessages) return
+  // A deep-linked/highlighted message (e.g. "view original" from Trading or Real
+  // Estate) is deliberately not at the bottom - don't let a background poll that
+  // appends later history (refreshMessages) yank the view away from it. Once the
+  // user has actually scrolled to the bottom themselves, isAtBottom covers the
+  // normal "new message arrived while already watching live" case.
+  if (store.highlightMessageId || !isAtBottom.value) return
   await nextTick()
   scrollToBottom()
   // Second pass: handles images/media that affect height after initial render
@@ -200,6 +206,7 @@ watch(() => store.selectedChatId, async (chatId, previousChatId) => {
     pendingSendAttempt = null
   }
   sendFeedback.value = ''
+  isAtBottom.value = true
   await loadPreflight()
   await nextTick()
   if (!store.highlightMessageId) scrollToBottom()

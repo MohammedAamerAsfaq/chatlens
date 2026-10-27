@@ -1,11 +1,9 @@
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
 import { useConversationsStore } from '@/stores/conversations'
-import { useAuthStore } from '@/stores/auth'
 import { accountsApi } from '@/api'
 
 const store = useConversationsStore()
-const auth = useAuthStore()
 const activeFilter = ref('all')
 
 const totalUnread = computed(() => store.chats.reduce((sum, c) => sum + (c.unread_count || 0), 0))
@@ -101,7 +99,7 @@ watch(() => store.highlightChatId, async (chatId) => {
       <div class="flex items-center gap-2">
         <!-- Account-level AI toggle -->
         <button
-          v-if="store.selectedAccount && auth.hasPermission('conversations.accounts.toggle_ai')"
+          v-if="store.selectedAccount"
           @click="toggleAccountAi"
           :disabled="savingAccountAi"
           :title="store.selectedAccount.ai_parsing_enabled ? 'AI parsing ON for this account — click to disable' : 'AI parsing OFF for this account — click to enable'"
