@@ -11,10 +11,13 @@ import UiPage from '@/components/ui/UiPage.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTabs from '@/components/ui/UiTabs.vue'
 import OpportunityLane from '@/features/realEstate/components/OpportunityLane.vue'
+import TradingConversationDialog from '@/features/trading/components/TradingConversationDialog.vue'
+import { useTradingConversationDialog } from '@/features/trading/composables/useTradingConversationDialog'
 import { opportunityLanes, opportunityStatuses, statusFilters } from '@/features/realEstate/boardOptions'
 import { cardFields, defaultCardFieldIds } from '@/features/realEstate/cardFields'
 import { apiError } from '@/features/realEstate/apiErrors'
 import { useAuthStore } from '@/stores/auth'
+import { useConversationsStore } from '@/stores/conversations'
 
 const COLUMNS_STORAGE_KEY = 'chatlens:real-estate-board:columns'
 const PAGE_SIZE_STORAGE_KEY = 'chatlens:real-estate-board:page-size'
@@ -41,6 +44,33 @@ function loadStoredPageSize() {
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+
+// Reuses the same "open the original WhatsApp message" mechanism as the Trading
+// inquiries board (MessagePanel inside a modal, deep-linked to the source chat +
+// message) - nothing here is trading-specific, it just lives under that feature folder.
+const conversationsStore = useConversationsStore()
+const {
+  open: waDialogOpen,
+  loading: waDialogLoading,
+  error: waDialogError,
+  draft: waDialogDraft,
+  inquiry: waDialogInquiry,
+  title: waDialogTitle,
+  close: closeWaDialog,
+  openSource: openWaSource,
+} = useTradingConversationDialog(conversationsStore)
+
+function openSourceMessage(opportunity) {
+  if (!opportunity.source_chat) return
+  openWaSource({
+    account: opportunity.account,
+    source_chat_id: opportunity.source_chat,
+    source_message_id: opportunity.source_message,
+    source_message_time: opportunity.source_message_time,
+    contact_name: opportunity.contact_name,
+    contact_phone: opportunity.contact_phone,
+  }, { title: 'Original Message', draft: '' })
+}
 const search = ref('')
 const status = ref('')
 const requestedLane = opportunityLanes.some(lane => lane.key === route.query.lane)
@@ -298,8 +328,19 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
         @change-page="goToPage"
         @open="opportunity => router.push({ name: 'real-estate-opportunity-detail', params: { id: opportunity.id } })"
         @set-status="setOpportunityStatus"
+        @view-source="openSourceMessage"
       />
     </div>
+
+    <TradingConversationDialog
+      :open="waDialogOpen"
+      :title="waDialogTitle"
+      :inquiry="waDialogInquiry"
+      :loading="waDialogLoading"
+      :error="waDialogError"
+      :draft="waDialogDraft"
+      @close="closeWaDialog"
+    />
   </UiPage>
 </template>
 

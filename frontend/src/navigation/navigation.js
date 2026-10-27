@@ -7,9 +7,10 @@ export const primaryNavigation = [
   },
   {
     id: 'trading', label: 'Trading', to: '/trading', industries: ['trading'],
-    routes: ['trading', 'products', 'inquiry-products', 'non-inventory-products', 'v2-candidate-search', 'product-price-update'],
+    routes: ['trading', 'manual-inquiry', 'products', 'inquiry-products', 'non-inventory-products', 'v2-candidate-search', 'product-price-update'],
     children: [
       { label: 'Dashboard', to: '/trading', route: 'trading' },
+      { label: 'Create Inquiry', to: '/inquiries/manual', route: 'manual-inquiry', permission: 'trading.inquiries.update' },
       { label: 'Products', to: '/products', route: 'products' },
       { label: 'Inquiry Products', to: '/inquiry-products', route: 'inquiry-products' },
       { label: 'Non-Inventory', to: '/non-inventory-products', route: 'non-inventory-products' },

@@ -35,6 +35,15 @@
         <button class="toolbar-icon-button" title="Refresh dashboard" aria-label="Refresh dashboard" @click="refresh">
           <FontAwesomeIcon :icon="faRotateRight" />
         </button>
+        <button
+          v-if="auth.hasPermission('trading.inquiries.update')"
+          class="toolbar-icon-button"
+          title="Create a manual inquiry"
+          aria-label="Create a manual inquiry"
+          @click="router.push({ name: 'manual-inquiry' })"
+        >
+          <FontAwesomeIcon :icon="faPlus" />
+        </button>
       </div>
     </div>
 
@@ -302,7 +311,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { faFilter, faRotateRight } from '@fortawesome/free-solid-svg-icons'
+import { faFilter, faPlus, faRotateRight } from '@fortawesome/free-solid-svg-icons'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useConversationsStore } from '@/stores/conversations'

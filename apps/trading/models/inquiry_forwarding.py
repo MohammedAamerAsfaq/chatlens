@@ -13,6 +13,11 @@ class InquiryForwardingRule(models.Model):
     inquiry_type = models.CharField(max_length=10, choices=TYPE_CHOICES)
     name = models.CharField(max_length=200)
     is_active = models.BooleanField(default=False)
+    # Which of the company's WhatsApp accounts this rule matches inquiries from.
+    # Empty = every account in the company (the rule's original, still-default behavior).
+    accounts = models.ManyToManyField(
+        'whatsapp_bridge.WhatsAppAccount', blank=True, related_name='inquiry_forwarding_rules',
+    )
     include_original_message = models.BooleanField(default=True)
     include_summary = models.BooleanField(default=True)
     include_stock_suggestions = models.BooleanField(default=True)

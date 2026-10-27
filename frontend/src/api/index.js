@@ -428,6 +428,7 @@ export const tradingApi = {
   getNonInventoryProductEmbeddingStatus: (params) => http.get('/non-inventory-products/embedding-status/', { params }),
   createInventoryProductFromNonInventory: (id, data) => http.post(`/non-inventory-products/${id}/create-inventory-product/`, data),
   getInquiry:             (id)          => http.get(`/inquiries/${id}/`),
+  createManualInquiry:    (data)        => http.post('/inquiries/manual/', data),
   getInquiryProductLines:  (id)          => http.get(`/inquiries/${id}/product-lines/`),
   getInquiryMarketParties: (id, params)  => http.get(`/inquiries/${id}/market-parties/`, { params }),
   createProductFromInquiryLine: (id, index, data) => http.post(`/inquiries/${id}/product-lines/${index}/create-product/`, data),

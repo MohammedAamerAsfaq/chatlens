@@ -352,6 +352,79 @@ class InquiryForwardingTests(TestCase):
         self.assertEqual(result['status'], InquiryForwardingRun.STATUS_SKIPPED)
         self.assertEqual(result['reason'], 'classification_not_inquiry')
 
+    @patch('apps.trading.services.inquiry_forwarding_service._send_target')
+    def test_rule_scoped_to_other_account_does_not_match(self, send_target):
+        other_communication = CommunicationAccount.objects.create(
+            company=self.company, provider=self.account.communication_account.provider,
+            channel=ConnectionProvider.CHANNEL_WHATSAPP, name='Other',
+        )
+        other_account = WhatsAppAccount.objects.create(
+            owner=self.user, communication_account=other_communication,
+            outbound_sending_enabled=True, direct_sending_enabled=True,
+        )
+        self.rule.accounts.set([other_account])
+
+        result = process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        self.assertEqual(result['skipped'], True)
+        self.assertEqual(result['reason'], 'rule_inactive_or_missing')
+        send_target.assert_not_called()
+
+    @patch('apps.whatsapp_bridge.outbound.message_service.enqueue_task')
+    @patch('apps.whatsapp_bridge.outbound.policy.capacity_snapshot')
+    def test_rule_scoped_to_its_own_account_still_matches(self, capacity, enqueue):
+        capacity.return_value = {'reachout': {'is_active': False}, 'cap': {}}
+        enqueue.return_value = SimpleNamespace(pk=507)
+        self.rule.accounts.set([self.account])
+
+        result = process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        self.assertEqual(result['status'], InquiryForwardingRun.STATUS_COMPLETE)
+
+    def test_rule_api_sets_and_clears_account_scoping(self):
+        self.client.force_login(self.user)
+
+        scoped = self.client.patch(
+            f'/api/inquiry-forwarding-rules/{self.rule.pk}/',
+            {'account_ids': [self.account.pk]},
+            content_type='application/json',
+        )
+        self.assertEqual(scoped.status_code, 200, scoped.content)
+        self.assertEqual([a['id'] for a in scoped.json()['accounts']], [self.account.pk])
+
+        cleared = self.client.patch(
+            f'/api/inquiry-forwarding-rules/{self.rule.pk}/',
+            {'account_ids': []},
+            content_type='application/json',
+        )
+        self.assertEqual(cleared.status_code, 200, cleared.content)
+        self.assertEqual(cleared.json()['accounts'], [])
+
+    def test_rule_api_rejects_account_outside_company(self):
+        self.client.force_login(self.user)
+        other_company = Company.objects.create(name='Other Co', slug='other-co')
+        other_provider = ConnectionProvider.objects.create(
+            key='other-wa', name='WhatsApp', channel=ConnectionProvider.CHANNEL_WHATSAPP,
+        )
+        other_communication = CommunicationAccount.objects.create(
+            company=other_company, provider=other_provider,
+            channel=ConnectionProvider.CHANNEL_WHATSAPP, name='Foreign',
+        )
+        other_user = User.objects.create_user(username='foreign-owner')
+        foreign_account = WhatsAppAccount.objects.create(
+            owner=other_user, communication_account=other_communication,
+        )
+
+        response = self.client.patch(
+            f'/api/inquiry-forwarding-rules/{self.rule.pk}/',
+            {'account_ids': [foreign_account.pk]},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn('account_ids', response.json())
+        self.assertFalse(self.rule.accounts.exists())
+
     def test_rule_api_replaces_company_scoped_targets_and_exclusions(self):
         self.client.force_login(self.user)
 

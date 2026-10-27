@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import (
     Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryMessage,
-    InquiryProduct, NonInventoryProduct, NonInventoryProductMention,
+    InquiryProduct, InquiryStatus, NonInventoryProduct, NonInventoryProductMention,
     AiParsingLog, AiParseV2Log, BuyingInquiry, BuyingInquiryProduct,
     BuyingInquiryGroup, BuyingInquirySupplier, SupplierQuote,
     AutomationRule, AutomationRuleSource, AutomatedPriceCapture,
@@ -249,6 +249,79 @@ class InquiryDetailSerializer(InquirySerializer):
             .order_by('message__message_time')
         )
         return InquiryMessageSerializer(qs, many=True).data
+
+
+class ManualInquiryItemSerializer(serializers.Serializer):
+    # Either an existing Product (validated/resolved in ManualInquirySerializer.validate_items,
+    # since it needs the company from the parent's context) or a free-text mention with no
+    # inventory match yet - same product_id/canonical_name/quantity/price/currency shape the
+    # AI classification pipeline stores in Inquiry.products.
+    product_id = serializers.IntegerField(required=False, allow_null=True)
+    canonical_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    quantity = serializers.DecimalField(max_digits=14, decimal_places=2, required=False, allow_null=True)
+    price = serializers.DecimalField(max_digits=16, decimal_places=2, required=False, allow_null=True)
+    currency = serializers.CharField(max_length=10, required=False, allow_blank=True)
+
+
+class ManualInquirySerializer(serializers.Serializer):
+    account_id = serializers.IntegerField()
+    contact_id = serializers.IntegerField(required=False, allow_null=True)
+    inquiry_type = serializers.ChoiceField(choices=Inquiry.INQUIRY_TYPE_CHOICES)
+    status = serializers.ChoiceField(choices=InquiryStatus.choices, default=InquiryStatus.OPEN)
+    summary = serializers.CharField()
+    remarks = serializers.CharField(required=False, allow_blank=True)
+    received_at = serializers.DateTimeField(required=False, allow_null=True)
+    items = ManualInquiryItemSerializer(many=True, allow_empty=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._company = self.context.get('company')
+
+    def validate_items(self, items):
+        normalized = []
+        for item in items:
+            product = None
+            product_id = item.get('product_id')
+            if product_id:
+                product = Product.objects.filter(pk=product_id, company=self._company).first()
+                if not product:
+                    raise serializers.ValidationError({'product_id': 'Invalid product.'})
+            canonical_name = item.get('canonical_name') or (product.name if product else '')
+            if not canonical_name:
+                raise serializers.ValidationError({'canonical_name': 'Required when no product is selected.'})
+            price = item.get('price')
+            if price is None and product:
+                price = product.sale_price
+            currency = item.get('currency') or (product.currency if product else '') or 'USD'
+            normalized.append({
+                'product_id': product.pk if product else None,
+                'canonical_name': canonical_name,
+                'quantity': item.get('quantity'),
+                'price': price,
+                'currency': currency,
+                'match_type': 'manual',
+            })
+        return normalized
+
+    def validate(self, attrs):
+        from apps.tenancy.services.access import visible_accounts_queryset
+        from apps.whatsapp_bridge.models import WhatsAppContact
+
+        request = self.context.get('request')
+        accounts = visible_accounts_queryset(request.user if request else None)
+        account = accounts.filter(pk=attrs['account_id']).first()
+        if not account:
+            raise serializers.ValidationError({'account_id': 'Invalid account.'})
+        attrs['account'] = account
+
+        contact = None
+        contact_id = attrs.get('contact_id')
+        if contact_id:
+            contact = WhatsAppContact.objects.filter(pk=contact_id, account=account).first()
+            if not contact:
+                raise serializers.ValidationError({'contact_id': 'Contact must belong to the selected account.'})
+        attrs['contact'] = contact
+        return attrs
 
 
 class InquiryProductSerializer(serializers.ModelSerializer):
@@ -688,6 +761,7 @@ class InquiryForwardingRuleSerializer(serializers.ModelSerializer):
     targets = serializers.SerializerMethodField()
     exclusions = serializers.SerializerMethodField()
     recent_runs = serializers.SerializerMethodField()
+    accounts = serializers.SerializerMethodField()
 
     class Meta:
         model = InquiryForwardingRule
@@ -695,13 +769,18 @@ class InquiryForwardingRuleSerializer(serializers.ModelSerializer):
             'id', 'inquiry_type', 'name', 'is_active',
             'include_original_message', 'include_summary', 'include_stock_suggestions',
             'include_sender_link', 'prefill_sender_link_products', 'include_inquiry_id',
-            'targets', 'exclusions', 'recent_runs', 'last_triggered_at',
+            'targets', 'exclusions', 'accounts', 'recent_runs', 'last_triggered_at',
             'forwarded_count', 'skipped_count', 'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'targets', 'exclusions', 'recent_runs', 'last_triggered_at',
+            'id', 'targets', 'exclusions', 'accounts', 'recent_runs', 'last_triggered_at',
             'forwarded_count', 'skipped_count', 'created_at', 'updated_at',
         ]
+
+    def get_accounts(self, obj):
+        # Writes go through InquiryForwardingRuleViewSet._sync_accounts (account_ids in the
+        # request payload), same pattern as targets/exclusions - not plain nested-write.
+        return [{'id': account.id, 'name': _account_label(account)} for account in obj.accounts.all()]
 
     def get_targets(self, obj):
         return [self._endpoint(row.target_type, row.contact, row.group) for row in obj.targets.all()]

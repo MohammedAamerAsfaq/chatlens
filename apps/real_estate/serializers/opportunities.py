@@ -62,6 +62,10 @@ class OpportunitySerializer(CleanModelSerializer):
     inquiry_medium_name = serializers.CharField(source='inquiry_medium.name', read_only=True)
     source_chat_name = serializers.CharField(source='source_chat.name', read_only=True)
     assigned_to_name = serializers.SerializerMethodField()
+    # Needed (alongside the already-present source_chat/source_message FK ids) to deep-link
+    # into the original WhatsApp message the same way the Trading inquiries board does -
+    # selectChat() uses this to load the right page of messages around the target one.
+    source_message_time = serializers.SerializerMethodField()
 
     @staticmethod
     def get_contact_name(obj):
@@ -79,6 +83,10 @@ class OpportunitySerializer(CleanModelSerializer):
         if not obj.assigned_to:
             return ''
         return obj.assigned_to.get_full_name() or obj.assigned_to.get_username()
+
+    @staticmethod
+    def get_source_message_time(obj):
+        return obj.source_message.message_time.isoformat() if obj.source_message_id else None
 
     class Meta:
         model = RealEstateOpportunity

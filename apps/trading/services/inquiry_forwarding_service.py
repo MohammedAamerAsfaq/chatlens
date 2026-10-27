@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 
 from .inquiry_forwarding_formatter import build_forwarding_message
@@ -24,7 +24,7 @@ def enqueue_inquiry_forwarding(inquiry_ids, source_message_id):
             continue
         rule = InquiryForwardingRule.objects.filter(
             company=inquiry.company, inquiry_type=inquiry.inquiry_type, is_active=True,
-        ).first()
+        ).filter(Q(accounts__isnull=True) | Q(accounts=inquiry.account)).distinct().first()
         if not rule:
             continue
         tasks.append(enqueue_task(
@@ -53,7 +53,7 @@ def process_inquiry_forwarding(inquiry_id, source_message_id):
         'exclusions__contact', 'exclusions__group',
     ).filter(
         company=inquiry.company, inquiry_type=inquiry.inquiry_type, is_active=True,
-    ).first()
+    ).filter(Q(accounts__isnull=True) | Q(accounts=inquiry.account)).distinct().first()
     if not rule:
         return {'forwarded': 0, 'skipped': True, 'reason': 'rule_inactive_or_missing'}
 

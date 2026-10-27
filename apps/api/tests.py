@@ -799,6 +799,106 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(self.account_a.recipient_interval_ms, 5000)
         self.assertEqual(self.account_a.max_concurrent_sends, 1)
 
+    def test_account_name_can_be_changed_and_updates_communication_account(self):
+        from apps.whatsapp_bridge.models import SessionStatus
+        from apps.whatsapp_bridge.services.session_service import SessionService
+
+        self.client.force_authenticate(self.user_a)
+
+        resp = self.client.patch(
+            f'/api/accounts/{self.account_a.pk}/update-settings/',
+            {'display_name': '  Dubai Sales Desk  '},
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.account_a.refresh_from_db()
+        self.account_a.communication_account.refresh_from_db()
+        self.assertEqual(self.account_a.display_name, 'Dubai Sales Desk')
+        self.assertEqual(self.account_a.communication_account.name, 'Dubai Sales Desk')
+        self.assertEqual(resp.json()['display_name'], 'Dubai Sales Desk')
+
+        SessionService().update_session_status({
+            'worker_session_id': self.account_a.pk,
+            'status': SessionStatus.CONNECTED,
+            'display_name': 'WhatsApp Profile Name',
+        })
+        self.account_a.refresh_from_db()
+        self.assertEqual(self.account_a.display_name, 'Dubai Sales Desk')
+
+    def test_account_name_cannot_be_blank(self):
+        self.client.force_authenticate(self.user_a)
+
+        resp = self.client.patch(
+            f'/api/accounts/{self.account_a.pk}/update-settings/',
+            {'display_name': '   '},
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        self.account_a.refresh_from_db()
+        self.assertEqual(self.account_a.display_name, 'Account A')
+
+    def test_assigned_user_can_toggle_ai_parsing_for_their_account(self):
+        agent = get_user_model().objects.create_user(username='assigned-agent', password='pw')
+        membership = CompanyMembership.objects.create(
+            company=self.company_a, user=agent, role=CompanyMembership.ROLE_USER,
+        )
+        CommunicationAccountAssignment.objects.create(
+            company=self.company_a, communication_account=self.account_a.communication_account,
+            membership=membership,
+        )
+        self.client.force_authenticate(agent)
+
+        resp = self.client.patch(
+            f'/api/accounts/{self.account_a.pk}/update-settings/',
+            {'ai_parsing_enabled': True},
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.account_a.refresh_from_db()
+        self.assertTrue(self.account_a.ai_parsing_enabled)
+
+    def test_assigned_user_cannot_bundle_other_settings_into_the_ai_toggle(self):
+        agent = get_user_model().objects.create_user(username='assigned-agent-2', password='pw')
+        membership = CompanyMembership.objects.create(
+            company=self.company_a, user=agent, role=CompanyMembership.ROLE_USER,
+        )
+        CommunicationAccountAssignment.objects.create(
+            company=self.company_a, communication_account=self.account_a.communication_account,
+            membership=membership,
+        )
+        self.client.force_authenticate(agent)
+
+        resp = self.client.patch(
+            f'/api/accounts/{self.account_a.pk}/update-settings/',
+            {'ai_parsing_enabled': True, 'display_name': 'Hijacked'},
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 403)
+        self.account_a.refresh_from_db()
+        self.assertFalse(self.account_a.ai_parsing_enabled)
+        self.assertEqual(self.account_a.display_name, 'Account A')
+
+    def test_unassigned_user_cannot_toggle_ai_parsing_for_other_accounts(self):
+        agent = get_user_model().objects.create_user(username='unassigned-agent', password='pw')
+        CompanyMembership.objects.create(
+            company=self.company_a, user=agent, role=CompanyMembership.ROLE_USER,
+        )
+        self.client.force_authenticate(agent)
+
+        resp = self.client.patch(
+            f'/api/accounts/{self.account_a.pk}/update-settings/',
+            {'ai_parsing_enabled': True},
+            format='json',
+        )
+
+        self.assertIn(resp.status_code, (403, 404))
+        self.account_a.refresh_from_db()
+        self.assertFalse(self.account_a.ai_parsing_enabled)
+
     def test_message_preflight_checks_direct_recipient_without_sending(self):
         self.account_a.outbound_sending_enabled = True
         self.account_a.direct_sending_enabled = True

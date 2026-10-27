@@ -9,17 +9,48 @@ import UiNotice from '@/components/ui/UiNotice.vue'
 import UiPage from '@/components/ui/UiPage.vue'
 import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
+import TradingConversationDialog from '@/features/trading/components/TradingConversationDialog.vue'
+import { useTradingConversationDialog } from '@/features/trading/composables/useTradingConversationDialog'
 import { apiError } from '@/features/realEstate/apiErrors'
 import {
   formatDate, money, opportunityParty, opportunityStatuses, statusTone,
 } from '@/features/realEstate/boardOptions'
 import { title } from '@/features/realEstate/options'
 import { useAuthStore } from '@/stores/auth'
+import { useConversationsStore } from '@/stores/conversations'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const canUpdate = computed(() => auth.hasPermission('real_estate.opportunities.update'))
+
+// Reuses the same "open the original WhatsApp message" mechanism as the Trading
+// inquiries board (MessagePanel inside a modal, deep-linked to the source chat +
+// message) - nothing here is trading-specific, it just lives under that feature folder.
+const conversationsStore = useConversationsStore()
+const conversationDialog = useTradingConversationDialog(conversationsStore)
+const {
+  open: waDialogOpen,
+  loading: waDialogLoading,
+  error: waDialogError,
+  draft: waDialogDraft,
+  inquiry: waDialogInquiry,
+  title: waDialogTitle,
+  close: closeWaDialog,
+  openSource: openWaSource,
+} = conversationDialog
+
+function openSourceMessage() {
+  if (!opportunity.value?.source_chat) return
+  openWaSource({
+    account: opportunity.value.account,
+    source_chat_id: opportunity.value.source_chat,
+    source_message_id: opportunity.value.source_message,
+    source_message_time: opportunity.value.source_message_time,
+    contact_name: opportunity.value.contact_name,
+    contact_phone: opportunity.value.contact_phone,
+  }, { title: 'Original Message', draft: '' })
+}
 
 const opportunity = ref(null)
 const properties = ref([])
@@ -133,7 +164,13 @@ onMounted(() => Promise.all([load(), loadProperties()]))
           <div><dt>Medium</dt><dd>{{ opportunity.inquiry_medium_name || 'WhatsApp' }}</dd></div>
           <div><dt>Party</dt><dd>{{ opportunityParty(opportunity) }}</dd></div>
           <div><dt>Contact</dt><dd>{{ opportunity.contact_phone || '-' }}</dd></div>
-          <div><dt>Source</dt><dd>{{ opportunity.source_chat_name || opportunity.source_reference || 'Manual entry' }}</dd></div>
+          <div>
+            <dt>Source</dt>
+            <dd>
+              {{ opportunity.source_chat_name || opportunity.source_reference || 'Manual entry' }}
+              <button v-if="opportunity.source_chat" type="button" class="wa-ref-link" @click="openSourceMessage">View WhatsApp message</button>
+            </dd>
+          </div>
           <div v-if="opportunity.source_reference"><dt>Reference</dt><dd>{{ opportunity.source_reference }}</dd></div>
           <div><dt>Account</dt><dd>{{ opportunity.account_name || '-' }}</dd></div>
           <div><dt>Assigned</dt><dd>{{ opportunity.assigned_to_name || 'Unassigned' }}</dd></div>
@@ -176,10 +213,21 @@ onMounted(() => Promise.all([load(), loadProperties()]))
         </UiButton>
       </section>
     </div>
+
+    <TradingConversationDialog
+      :open="waDialogOpen"
+      :title="waDialogTitle"
+      :inquiry="waDialogInquiry"
+      :loading="waDialogLoading"
+      :error="waDialogError"
+      :draft="waDialogDraft"
+      @close="closeWaDialog"
+    />
   </UiPage>
 </template>
 
 <style scoped>
 .opportunity-detail__loading{padding:40px;color:var(--ui-text-subtle);font-size:.8rem;text-align:center}
 .opportunity-detail{display:grid;gap:16px}.opportunity-detail__hero{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(230px,.7fr);gap:20px;padding:18px;border-radius:var(--ui-radius-md);background:var(--ui-surface-muted)}.opportunity-detail__hero h3{margin:12px 0 7px;color:var(--ui-text-strong);font-size:1.05rem}.opportunity-detail__hero p{margin:0;color:var(--ui-text-muted);font-size:.78rem;line-height:1.55;white-space:pre-wrap}.opportunity-detail dl{display:grid;gap:8px;margin:0}.opportunity-detail dl div{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--ui-border);padding-bottom:7px}.opportunity-detail dt{color:var(--ui-text-subtle);font-size:.68rem}.opportunity-detail dd{margin:0;color:var(--ui-text);font-size:.7rem;font-weight:700;text-align:right}.opportunity-items{display:grid;gap:12px}.opportunity-item{padding:14px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-md);background:var(--ui-surface)}.opportunity-item>header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}.opportunity-item h4{margin:3px 0 0;color:var(--ui-text-strong);font-size:.86rem}.opportunity-item small{color:var(--ui-text-subtle);font-size:.64rem;text-transform:uppercase}.opportunity-detail__grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.opportunity-detail__grid div{min-width:0;padding:13px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-sm)}.opportunity-detail__grid span{display:block;margin-bottom:5px;color:var(--ui-text-subtle);font-size:.64rem;text-transform:uppercase}.opportunity-detail__grid strong{display:block;color:var(--ui-text);font-size:.75rem;overflow-wrap:anywhere}.opportunity-item__actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--ui-border)}.opportunity-item__actions :deep(.choices){width:min(360px,100%);margin:0}.opportunity-item__actions>strong{margin-right:auto;color:var(--ui-success);font-size:.73rem}.opportunity-detail__missing{padding:18px;border:1px dashed var(--ui-border-strong);border-radius:var(--ui-radius-md);color:var(--ui-text-muted);font-size:.75rem;text-align:center}.opportunity-detail__workflow{display:flex;align-items:flex-end;justify-content:flex-end;gap:10px;padding-top:14px;border-top:1px solid var(--ui-border)}.opportunity-detail__workflow>div{width:260px}.opportunity-detail__workflow label{display:block;margin-bottom:6px;color:var(--ui-text-muted);font-size:.7rem;font-weight:800}@media(max-width:720px){.opportunity-detail__hero{grid-template-columns:1fr}.opportunity-detail__grid{grid-template-columns:1fr 1fr}.opportunity-item__actions{align-items:stretch;flex-direction:column}.opportunity-item__actions :deep(.choices){width:100%}.opportunity-detail__workflow{align-items:stretch;flex-direction:column}.opportunity-detail__workflow>div{width:100%}}@media(max-width:480px){.opportunity-detail__grid{grid-template-columns:1fr}}
+.wa-ref-link{display:block;margin-top:3px;border:0;background:transparent;color:var(--ui-primary);font-size:.68rem;font-weight:700;text-decoration:underline;cursor:pointer;padding:0}
 </style>

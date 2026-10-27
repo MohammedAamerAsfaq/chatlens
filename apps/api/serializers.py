@@ -69,6 +69,12 @@ class WhatsAppAccountSettingsSerializer(serializers.ModelSerializer):
             'allow_concurrent_sends', 'max_concurrent_sends', 'unknown_new_chat_policy',
         ]
 
+    def validate_display_name(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('Enter a communication account name.')
+        return value
+
     def update(self, instance, validated_data):
         if 'ai_parsing_enabled' in validated_data:
             enabled = validated_data['ai_parsing_enabled']
@@ -76,7 +82,11 @@ class WhatsAppAccountSettingsSerializer(serializers.ModelSerializer):
                 validated_data['ai_parsing_enabled_at'] = timezone.now()
             elif not enabled:
                 validated_data['ai_parsing_enabled_at'] = None
-        return super().update(instance, validated_data)
+        instance = super().update(instance, validated_data)
+        if 'display_name' in validated_data and instance.communication_account_id:
+            instance.communication_account.name = instance.display_name
+            instance.communication_account.save(update_fields=['name', 'updated_at'])
+        return instance
 
 
 class OutboundMessageSerializer(serializers.ModelSerializer):

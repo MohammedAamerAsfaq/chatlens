@@ -283,6 +283,12 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
             return 'conversations.accounts.view'
         if self.action in {'create_message', 'message_preflight'}:
             return 'conversations.messages.send'
+        if self.action == 'update_settings' and set(request.data.keys()) <= {'ai_parsing_enabled'}:
+            # Narrower than the full conversations.accounts.manage below - an assigned
+            # user can flip their own account's AI parsing without also getting rights to
+            # disconnect/delete/reconfigure it. Any other field in the same request falls
+            # through to the full manage check instead.
+            return 'conversations.accounts.toggle_ai'
         return 'conversations.accounts.manage'
 
     def get_queryset(self):

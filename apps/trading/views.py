@@ -30,6 +30,7 @@ from .serializers import (
     MessageClassificationSerializer,
     InquirySerializer,
     InquiryDetailSerializer,
+    ManualInquirySerializer,
     InquiryProductSerializer,
     NonInventoryProductSerializer,
     NonInventoryProductMentionSerializer,
@@ -994,6 +995,16 @@ class InquiryViewSet(viewsets.GenericViewSet,
 
         inquiry.save(update_fields=update_fields)
         return Response(InquiryDetailSerializer(inquiry).data)
+
+    @action(detail=False, methods=['post'], url_path='manual')
+    def manual(self, request):
+        from apps.trading.services.manual_inquiries import create_manual_inquiry
+
+        company = default_company_for_user(request.user)
+        serializer = ManualInquirySerializer(data=request.data, context={'request': request, 'company': company})
+        serializer.is_valid(raise_exception=True)
+        inquiry = create_manual_inquiry(company=company, validated_data=serializer.validated_data)
+        return Response(InquiryDetailSerializer(inquiry).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['get'], url_path='product-lines')
     def product_lines(self, request, pk=None):
@@ -4862,6 +4873,7 @@ class InquiryForwardingRuleViewSet(viewsets.ModelViewSet):
             InquiryForwardingRule.objects.prefetch_related(
                 'targets__contact__account', 'targets__group__account',
                 'exclusions__contact__account', 'exclusions__group__account',
+                'accounts',
             ),
             self.request.user,
         )
@@ -4876,6 +4888,7 @@ class InquiryForwardingRuleViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         rule = serializer.save(company=company, created_by=request.user)
         self._sync_endpoints(rule, request.data)
+        self._sync_accounts(rule, request.data)
         return Response(self.get_serializer(rule).data, status=status.HTTP_201_CREATED)
 
     @transaction.atomic
@@ -4885,6 +4898,7 @@ class InquiryForwardingRuleViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         rule = serializer.save()
         self._sync_endpoints(rule, request.data)
+        self._sync_accounts(rule, request.data)
         return Response(self.get_serializer(rule).data)
 
     def _sync_endpoints(self, rule, data):
@@ -4894,6 +4908,15 @@ class InquiryForwardingRuleViewSet(viewsets.ModelViewSet):
         if 'exclusions' in data:
             rule.exclusions.all().delete()
             self._create_endpoints(rule, data.get('exclusions') or [], target=False)
+
+    def _sync_accounts(self, rule, data):
+        if 'account_ids' not in data:
+            return
+        ids = data.get('account_ids') or []
+        accounts = list(visible_accounts_queryset(self.request.user).filter(pk__in=ids))
+        if len(accounts) != len(set(ids)):
+            raise ValidationError({'account_ids': 'One or more accounts are invalid.'})
+        rule.accounts.set(accounts)
 
     def _create_endpoints(self, rule, rows, *, target):
         from apps.whatsapp_bridge.models import WhatsAppContact, WhatsAppGroup

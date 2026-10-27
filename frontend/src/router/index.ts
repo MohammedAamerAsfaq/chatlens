@@ -20,6 +20,7 @@ import AiParseV2LogView     from '../views/AiParseV2LogView.vue'
 import ContactsView         from '../views/ContactsView.vue'
 import GroupsView           from '../views/GroupsView.vue'
 import TradingView          from '../views/TradingView.vue'
+import ManualInquiryView    from '../views/ManualInquiryView.vue'
 import SellingOffersView    from '../views/SellingOffersView.vue'
 import TradingAnalyticsView from '../views/TradingAnalyticsView.vue'
 import ReportSummaryView    from '../views/ReportSummaryView.vue'
@@ -90,6 +91,7 @@ const router = createRouter({
     { path: '/contacts', name: 'contacts', component: ContactsView, meta: { title: 'Contacts' } },
     { path: '/groups', name: 'groups', component: GroupsView, meta: { title: 'Groups' } },
     { path: '/trading', name: 'trading', component: TradingView, meta: { title: 'Trading Dashboard', industries: ['trading'] } },
+    { path: '/inquiries/manual', name: 'manual-inquiry', component: ManualInquiryView, meta: { title: 'Create Inquiry', industries: ['trading'], permission: 'trading.inquiries.update' } },
     { path: '/selling-offers', name: 'selling-offers', component: SellingOffersView, meta: { title: 'Selling Offers', industries: ['trading'] } },
     { path: '/trading-analytics', name: 'trading-analytics', component: TradingAnalyticsView, meta: { title: 'Trading Analytics', industries: ['trading'] } },
     { path: '/report-summary', name: 'report-summary', component: ReportSummaryView, meta: { title: 'Report Summary', industries: ['trading'] } },

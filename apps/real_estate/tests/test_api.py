@@ -20,7 +20,7 @@ from apps.tenancy.models import (
     CommunicationAccount, CommunicationAccountAssignment, Company, CompanyMembership,
     ConnectionProvider,
 )
-from apps.whatsapp_bridge.models import WhatsAppAccount
+from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppChat, WhatsAppMessage
 from apps.real_estate.services.property_types import seed_default_property_types
 from apps.real_estate.services.extraction_projection import project_extraction
 
@@ -469,6 +469,47 @@ class RealEstateApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 200, response.json())
         self.assertEqual(response.json()['status'], 'qualified')
+
+    def test_opportunity_exposes_source_message_reference_for_whatsapp_deep_link(self):
+        provider = ConnectionProvider.objects.create(
+            key='api-estate-wa', name='WhatsApp', channel=ConnectionProvider.CHANNEL_WHATSAPP,
+        )
+        communication = CommunicationAccount.objects.create(
+            company=self.company, provider=provider,
+            channel=ConnectionProvider.CHANNEL_WHATSAPP, name='Sales',
+        )
+        account = WhatsAppAccount.objects.create(owner=self.user, communication_account=communication)
+        chat = WhatsAppChat.objects.create(account=account, wa_chat_id='971500000099@s.whatsapp.net')
+        message = WhatsAppMessage.objects.create(
+            account=account, chat=chat, provider_message_id='src-1', sender_number='971500000099',
+            direction='inbound', message_type='text', message_text='WTB Marina apartment',
+            message_time=timezone.now(),
+        )
+        opportunity = RealEstateOpportunity.objects.create(
+            company=self.company, account=account, source_chat=chat, source_message=message,
+            activity_type=ActivityType.BUYING, classification_status=ClassificationStatus.CLASSIFIED,
+            summary='Buyer needs a Marina apartment', first_seen_at=timezone.now(),
+        )
+
+        response = self.client.get(f'/api/real-estate/opportunities/{opportunity.pk}/')
+
+        self.assertEqual(response.status_code, 200, response.json())
+        data = response.json()
+        self.assertEqual(data['source_chat'], chat.pk)
+        self.assertEqual(data['source_message'], message.pk)
+        self.assertEqual(data['source_message_time'], message.message_time.isoformat())
+
+    def test_opportunity_without_source_message_has_null_source_message_time(self):
+        opportunity = RealEstateOpportunity.objects.create(
+            company=self.company, activity_type=ActivityType.BUYING,
+            classification_status=ClassificationStatus.CLASSIFIED,
+            summary='Manual entry, no WhatsApp source', first_seen_at=timezone.now(),
+        )
+
+        response = self.client.get(f'/api/real-estate/opportunities/{opportunity.pk}/')
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertIsNone(response.json()['source_message_time'])
 
     def test_supply_item_can_create_property_without_creating_listing(self):
         opportunity = RealEstateOpportunity.objects.create(
