@@ -957,6 +957,42 @@ class TenantScopedApiTests(TestCase):
         self.account_a.refresh_from_db()
         self.assertFalse(self.account_a.ai_parsing_enabled)
 
+    def test_assigned_user_can_set_per_chat_ai_parsing(self):
+        chat = self._existing_direct_chat('91')
+        agent = get_user_model().objects.create_user(username='chat-assigned-agent', password='pw')
+        membership = CompanyMembership.objects.create(
+            company=self.company_a, user=agent, role=CompanyMembership.ROLE_USER,
+        )
+        CommunicationAccountAssignment.objects.create(
+            company=self.company_a, communication_account=self.account_a.communication_account,
+            membership=membership,
+        )
+        self.client.force_authenticate(agent)
+
+        resp = self.client.patch(
+            f'/api/chats/{chat.pk}/set-ai-parsing/', {'ai_parsing': True}, format='json',
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.content)
+        chat.refresh_from_db()
+        self.assertTrue(chat.ai_parsing)
+
+    def test_unassigned_user_cannot_set_per_chat_ai_parsing(self):
+        chat = self._existing_direct_chat('92')
+        agent = get_user_model().objects.create_user(username='chat-unassigned-agent', password='pw')
+        CompanyMembership.objects.create(
+            company=self.company_a, user=agent, role=CompanyMembership.ROLE_USER,
+        )
+        self.client.force_authenticate(agent)
+
+        resp = self.client.patch(
+            f'/api/chats/{chat.pk}/set-ai-parsing/', {'ai_parsing': True}, format='json',
+        )
+
+        self.assertEqual(resp.status_code, 404)
+        chat.refresh_from_db()
+        self.assertIsNone(chat.ai_parsing)
+
     def test_message_preflight_checks_direct_recipient_without_sending(self):
         self.account_a.outbound_sending_enabled = True
         self.account_a.direct_sending_enabled = True

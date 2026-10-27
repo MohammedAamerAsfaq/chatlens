@@ -276,6 +276,30 @@ def _visible_account_or_none(user, account_id):
     return visible_accounts_queryset(user).filter(pk=account_id).first()
 
 
+def _can_manage_account_ai(user, account):
+    """Whether `user` may change the AI parsing setting (account-level default, or a
+    per-chat override) for `account` - full conversations.accounts.manage, or being
+    personally assigned to it via CommunicationAccountAssignment. Deliberately bypasses
+    the permission-catalog/role system: assignment alone must be sufficient regardless
+    of whatever role (built-in or admin-created custom role) the company has set up.
+    Callers that fetch the account/chat by raw pk (skipping the normal company-scoped
+    queryset) rely on the company check here to prevent cross-tenant access.
+    """
+    if not account:
+        return False
+    company = default_company_for_user(user)
+    if not company or company_for_whatsapp_account(account) != company:
+        return False
+    if has_company_permission(user, 'conversations.accounts.manage', company):
+        return True
+    if not account.communication_account_id:
+        return False
+    return CommunicationAccountAssignment.objects.filter(
+        communication_account_id=account.communication_account_id,
+        membership__user=user, membership__is_active=True, is_active=True,
+    ).exists()
+
+
 class WhatsAppAccountViewSet(viewsets.ModelViewSet):
     serializer_class = WhatsAppAccountSerializer
     permission_classes = [IsAuthenticated, CompanyPermissionRequired]
@@ -297,25 +321,6 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
             # which defeats the point: assignment alone must be sufficient.
             return [IsAuthenticated()]
         return super().get_permissions()
-
-    @staticmethod
-    def _can_toggle_ai(user, account):
-        company = default_company_for_user(user)
-        # toggle_ai() fetches the account by raw pk (bypassing get_queryset's company
-        # scoping, deliberately - see get_permissions), so this check must itself
-        # confirm the account belongs to the requester's own company before granting
-        # anything, or a user with manage rights in their own company could reach into
-        # another company's account.
-        if not company or company_for_whatsapp_account(account) != company:
-            return False
-        if has_company_permission(user, 'conversations.accounts.manage', company):
-            return True
-        if not account.communication_account_id:
-            return False
-        return CommunicationAccountAssignment.objects.filter(
-            communication_account_id=account.communication_account_id,
-            membership__user=user, membership__is_active=True, is_active=True,
-        ).exists()
 
     def get_queryset(self):
         queryset = visible_accounts_queryset(
@@ -452,7 +457,7 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
         account = WhatsAppAccount.objects.filter(pk=pk).select_related('communication_account').first()
         if not account:
             return Response(status=status.HTTP_404_NOT_FOUND)
-        if not self._can_toggle_ai(request.user, account):
+        if not _can_manage_account_ai(request.user, account):
             raise PermissionDenied('You must be assigned to this account to change its AI parsing setting.')
         enabled = request.data.get('ai_parsing_enabled')
         if not isinstance(enabled, bool):
@@ -1087,9 +1092,16 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
     def permission_code_for(self, request):
         if self.action in {'info', 'group_info', 'messages'}:
             return 'conversations.messages.view'
-        if self.action == 'set_ai_parsing':
-            return 'conversations.accounts.manage'
         return 'conversations.chats.view'
+
+    def get_permissions(self):
+        if self.action == 'set_ai_parsing':
+            # Same reasoning as WhatsAppAccountViewSet.toggle_ai: skips the role/
+            # permission-catalog check in favor of the direct _can_manage_account_ai
+            # check in set_ai_parsing() below, so assignment alone is sufficient
+            # regardless of which role the company has configured.
+            return [IsAuthenticated()]
+        return super().get_permissions()
 
     def get_queryset(self):
         qs = scope_queryset_to_visible_accounts(
@@ -1294,6 +1306,8 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=['patch'], url_path='set-ai-parsing')
     def set_ai_parsing(self, request, pk=None):
         chat = self.get_object()
+        if not _can_manage_account_ai(request.user, chat.account):
+            raise PermissionDenied('You must be assigned to this account to change its AI parsing setting.')
         _apply_chat_ai_parsing(chat, request.data.get('ai_parsing', 'inherit'))
         return Response(ChatSerializer(chat, context=self.get_serializer_context()).data)
 
