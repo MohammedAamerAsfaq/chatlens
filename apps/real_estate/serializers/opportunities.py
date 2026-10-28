@@ -66,6 +66,7 @@ class OpportunitySerializer(CleanModelSerializer):
     # into the original WhatsApp message the same way the Trading inquiries board does -
     # selectChat() uses this to load the right page of messages around the target one.
     source_message_time = serializers.SerializerMethodField()
+    search_score = serializers.SerializerMethodField()
 
     @staticmethod
     def get_contact_name(obj):
@@ -87,6 +88,13 @@ class OpportunitySerializer(CleanModelSerializer):
     @staticmethod
     def get_source_message_time(obj):
         return obj.source_message.message_time.isoformat() if obj.source_message_id else None
+
+    @staticmethod
+    def get_search_score(obj):
+        distance = getattr(obj, 'search_distance', None)
+        if distance is None:
+            return None
+        return round(max(0.0, min(1.0, 1.0 - float(distance))), 4)
 
     class Meta:
         model = RealEstateOpportunity

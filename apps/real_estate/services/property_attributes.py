@@ -1,9 +1,21 @@
+import logging
 from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 
+logger = logging.getLogger(__name__)
+
 
 def normalize_attributes(property_type, attributes, *, strict):
+    """strict=True is a human editing a Property through the UI - raise so the form
+    can show them exactly what to fix. strict=False is the AI extraction pipeline
+    (opportunity_item_projection.py, extraction_projection.py) - a single malformed
+    or missing attribute (e.g. a non-numeric "floor" value like "Ground") must not
+    abort the whole opportunity, since that call site's caller wraps opportunity
+    creation and item/requirement sync in one transaction.atomic() block, so raising
+    here rolls back and silently discards an otherwise-correctly-classified inquiry.
+    Drop the offending attribute instead and keep the rest.
+    """
     if not isinstance(attributes, dict):
         raise ValidationError({'attributes': 'Property attributes must be an object.'})
     definitions = {
@@ -20,12 +32,24 @@ def normalize_attributes(property_type, attributes, *, strict):
         try:
             normalized[code] = _coerce(definition, value)
         except ValueError as exc:
-            errors[code] = str(exc)
+            if strict:
+                errors[code] = str(exc)
+            else:
+                logger.warning(
+                    'Dropped unparseable AI-extracted attribute | property_type=%s code=%s value=%r error=%s',
+                    property_type.code, code, value, exc,
+                )
     for code, definition in definitions.items():
         if not definition.is_required or not _condition_matches(definition, normalized):
             continue
         if normalized.get(code) in (None, '', []):
-            errors[code] = 'This field is required.'
+            if strict:
+                errors[code] = 'This field is required.'
+            else:
+                logger.warning(
+                    'AI extraction missing required attribute | property_type=%s code=%s',
+                    property_type.code, code,
+                )
     if errors:
         raise ValidationError({
             'attributes': [f'{code}: {message}' for code, message in errors.items()],

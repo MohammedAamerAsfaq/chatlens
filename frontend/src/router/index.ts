@@ -54,6 +54,7 @@ import ClientPulseSettingsView from '../views/ClientPulseSettingsView.vue'
 import ClientPulseRemindersView from '../views/ClientPulseRemindersView.vue'
 import RealEstatePropertiesView from '../views/RealEstatePropertiesView.vue'
 import RealEstateBoardView from '../views/RealEstateBoardView.vue'
+import RealEstateOpportunitySearchView from '../views/RealEstateOpportunitySearchView.vue'
 import RealEstateManualOpportunityView from '../views/RealEstateManualOpportunityView.vue'
 import RealEstateOpportunityDetailView from '../views/RealEstateOpportunityDetailView.vue'
 import RealEstatePropertyCreateView from '../views/RealEstatePropertyCreateView.vue'
@@ -124,6 +125,7 @@ const router = createRouter({
     { path: '/clientpulse-settings', name: 'clientpulse-settings', component: ClientPulseSettingsView, meta: { title: 'ClientPulse Settings', permission: 'settings.company.view' } },
     { path: '/clientpulse-reminders', name: 'clientpulse-reminders', component: ClientPulseRemindersView, meta: { title: 'ClientPulse Reminders', permission: 'clientpulse.reminders.view' } },
     { path: '/real-estate', name: 'real-estate-board', component: RealEstateBoardView, meta: { title: 'Opportunity Board', permission: 'real_estate.opportunities.view', industries: ['real_estate'] } },
+    { path: '/real-estate/search', name: 'real-estate-search', component: RealEstateOpportunitySearchView, meta: { title: 'Opportunity Search', permission: 'real_estate.opportunities.view', industries: ['real_estate'] } },
     { path: '/real-estate/opportunities/new', name: 'real-estate-opportunity-create', component: RealEstateManualOpportunityView, meta: { title: 'Create Inquiry', permission: 'real_estate.opportunities.update', industries: ['real_estate'] } },
     { path: '/real-estate/opportunities/:id', name: 'real-estate-opportunity-detail', component: RealEstateOpportunityDetailView, meta: { title: 'Opportunity', permission: 'real_estate.opportunities.view', industries: ['real_estate'] } },
     { path: '/real-estate/properties', name: 'real-estate-properties', component: RealEstatePropertiesView, meta: { title: 'Properties', permission: 'real_estate.properties.view', industries: ['real_estate'] } },

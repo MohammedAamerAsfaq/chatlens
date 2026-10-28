@@ -21,6 +21,7 @@ from apps.real_estate.services.opportunity_item_service import (
 )
 from apps.real_estate.services.inquiry_media import seed_default_inquiry_media
 from apps.real_estate.services.manual_opportunities import create_manual_opportunity
+from apps.real_estate.services.opportunity_search import search_opportunities
 
 
 class OpportunityViewSet(CompanyOwnedViewSet):
@@ -77,6 +78,24 @@ class OpportunityViewSet(CompanyOwnedViewSet):
             OpportunitySerializer(opportunity, context={'request': request}).data,
             status=status.HTTP_201_CREATED,
         )
+
+    @action(detail=False, methods=['get'], url_path='search')
+    def search(self, request):
+        try:
+            queryset = search_opportunities(
+                self.get_queryset(),
+                company=self.active_company(),
+                activity_type=request.query_params.get('activity_type', ''),
+                query=request.query_params.get('q', ''),
+            )
+        except ValueError as exc:
+            raise ValidationError({'activity_type': str(exc)}) from exc
+        except Exception as exc:
+            raise ValidationError({'q': f'Unable to run semantic search: {exc}'}) from exc
+
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
 
 
 class InquiryMediumViewSet(CompanyOwnedViewSet):

@@ -131,6 +131,36 @@ class RealEstatePipelineTests(TestCase):
         self.assertEqual(parse_log.status, RealEstateParseLog.STATUS_COMPLETE)
         self.assertEqual(parse_log.extraction_result['property']['property_type'], 'apartment')
 
+    @patch('apps.real_estate.services.extraction_service.call_real_estate_agent')
+    def test_extraction_survives_a_non_numeric_ai_extracted_attribute(self, mocked_agent):
+        # Regression test for the Pure Vision "floor: Enter a valid number." silent
+        # drop: persist_opportunity() and project_extraction() share one
+        # transaction.atomic() block, so a strict attribute-coercion failure used to
+        # roll back the whole opportunity even though gate+extraction correctly
+        # classified it. The AI commonly extracts non-numeric floor descriptions
+        # ("Ground", "G", "Mezzanine") for a field configured as a number.
+        from apps.real_estate.services.property_types import seed_default_property_types
+        seed_default_property_types(self.company)  # 'apartment' ships with a 'floor' (number) field
+
+        mocked_agent.return_value = (
+            '{"decision":"selling","summary":"Owner offers a ground floor unit",'
+            '"confidence":0.95,"property":{"property_type":"apartment",'
+            '"attributes":{"floor":"Ground"}}}'
+        )
+        _log_ai_parsing_and_classify(self.message)
+        parse_log = RealEstateParseLog.objects.get(message=self.message)
+
+        from apps.real_estate.services.extraction_service import run_extraction
+        opportunity, parsed = run_extraction(self.message, parse_log, self.company)
+
+        self.assertIsNotNone(opportunity.pk)
+        self.assertEqual(opportunity.classification_status, ClassificationStatus.CLASSIFIED)
+        parse_log.refresh_from_db()
+        self.assertEqual(parse_log.status, RealEstateParseLog.STATUS_COMPLETE)
+        self.assertEqual(parse_log.opportunity_id, opportunity.pk)
+        item = opportunity.items.get()
+        self.assertNotIn('floor', item.attributes)
+
     def test_general_company_does_not_fall_through_to_trading(self):
         self.company.industry_type = Company.INDUSTRY_GENERAL
         self.company.save(update_fields=['industry_type'])
