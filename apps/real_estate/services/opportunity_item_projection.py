@@ -8,6 +8,7 @@ from apps.real_estate.models import (
 )
 from apps.real_estate.services.property_attributes import normalize_attributes
 from apps.real_estate.services.property_types import resolve_property_type
+from apps.real_estate.services.opportunity_item_dedup import deduplicate_item_values
 
 
 @transaction.atomic
@@ -22,9 +23,11 @@ def sync_extracted_items(
         if opportunity.activity_type in ActivityType.requirement_values()
         else OpportunityItem.KIND_SUPPLY
     )
+    values_list = deduplicate_item_values([
+        _item_values(opportunity, payload, parsed, settings, kind) for payload in payloads
+    ])
     items = []
-    for sequence, payload in enumerate(payloads, 1):
-        values = _item_values(opportunity, payload, parsed, settings, kind)
+    for sequence, values in enumerate(values_list, 1):
         if sequence == 1:
             values['legacy_requirement'] = legacy_requirement
             values['legacy_candidate'] = legacy_candidate
@@ -33,7 +36,7 @@ def sync_extracted_items(
             _link_exact_reference(item)
         items.append(item)
     OpportunityItem.objects.filter(
-        opportunity=opportunity, sequence__gt=len(payloads),
+        opportunity=opportunity, sequence__gt=len(values_list),
         match_status__in=[OpportunityItem.MATCH_UNMATCHED, OpportunityItem.MATCH_REJECTED],
     ).delete()
     return items

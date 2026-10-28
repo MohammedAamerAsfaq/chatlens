@@ -153,6 +153,20 @@ class RealEstateInventoryTests(TestCase):
         self.assertEqual(items[1].location_raw, 'Arabian Ranches')
         self.assertFalse(Property.objects.filter(company=self.company).exists())
 
+    def test_duplicate_extracted_properties_create_one_opportunity_item(self):
+        opportunity = self.opportunity(ActivityType.BUYING)
+
+        project_extraction(opportunity, {
+            'summary': 'Buyer wants a Marina apartment.',
+            'properties': [
+                {'property_type': 'apartment', 'location': 'Dubai Marina', 'bedrooms': 2},
+                {'property_type': 'apartment', 'location': 'Dubai Marina', 'bedrooms': 2},
+            ],
+        })
+
+        item = opportunity.items.get()
+        self.assertEqual(item.raw_extraction['duplicate_extraction_count'], 2)
+
     def test_requirement_projection_enqueues_one_embedding_task(self):
         opportunity = self.opportunity(ActivityType.BUYING)
         with self.captureOnCommitCallbacks(execute=True):

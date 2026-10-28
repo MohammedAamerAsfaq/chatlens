@@ -11,6 +11,7 @@ from apps.real_estate.models import (
     ClassificationStatus,
     EmbeddingStatus,
     OpportunityItem,
+    PropertyType,
     PropertyCandidate,
     PropertyRequirement,
     RealEstateOpportunity,
@@ -84,7 +85,7 @@ class OpportunitySearchApiTests(TestCase):
 
         response = self.client.get(
             '/api/real-estate/opportunities/search/',
-            {'activity_type': ActivityType.BUYING, 'q': 'Dubai homes'},
+            {'activity_type': ActivityType.BUYING, 'q': 'Dubai homes', 'relevance': 'all'},
         )
 
         self.assertEqual(response.status_code, 200, response.json())
@@ -94,7 +95,95 @@ class OpportunitySearchApiTests(TestCase):
             'Marina apartment', 'Jumeirah villa',
         ])
         self.assertEqual(rows[0]['search_score'], 1.0)
+        self.assertEqual(rows[0]['search_relevance'], 'strong')
+        self.assertIn('query terms', rows[0]['search_reasons'])
         embed.assert_called_once_with('Dubai homes', company=self.company)
+
+    @patch('apps.real_estate.services.opportunity_search.ai_manager.embed')
+    def test_possible_relevance_removes_weak_results(self, embed):
+        embed.return_value = self.vector(1.0)
+        opportunity = self.create_opportunity(ActivityType.BUYING, summary='Unrelated record')
+        requirement = PropertyRequirement.objects.create(company=self.company, opportunity=opportunity)
+        RequirementEmbedding.objects.create(
+            company=self.company, requirement=requirement,
+            status=EmbeddingStatus.EMBEDDED, embedding=self.vector(0.0, 1.0),
+        )
+
+        response = self.client.get('/api/real-estate/opportunities/search/', {
+            'activity_type': ActivityType.BUYING, 'q': 'warehouse in Sharjah',
+            'relevance': 'possible',
+        })
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()['results'], [])
+
+    @patch('apps.real_estate.services.opportunity_search.ai_manager.embed')
+    def test_exact_budget_can_rerank_a_nearer_semantic_result(self, embed):
+        embed.return_value = self.vector(1.0)
+        exact = self.create_opportunity(ActivityType.BUYING, summary='Apartment wanted')
+        exact_requirement = PropertyRequirement.objects.create(company=self.company, opportunity=exact)
+        RequirementEmbedding.objects.create(
+            company=self.company, requirement=exact_requirement,
+            status=EmbeddingStatus.EMBEDDED, embedding=self.vector(0.8, 0.6),
+        )
+        OpportunityItem.objects.create(
+            company=self.company, opportunity=exact, sequence=1,
+            item_kind=OpportunityItem.KIND_DEMAND, amount_role=OpportunityItem.AMOUNT_BUDGET,
+            title='Apartment', amount_min=1300000, amount_max=1300000,
+        )
+        nearby = self.create_opportunity(ActivityType.BUYING, summary='Apartment wanted')
+        nearby_requirement = PropertyRequirement.objects.create(company=self.company, opportunity=nearby)
+        RequirementEmbedding.objects.create(
+            company=self.company, requirement=nearby_requirement,
+            status=EmbeddingStatus.EMBEDDED, embedding=self.vector(1.0),
+        )
+        OpportunityItem.objects.create(
+            company=self.company, opportunity=nearby, sequence=1,
+            item_kind=OpportunityItem.KIND_DEMAND, amount_role=OpportunityItem.AMOUNT_BUDGET,
+            title='Apartment', amount_min=1500000, amount_max=1500000,
+        )
+
+        response = self.client.get('/api/real-estate/opportunities/search/', {
+            'activity_type': ActivityType.BUYING, 'q': 'AED 1.3m', 'relevance': 'all',
+        })
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()['results'][0]['id'], exact.pk)
+        self.assertIn('price/budget', response.json()['results'][0]['search_reasons'])
+
+    @patch('apps.real_estate.services.opportunity_search.ai_manager.embed')
+    def test_similar_results_can_be_grouped_without_deleting_records(self, embed):
+        embed.return_value = self.vector(1.0)
+        opportunities = []
+        property_type = PropertyType.objects.create(
+            company=self.company, name='Apartment', code='apartment',
+        )
+        for summary in ('Marina apartment offered', 'Apartment available in Marina'):
+            opportunity = self.create_opportunity(ActivityType.SELLING, summary=summary)
+            candidate = PropertyCandidate.objects.create(company=self.company, opportunity=opportunity)
+            CandidateEmbedding.objects.create(
+                company=self.company, candidate=candidate,
+                status=EmbeddingStatus.EMBEDDED, embedding=self.vector(1.0),
+            )
+            OpportunityItem.objects.create(
+                company=self.company, opportunity=opportunity, sequence=1,
+                item_kind=OpportunityItem.KIND_SUPPLY, amount_role=OpportunityItem.AMOUNT_ASKING,
+                title='Marina apartment', property_type=property_type,
+                location_raw='Dubai Marina', amount_min=2000000, amount_max=2000000,
+            )
+            opportunities.append(opportunity)
+
+        response = self.client.get('/api/real-estate/opportunities/search/', {
+            'activity_type': ActivityType.SELLING, 'q': 'Marina apartment',
+            'relevance': 'all', 'group_duplicates': 'true',
+        })
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(len(response.json()['results']), 1)
+        row = response.json()['results'][0]
+        self.assertEqual(row['duplicate_count'], 2)
+        self.assertEqual(len(row['duplicate_opportunity_ids']), 1)
+        self.assertEqual(RealEstateOpportunity.objects.filter(pk__in=[item.pk for item in opportunities]).count(), 2)
 
     @patch('apps.real_estate.services.opportunity_search.ai_manager.embed')
     def test_supply_search_excludes_other_lanes_and_companies(self, embed):
@@ -138,3 +227,18 @@ class OpportunitySearchApiTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn('activity_type', response.json())
+
+    def test_relevance_policy_is_validated(self):
+        response = self.client.get('/api/real-estate/opportunities/search/', {
+            'activity_type': ActivityType.BUYING, 'relevance': 'unsupported',
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('relevance', response.json())
+
+    def test_studio_is_parsed_as_zero_bedrooms(self):
+        from apps.real_estate.services.opportunity_search_query import parse_constraints
+
+        constraints = parse_constraints('studio apartment in Dubai Marina', self.company)
+
+        self.assertEqual(constraints.bedrooms, 0)

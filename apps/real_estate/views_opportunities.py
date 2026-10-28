@@ -87,9 +87,12 @@ class OpportunityViewSet(CompanyOwnedViewSet):
                 company=self.active_company(),
                 activity_type=request.query_params.get('activity_type', ''),
                 query=request.query_params.get('q', ''),
+                relevance=request.query_params.get('relevance', 'possible'),
+                group_duplicates=request.query_params.get('group_duplicates', '').lower() == 'true',
             )
         except ValueError as exc:
-            raise ValidationError({'activity_type': str(exc)}) from exc
+            field = 'activity_type' if 'activity type' in str(exc).lower() else 'relevance'
+            raise ValidationError({field: str(exc)}) from exc
         except Exception as exc:
             raise ValidationError({'q': f'Unable to run semantic search: {exc}'}) from exc
 

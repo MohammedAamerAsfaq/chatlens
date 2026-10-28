@@ -67,6 +67,10 @@ class OpportunitySerializer(CleanModelSerializer):
     # selectChat() uses this to load the right page of messages around the target one.
     source_message_time = serializers.SerializerMethodField()
     search_score = serializers.SerializerMethodField()
+    search_relevance = serializers.SerializerMethodField()
+    search_reasons = serializers.SerializerMethodField()
+    duplicate_count = serializers.SerializerMethodField()
+    duplicate_opportunity_ids = serializers.SerializerMethodField()
 
     @staticmethod
     def get_contact_name(obj):
@@ -91,10 +95,29 @@ class OpportunitySerializer(CleanModelSerializer):
 
     @staticmethod
     def get_search_score(obj):
+        score = getattr(obj, 'search_score', None)
+        if score is not None:
+            return score
         distance = getattr(obj, 'search_distance', None)
         if distance is None:
             return None
         return round(max(0.0, min(1.0, 1.0 - float(distance))), 4)
+
+    @staticmethod
+    def get_search_relevance(obj):
+        return getattr(obj, 'search_relevance', None)
+
+    @staticmethod
+    def get_search_reasons(obj):
+        return getattr(obj, 'search_reasons', [])
+
+    @staticmethod
+    def get_duplicate_count(obj):
+        return getattr(obj, 'duplicate_count', 1)
+
+    @staticmethod
+    def get_duplicate_opportunity_ids(obj):
+        return getattr(obj, 'duplicate_opportunity_ids', [])
 
     class Meta:
         model = RealEstateOpportunity
