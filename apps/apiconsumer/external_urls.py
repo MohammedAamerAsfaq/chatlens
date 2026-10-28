@@ -5,6 +5,7 @@ from .external_diagnostics_views import DiagnosticsView
 from .external_real_estate_diagnostics_views import (
     RealEstateAgentCallLogViewSet, RealEstateDiagnosticsView, RealEstateParseLogViewSet,
 )
+from .external_real_estate_search_views import RealEstateOpportunitySearchView
 from .external_views import (
     ChatViewSet, ContactViewSet, InquiryViewSet, MessageViewSet, OutboundMessageViewSet, PingView,
     ProductMentionsView, ProductViewSet, SendMessageView, WebhookDeliveryAttemptViewSet,
@@ -26,6 +27,11 @@ urlpatterns = [
     path('ping/', PingView.as_view(), name='external-ping'),
     path('diagnostics/', DiagnosticsView.as_view(), name='external-diagnostics'),
     path('real-estate/diagnostics/', RealEstateDiagnosticsView.as_view(), name='external-real-estate-diagnostics'),
+    path(
+        'real-estate/opportunity-search/',
+        RealEstateOpportunitySearchView.as_view(),
+        name='external-real-estate-opportunity-search',
+    ),
     path('product-mentions/', ProductMentionsView.as_view(), name='external-product-mentions'),
     path('send-message/', SendMessageView.as_view(), name='external-send-message'),
     path(
