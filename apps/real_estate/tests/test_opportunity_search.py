@@ -242,3 +242,67 @@ class OpportunitySearchApiTests(TestCase):
         constraints = parse_constraints('studio apartment in Dubai Marina', self.company)
 
         self.assertEqual(constraints.bedrooms, 0)
+
+    @patch('apps.real_estate.services.opportunity_search_input.call_real_estate_agent')
+    @patch('apps.real_estate.services.opportunity_search.ai_manager.embed')
+    def test_structured_search_normalizes_then_embeds_and_ranks_ranges(self, embed, call_agent):
+        embed.return_value = self.vector(1.0)
+        call_agent.return_value = '''{
+          "property_types": ["Apartment"],
+          "locations": ["Dubai Marina"],
+          "bedrooms_min": 2,
+          "bedrooms_max": 3,
+          "amount_min": 1200000,
+          "amount_max": 1500000,
+          "currency": "AED",
+          "amenities": ["sea view"],
+          "keywords": ["ready"]
+        }'''
+        property_type = PropertyType.objects.create(
+            company=self.company, name='Apartment', code='apartment',
+        )
+        opportunity = self.create_opportunity(ActivityType.BUYING, summary='Marina home wanted')
+        requirement = PropertyRequirement.objects.create(
+            company=self.company, opportunity=opportunity,
+        )
+        RequirementEmbedding.objects.create(
+            company=self.company, requirement=requirement,
+            status=EmbeddingStatus.EMBEDDED, embedding=self.vector(1.0),
+        )
+        OpportunityItem.objects.create(
+            company=self.company, opportunity=opportunity, sequence=1,
+            item_kind=OpportunityItem.KIND_DEMAND, amount_role=OpportunityItem.AMOUNT_BUDGET,
+            title='Marina apartment', property_type=property_type,
+            location_raw='Dubai Marina', bedrooms_min=3, bedrooms_max=3,
+            amount_min=1400000, amount_max=1400000, currency='AED',
+        )
+
+        response = self.client.get('/api/real-estate/opportunities/search/', {
+            'activity_type': ActivityType.BUYING,
+            'q': 'family flat at marina around 1.2 to 1.5m',
+            'search_mode': 'structured',
+            'relevance': 'all',
+        })
+
+        self.assertEqual(response.status_code, 200, response.json())
+        data = response.json()
+        self.assertEqual(data['search_mode'], 'structured')
+        self.assertEqual(data['search_interpretation']['bedrooms_min'], 2)
+        self.assertIn('Dubai Marina', data['search_interpretation']['canonical_query'])
+        self.assertEqual(data['results'][0]['id'], opportunity.pk)
+        self.assertIn('bedrooms', data['results'][0]['search_reasons'])
+        self.assertIn('price/budget', data['results'][0]['search_reasons'])
+        call_agent.assert_called_once()
+        embed.assert_called_once_with(
+            data['search_interpretation']['canonical_query'], company=self.company,
+        )
+
+    def test_search_mode_is_validated_before_any_ai_call(self):
+        response = self.client.get('/api/real-estate/opportunities/search/', {
+            'activity_type': ActivityType.BUYING,
+            'q': 'Dubai apartment',
+            'search_mode': 'unsupported',
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('search_mode', response.json())

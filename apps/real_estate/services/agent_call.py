@@ -6,7 +6,10 @@ from apps.real_estate.models import RealEstateAgentCallLog
 logger = logging.getLogger(__name__)
 
 
-def call_real_estate_agent(*, purpose, messages, company, prompt_config=None, wa_message_id=None, **kwargs):
+def call_real_estate_agent(
+    *, purpose, messages, company, prompt_config=None, wa_message_id=None,
+    correlation_id=None, **kwargs,
+):
     from apps.ai_providers.manager import ai_manager
 
     agent_config = prompt_config.agent_config if prompt_config else None
@@ -31,7 +34,7 @@ def call_real_estate_agent(*, purpose, messages, company, prompt_config=None, wa
                 company=company,
                 messages=messages,
                 workflow_key=f'real_estate.{purpose}',
-                correlation_id=f'whatsapp-message:{wa_message_id}',
+                correlation_id=correlation_id or _message_correlation(wa_message_id, purpose),
                 **kwargs,
             ))
             provider = member.provider_config.provider
@@ -61,6 +64,12 @@ def _validate_targets(company, agent_config, kiwi_router):
         raise ValueError('The selected KiwiRouter belongs to another company.')
 
 
+def _message_correlation(wa_message_id, purpose):
+    if wa_message_id is not None:
+        return f'whatsapp-message:{wa_message_id}'
+    return f'real-estate:{purpose}'
+
+
 def _target_identity(company, agent_config, kiwi_router, ai_manager):
     if kiwi_router:
         return 'kiwi_router', kiwi_router.name
@@ -79,4 +88,3 @@ def _persist_call(**values):
         )
     except Exception:
         logger.exception('real_estate agent call log could not be persisted')
-

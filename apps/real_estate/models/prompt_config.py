@@ -6,10 +6,12 @@ class RealEstatePromptConfig(models.Model):
     KEY_GATE = 'gate'
     KEY_EXTRACTION = 'extraction'
     KEY_MATCH_RERANK = 'match_rerank'
+    KEY_SEARCH_STRUCTURING = 'search_structuring'
     KEY_CHOICES = [
         (KEY_GATE, 'Real Estate GatePass'),
         (KEY_EXTRACTION, 'Real Estate Classification and Extraction'),
         (KEY_MATCH_RERANK, 'Real Estate Match Reranking'),
+        (KEY_SEARCH_STRUCTURING, 'Opportunity Search Structuring'),
     ]
 
     company = models.ForeignKey(

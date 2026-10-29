@@ -18,6 +18,7 @@ RELEVANCE_THRESHOLDS = {'all': 0.0, 'possible': 0.35, 'strong': 0.55}
 
 def search_opportunities(
     queryset, *, company, activity_type, query, relevance='possible', group_duplicates=False,
+    search_plan=None,
 ):
     """Return a lane ranked by vectors plus explicit property constraints."""
     _validate(activity_type, relevance)
@@ -29,7 +30,8 @@ def search_opportunities(
     if not query:
         return queryset
 
-    vector = ai_manager.embed(query, company=company)
+    embedding_query = search_plan.embedding_query if search_plan else query
+    vector = ai_manager.embed(embedding_query, company=company)
     is_requirement = activity_type in ActivityType.requirement_values()
     embedding_field = (
         'requirement__embedding_record__embedding'
@@ -42,7 +44,7 @@ def search_opportunities(
     rows = list(queryset.filter(
         **{status_field: EmbeddingStatus.EMBEDDED, f'{embedding_field}__isnull': False},
     ).annotate(search_distance=CosineDistance(embedding_field, vector)))
-    constraints = parse_constraints(query, company)
+    constraints = search_plan.constraints if search_plan else parse_constraints(query, company)
     for row in rows:
         _rank(row, constraints)
     rows = [row for row in rows if row.search_score >= RELEVANCE_THRESHOLDS[relevance]]
@@ -81,11 +83,17 @@ def _structured_score(items, constraints, reasons, bonus, penalty):
     if constraints.property_type_ids:
         matched = any(item.property_type_id in constraints.property_type_ids for item in items)
         bonus, penalty = _apply(matched, bonus, penalty, 0.10, 0.06, 'property type', reasons)
-    if constraints.bedrooms is not None:
-        matched = any(_in_range(constraints.bedrooms, item.bedrooms_min, item.bedrooms_max) for item in items)
+    if constraints.bedrooms_min is not None or constraints.bedrooms_max is not None:
+        matched = any(_ranges_overlap(
+            constraints.bedrooms_min, constraints.bedrooms_max,
+            item.bedrooms_min, item.bedrooms_max,
+        ) for item in items)
         bonus, penalty = _apply(matched, bonus, penalty, 0.12, 0.10, 'bedrooms', reasons)
-    if constraints.amount is not None:
-        matched = any(_amount_matches(constraints.amount, item.amount_min, item.amount_max) for item in items)
+    if constraints.amount_min is not None or constraints.amount_max is not None:
+        matched = any(_amount_ranges_overlap(
+            constraints.amount_min, constraints.amount_max,
+            item.amount_min, item.amount_max,
+        ) for item in items)
         bonus, penalty = _apply(matched, bonus, penalty, 0.16, 0.10, 'price/budget', reasons)
     locations = {
         _normalize(value) for item in items
@@ -137,20 +145,23 @@ def _tier(score):
     return 'strong' if score >= 0.55 else ('possible' if score >= 0.35 else 'weak')
 
 
-def _in_range(value, minimum, maximum):
-    if minimum is None:
-        minimum = maximum
-    if maximum is None:
-        maximum = minimum
-    return minimum is not None and minimum <= value <= maximum
+def _ranges_overlap(left_min, left_max, right_min, right_max):
+    left_min = left_min if left_min is not None else left_max
+    left_max = left_max if left_max is not None else left_min
+    right_min = right_min if right_min is not None else right_max
+    right_max = right_max if right_max is not None else right_min
+    return (
+        left_min is not None and right_min is not None
+        and left_min <= right_max and right_min <= left_max
+    )
 
 
-def _amount_matches(value, minimum, maximum):
-    if minimum is None:
-        minimum = maximum
-    if maximum is None:
-        maximum = minimum
-    if minimum is None:
+def _amount_ranges_overlap(left_min, left_max, right_min, right_max):
+    left_min = left_min if left_min is not None else left_max
+    left_max = left_max if left_max is not None else left_min
+    right_min = right_min if right_min is not None else right_max
+    right_max = right_max if right_max is not None else right_min
+    if left_min is None or right_min is None:
         return False
-    tolerance = value * Decimal('0.02')
-    return minimum - tolerance <= value <= maximum + tolerance
+    tolerance = max(left_max, right_max) * Decimal('0.02')
+    return left_min - tolerance <= right_max and right_min - tolerance <= left_max

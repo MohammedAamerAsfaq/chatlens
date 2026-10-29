@@ -24,9 +24,19 @@ STOP_WORDS = {
 class SearchConstraints:
     normalized: str
     tokens: frozenset
-    bedrooms: Decimal | None
-    amount: Decimal | None
+    bedrooms_min: Decimal | None
+    bedrooms_max: Decimal | None
+    amount_min: Decimal | None
+    amount_max: Decimal | None
     property_type_ids: frozenset
+
+    @property
+    def bedrooms(self):
+        return self.bedrooms_min if self.bedrooms_min == self.bedrooms_max else None
+
+    @property
+    def amount(self):
+        return self.amount_min if self.amount_min == self.amount_max else None
 
 
 def parse_constraints(query, company):
@@ -44,11 +54,40 @@ def parse_constraints(query, company):
         ]
         if any(_phrase_present(normalized, label) for label in labels):
             type_ids.add(property_type.pk)
+    amount = _amount(amount_match) if amount_match else None
     return SearchConstraints(
         normalized=normalized,
         tokens=frozenset(tokens(normalized)),
-        bedrooms=bedrooms,
-        amount=_amount(amount_match) if amount_match else None,
+        bedrooms_min=bedrooms,
+        bedrooms_max=bedrooms,
+        amount_min=amount,
+        amount_max=amount,
+        property_type_ids=frozenset(type_ids),
+    )
+
+
+def build_constraints(
+    *, query, company, property_types=(), bedrooms_min=None, bedrooms_max=None,
+    amount_min=None, amount_max=None,
+):
+    """Build validated constraints from an already structured search phrase."""
+    normalized = normalize(query)
+    type_ids = set()
+    requested = [normalize(value) for value in property_types if normalize(value)]
+    for property_type in PropertyType.objects.filter(company=company, is_active=True):
+        labels = [
+            property_type.name, property_type.code.replace('_', ' '),
+            *(property_type.aliases or []),
+        ]
+        if any(normalize(label) in requested for label in labels):
+            type_ids.add(property_type.pk)
+    return SearchConstraints(
+        normalized=normalized,
+        tokens=frozenset(tokens(normalized)),
+        bedrooms_min=bedrooms_min,
+        bedrooms_max=bedrooms_max,
+        amount_min=amount_min,
+        amount_max=amount_max,
         property_type_ids=frozenset(type_ids),
     )
 

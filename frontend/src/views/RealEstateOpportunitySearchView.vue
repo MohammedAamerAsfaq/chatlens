@@ -22,7 +22,10 @@ const query = ref('')
 const submittedQuery = ref('')
 const status = ref('')
 const relevance = ref('possible')
+const searchMode = ref('hybrid')
+const submittedSearchMode = ref('hybrid')
 const groupDuplicates = ref(true)
+const interpretation = ref(null)
 const rows = ref([])
 const total = ref(0)
 const page = ref(1)
@@ -37,6 +40,10 @@ const relevanceOptions = [
   { value: 'possible', label: 'Strong + possible' },
   { value: 'all', label: 'All semantic results' },
 ]
+const searchModeOptions = [
+  { value: 'hybrid', label: 'Hybrid Search' },
+  { value: 'structured', label: 'Structured Search' },
+]
 
 async function load() {
   loading.value = true
@@ -45,6 +52,7 @@ async function load() {
     const { data } = await realEstateApi.searchOpportunities({
       activity_type: activeActivity.value,
       q: submittedQuery.value || undefined,
+      search_mode: submittedSearchMode.value,
       status: status.value || undefined,
       relevance: relevance.value,
       group_duplicates: groupDuplicates.value,
@@ -53,10 +61,12 @@ async function load() {
     })
     rows.value = data.results || data
     total.value = data.count ?? rows.value.length
+    interpretation.value = data.search_interpretation || null
   } catch (exc) {
     error.value = apiError(exc, 'Unable to search Real Estate opportunities.')
     rows.value = []
     total.value = 0
+    interpretation.value = null
   } finally {
     loading.value = false
   }
@@ -64,6 +74,7 @@ async function load() {
 
 function submitSearch() {
   submittedQuery.value = query.value.trim()
+  submittedSearchMode.value = searchMode.value
   page.value = 1
   load()
 }
@@ -106,6 +117,7 @@ onMounted(load)
         <UiInput v-model="query" placeholder="Describe a property, location, budget, or requirement...">
           <template #prefix><i class="fa-solid fa-magnifying-glass"></i></template>
         </UiInput>
+        <UiSelect v-model="searchMode" :options="searchModeOptions" />
         <UiSelect v-model="status" :options="statusFilters" />
         <UiSelect v-model="relevance" :options="relevanceOptions" />
         <UiSelect v-model="pageSize" :options="pageSizes" />
@@ -114,10 +126,18 @@ onMounted(load)
           <i class="fa-solid fa-wand-magic-sparkles"></i> {{ loading ? 'Searching...' : 'Search' }}
         </UiButton>
       </form>
-      <p class="opportunity-search__hint">Search combines meaning with property type, bedrooms, price, and location. Relevance tiers control recall; grouping only combines matching results on screen.</p>
+      <p class="opportunity-search__hint">
+        <template v-if="searchMode === 'structured'">Structured Search makes one AI call to normalize your phrase, then runs embedded and constraint-aware ranking.</template>
+        <template v-else>Hybrid Search combines meaning with locally parsed property type, bedrooms, price, and location without a chat-model call.</template>
+        Relevance tiers control recall; grouping only combines matching results on screen.
+      </p>
     </UiCard>
 
     <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
+    <UiNotice v-if="interpretation" tone="info" class="opportunity-search__interpretation">
+      <strong>AI interpretation</strong>
+      <span>{{ interpretation.canonical_query }}</span>
+    </UiNotice>
     <div class="opportunity-search__summary">
       <strong>{{ total.toLocaleString() }} opportunities</strong>
       <span v-if="submittedQuery">ranked for "{{ submittedQuery }}"</span>
@@ -152,9 +172,10 @@ onMounted(load)
 
 <style scoped>
 .opportunity-search { margin-bottom: 1rem; }
-.opportunity-search__controls { display:grid; grid-template-columns:minmax(18rem,1fr) 12rem 13rem 10rem auto auto; gap:.75rem; align-items:center; margin-top:1rem; }
+.opportunity-search__controls { display:grid; grid-template-columns:minmax(18rem,1fr) 11rem 12rem 13rem 10rem auto auto; gap:.75rem; align-items:center; margin-top:1rem; }
 .opportunity-search__hint,.opportunity-search__summary span,.opportunity-search__result header p,.opportunity-search__item span,.opportunity-search__empty { color:var(--ui-text-muted); }
 .opportunity-search__hint { margin:.65rem 0 0; font-size:.86rem; }
+.opportunity-search__interpretation { display:flex; gap:.55rem; margin-bottom:1rem; }
 .opportunity-search__summary { display:flex; gap:.5rem; margin:.75rem 0; }
 .opportunity-search__results { display:grid; gap:.8rem; }
 .opportunity-search__result { background:var(--ui-surface); border:1px solid var(--ui-border); border-left:4px solid var(--ui-primary); border-radius:var(--ui-radius); padding:1rem; cursor:pointer; }

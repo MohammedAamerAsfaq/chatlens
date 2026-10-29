@@ -22,6 +22,7 @@ from apps.real_estate.services.opportunity_item_service import (
 from apps.real_estate.services.inquiry_media import seed_default_inquiry_media
 from apps.real_estate.services.manual_opportunities import create_manual_opportunity
 from apps.real_estate.services.opportunity_search import search_opportunities
+from apps.real_estate.services.opportunity_search_input import prepare_opportunity_search
 
 
 class OpportunityViewSet(CompanyOwnedViewSet):
@@ -81,24 +82,36 @@ class OpportunityViewSet(CompanyOwnedViewSet):
 
     @action(detail=False, methods=['get'], url_path='search')
     def search(self, request):
+        company = self.active_company()
+        query = request.query_params.get('q', '')
         try:
+            search_plan = prepare_opportunity_search(
+                company=company,
+                activity_type=request.query_params.get('activity_type', ''),
+                query=query,
+                mode=request.query_params.get('search_mode', 'hybrid'),
+            )
             queryset = search_opportunities(
                 self.get_queryset(),
-                company=self.active_company(),
+                company=company,
                 activity_type=request.query_params.get('activity_type', ''),
-                query=request.query_params.get('q', ''),
+                query=query,
                 relevance=request.query_params.get('relevance', 'possible'),
                 group_duplicates=request.query_params.get('group_duplicates', '').lower() == 'true',
+                search_plan=search_plan,
             )
         except ValueError as exc:
-            field = 'activity_type' if 'activity type' in str(exc).lower() else 'relevance'
+            field = _search_error_field(exc)
             raise ValidationError({field: str(exc)}) from exc
         except Exception as exc:
             raise ValidationError({'q': f'Unable to run semantic search: {exc}'}) from exc
 
         page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page, many=True)
-        return self.get_paginated_response(serializer.data)
+        response = self.get_paginated_response(serializer.data)
+        response.data['search_mode'] = search_plan.mode
+        response.data['search_interpretation'] = search_plan.interpretation
+        return response
 
 
 class InquiryMediumViewSet(CompanyOwnedViewSet):
@@ -257,3 +270,14 @@ class CandidateViewSet(CompanyOwnedViewSet):
 
 def _validation_detail(exc):
     return getattr(exc, 'message_dict', None) or {'non_field_errors': exc.messages}
+
+
+def _search_error_field(exc):
+    message = str(exc).lower()
+    if 'activity type' in message:
+        return 'activity_type'
+    if 'search mode' in message:
+        return 'search_mode'
+    if 'relevance' in message:
+        return 'relevance'
+    return 'q'

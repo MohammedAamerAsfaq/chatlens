@@ -94,6 +94,27 @@ constraints. Do not invent missing property facts. Return valid JSON only as an 
 [{"candidate_id": 1, "score": 0.0, "reason": "concise factual explanation"}].
 Score must be between 0 and 1. Omit candidates that clearly violate a hard constraint."""
 
+DEFAULT_SEARCH_STRUCTURING_PROMPT = """You normalize a broker's property search phrase into
+the Real Estate opportunity search schema. Preserve only facts stated by the user and never
+invent a property detail. Return one valid JSON object only, without Markdown or explanation:
+{
+  "property_types": [],
+  "locations": [],
+  "bedrooms_min": null,
+  "bedrooms_max": null,
+  "amount_min": null,
+  "amount_max": null,
+  "currency": "",
+  "amenities": [],
+  "keywords": []
+}
+
+Use numeric values for bedroom and amount bounds. If the user gives one exact value, repeat it
+as both bounds. Normalize explicit currency to a three-letter code such as AED. Put project,
+building, community, district, city, and country phrases in locations. Put explicit property
+features in amenities and other meaningful search terms in keywords. Missing facts must remain
+null, an empty string, or an empty list."""
+
 
 DEFAULT_PROMPTS = {
     RealEstatePromptConfig.KEY_GATE: (
@@ -107,6 +128,10 @@ DEFAULT_PROMPTS = {
     RealEstatePromptConfig.KEY_MATCH_RERANK: (
         DEFAULT_MATCH_RERANK_PROMPT,
         'Real Estate Match Reranking',
+    ),
+    RealEstatePromptConfig.KEY_SEARCH_STRUCTURING: (
+        DEFAULT_SEARCH_STRUCTURING_PROMPT,
+        'Opportunity Search Structuring',
     ),
 }
 

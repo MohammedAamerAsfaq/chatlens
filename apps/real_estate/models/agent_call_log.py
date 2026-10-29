@@ -5,10 +5,12 @@ class RealEstateAgentCallLog(models.Model):
     PURPOSE_GATE = 'gate'
     PURPOSE_EXTRACTION = 'extraction'
     PURPOSE_MATCH_RERANK = 'match_rerank'
+    PURPOSE_SEARCH_STRUCTURING = 'search_structuring'
     PURPOSE_CHOICES = [
         (PURPOSE_GATE, 'Real Estate GatePass'),
         (PURPOSE_EXTRACTION, 'Real Estate Extraction'),
         (PURPOSE_MATCH_RERANK, 'Real Estate Match Reranking'),
+        (PURPOSE_SEARCH_STRUCTURING, 'Opportunity Search Structuring'),
     ]
 
     company = models.ForeignKey(
@@ -32,4 +34,3 @@ class RealEstateAgentCallLog(models.Model):
         db_table = 'real_estate_agent_call_log'
         ordering = ['-created_at']
         indexes = [models.Index(fields=['company', 'purpose', 'created_at'])]
-
