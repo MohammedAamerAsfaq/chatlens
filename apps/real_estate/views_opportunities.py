@@ -111,6 +111,7 @@ class OpportunityViewSet(CompanyOwnedViewSet):
         response = self.get_paginated_response(serializer.data)
         response.data['search_mode'] = search_plan.mode
         response.data['search_interpretation'] = search_plan.interpretation
+        response.data['search_corrections'] = list(search_plan.constraints.corrections)
         return response
 
 

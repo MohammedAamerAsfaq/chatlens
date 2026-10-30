@@ -11,6 +11,9 @@ from .inquiry_media import InquiryMediumSerializer
 from .mock_source import RealEstateMockSourceRecordSerializer
 from .mock_inquiry import RealEstateMockInquiryRunSerializer, RealEstateMockInquirySerializer
 from .parties import PartySerializer, PropertyPartyAssociationSerializer
+from .attributes import (
+    PropertyAttributeDefinitionSerializer, PropertyAttributeDefinitionWriteSerializer,
+)
 
 __all__ = [
     'ListingSerializer', 'OpportunitySerializer', 'PropertyAddressSerializer',
@@ -24,4 +27,6 @@ __all__ = [
     'RealEstateMockInquirySerializer',
     'PartySerializer',
     'PropertyPartyAssociationSerializer',
+    'PropertyAttributeDefinitionSerializer',
+    'PropertyAttributeDefinitionWriteSerializer',
 ]

@@ -13,6 +13,7 @@ class PropertyTypeFieldDefinitionSerializer(serializers.ModelSerializer):
         model = PropertyTypeFieldDefinition
         fields = (
             'id', 'code', 'label', 'data_type', 'options', 'unit_hint',
+            'attribute_definition',
             'is_required', 'is_filterable', 'is_embeddable',
             'condition_field', 'condition_value', 'sort_order', 'is_active',
         )
@@ -20,6 +21,7 @@ class PropertyTypeFieldDefinitionSerializer(serializers.ModelSerializer):
 
 class PropertyTypeSerializer(CleanModelSerializer):
     field_definitions = PropertyTypeFieldDefinitionSerializer(many=True, read_only=True)
+    parent_name = serializers.CharField(source='parent.name', read_only=True)
 
     def validate_code(self, value):
         from apps.real_estate.services.property_types import normalize_property_type_code

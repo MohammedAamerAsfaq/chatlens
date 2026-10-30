@@ -14,6 +14,9 @@ class PropertyType(models.Model):
     company = models.ForeignKey(
         'tenancy.Company', on_delete=models.CASCADE, related_name='real_estate_property_types',
     )
+    parent = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.SET_NULL, related_name='children',
+    )
     name = models.CharField(max_length=100)
     code = models.CharField(
         max_length=50,
@@ -49,3 +52,15 @@ class PropertyType(models.Model):
         self.aliases = list(dict.fromkeys(
             str(value).strip() for value in self.aliases if str(value).strip()
         ))
+        if self.parent_id:
+            if self.parent_id == self.pk:
+                raise ValidationError({'parent': 'A property type cannot be its own parent.'})
+            if self.parent.company_id != self.company_id:
+                raise ValidationError({'parent': 'The parent type must belong to this company.'})
+            ancestor = self.parent
+            visited = set()
+            while ancestor:
+                if ancestor.pk == self.pk or ancestor.pk in visited:
+                    raise ValidationError({'parent': 'The property type hierarchy cannot contain a cycle.'})
+                visited.add(ancestor.pk)
+                ancestor = ancestor.parent

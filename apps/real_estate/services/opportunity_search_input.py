@@ -8,6 +8,7 @@ from uuid import uuid4
 from apps.real_estate.models import ActivityType, RealEstateAgentCallLog, RealEstatePromptConfig
 from apps.real_estate.services.agent_call import call_real_estate_agent
 from apps.real_estate.services.opportunity_search_query import build_constraints, parse_constraints
+from apps.real_estate.services.property_attributes import normalize_number
 from apps.real_estate.services.prompts import configured_prompt
 from apps.real_estate.services.response_parser import parse_json_object
 
@@ -64,6 +65,8 @@ def prepare_opportunity_search(*, company, activity_type, query, mode=SEARCH_MOD
         bedrooms_max=interpretation['bedrooms_max'],
         amount_min=interpretation['amount_min'],
         amount_max=interpretation['amount_max'],
+        locations=interpretation['locations'],
+        attributes=interpretation['attributes'],
     )
     public_interpretation = {
         **interpretation,
@@ -84,11 +87,12 @@ def _validate_structure(value):
         'locations': _string_list(value.get('locations')),
         'bedrooms_min': _decimal(value.get('bedrooms_min'), 'bedrooms_min'),
         'bedrooms_max': _decimal(value.get('bedrooms_max'), 'bedrooms_max'),
-        'amount_min': _decimal(value.get('amount_min'), 'amount_min'),
-        'amount_max': _decimal(value.get('amount_max'), 'amount_max'),
+        'amount_min': _decimal(value.get('amount_min'), 'amount_min', compact=True),
+        'amount_max': _decimal(value.get('amount_max'), 'amount_max', compact=True),
         'currency': str(value.get('currency') or '').strip().upper()[:3],
         'amenities': _string_list(value.get('amenities')),
         'keywords': _string_list(value.get('keywords')),
+        'attributes': _attribute_mapping(value.get('attributes')),
     }
     _validate_range(structured, 'bedrooms')
     _validate_range(structured, 'amount')
@@ -101,13 +105,15 @@ def _string_list(value):
     return [str(item).strip() for item in value[:20] if str(item).strip()]
 
 
-def _decimal(value, field):
+def _decimal(value, field, compact=False):
     if value in (None, ''):
         return None
     try:
-        number = Decimal(str(value).replace(',', ''))
+        number = normalize_number(value) if compact else Decimal(str(value).replace(',', ''))
     except (InvalidOperation, ValueError) as exc:
         raise ValueError(f'AI returned an invalid {field}.') from exc
+    if number is None:
+        raise ValueError(f'AI returned an invalid {field}.')
     if number < 0:
         raise ValueError(f'AI returned a negative {field}.')
     return number
@@ -126,6 +132,7 @@ def _canonical_query(value):
     parts.extend(amount)
     parts.extend(value['amenities'])
     parts.extend(value['keywords'])
+    parts.extend(f'{key}: {item}' for key, item in value['attributes'].items())
     return '; '.join(dict.fromkeys(part for part in parts if part))
 
 
@@ -142,3 +149,12 @@ def _json_number(value):
     if value is None:
         return None
     return int(value) if value == value.to_integral_value() else float(value)
+
+
+def _attribute_mapping(value):
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(key).strip(): item for key, item in list(value.items())[:20]
+        if str(key).strip() and item not in (None, '', [])
+    }

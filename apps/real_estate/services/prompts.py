@@ -106,14 +106,17 @@ invent a property detail. Return one valid JSON object only, without Markdown or
   "amount_max": null,
   "currency": "",
   "amenities": [],
-  "keywords": []
+  "keywords": [],
+  "attributes": {}
 }
 
 Use numeric values for bedroom and amount bounds. If the user gives one exact value, repeat it
 as both bounds. Normalize explicit currency to a three-letter code such as AED. Put project,
 building, community, district, city, and country phrases in locations. Put explicit property
 features in amenities and other meaningful search terms in keywords. Missing facts must remain
-null, an empty string, or an empty list."""
+null, an empty string, an empty list, or an empty object. Put other explicit searchable facts,
+such as furnishing, tenure, bathrooms, view, floor, parking, or ownership eligibility, in
+attributes using concise property-field names."""
 
 
 DEFAULT_PROMPTS = {

@@ -69,6 +69,8 @@ class OpportunitySerializer(CleanModelSerializer):
     search_score = serializers.SerializerMethodField()
     search_relevance = serializers.SerializerMethodField()
     search_reasons = serializers.SerializerMethodField()
+    search_penalty = serializers.SerializerMethodField()
+    search_adjustments = serializers.SerializerMethodField()
     duplicate_count = serializers.SerializerMethodField()
     duplicate_opportunity_ids = serializers.SerializerMethodField()
 
@@ -110,6 +112,14 @@ class OpportunitySerializer(CleanModelSerializer):
     @staticmethod
     def get_search_reasons(obj):
         return getattr(obj, 'search_reasons', [])
+
+    @staticmethod
+    def get_search_penalty(obj):
+        return getattr(obj, 'search_penalty', 0)
+
+    @staticmethod
+    def get_search_adjustments(obj):
+        return getattr(obj, 'search_adjustments', [])
 
     @staticmethod
     def get_duplicate_count(obj):

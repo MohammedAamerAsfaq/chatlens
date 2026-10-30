@@ -14,7 +14,9 @@ def seed_default_property_types(company):
     ).prefetch_related('field_definitions'))
     by_code = {record.code: record for record in existing}
     if all(_type_is_seeded(by_code.get(code), definitions) for code, _, _, _, definitions in TYPE_DEFINITIONS):
-        return [by_code[code] for code, *_ in TYPE_DEFINITIONS]
+        records = [by_code[code] for code, *_ in TYPE_DEFINITIONS]
+        _seed_attribute_catalog(company)
+        return records
 
     records = []
     for order, (code, name, category, aliases) in enumerate(DEFAULT_PROPERTY_TYPES, start=1):
@@ -28,6 +30,7 @@ def seed_default_property_types(company):
         )
         _seed_field_definitions(record, TYPE_DEFINITIONS[order - 1][4])
         records.append(record)
+    _seed_attribute_catalog(company)
     return records
 
 
@@ -93,3 +96,9 @@ def _type_is_seeded(record, definitions):
         return False
     existing = {item.code for item in record.field_definitions.all()}
     return all(values[0] in existing for values in definitions)
+
+
+def _seed_attribute_catalog(company):
+    from apps.real_estate.services.property_attribute_catalog import seed_attribute_catalog
+
+    seed_attribute_catalog(company)

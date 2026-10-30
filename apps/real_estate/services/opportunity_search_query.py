@@ -4,12 +4,16 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal
 
-from apps.real_estate.models import PropertyType
+from apps.real_estate.services.opportunity_search_catalog import (
+    find_property_types, resolve_bedrooms, resolve_locations, resolve_property_types,
+)
+from apps.real_estate.services.opportunity_search_attributes import (
+    parse_attribute_constraints, resolve_structured_attributes,
+)
 
 
 TOKEN_RE = re.compile(r'[a-z0-9]+')
 BEDROOM_RE = re.compile(r'\b(\d+(?:\.\d+)?)\s*(?:bed(?:room)?s?|br|bhk)\b', re.I)
-STUDIO_RE = re.compile(r'\bstudio\b', re.I)
 AMOUNT_RE = re.compile(
     r'(?:(?:aed|dhs?)\s*)?(\d[\d,]*(?:\.\d+)?)\s*(million|thousand|m|k)\b'
     r'|(?:aed|dhs?)\s*(\d[\d,]{3,})\b', re.I,
@@ -29,6 +33,10 @@ class SearchConstraints:
     amount_min: Decimal | None
     amount_max: Decimal | None
     property_type_ids: frozenset
+    related_property_type_ids: frozenset
+    locations: tuple
+    attributes: tuple
+    corrections: tuple
 
     @property
     def bedrooms(self):
@@ -42,18 +50,11 @@ class SearchConstraints:
 def parse_constraints(query, company):
     normalized = normalize(query)
     bedroom_match = BEDROOM_RE.search(query)
-    bedrooms = Decimal(bedroom_match.group(1)) if bedroom_match else None
-    if bedrooms is None and STUDIO_RE.search(query):
-        bedrooms = Decimal('0')
+    bedrooms = Decimal(bedroom_match.group(1)) if bedroom_match else resolve_bedrooms(company, query)
     amount_match = AMOUNT_RE.search(query)
-    type_ids = set()
-    for property_type in PropertyType.objects.filter(company=company, is_active=True):
-        labels = [
-            property_type.name, property_type.code.replace('_', ' '),
-            *(property_type.aliases or []),
-        ]
-        if any(_phrase_present(normalized, label) for label in labels):
-            type_ids.add(property_type.pk)
+    type_ids, related_ids, type_corrections = find_property_types(company, query)
+    locations, location_corrections = resolve_locations((), query=query)
+    attributes, attribute_corrections = parse_attribute_constraints(company, query)
     amount = _amount(amount_match) if amount_match else None
     return SearchConstraints(
         normalized=normalized,
@@ -62,25 +63,23 @@ def parse_constraints(query, company):
         bedrooms_max=bedrooms,
         amount_min=amount,
         amount_max=amount,
-        property_type_ids=frozenset(type_ids),
+        property_type_ids=type_ids,
+        related_property_type_ids=related_ids,
+        locations=locations,
+        attributes=attributes,
+        corrections=(*type_corrections, *location_corrections, *attribute_corrections),
     )
 
 
 def build_constraints(
     *, query, company, property_types=(), bedrooms_min=None, bedrooms_max=None,
-    amount_min=None, amount_max=None,
+    amount_min=None, amount_max=None, locations=(), attributes=None,
 ):
     """Build validated constraints from an already structured search phrase."""
     normalized = normalize(query)
-    type_ids = set()
-    requested = [normalize(value) for value in property_types if normalize(value)]
-    for property_type in PropertyType.objects.filter(company=company, is_active=True):
-        labels = [
-            property_type.name, property_type.code.replace('_', ' '),
-            *(property_type.aliases or []),
-        ]
-        if any(normalize(label) in requested for label in labels):
-            type_ids.add(property_type.pk)
+    type_ids, related_ids, type_corrections = resolve_property_types(company, property_types)
+    resolved_locations, location_corrections = resolve_locations(locations)
+    resolved_attributes, attribute_corrections = resolve_structured_attributes(company, attributes)
     return SearchConstraints(
         normalized=normalized,
         tokens=frozenset(tokens(normalized)),
@@ -88,7 +87,11 @@ def build_constraints(
         bedrooms_max=bedrooms_max,
         amount_min=amount_min,
         amount_max=amount_max,
-        property_type_ids=frozenset(type_ids),
+        property_type_ids=type_ids,
+        related_property_type_ids=related_ids,
+        locations=resolved_locations,
+        attributes=resolved_attributes,
+        corrections=(*type_corrections, *location_corrections, *attribute_corrections),
     )
 
 

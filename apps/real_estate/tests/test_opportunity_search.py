@@ -11,6 +11,9 @@ from apps.real_estate.models import (
     ClassificationStatus,
     EmbeddingStatus,
     OpportunityItem,
+    PropertyAttributeAlias,
+    PropertyAttributeDefinition,
+    PropertyAttributeOption,
     PropertyType,
     PropertyCandidate,
     PropertyRequirement,
@@ -242,6 +245,112 @@ class OpportunitySearchApiTests(TestCase):
         constraints = parse_constraints('studio apartment in Dubai Marina', self.company)
 
         self.assertEqual(constraints.bedrooms, 0)
+
+    def test_company_attribute_alias_resolves_to_canonical_bedroom_value(self):
+        from apps.real_estate.services.property_attribute_catalog import seed_attribute_catalog
+        from apps.real_estate.services.opportunity_search_query import parse_constraints
+
+        seed_attribute_catalog(self.company)
+        definition = PropertyAttributeDefinition.objects.get(
+            company=self.company, code='bedrooms',
+        )
+        option = PropertyAttributeOption.objects.get(definition=definition, code='2')
+        PropertyAttributeAlias.objects.create(
+            company=self.company, definition=definition, option=option,
+            alias='double room configuration',
+        )
+
+        constraints = parse_constraints(
+            'Need an apartment with double room configuration', self.company,
+        )
+
+        self.assertEqual(constraints.bedrooms, 2)
+
+    def test_hybrid_search_resolves_catalog_attribute_aliases(self):
+        from apps.real_estate.services.opportunity_search_query import parse_constraints
+
+        constraints = parse_constraints(
+            'Need a fully furnished apartment with 2 baths', self.company,
+        )
+        attributes = {item['code']: item for item in constraints.attributes}
+
+        self.assertEqual(attributes['furnishing']['value'], 'furnished')
+        self.assertEqual(attributes['bathrooms']['numeric_value'], 2)
+
+    def test_structured_attribute_alias_is_corrected_to_master_value(self):
+        from apps.real_estate.services.opportunity_search_query import build_constraints
+
+        constraints = build_constraints(
+            query='ready with two bathrooms', company=self.company,
+            attributes={'bathrooms': '2 baths', 'furnishing': 'fully furnished'},
+        )
+        attributes = {item['code']: item for item in constraints.attributes}
+
+        self.assertEqual(attributes['bathrooms']['numeric_value'], 2)
+        self.assertEqual(attributes['furnishing']['value'], 'furnished')
+
+    @patch('apps.real_estate.services.opportunity_search.ai_manager.embed')
+    def test_recognized_wrong_property_type_is_excluded(self, embed):
+        embed.return_value = self.vector(1.0)
+        apartment = PropertyType.objects.create(
+            company=self.company, name='Apartment', code='apartment',
+        )
+        villa = PropertyType.objects.create(
+            company=self.company, name='Villa', code='villa',
+        )
+        expected = self._embedded_demand('Apartment wanted', apartment, bedrooms=2)
+        self._embedded_demand('Villa wanted', villa, bedrooms=2)
+
+        response = self.client.get('/api/real-estate/opportunities/search/', {
+            'activity_type': ActivityType.BUYING, 'q': '2 bedroom apartment',
+            'relevance': 'all',
+        })
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual([row['id'] for row in response.json()['results']], [expected.pk])
+
+    @patch('apps.real_estate.services.opportunity_search.ai_manager.embed')
+    def test_adjacent_bedroom_count_is_kept_with_explained_penalty(self, embed):
+        embed.return_value = self.vector(1.0)
+        apartment = PropertyType.objects.create(
+            company=self.company, name='Apartment', code='apartment',
+        )
+        opportunity = self._embedded_demand('Three bedroom apartment', apartment, bedrooms=3)
+
+        response = self.client.get('/api/real-estate/opportunities/search/', {
+            'activity_type': ActivityType.BUYING, 'q': '2 bedroom apartment',
+            'relevance': 'all',
+        })
+
+        self.assertEqual(response.status_code, 200, response.json())
+        row = response.json()['results'][0]
+        self.assertEqual(row['id'], opportunity.pk)
+        self.assertEqual(row['search_penalty'], 0.06)
+        self.assertEqual(row['search_adjustments'][0]['reason'], 'Nearest bedroom count')
+
+    def test_compact_price_is_normalized_before_persistence_projection(self):
+        from apps.real_estate.services.opportunity_item_projection import _money_number
+
+        self.assertEqual(_money_number('1m'), 1000000)
+        self.assertEqual(_money_number('850k'), 850000)
+
+    def _embedded_demand(self, summary, property_type, *, bedrooms):
+        opportunity = self.create_opportunity(ActivityType.BUYING, summary=summary)
+        requirement = PropertyRequirement.objects.create(
+            company=self.company, opportunity=opportunity,
+        )
+        RequirementEmbedding.objects.create(
+            company=self.company, requirement=requirement,
+            status=EmbeddingStatus.EMBEDDED, embedding=self.vector(1.0),
+        )
+        OpportunityItem.objects.create(
+            company=self.company, opportunity=opportunity, sequence=1,
+            item_kind=OpportunityItem.KIND_DEMAND,
+            amount_role=OpportunityItem.AMOUNT_BUDGET,
+            title=summary, property_type=property_type,
+            bedrooms_min=bedrooms, bedrooms_max=bedrooms,
+        )
+        return opportunity
 
     @patch('apps.real_estate.services.opportunity_search_input.call_real_estate_agent')
     @patch('apps.real_estate.services.opportunity_search.ai_manager.embed')

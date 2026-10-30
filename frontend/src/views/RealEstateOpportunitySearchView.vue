@@ -26,6 +26,7 @@ const searchMode = ref('hybrid')
 const submittedSearchMode = ref('hybrid')
 const groupDuplicates = ref(true)
 const interpretation = ref(null)
+const corrections = ref([])
 const rows = ref([])
 const total = ref(0)
 const page = ref(1)
@@ -62,11 +63,13 @@ async function load() {
     rows.value = data.results || data
     total.value = data.count ?? rows.value.length
     interpretation.value = data.search_interpretation || null
+    corrections.value = data.search_corrections || []
   } catch (exc) {
     error.value = apiError(exc, 'Unable to search Real Estate opportunities.')
     rows.value = []
     total.value = 0
     interpretation.value = null
+    corrections.value = []
   } finally {
     loading.value = false
   }
@@ -138,6 +141,12 @@ onMounted(load)
       <strong>AI interpretation</strong>
       <span>{{ interpretation.canonical_query }}</span>
     </UiNotice>
+    <UiNotice v-if="corrections.length" tone="warning" class="opportunity-search__corrections">
+      <strong>Normalized search</strong>
+      <span v-for="item in corrections" :key="`${item.field}:${item.supplied}`">
+        {{ item.supplied }} &rarr; {{ item.canonical }}
+      </span>
+    </UiNotice>
     <div class="opportunity-search__summary">
       <strong>{{ total.toLocaleString() }} opportunities</strong>
       <span v-if="submittedQuery">ranked for "{{ submittedQuery }}"</span>
@@ -155,6 +164,11 @@ onMounted(load)
         </header>
         <p class="opportunity-search__message">{{ row.summary || row.original_message }}</p>
         <p v-if="row.search_reasons?.length" class="opportunity-search__reasons">Matched on: {{ row.search_reasons.join(', ') }}</p>
+        <div v-if="row.search_adjustments?.length" class="opportunity-search__adjustments">
+          <span v-for="item in row.search_adjustments" :key="item.reason">
+            {{ item.reason }} (-{{ Math.round(item.penalty * 100) }}%)
+          </span>
+        </div>
         <div class="opportunity-search__items">
           <div v-for="item in row.items" :key="item.id" class="opportunity-search__item">
             <strong>{{ item.title || `Property ${item.sequence}` }}</strong>
@@ -176,6 +190,9 @@ onMounted(load)
 .opportunity-search__hint,.opportunity-search__summary span,.opportunity-search__result header p,.opportunity-search__item span,.opportunity-search__empty { color:var(--ui-text-muted); }
 .opportunity-search__hint { margin:.65rem 0 0; font-size:.86rem; }
 .opportunity-search__interpretation { display:flex; gap:.55rem; margin-bottom:1rem; }
+.opportunity-search__corrections,.opportunity-search__adjustments { display:flex; flex-wrap:wrap; gap:.55rem; }
+.opportunity-search__corrections { margin-bottom:1rem; }
+.opportunity-search__adjustments { margin:-.35rem 0 .8rem; color:var(--ui-warning); font-size:.82rem; }
 .opportunity-search__summary { display:flex; gap:.5rem; margin:.75rem 0; }
 .opportunity-search__results { display:grid; gap:.8rem; }
 .opportunity-search__result { background:var(--ui-surface); border:1px solid var(--ui-border); border-left:4px solid var(--ui-primary); border-radius:var(--ui-radius); padding:1rem; cursor:pointer; }

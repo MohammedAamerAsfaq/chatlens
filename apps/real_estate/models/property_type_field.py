@@ -25,6 +25,10 @@ class PropertyTypeFieldDefinition(models.Model):
         'real_estate.PropertyType', on_delete=models.CASCADE,
         related_name='field_definitions',
     )
+    attribute_definition = models.ForeignKey(
+        'real_estate.PropertyAttributeDefinition', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='property_type_fields',
+    )
     code = models.CharField(
         max_length=60,
         validators=[RegexValidator(
@@ -56,6 +60,8 @@ class PropertyTypeFieldDefinition(models.Model):
         super().clean()
         if self.property_type_id and self.property_type.company_id != self.company_id:
             raise ValidationError({'property_type': 'The property type must belong to this company.'})
+        if self.attribute_definition_id and self.attribute_definition.company_id != self.company_id:
+            raise ValidationError({'attribute_definition': 'The attribute definition must belong to this company.'})
         if not isinstance(self.options, list):
             raise ValidationError({'options': 'Options must be a list.'})
         if self.data_type == self.TYPE_SELECT and not self.options:

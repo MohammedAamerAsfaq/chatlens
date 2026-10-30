@@ -22,7 +22,7 @@ from apps.real_estate.services.mock_source_preview import preview_workbooks
 
 
 class PropertyTypeViewSet(CompanyOwnedViewSet):
-    queryset = PropertyType.objects.prefetch_related('field_definitions')
+    queryset = PropertyType.objects.select_related('parent').prefetch_related('field_definitions')
     serializer_class = PropertyTypeSerializer
     read_permission = 'real_estate.properties.view'
     write_permission = 'real_estate.properties.manage'

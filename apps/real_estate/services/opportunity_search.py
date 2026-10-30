@@ -1,7 +1,5 @@
 """Hybrid semantic and structured search over Real Estate opportunities."""
 
-from decimal import Decimal
-
 from pgvector.django import CosineDistance
 
 from apps.ai_providers.manager import ai_manager
@@ -9,8 +7,8 @@ from apps.real_estate.models import ActivityType, ClassificationStatus, Embeddin
 from apps.real_estate.services.opportunity_search_query import (
     normalize as _normalize,
     parse_constraints,
-    tokens as _tokens,
 )
+from apps.real_estate.services.opportunity_search_scoring import rank_opportunity
 
 
 RELEVANCE_THRESHOLDS = {'all': 0.0, 'possible': 0.35, 'strong': 0.55}
@@ -46,8 +44,11 @@ def search_opportunities(
     ).annotate(search_distance=CosineDistance(embedding_field, vector)))
     constraints = search_plan.constraints if search_plan else parse_constraints(query, company)
     for row in rows:
-        _rank(row, constraints)
-    rows = [row for row in rows if row.search_score >= RELEVANCE_THRESHOLDS[relevance]]
+        rank_opportunity(row, constraints)
+    rows = [
+        row for row in rows
+        if not row.search_excluded and row.search_score >= RELEVANCE_THRESHOLDS[relevance]
+    ]
     rows.sort(key=lambda row: (-row.search_score, -row.first_seen_at.timestamp(), -row.pk))
     return _group(rows) if group_duplicates else rows
 
@@ -57,59 +58,6 @@ def _validate(activity_type, relevance):
         raise ValueError('A valid Real Estate activity type is required.')
     if relevance not in RELEVANCE_THRESHOLDS:
         raise ValueError('Relevance must be all, possible, or strong.')
-
-
-def _rank(row, constraints):
-    semantic = max(0.0, min(1.0, 1.0 - float(row.search_distance)))
-    items = list(row.items.all())
-    reasons, bonus, penalty = [], 0.0, 0.0
-    haystack = _normalize(' '.join([
-        row.summary or '', row.original_message or '',
-        *[f'{item.title} {item.location_raw} {item.property_type_label}' for item in items],
-    ]))
-    overlap = len(constraints.tokens & set(_tokens(haystack))) / max(1, len(constraints.tokens))
-    if overlap:
-        bonus += min(0.12, overlap * 0.12)
-        reasons.append('query terms')
-    bonus, penalty = _structured_score(items, constraints, reasons, bonus, penalty)
-    row.search_score = round(max(0.0, min(1.0, semantic + bonus - penalty)), 4)
-    row.search_relevance = _tier(row.search_score)
-    row.search_reasons = reasons or ['semantic similarity']
-    row.duplicate_count = 1
-    row.duplicate_opportunity_ids = []
-
-
-def _structured_score(items, constraints, reasons, bonus, penalty):
-    if constraints.property_type_ids:
-        matched = any(item.property_type_id in constraints.property_type_ids for item in items)
-        bonus, penalty = _apply(matched, bonus, penalty, 0.10, 0.06, 'property type', reasons)
-    if constraints.bedrooms_min is not None or constraints.bedrooms_max is not None:
-        matched = any(_ranges_overlap(
-            constraints.bedrooms_min, constraints.bedrooms_max,
-            item.bedrooms_min, item.bedrooms_max,
-        ) for item in items)
-        bonus, penalty = _apply(matched, bonus, penalty, 0.12, 0.10, 'bedrooms', reasons)
-    if constraints.amount_min is not None or constraints.amount_max is not None:
-        matched = any(_amount_ranges_overlap(
-            constraints.amount_min, constraints.amount_max,
-            item.amount_min, item.amount_max,
-        ) for item in items)
-        bonus, penalty = _apply(matched, bonus, penalty, 0.16, 0.10, 'price/budget', reasons)
-    locations = {
-        _normalize(value) for item in items
-        for value in [item.location_raw, *(item.locations or [])] if len(_normalize(value)) >= 4
-    }
-    if any(location in constraints.normalized for location in locations):
-        bonus += 0.14
-        reasons.append('location')
-    return bonus, penalty
-
-
-def _apply(matched, bonus, penalty, reward, cost, label, reasons):
-    if matched:
-        reasons.append(label)
-        return bonus + reward, penalty
-    return bonus, penalty + cost
 
 
 def _group(rows):
@@ -139,29 +87,3 @@ def _row_fingerprint(row):
             str(item.bedrooms_min or ''), str(amount or ''), item.currency,
         ))
     return repr(sorted(values))
-
-
-def _tier(score):
-    return 'strong' if score >= 0.55 else ('possible' if score >= 0.35 else 'weak')
-
-
-def _ranges_overlap(left_min, left_max, right_min, right_max):
-    left_min = left_min if left_min is not None else left_max
-    left_max = left_max if left_max is not None else left_min
-    right_min = right_min if right_min is not None else right_max
-    right_max = right_max if right_max is not None else right_min
-    return (
-        left_min is not None and right_min is not None
-        and left_min <= right_max and right_min <= left_max
-    )
-
-
-def _amount_ranges_overlap(left_min, left_max, right_min, right_max):
-    left_min = left_min if left_min is not None else left_max
-    left_max = left_max if left_max is not None else left_min
-    right_min = right_min if right_min is not None else right_max
-    right_max = right_max if right_max is not None else right_min
-    if left_min is None or right_min is None:
-        return False
-    tolerance = max(left_max, right_max) * Decimal('0.02')
-    return left_min - tolerance <= right_max and right_min - tolerance <= left_max

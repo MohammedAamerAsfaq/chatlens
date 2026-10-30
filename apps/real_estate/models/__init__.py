@@ -26,6 +26,9 @@ from .mock_inquiry import RealEstateMockInquiry, RealEstateMockInquiryRun
 from .property import Property
 from .party import Party, PropertyPartyAssociation
 from .property_type import PropertyType
+from .property_attribute import (
+    PropertyAttributeAlias, PropertyAttributeDefinition, PropertyAttributeOption,
+)
 from .property_type_field import PropertyTypeFieldDefinition
 from .property_address import PropertyAddress
 from .property_development import PropertyDevelopment
@@ -59,6 +62,9 @@ __all__ = [
     'Party',
     'PropertyPartyAssociation',
     'PropertyType',
+    'PropertyAttributeAlias',
+    'PropertyAttributeDefinition',
+    'PropertyAttributeOption',
     'PropertyTypeFieldDefinition',
     'PropertyEmbedding',
     'PropertyAddress',

@@ -1,11 +1,12 @@
 <script setup>
-import { reactive, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiFormField from '@/components/ui/UiFormField.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiModal from '@/components/ui/UiModal.vue'
 import UiRadioGroup from '@/components/ui/UiRadioGroup.vue'
+import UiSelect from '@/components/ui/UiSelect.vue'
 
 const props = defineProps({ open: Boolean, records: { type: Array, default: () => [] }, busy: Boolean })
 const emit = defineEmits(['close', 'save', 'deactivate'])
@@ -13,6 +14,12 @@ const form = reactive(emptyForm())
 const categories = ['residential', 'commercial', 'land', 'other'].map(value => ({
   value, label: value.charAt(0).toUpperCase() + value.slice(1),
 }))
+const parentOptions = computed(() => [
+  { value: '', label: 'No parent type' },
+  ...props.records
+    .filter(record => record.is_active && record.id !== form.id)
+    .map(record => ({ value: record.id, label: record.name })),
+])
 
 watch(() => props.open, open => { if (open) Object.assign(form, emptyForm()) })
 watch(() => props.records, records => {
@@ -22,13 +29,14 @@ watch(() => props.records, records => {
 }, { deep: true })
 
 function emptyForm() {
-  return { id: null, name: '', code: '', category: 'residential', aliases_text: '', description: '', sort_order: 0, is_active: true }
+  return { id: null, name: '', code: '', parent: '', category: 'residential', aliases_text: '', description: '', sort_order: 0, is_active: true }
 }
 
-function edit(record) { Object.assign(form, record, { aliases_text: (record.aliases || []).join(', ') }) }
+function edit(record) { Object.assign(form, record, { parent: record.parent || '', aliases_text: (record.aliases || []).join(', ') }) }
 function reset() { Object.assign(form, emptyForm()) }
+function reactivate() { form.is_active = true; save() }
 function save() {
-  const values = { ...form, aliases: form.aliases_text.split(',').map(value => value.trim()).filter(Boolean) }
+  const values = { ...form, parent: form.parent || null, aliases: form.aliases_text.split(',').map(value => value.trim()).filter(Boolean) }
   delete values.aliases_text
   emit('save', values)
 }
@@ -48,13 +56,14 @@ function save() {
         <h3>{{ form.id ? 'Edit type' : 'Add type' }}</h3>
         <UiFormField label="Name"><UiInput v-model="form.name" required /></UiFormField>
         <UiFormField label="Code" hint="Lowercase letters, numbers, and underscores."><UiInput v-model="form.code" required :disabled="Boolean(form.id)" /></UiFormField>
+        <UiFormField label="Parent type" hint="Optional hierarchy used for related-type search corrections."><UiSelect v-model="form.parent" :options="parentOptions" /></UiFormField>
         <UiRadioGroup v-model="form.category" label="Category" :options="categories" />
         <UiFormField label="Aliases" hint="Import and AI labels, separated by commas."><UiInput v-model="form.aliases_text" /></UiFormField>
         <UiFormField label="Sort order"><UiInput v-model="form.sort_order" compact type="number" min="0" /></UiFormField>
         <UiFormField label="Description"><UiInput v-model="form.description" multiline :rows="3" /></UiFormField>
         <div class="form-actions"><UiButton v-if="form.id" @click="reset">Add new</UiButton><UiButton variant="primary" type="submit" :disabled="busy">Save type</UiButton></div>
         <UiButton v-if="form.id && form.is_active" variant="danger" :disabled="busy" @click="emit('deactivate', form)">Deactivate type</UiButton>
-        <UiButton v-if="form.id && !form.is_active" :disabled="busy" @click="emit('save', { ...form, is_active: true })">Reactivate type</UiButton>
+        <UiButton v-if="form.id && !form.is_active" :disabled="busy" @click="reactivate">Reactivate type</UiButton>
       </form>
     </div>
   </UiModal>

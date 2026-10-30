@@ -13,10 +13,15 @@ from .views_mock_source import MockSourceRecordViewSet
 from .views_mock_inquiry import MockInquiryViewSet
 from .views_prompts import RealEstatePromptViewSet
 from .views_parties import PartyViewSet, PropertyPartyAssociationViewSet
+from .views_attributes import PropertyAttributeDefinitionViewSet
 
 router = DefaultRouter()
 router.register('real-estate/properties', PropertyViewSet, basename='real-estate-properties')
 router.register('real-estate/property-types', PropertyTypeViewSet, basename='real-estate-property-types')
+router.register(
+    'real-estate/property-attributes', PropertyAttributeDefinitionViewSet,
+    basename='real-estate-property-attributes',
+)
 router.register('real-estate/property-addresses', PropertyAddressViewSet, basename='real-estate-property-addresses')
 router.register('real-estate/property-developments', PropertyDevelopmentViewSet, basename='real-estate-property-developments')
 router.register('real-estate/property-media', PropertyMediaViewSet, basename='real-estate-property-media')

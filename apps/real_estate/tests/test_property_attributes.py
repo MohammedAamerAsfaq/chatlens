@@ -2,6 +2,10 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from apps.real_estate.models import PropertyTypeFieldDefinition
+from apps.real_estate.services.property_attribute_catalog import seed_attribute_catalog
+from apps.real_estate.services.property_attribute_values import (
+    canonical_numeric_value, canonical_option_code,
+)
 from apps.real_estate.services.property_attributes import normalize_attributes
 from apps.real_estate.services.property_types import seed_default_property_types
 from apps.tenancy.models import Company
@@ -44,3 +48,25 @@ class NormalizeAttributesTests(TestCase):
             self.property_type, {'floor': '12', 'parking_spaces': '1'}, strict=False,
         )
         self.assertEqual(result, {'floor': '12', 'parking_spaces': '1'})
+
+    def test_direct_attribute_aliases_resolve_to_canonical_values(self):
+        seed_attribute_catalog(self.company)
+
+        self.assertEqual(
+            canonical_option_code(self.company, 'furnishing', 'fully furnished'),
+            'furnished',
+        )
+        self.assertEqual(
+            canonical_option_code(self.company, 'tenure', '99-year lease'),
+            'lease_99_year',
+        )
+        self.assertEqual(
+            canonical_option_code(self.company, 'ownership_eligibility', 'GCC nationals only'),
+            'gcc_only',
+        )
+
+    def test_numeric_attribute_alias_resolves_studio_and_bathrooms(self):
+        seed_attribute_catalog(self.company)
+
+        self.assertEqual(canonical_numeric_value(self.company, 'bedrooms', 'bachelor'), 0)
+        self.assertEqual(canonical_numeric_value(self.company, 'bathrooms', '2 baths'), 2)

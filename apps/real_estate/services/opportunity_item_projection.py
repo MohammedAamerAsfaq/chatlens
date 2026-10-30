@@ -4,9 +4,11 @@ from django.db import transaction
 
 from apps.real_estate.models import (
     ActivityType, AreaUnit, OpportunityItem, OwnershipEligibility, Property,
-    TenureType,
 )
-from apps.real_estate.services.property_attributes import normalize_attributes
+from apps.real_estate.services.property_attributes import normalize_attributes, normalize_number
+from apps.real_estate.services.property_attribute_values import (
+    canonical_numeric_value, canonical_option_code,
+)
 from apps.real_estate.services.property_types import resolve_property_type
 from apps.real_estate.services.opportunity_item_dedup import deduplicate_item_values
 
@@ -74,27 +76,32 @@ def _item_values(opportunity, payload, parsed, settings, kind):
         'property_type_label': ', '.join(type_labels)[:100],
         'locations': locations,
         'location_raw': str(payload.get('location') or (locations[0] if locations else ''))[:500],
-        'bedrooms_min': _number(payload.get('bedrooms_min') or payload.get('bedrooms')),
-        'bedrooms_max': _number(payload.get('bedrooms_max') or payload.get('bedrooms')),
-        'bathrooms_min': _number(payload.get('bathrooms_min') or payload.get('bathrooms')),
-        'bathrooms_max': _number(payload.get('bathrooms_max') or payload.get('bathrooms')),
+        'bedrooms_min': _catalog_number(opportunity, 'bedrooms', payload, 'bedrooms_min'),
+        'bedrooms_max': _catalog_number(opportunity, 'bedrooms', payload, 'bedrooms_max'),
+        'bathrooms_min': _catalog_number(opportunity, 'bathrooms', payload, 'bathrooms_min'),
+        'bathrooms_max': _catalog_number(opportunity, 'bathrooms', payload, 'bathrooms_max'),
         'area_min': _number(payload.get('area_min') or area.get('min') or single_area),
         'area_max': _number(payload.get('area_max') or area.get('max') or single_area),
         'area_unit': _choice(
             payload.get('area_unit') or area.get('unit'), AreaUnit.values, settings.default_area_unit,
         ),
-        'amount_min': _number(amount),
-        'amount_max': _number(amount_max),
+        'amount_min': _money_number(amount),
+        'amount_max': _money_number(amount_max),
         'amount_role': (
             OpportunityItem.AMOUNT_BUDGET
             if kind == OpportunityItem.KIND_DEMAND else OpportunityItem.AMOUNT_ASKING
         ),
         'currency': str(payload.get('currency') or money.get('currency') or settings.default_currency).upper()[:3],
-        'furnishing': _choice(payload.get('furnishing'), dict(Property.FURNISHING_CHOICES), 'unknown'),
-        'ownership_eligibility': _choice(
-            payload.get('ownership_eligibility'), OwnershipEligibility.values, OwnershipEligibility.ALL,
+        'furnishing': canonical_option_code(
+            opportunity.company, 'furnishing', payload.get('furnishing'), default='unknown',
         ),
-        'tenure_type': _choice(payload.get('tenure_type'), TenureType.values, ''),
+        'ownership_eligibility': canonical_option_code(
+            opportunity.company, 'ownership_eligibility',
+            payload.get('ownership_eligibility'), default=OwnershipEligibility.ALL,
+        ),
+        'tenure_type': canonical_option_code(
+            opportunity.company, 'tenure', payload.get('tenure_type'), default='',
+        ),
         'timeframe': str(payload.get('timeframe') or '')[:255],
         'amenities': _unique(_strings(payload.get('required_amenities')) + _strings(
             payload.get('preferred_amenities') or payload.get('amenities'),
@@ -142,6 +149,13 @@ def _mapping(value):
     return value if isinstance(value, dict) else {}
 
 
+def _catalog_number(opportunity, definition_code, payload, bound_key):
+    value = payload.get(bound_key)
+    if value in (None, ''):
+        value = payload.get(definition_code)
+    return canonical_numeric_value(opportunity.company, definition_code, value)
+
+
 def _strings(value):
     if value in (None, ''):
         return []
@@ -154,6 +168,15 @@ def _number(value):
         return None
     try:
         return Decimal(str(value).replace(',', '').strip())
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _money_number(value):
+    if value in (None, '') or isinstance(value, (dict, list)):
+        return None
+    try:
+        return normalize_number(value)
     except (InvalidOperation, ValueError):
         return None
 
