@@ -97,6 +97,11 @@ class InquiryForwardingTests(TestCase):
             phone_number=number, display_name=name, is_existing_chat=True,
         )
 
+    def _set_rule_conditions(self, conditions, logic=InquiryForwardingRule.CONDITION_LOGIC_ALL):
+        self.rule.conditions = conditions
+        self.rule.condition_logic = logic
+        self.rule.save(update_fields=['conditions', 'condition_logic'])
+
     @patch('apps.whatsapp_bridge.outbound.message_service.enqueue_task')
     @patch('apps.whatsapp_bridge.outbound.policy.capacity_snapshot')
     def test_queues_deterministic_message_with_exact_stock_only(self, capacity, enqueue):
@@ -444,3 +449,210 @@ class InquiryForwardingTests(TestCase):
         self.assertFalse(response.json()['prefill_sender_link_products'])
         self.assertEqual(response.json()['targets'][0]['contact_id'], self.destination.pk)
         self.assertEqual(response.json()['exclusions'][0]['contact_id'], self.source_contact.pk)
+
+    @patch('apps.whatsapp_bridge.outbound.message_service.enqueue_task')
+    @patch('apps.whatsapp_bridge.outbound.policy.capacity_snapshot')
+    def test_exact_stock_match_condition_allows_when_exact_match_present(self, capacity, enqueue):
+        capacity.return_value = {'reachout': {'is_active': False}, 'cap': {}}
+        enqueue.return_value = SimpleNamespace(pk=601)
+        self._set_rule_conditions([{'type': 'exact_stock_match'}])
+
+        result = process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        self.assertEqual(result['status'], InquiryForwardingRun.STATUS_COMPLETE)
+
+    @patch('apps.trading.services.inquiry_forwarding_service._send_target')
+    def test_exact_stock_match_condition_blocks_when_no_exact_match(self, send_target):
+        self.inquiry.products = [
+            {'canonical_name': 'Phone X', 'quantity': 10, 'product_id': self.exact_product.pk, 'match_type': 'near'},
+            {'canonical_name': 'Phone X maybe', 'product_id': self.near_product.pk, 'match_type': 'near'},
+        ]
+        self.inquiry.save(update_fields=['products'])
+        self._set_rule_conditions([{'type': 'exact_stock_match'}])
+
+        result = process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        self.assertEqual(result['status'], InquiryForwardingRun.STATUS_SKIPPED)
+        self.assertEqual(result['reason'], 'conditions_not_met')
+        send_target.assert_not_called()
+
+    @patch('apps.whatsapp_bridge.outbound.message_service.enqueue_task')
+    @patch('apps.whatsapp_bridge.outbound.policy.capacity_snapshot')
+    def test_catalog_mention_condition_allows_on_near_match_only(self, capacity, enqueue):
+        capacity.return_value = {'reachout': {'is_active': False}, 'cap': {}}
+        enqueue.return_value = SimpleNamespace(pk=602)
+        self.inquiry.products = [
+            {'canonical_name': 'Phone X', 'quantity': 10, 'product_id': self.exact_product.pk, 'match_type': 'near'},
+            {'canonical_name': 'Phone X maybe', 'product_id': self.near_product.pk, 'match_type': 'near'},
+        ]
+        self.inquiry.save(update_fields=['products'])
+        self._set_rule_conditions([{'type': 'catalog_mention'}])
+
+        result = process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        self.assertEqual(result['status'], InquiryForwardingRun.STATUS_COMPLETE)
+
+    @patch('apps.trading.services.inquiry_forwarding_service._send_target')
+    def test_catalog_mention_condition_blocks_when_no_product_id(self, send_target):
+        self.inquiry.products = [
+            {'canonical_name': 'Phone X', 'quantity': 10, 'product_id': None, 'match_type': None},
+            {'canonical_name': 'Phone X maybe', 'product_id': None, 'match_type': None},
+        ]
+        self.inquiry.save(update_fields=['products'])
+        self._set_rule_conditions([{'type': 'catalog_mention'}])
+
+        result = process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        self.assertEqual(result['status'], InquiryForwardingRun.STATUS_SKIPPED)
+        self.assertEqual(result['reason'], 'conditions_not_met')
+        send_target.assert_not_called()
+
+    @patch('apps.whatsapp_bridge.outbound.message_service.enqueue_task')
+    @patch('apps.whatsapp_bridge.outbound.policy.capacity_snapshot')
+    def test_stock_level_in_stock_condition_passes_with_positive_qty(self, capacity, enqueue):
+        capacity.return_value = {'reachout': {'is_active': False}, 'cap': {}}
+        enqueue.return_value = SimpleNamespace(pk=603)
+        self._set_rule_conditions([{'type': 'stock_level', 'state': 'in_stock'}])
+
+        result = process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        self.assertEqual(result['status'], InquiryForwardingRun.STATUS_COMPLETE)
+
+    @patch('apps.trading.services.inquiry_forwarding_service._send_target')
+    def test_stock_level_in_stock_condition_fails_at_zero_qty(self, send_target):
+        self.exact_product.qty = 0
+        self.exact_product.save(update_fields=['qty'])
+        self._set_rule_conditions([{'type': 'stock_level', 'state': 'in_stock'}])
+
+        result = process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        self.assertEqual(result['status'], InquiryForwardingRun.STATUS_SKIPPED)
+        self.assertEqual(result['reason'], 'conditions_not_met')
+        send_target.assert_not_called()
+
+    @patch('apps.whatsapp_bridge.outbound.message_service.enqueue_task')
+    @patch('apps.whatsapp_bridge.outbound.policy.capacity_snapshot')
+    def test_stock_level_out_of_stock_condition_passes_at_zero_qty(self, capacity, enqueue):
+        capacity.return_value = {'reachout': {'is_active': False}, 'cap': {}}
+        enqueue.return_value = SimpleNamespace(pk=604)
+        self.exact_product.qty = 0
+        self.exact_product.save(update_fields=['qty'])
+        self._set_rule_conditions([{'type': 'stock_level', 'state': 'out_of_stock'}])
+
+        result = process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        self.assertEqual(result['status'], InquiryForwardingRun.STATUS_COMPLETE)
+
+    @patch('apps.trading.services.inquiry_forwarding_service._send_target')
+    def test_stock_level_out_of_stock_condition_fails_with_positive_qty(self, send_target):
+        self._set_rule_conditions([{'type': 'stock_level', 'state': 'out_of_stock'}])
+
+        result = process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        self.assertEqual(result['status'], InquiryForwardingRun.STATUS_SKIPPED)
+        self.assertEqual(result['reason'], 'conditions_not_met')
+        send_target.assert_not_called()
+
+    @patch('apps.whatsapp_bridge.outbound.message_service.enqueue_task')
+    @patch('apps.whatsapp_bridge.outbound.policy.capacity_snapshot')
+    def test_stock_level_both_condition_passes_regardless_of_qty(self, capacity, enqueue):
+        capacity.return_value = {'reachout': {'is_active': False}, 'cap': {}}
+        enqueue.return_value = SimpleNamespace(pk=605)
+        self.exact_product.qty = 0
+        self.exact_product.save(update_fields=['qty'])
+        self._set_rule_conditions([{'type': 'stock_level', 'state': 'both'}])
+
+        result = process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        self.assertEqual(result['status'], InquiryForwardingRun.STATUS_COMPLETE)
+
+    @patch('apps.whatsapp_bridge.outbound.message_service.enqueue_task')
+    @patch('apps.whatsapp_bridge.outbound.policy.capacity_snapshot')
+    def test_condition_logic_any_passes_if_one_of_two_conditions_matches(self, capacity, enqueue):
+        capacity.return_value = {'reachout': {'is_active': False}, 'cap': {}}
+        enqueue.return_value = SimpleNamespace(pk=606)
+        self._set_rule_conditions(
+            [{'type': 'exact_stock_match'}, {'type': 'stock_level', 'state': 'out_of_stock'}],
+            logic=InquiryForwardingRule.CONDITION_LOGIC_ANY,
+        )
+
+        result = process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        self.assertEqual(result['status'], InquiryForwardingRun.STATUS_COMPLETE)
+
+    @patch('apps.trading.services.inquiry_forwarding_service._send_target')
+    def test_condition_logic_all_requires_every_condition(self, send_target):
+        self._set_rule_conditions(
+            [{'type': 'exact_stock_match'}, {'type': 'stock_level', 'state': 'out_of_stock'}],
+            logic=InquiryForwardingRule.CONDITION_LOGIC_ALL,
+        )
+
+        result = process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        self.assertEqual(result['status'], InquiryForwardingRun.STATUS_SKIPPED)
+        self.assertEqual(result['reason'], 'conditions_not_met')
+        send_target.assert_not_called()
+
+    @patch('apps.whatsapp_bridge.outbound.message_service.enqueue_task')
+    @patch('apps.whatsapp_bridge.outbound.policy.capacity_snapshot')
+    def test_empty_conditions_list_always_fires(self, capacity, enqueue):
+        capacity.return_value = {'reachout': {'is_active': False}, 'cap': {}}
+        enqueue.return_value = SimpleNamespace(pk=607)
+        self.assertEqual(self.rule.conditions, [])
+
+        result = process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        self.assertEqual(result['status'], InquiryForwardingRun.STATUS_COMPLETE)
+
+    @patch('apps.trading.services.inquiry_forwarding_service._send_target')
+    def test_conditions_not_met_run_records_detail_in_snapshot(self, send_target):
+        self._set_rule_conditions([{'type': 'stock_level', 'state': 'out_of_stock'}])
+
+        process_inquiry_forwarding(self.inquiry.pk, self.message.pk)
+
+        run = self.inquiry.forwarding_runs.get()
+        self.assertEqual(run.reason, 'conditions_not_met')
+        self.assertIn('stock_level:out_of_stock=fail', run.message_snapshot)
+
+    def test_rule_api_round_trips_conditions_and_logic(self):
+        self.client.force_login(self.user)
+
+        response = self.client.patch(
+            f'/api/inquiry-forwarding-rules/{self.rule.pk}/',
+            {
+                'conditions': [{'type': 'stock_level', 'state': 'in_stock'}, {'type': 'catalog_mention'}],
+                'condition_logic': 'any',
+            },
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            response.json()['conditions'],
+            [{'type': 'stock_level', 'state': 'in_stock'}, {'type': 'catalog_mention'}],
+        )
+        self.assertEqual(response.json()['condition_logic'], 'any')
+
+    def test_rule_api_rejects_unknown_condition_type(self):
+        self.client.force_login(self.user)
+
+        response = self.client.patch(
+            f'/api/inquiry-forwarding-rules/{self.rule.pk}/',
+            {'conditions': [{'type': 'bogus_condition'}]},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn('conditions', response.json())
+
+    def test_rule_api_rejects_stock_level_without_state(self):
+        self.client.force_login(self.user)
+
+        response = self.client.patch(
+            f'/api/inquiry-forwarding-rules/{self.rule.pk}/',
+            {'conditions': [{'type': 'stock_level'}]},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn('conditions', response.json())

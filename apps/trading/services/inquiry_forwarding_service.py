@@ -4,7 +4,9 @@ from django.db.models import F, Q
 from django.utils import timezone
 
 from .inquiry_forwarding_formatter import build_forwarding_message
-from .inquiry_forwarding_policy import formation_state, ineligible_reason, source_destination_reason
+from .inquiry_forwarding_policy import (
+    conditions_detail, formation_state, ineligible_reason, source_destination_reason,
+)
 
 
 def enqueue_inquiry_forwarding(inquiry_ids, source_message_id):
@@ -76,7 +78,8 @@ def process_inquiry_forwarding(inquiry_id, source_message_id):
 
     reason = ineligible_reason(rule, inquiry, source)
     if reason:
-        return _finish_skipped(rule, run, reason)
+        snapshot = conditions_detail(rule, inquiry) if reason == 'conditions_not_met' else ''
+        return _finish_skipped(rule, run, reason, message_snapshot=snapshot)
 
     message = build_forwarding_message(rule, inquiry, source)
     if not message:
@@ -157,13 +160,14 @@ def _send_target(rule, run, target, source, message):
     return status
 
 
-def _finish_skipped(rule, run, reason):
+def _finish_skipped(rule, run, reason, *, message_snapshot=''):
     from apps.trading.models import InquiryForwardingRule, InquiryForwardingRun
 
     run.status = InquiryForwardingRun.STATUS_SKIPPED
     run.reason = reason
+    run.message_snapshot = message_snapshot
     run.finished_at = timezone.now()
-    run.save(update_fields=['status', 'reason', 'finished_at'])
+    run.save(update_fields=['status', 'reason', 'message_snapshot', 'finished_at'])
     InquiryForwardingRule.objects.filter(pk=rule.pk).update(skipped_count=F('skipped_count') + 1)
     return _run_result(run)
 

@@ -763,12 +763,16 @@ class InquiryForwardingRuleSerializer(serializers.ModelSerializer):
     recent_runs = serializers.SerializerMethodField()
     accounts = serializers.SerializerMethodField()
 
+    VALID_CONDITION_TYPES = {'exact_stock_match', 'catalog_mention', 'stock_level'}
+    VALID_STOCK_LEVEL_STATES = {'in_stock', 'out_of_stock', 'both'}
+
     class Meta:
         model = InquiryForwardingRule
         fields = [
             'id', 'inquiry_type', 'name', 'is_active',
             'include_original_message', 'include_summary', 'include_stock_suggestions',
             'include_sender_link', 'prefill_sender_link_products', 'include_inquiry_id',
+            'conditions', 'condition_logic',
             'targets', 'exclusions', 'accounts', 'recent_runs', 'last_triggered_at',
             'forwarded_count', 'skipped_count', 'created_at', 'updated_at',
         ]
@@ -776,6 +780,23 @@ class InquiryForwardingRuleSerializer(serializers.ModelSerializer):
             'id', 'targets', 'exclusions', 'accounts', 'recent_runs', 'last_triggered_at',
             'forwarded_count', 'skipped_count', 'created_at', 'updated_at',
         ]
+
+    def validate_conditions(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError('conditions must be a list.')
+        cleaned = []
+        for row in value:
+            if not isinstance(row, dict) or row.get('type') not in self.VALID_CONDITION_TYPES:
+                raise serializers.ValidationError(f'Unknown or missing condition type: {row!r}')
+            if row['type'] == 'stock_level':
+                if row.get('state') not in self.VALID_STOCK_LEVEL_STATES:
+                    raise serializers.ValidationError(
+                        'stock_level condition requires state "in_stock", "out_of_stock", or "both".'
+                    )
+                cleaned.append({'type': 'stock_level', 'state': row['state']})
+            else:
+                cleaned.append({'type': row['type']})
+        return cleaned
 
     def get_accounts(self, obj):
         # Writes go through InquiryForwardingRuleViewSet._sync_accounts (account_ids in the

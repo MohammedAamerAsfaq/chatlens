@@ -36,6 +36,65 @@ def formation_state(inquiry, source):
     return 'ready', ''
 
 
+def _exact_matched_product_ids(inquiry):
+    return [
+        row.get('product_id') for row in (inquiry.products or [])
+        if isinstance(row, dict) and row.get('match_type') == 'exact' and row.get('product_id')
+    ]
+
+
+def _condition_passed(condition, inquiry):
+    ctype = condition.get('type') if isinstance(condition, dict) else None
+    if ctype == 'exact_stock_match':
+        return bool(_exact_matched_product_ids(inquiry))
+    if ctype == 'catalog_mention':
+        return any(isinstance(row, dict) and row.get('product_id') for row in (inquiry.products or []))
+    if ctype == 'stock_level':
+        from apps.trading.models import Product
+
+        ids = _exact_matched_product_ids(inquiry)
+        if not ids:
+            return False
+        state = condition.get('state')
+        if state == 'both':
+            return bool(ids)  # don't care about qty, just that an exact match exists
+        in_stock_ids = set(Product.objects.filter(
+            company=inquiry.company, pk__in=ids, is_active=True, qty__gt=0,
+        ).values_list('pk', flat=True))
+        if state == 'in_stock':
+            return bool(in_stock_ids)
+        if state == 'out_of_stock':
+            return bool(set(ids) - in_stock_ids)
+    return False  # unknown/unrecognized condition type fails closed
+
+
+def conditions_met(rule, inquiry):
+    """Single source of truth for rule-condition evaluation.
+
+    Returns (overall_bool, [(condition, passed_bool), ...]). An empty conditions
+    list always passes, so every rule saved before this field existed keeps firing
+    exactly as it did before.
+    """
+    conditions = [row for row in (rule.conditions or []) if isinstance(row, dict)]
+    if not conditions:
+        return True, []
+    evaluated = [(condition, _condition_passed(condition, inquiry)) for condition in conditions]
+    combine = any if rule.condition_logic == rule.CONDITION_LOGIC_ANY else all
+    return combine(passed for _, passed in evaluated), evaluated
+
+
+def conditions_detail(rule, inquiry):
+    """Human-readable per-condition pass/fail breakdown, for InquiryForwardingRun debugging."""
+    _, evaluated = conditions_met(rule, inquiry)
+    parts = []
+    for condition, passed in evaluated:
+        label = condition.get('type', 'unknown')
+        if label == 'stock_level':
+            label = f"stock_level:{condition.get('state', '?')}"
+        parts.append(f"{label}={'pass' if passed else 'fail'}")
+    return ', '.join(parts)
+
+
 def ineligible_reason(rule, inquiry, source):
     from apps.trading.models import MessageClassification
     from apps.whatsapp_bridge.models import MessageDirection, WhatsAppGroup
@@ -68,6 +127,9 @@ def ineligible_reason(rule, inquiry, source):
         return 'source_group_excluded'
     if rule.include_sender_link and not sender_link(source):
         return 'sender_direct_link_unavailable'
+    met, _ = conditions_met(rule, inquiry)
+    if not met:
+        return 'conditions_not_met'
     return ''
 
 

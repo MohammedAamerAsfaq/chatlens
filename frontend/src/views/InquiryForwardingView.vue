@@ -22,9 +22,34 @@ function blankRule(type) {
     include_summary: true, include_stock_suggestions: true, include_sender_link: true,
     prefill_sender_link_products: true,
     include_inquiry_id: true,
+    conditions: [], condition_logic: 'all',
+    cond_exact_stock_match: false, cond_catalog_mention: false,
+    cond_stock_level: false, cond_stock_level_state: 'in_stock',
     targets: [], exclusions: [], accounts: [], account_ids: [],
     recent_runs: [], forwarded_count: 0, skipped_count: 0,
   }
+}
+
+function decodeConditions(rule) {
+  const list = rule.conditions || []
+  rule.cond_exact_stock_match = list.some(c => c.type === 'exact_stock_match')
+  rule.cond_catalog_mention = list.some(c => c.type === 'catalog_mention')
+  const stock = list.find(c => c.type === 'stock_level')
+  rule.cond_stock_level = !!stock
+  rule.cond_stock_level_state = stock?.state || 'in_stock'
+  rule.condition_logic = rule.condition_logic || 'all'
+}
+
+function buildConditionsPayload(rule) {
+  const conditions = []
+  if (rule.cond_exact_stock_match) conditions.push({ type: 'exact_stock_match' })
+  if (rule.cond_catalog_mention) conditions.push({ type: 'catalog_mention' })
+  if (rule.cond_stock_level) conditions.push({ type: 'stock_level', state: rule.cond_stock_level_state })
+  return conditions
+}
+
+function activeConditionCount(rule) {
+  return [rule.cond_exact_stock_match, rule.cond_catalog_mention, rule.cond_stock_level].filter(Boolean).length
 }
 
 function accountName(id) {
@@ -50,6 +75,7 @@ async function load() {
     for (const type of ['buy', 'sell']) {
       const rule = rows.find(row => row.inquiry_type === type) || blankRule(type)
       rule.account_ids = (rule.accounts || []).map(a => a.id)
+      decodeConditions(rule)
       rules[type] = rule
     }
   } catch (e) {
@@ -72,6 +98,8 @@ async function save(rule) {
     include_sender_link: rule.include_sender_link,
     prefill_sender_link_products: rule.prefill_sender_link_products,
     include_inquiry_id: rule.include_inquiry_id,
+    conditions: buildConditionsPayload(rule),
+    condition_logic: rule.condition_logic,
     targets: rule.targets.map(endpointPayload), exclusions: rule.exclusions.map(endpointPayload),
     account_ids: rule.account_ids,
   }
@@ -81,6 +109,7 @@ async function save(rule) {
       : await tradingApi.createInquiryForwardingRule(payload)
     const saved = response.data
     saved.account_ids = (saved.accounts || []).map(a => a.id)
+    decodeConditions(saved)
     rules[rule.inquiry_type] = saved
     notice.value = `${rule.inquiry_type === 'buy' ? 'WTB' : 'WTS'} rule saved.`
     return true
@@ -197,6 +226,33 @@ onMounted(load)
           <label><input v-model="rules[definition.type].include_inquiry_id" type="checkbox"> Inquiry ID</label>
         </div>
 
+        <section class="endpoint-section conditions-section">
+          <div class="section-title">
+            <div>
+              <h3>Forwarding conditions</h3>
+              <p>Only forward when the inquiry matches the selected condition(s). Leave all unchecked to always forward.</p>
+            </div>
+            <span>{{ activeConditionCount(rules[definition.type]) || 'None' }}</span>
+          </div>
+          <div class="checks">
+            <label><input v-model="rules[definition.type].cond_exact_stock_match" type="checkbox"> Exact catalog stock match</label>
+            <label><input v-model="rules[definition.type].cond_catalog_mention" type="checkbox"> Mentions a known catalog item</label>
+            <label>
+              <input v-model="rules[definition.type].cond_stock_level" type="checkbox"> Stock level is
+              <select v-model="rules[definition.type].cond_stock_level_state" :disabled="!rules[definition.type].cond_stock_level">
+                <option value="in_stock">In Stock</option>
+                <option value="out_of_stock">Out of Stock</option>
+                <option value="both">Both</option>
+              </select>
+            </label>
+          </div>
+          <div class="logic-toggle" v-if="activeConditionCount(rules[definition.type]) > 1">
+            <span>Combine with:</span>
+            <label><input type="radio" value="all" v-model="rules[definition.type].condition_logic"> All must match (AND)</label>
+            <label><input type="radio" value="any" v-model="rules[definition.type].condition_logic"> Any may match (OR)</label>
+          </div>
+        </section>
+
         <section class="endpoint-section accounts-section">
           <div class="section-title"><div><h3>Active on accounts</h3><p>Leave all unchecked to match inquiries from every connected account.</p></div><span>{{ rules[definition.type].account_ids.length || 'All' }}</span></div>
           <div class="checks">
@@ -252,7 +308,7 @@ onMounted(load)
 </template>
 
 <style scoped>
-.page{height:100%;overflow:auto;padding:28px;background:radial-gradient(circle at 85% 5%,#e0f7e8 0,transparent 30%),#f5f7f5;color:#17231b}.hero{display:flex;justify-content:space-between;gap:24px;align-items:end;margin-bottom:20px}.eyebrow{margin:0;color:#28704a;text-transform:uppercase;letter-spacing:.14em;font-size:.7rem;font-weight:800}.hero h1{margin:4px 0;font:700 2.1rem Georgia,serif}.hero p{margin:0;color:#607066}.safety{display:flex;flex-direction:column;background:#173c2b;color:#fff;padding:12px 18px;border-radius:10px}.safety span{font-size:.78rem;color:#cce2d4}.rule-grid{display:grid;grid-template-columns:1fr;gap:18px}.sections-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}.sections-row .endpoint-section{margin-top:0}.rule-card{background:#fff;border:1px solid #dce5df;border-top:5px solid #20834e;border-radius:14px;padding:20px;box-shadow:0 8px 26px #183f2810}.rule-card.sell{border-top-color:#c98217}.rule-head,.section-title{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.rule-head h2{margin:7px 0 2px;font:700 1.35rem Georgia,serif}.rule-head p,.section-title p{margin:0;color:#6c7c72;font-size:.82rem}.type-badge{font-size:.68rem;font-weight:900;letter-spacing:.12em;color:#28704a}.sell .type-badge{color:#9a5b08}.switch{display:flex;align-items:center;gap:7px;font-size:.75rem}.switch input{display:none}.switch span{width:38px;height:21px;background:#cbd5ce;border-radius:20px;position:relative}.switch span:after{content:"";position:absolute;width:15px;height:15px;left:3px;top:3px;border-radius:50%;background:#fff;transition:.2s}.switch input:checked+span{background:#21854f}.switch input:checked+span:after{transform:translateX(17px)}.field{display:flex;flex-direction:column;gap:5px;margin:18px 0 12px}.field span,.picker label{font-size:.76rem;font-weight:800;color:#40564a}.field input,.search-row input{border:1px solid #cad8ce;border-radius:8px;padding:9px;background:#fff}.checks{display:flex;flex-wrap:wrap;gap:13px;font-size:.8rem}.checks input{accent-color:#21854f}.endpoint-section{position:relative;margin-top:18px;padding:16px;border:1px solid #dce8df;border-radius:11px;background:#fbfdfb}.endpoint-section.exclusions{background:#fffaf5;border-color:#eadfce}.section-title h3{margin:0 0 3px;font-size:.95rem}.section-title>span{background:#e5f3e9;color:#226b42;border-radius:99px;padding:3px 9px;font-weight:800}.picker-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:13px}.search-row{display:flex;gap:6px;margin-top:5px}.search-row input{min-width:0;flex:1}.search-row button,.results button{border:1px solid #aac4b3;background:#fff;border-radius:7px;padding:7px;color:#225f3e;cursor:pointer}.results{position:absolute;z-index:5;background:#fff;border:1px solid #cad8ce;border-radius:8px;box-shadow:0 8px 20px #12291a22;max-height:210px;overflow:auto;margin-top:4px}.results button{display:flex;width:260px;flex-direction:column;align-items:flex-start;border:0;border-bottom:1px solid #edf1ee;border-radius:0}.results small,.chips small{color:#748279}.chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:13px}.chips>span{display:grid;grid-template-columns:auto 1fr auto;gap:2px 7px;align-items:center;background:#eef7f0;border-radius:8px;padding:6px 8px}.chips i{grid-row:1/3;font-size:.6rem;font-style:normal;font-weight:900;color:#277149}.chips small{grid-column:2}.chips button{grid-column:3;grid-row:1/3;border:0;background:none;color:#9f332d;font-size:1rem}.chips em{color:#7b887f;font-size:.8rem}.metrics{display:flex;gap:10px;margin:15px 0}.metrics span{flex:1;padding:10px;background:#f0f5f1;border-radius:8px;font-size:.75rem;color:#617168}.metrics b{display:block;color:#183c2a;font-size:1.1rem}.runs h3{font-size:.82rem;margin:0 0 6px}.runs>div{display:grid;grid-template-columns:60px 75px 1fr;gap:8px;padding:6px 0;border-top:1px solid #edf0ee;font-size:.75rem}.runs span{text-transform:capitalize}.runs span.complete{color:#168046}.runs span.skipped,.runs span.failed{color:#aa3d2d}.runs small{color:#69786f}.save{width:100%;border:0;border-radius:8px;padding:10px;background:#17653d;color:#fff;font-weight:800;cursor:pointer}.save:disabled{opacity:.55}.alert,.loading{padding:11px 13px;border-radius:8px;margin-bottom:14px}.alert.error{background:#fff0ee;color:#9e3028}.alert.success{background:#eaf8ee;color:#17643b}.loading{background:#fff}@media(max-width:900px){.sections-row{grid-template-columns:1fr}}@media(max-width:700px){.page{padding:18px}.hero{align-items:flex-start;flex-direction:column}.picker-grid{grid-template-columns:1fr}}
+.page{height:100%;overflow:auto;padding:28px;background:radial-gradient(circle at 85% 5%,#e0f7e8 0,transparent 30%),#f5f7f5;color:#17231b}.hero{display:flex;justify-content:space-between;gap:24px;align-items:end;margin-bottom:20px}.eyebrow{margin:0;color:#28704a;text-transform:uppercase;letter-spacing:.14em;font-size:.7rem;font-weight:800}.hero h1{margin:4px 0;font:700 2.1rem Georgia,serif}.hero p{margin:0;color:#607066}.safety{display:flex;flex-direction:column;background:#173c2b;color:#fff;padding:12px 18px;border-radius:10px}.safety span{font-size:.78rem;color:#cce2d4}.rule-grid{display:grid;grid-template-columns:1fr;gap:18px}.sections-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}.sections-row .endpoint-section{margin-top:0}.rule-card{background:#fff;border:1px solid #dce5df;border-top:5px solid #20834e;border-radius:14px;padding:20px;box-shadow:0 8px 26px #183f2810}.rule-card.sell{border-top-color:#c98217}.rule-head,.section-title{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}.rule-head h2{margin:7px 0 2px;font:700 1.35rem Georgia,serif}.rule-head p,.section-title p{margin:0;color:#6c7c72;font-size:.82rem}.type-badge{font-size:.68rem;font-weight:900;letter-spacing:.12em;color:#28704a}.sell .type-badge{color:#9a5b08}.switch{display:flex;align-items:center;gap:7px;font-size:.75rem}.switch input{display:none}.switch span{width:38px;height:21px;background:#cbd5ce;border-radius:20px;position:relative}.switch span:after{content:"";position:absolute;width:15px;height:15px;left:3px;top:3px;border-radius:50%;background:#fff;transition:.2s}.switch input:checked+span{background:#21854f}.switch input:checked+span:after{transform:translateX(17px)}.field{display:flex;flex-direction:column;gap:5px;margin:18px 0 12px}.field span,.picker label{font-size:.76rem;font-weight:800;color:#40564a}.field input,.search-row input{border:1px solid #cad8ce;border-radius:8px;padding:9px;background:#fff}.checks{display:flex;flex-wrap:wrap;gap:13px;font-size:.8rem}.checks input{accent-color:#21854f}.conditions-section select{margin-left:6px;border:1px solid #cad8ce;border-radius:6px;padding:4px}.logic-toggle{display:flex;gap:14px;align-items:center;margin-top:10px;font-size:.78rem;color:#6c7c72}.endpoint-section{position:relative;margin-top:18px;padding:16px;border:1px solid #dce8df;border-radius:11px;background:#fbfdfb}.endpoint-section.exclusions{background:#fffaf5;border-color:#eadfce}.section-title h3{margin:0 0 3px;font-size:.95rem}.section-title>span{background:#e5f3e9;color:#226b42;border-radius:99px;padding:3px 9px;font-weight:800}.picker-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:13px}.search-row{display:flex;gap:6px;margin-top:5px}.search-row input{min-width:0;flex:1}.search-row button,.results button{border:1px solid #aac4b3;background:#fff;border-radius:7px;padding:7px;color:#225f3e;cursor:pointer}.results{position:absolute;z-index:5;background:#fff;border:1px solid #cad8ce;border-radius:8px;box-shadow:0 8px 20px #12291a22;max-height:210px;overflow:auto;margin-top:4px}.results button{display:flex;width:260px;flex-direction:column;align-items:flex-start;border:0;border-bottom:1px solid #edf1ee;border-radius:0}.results small,.chips small{color:#748279}.chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:13px}.chips>span{display:grid;grid-template-columns:auto 1fr auto;gap:2px 7px;align-items:center;background:#eef7f0;border-radius:8px;padding:6px 8px}.chips i{grid-row:1/3;font-size:.6rem;font-style:normal;font-weight:900;color:#277149}.chips small{grid-column:2}.chips button{grid-column:3;grid-row:1/3;border:0;background:none;color:#9f332d;font-size:1rem}.chips em{color:#7b887f;font-size:.8rem}.metrics{display:flex;gap:10px;margin:15px 0}.metrics span{flex:1;padding:10px;background:#f0f5f1;border-radius:8px;font-size:.75rem;color:#617168}.metrics b{display:block;color:#183c2a;font-size:1.1rem}.runs h3{font-size:.82rem;margin:0 0 6px}.runs>div{display:grid;grid-template-columns:60px 75px 1fr;gap:8px;padding:6px 0;border-top:1px solid #edf0ee;font-size:.75rem}.runs span{text-transform:capitalize}.runs span.complete{color:#168046}.runs span.skipped,.runs span.failed{color:#aa3d2d}.runs small{color:#69786f}.save{width:100%;border:0;border-radius:8px;padding:10px;background:#17653d;color:#fff;font-weight:800;cursor:pointer}.save:disabled{opacity:.55}.alert,.loading{padding:11px 13px;border-radius:8px;margin-bottom:14px}.alert.error{background:#fff0ee;color:#9e3028}.alert.success{background:#eaf8ee;color:#17643b}.loading{background:#fff}@media(max-width:900px){.sections-row{grid-template-columns:1fr}}@media(max-width:700px){.page{padding:18px}.hero{align-items:flex-start;flex-direction:column}.picker-grid{grid-template-columns:1fr}}
 
 /* Semantic theme bridge. */
 .page{background:radial-gradient(circle at 85% 5%,var(--ui-primary-soft) 0,transparent 30%),var(--ui-bg);color:var(--ui-text);font-family:var(--ui-font-sans)}
@@ -264,6 +320,7 @@ onMounted(load)
 .field input,.search-row input,.search-row button,.results button{background:var(--ui-surface);color:var(--ui-text);border-color:var(--ui-border-strong)}
 .field input:focus,.search-row input:focus{border-color:var(--ui-primary);box-shadow:var(--ui-focus-ring);outline:0}
 .checks input{accent-color:var(--ui-primary)}.switch span{background:var(--ui-border-strong)}.switch input:checked+span,.save{background:var(--ui-primary)}
+.conditions-section select{background:var(--ui-surface);color:var(--ui-text);border-color:var(--ui-border-strong)}.logic-toggle{color:var(--ui-text-muted)}.logic-toggle label{color:var(--ui-text)}.logic-toggle input{accent-color:var(--ui-primary)}
 .endpoint-section.exclusions{background:var(--ui-warning-soft);border-color:var(--ui-warning)}
 .section-title>span,.chips>span{background:var(--ui-primary-soft);color:var(--ui-primary)}
 .results{box-shadow:var(--ui-shadow-lg)}.results button{border-bottom-color:var(--ui-border)}.chips button,.runs span.skipped,.runs span.failed{color:var(--ui-danger)}

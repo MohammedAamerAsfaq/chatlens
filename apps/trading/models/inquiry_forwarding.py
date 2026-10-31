@@ -24,6 +24,19 @@ class InquiryForwardingRule(models.Model):
     include_sender_link = models.BooleanField(default=True)
     prefill_sender_link_products = models.BooleanField(default=True)
     include_inquiry_id = models.BooleanField(default=True)
+    CONDITION_LOGIC_ALL = 'all'
+    CONDITION_LOGIC_ANY = 'any'
+    CONDITION_LOGIC_CHOICES = [
+        (CONDITION_LOGIC_ALL, 'All conditions must match (AND)'),
+        (CONDITION_LOGIC_ANY, 'Any condition may match (OR)'),
+    ]
+    # List of {'type': <identifier>, ...params} dicts, evaluated by
+    # inquiry_forwarding_policy.conditions_met(). Empty = always eligible, so every
+    # rule created before this field existed keeps firing exactly as it did before.
+    conditions = models.JSONField(default=list, blank=True)
+    condition_logic = models.CharField(
+        max_length=10, choices=CONDITION_LOGIC_CHOICES, default=CONDITION_LOGIC_ALL,
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
         related_name='inquiry_forwarding_rules_created',
