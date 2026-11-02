@@ -47,6 +47,9 @@ class PropertyAttributeDefinitionWriteSerializer(PropertyAttributeDefinitionSeri
     )
     options = serializers.ListField(child=serializers.DictField(), required=False)
 
+    def to_representation(self, instance):
+        return PropertyAttributeDefinitionSerializer(instance, context=self.context).data
+
     @transaction.atomic
     def create(self, validated_data):
         aliases = validated_data.pop('aliases', [])

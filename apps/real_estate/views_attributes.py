@@ -1,4 +1,5 @@
 from rest_framework.exceptions import ValidationError
+from rest_framework.filters import OrderingFilter, SearchFilter
 
 from apps.real_estate.api_base import CompanyOwnedViewSet
 from apps.real_estate.models import PropertyAttributeDefinition
@@ -12,6 +13,13 @@ class PropertyAttributeDefinitionViewSet(CompanyOwnedViewSet):
     queryset = PropertyAttributeDefinition.objects.prefetch_related('aliases', 'options__aliases')
     read_permission = 'real_estate.properties.view'
     write_permission = 'real_estate.properties.manage'
+    filter_backends = (SearchFilter, OrderingFilter)
+    search_fields = (
+        'label', 'code', 'unit_hint', 'aliases__alias',
+        'options__label', 'options__code', 'options__aliases__alias',
+    )
+    ordering_fields = ('label', 'code', 'data_type', 'matching_strategy', 'sort_order', 'is_active')
+    ordering = ('sort_order', 'label')
 
     def get_serializer_class(self):
         if self.request.method in {'POST', 'PUT', 'PATCH'}:

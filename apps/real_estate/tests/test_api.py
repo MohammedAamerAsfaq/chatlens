@@ -38,6 +38,33 @@ class RealEstateApiTests(TestCase):
         self.client = APIClient()
         self.client.force_authenticate(self.user)
 
+    def test_property_attribute_create_returns_read_shape_and_searches_option_aliases(self):
+        response = self.client.post('/api/real-estate/property-attributes/', {
+            'label': 'Facade Quality',
+            'code': 'facade_quality',
+            'data_type': 'select',
+            'matching_strategy': 'exact',
+            'aliases': ['Outlook'],
+            'options': [{
+                'label': 'Sea View',
+                'code': 'sea_view',
+                'aliases': ['Waterfront outlook'],
+            }],
+        }, format='json')
+        self.assertEqual(response.status_code, 201, response.json())
+        self.assertEqual(response.json()['aliases'], ['Outlook'])
+        self.assertEqual(response.json()['options'][0]['aliases'], ['Waterfront outlook'])
+
+        response = self.client.get(
+            '/api/real-estate/property-attributes/',
+            {'search': 'Waterfront outlook'},
+        )
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(
+            [row['code'] for row in response.json()['results']],
+            ['facade_quality'],
+        )
+
     def test_real_estate_prompt_api_lists_defaults_and_saves_company_override(self):
         response = self.client.get('/api/real-estate/prompts/')
         self.assertEqual(response.status_code, 200, response.json())
