@@ -35,6 +35,5 @@ class PropertyAttributeDefinitionViewSet(CompanyOwnedViewSet):
 
     def perform_destroy(self, instance):
         if instance.is_system:
-            raise ValidationError({'attribute': 'System attributes cannot be deactivated.'})
-        instance.is_active = False
-        instance.save(update_fields=['is_active'])
+            raise ValidationError({'attribute': 'System attributes cannot be deleted.'})
+        instance.delete()

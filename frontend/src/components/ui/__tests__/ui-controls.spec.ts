@@ -7,6 +7,7 @@ import UiInput from '../UiInput.vue'
 import UiModal from '../UiModal.vue'
 import UiSelect from '../UiSelect.vue'
 import UiToggle from '../UiToggle.vue'
+import UiTagInput from '../UiTagInput.vue'
 
 describe('shared UI controls', () => {
   it('renders text inputs with the reusable visible-control classes and attributes', () => {
@@ -67,5 +68,18 @@ describe('shared UI controls', () => {
     expect((wrapper.get('input[type="hidden"]').element as HTMLInputElement).value).toBe('2026-10-06T15:30')
     wrapper.unmount()
     host.remove()
+  })
+
+  it('adds unique tags and removes individual values', async () => {
+    const wrapper = mount(UiTagInput, { props: { modelValue: ['bedroom'] } })
+    const input = wrapper.get('input')
+    await input.setValue('beds, bhk')
+    const additions = wrapper.emitted('update:modelValue') || []
+    expect(additions[additions.length - 1]).toEqual([['bedroom', 'beds', 'bhk']])
+
+    await wrapper.setProps({ modelValue: ['bedroom', 'beds', 'bhk'] })
+    await wrapper.get('button[aria-label="Remove beds"]').trigger('click')
+    const changes = wrapper.emitted('update:modelValue') || []
+    expect(changes[changes.length - 1]).toEqual([['bedroom', 'bhk']])
   })
 })

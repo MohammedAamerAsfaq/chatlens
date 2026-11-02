@@ -12,7 +12,7 @@ from openpyxl import Workbook
 
 from apps.real_estate.models import (
     ActivityType, ClassificationStatus, Listing, OpportunityItem, Party, Property,
-    PropertyCandidate, PropertyRequirement, PropertyType,
+    PropertyAttributeDefinition, PropertyCandidate, PropertyRequirement, PropertyType,
     RealEstateMockSourceRecord, RealEstateOpportunity, RealEstatePromptConfig,
 )
 from apps.task_management.models import BackgroundTask
@@ -64,6 +64,23 @@ class RealEstateApiTests(TestCase):
             [row['code'] for row in response.json()['results']],
             ['facade_quality'],
         )
+
+    def test_custom_property_attribute_can_be_deleted_but_system_attribute_cannot(self):
+        custom = PropertyAttributeDefinition.objects.create(
+            company=self.company, label='Custom outlook', code='custom_outlook',
+            data_type='text', is_system=False,
+        )
+        response = self.client.delete(f'/api/real-estate/property-attributes/{custom.pk}/')
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(PropertyAttributeDefinition.objects.filter(pk=custom.pk).exists())
+
+        self.client.get('/api/real-estate/property-attributes/')
+        system = PropertyAttributeDefinition.objects.filter(
+            company=self.company, is_system=True,
+        ).first()
+        response = self.client.delete(f'/api/real-estate/property-attributes/{system.pk}/')
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertTrue(PropertyAttributeDefinition.objects.filter(pk=system.pk).exists())
 
     def test_real_estate_prompt_api_lists_defaults_and_saves_company_override(self):
         response = self.client.get('/api/real-estate/prompts/')

@@ -116,7 +116,7 @@ export const realEstateApi = {
   propertyAttributes: (params = {}) => http.get('/real-estate/property-attributes/', { params }),
   createPropertyAttribute: data => http.post('/real-estate/property-attributes/', data),
   updatePropertyAttribute: (id, data) => http.patch(`/real-estate/property-attributes/${id}/`, data),
-  deactivatePropertyAttribute: id => http.delete(`/real-estate/property-attributes/${id}/`),
+  deletePropertyAttribute: id => http.delete(`/real-estate/property-attributes/${id}/`),
   properties: (params = {}) => http.get('/real-estate/properties/', { params }),
   propertyHierarchyOptions: () => http.get('/real-estate/properties/hierarchy-options/'),
   createProperty: data => http.post('/real-estate/properties/', data),
