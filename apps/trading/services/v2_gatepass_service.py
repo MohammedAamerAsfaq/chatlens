@@ -63,7 +63,7 @@ def run_v2_gatepass(message, log, company):
         defaults={
             'tags': ['other'], 'products': [], 'is_inquiry': False,
             'inquiry_type': '', 'ai_summary': 'GatePass: not an inquiry.',
-            'dedup_key': '', 'suggested_contact_category': '',
+            'dedup_key': message.dedup_key, 'suggested_contact_category': '',
             'raw_response': {'v2_gatepass': {'decision': decision}},
             'classification_version': 'v2',
         },

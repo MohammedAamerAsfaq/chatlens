@@ -62,6 +62,8 @@ def embed_message(message_id: int) -> bool:
         },
     )
     logger.info('embed_message | stored | message_id=%s | dims=%s', message_id, len(vector))
+    from apps.message_intelligence.services.similarity_match_service import record_similarity_matches
+    record_similarity_matches([message_id])
     return True
 
 
@@ -114,6 +116,8 @@ def embed_messages_batch(message_ids: list[int]) -> dict:
             unique_fields=['message'],
         )
         embedded += len(chunk)
+        from apps.message_intelligence.services.similarity_match_service import record_similarity_matches
+        record_similarity_matches(sorted(message.pk for message, _ in chunk))
 
     logger.info(
         'embed_messages_batch | done | total=%s embedded=%s skipped=%s errors=%s',

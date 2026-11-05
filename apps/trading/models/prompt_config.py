@@ -132,10 +132,6 @@ Rules:
 - products: extract ONLY what is explicitly stated in the message. \
 Do NOT infer, add, or upgrade specs (e.g. do not add "Pro" if the message says "iPhone 17 256GB"). \
 See CRITICAL EXACT-MATCH RULE above for product_id and match_type.
-- dedup_key format: "{buy|sell}:{product-slug}:{qty-bucket}:{contact_id}" \
-where qty-bucket is the quantity rounded to nearest 5 (use 0 if unknown). \
-Leave empty string if is_inquiry is false.
-- If multiple products: generate one dedup_key covering the primary product.
 
 Respond ONLY with valid JSON — no markdown, no explanation — matching this schema exactly:
 {
@@ -153,7 +149,6 @@ Respond ONLY with valid JSON — no markdown, no explanation — matching this s
   "is_inquiry": <bool>,
   "inquiry_type": "buy" | "sell" | null,
   "summary": "<one sentence>",
-  "dedup_key": "<string>",
   "contact_category_suggestion": "supplier" | "customer" | "both" | null
 }\
 """
@@ -341,7 +336,6 @@ Rules:
   the product name cannot be inferred confidently.
 - raw_text should be the closest original product line or phrase from the message.
 - If the message has no product/spec content, set is_inquiry=false and products=[].
-- dedup_key format: "{buy|sell}:{product-slug}:{qty-bucket}:{contact_id}".
 - Suggest contact_category_suggestion only when this message indicates the sender should be tagged
   supplier/customer/both; otherwise null.
 
@@ -365,7 +359,6 @@ Respond ONLY with valid JSON matching this schema:
   "is_inquiry": <bool>,
   "inquiry_type": "buy" | "sell" | null,
   "summary": "<one sentence>",
-  "dedup_key": "<string>",
   "contact_category_suggestion": "supplier" | "customer" | "both" | null
 }\
 """

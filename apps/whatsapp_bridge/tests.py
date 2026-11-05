@@ -1021,7 +1021,7 @@ class CompanyAiParsingGateTests(TestCase):
 class GroupBroadcastDeduplicationTests(TestCase):
     def test_exact_same_sender_copy_is_detected_without_embedding(self):
         from .services.ingestion_service import _is_duplicate_group_broadcast
-        from .services.message_fingerprint import message_text_fingerprint
+        from .services.message_fingerprint import message_dedup_key, message_text_fingerprint
 
         account = _make_account(phone_number='971500000444', worker_session_id='dedup-session')
         contact = WhatsAppContact.objects.create(
@@ -1041,7 +1041,9 @@ class GroupBroadcastDeduplicationTests(TestCase):
             account=account, chat=first_chat, contact=contact,
             provider_message_id='GROUP_COPY_1', sender_number=contact.phone_number,
             direction='inbound', message_type='text', message_text=text,
-            content_fingerprint=fingerprint, message_time=sent_at,
+            content_fingerprint=fingerprint,
+            dedup_key=message_dedup_key('inbound', contact.wa_contact_id, fingerprint),
+            message_time=sent_at,
         )
         second = WhatsAppMessage.objects.create(
             account=account, chat=second_chat, contact=contact,
@@ -1049,8 +1051,95 @@ class GroupBroadcastDeduplicationTests(TestCase):
             direction='inbound', message_type='text',
             message_text=text.replace('*', ''),
             content_fingerprint=message_text_fingerprint(text.replace('*', '')),
+            dedup_key=message_dedup_key(
+                'inbound', contact.wa_contact_id, message_text_fingerprint(text.replace('*', '')),
+            ),
             message_time=sent_at + timedelta(seconds=10),
         )
 
         self.assertFalse(_is_duplicate_group_broadcast(first))
         self.assertTrue(_is_duplicate_group_broadcast(second))
+
+    def _template_pair(self, prefix):
+        """Two same-sender group messages that differ only by one product-defining word,
+        with identical embeddings — the template-repost case similarity used to drop."""
+        from apps.message_intelligence.models import MessageEmbedding
+        from .services.message_fingerprint import message_dedup_key, message_text_fingerprint
+
+        account = _make_account(phone_number='971500000666', worker_session_id=f'{prefix}-session')
+        contact = WhatsAppContact.objects.create(
+            account=account, wa_contact_id='971500000777@s.whatsapp.net',
+            phone_number='971500000777',
+        )
+        chat = WhatsAppChat.objects.create(
+            account=account, wa_chat_id='120363000000000003@g.us', chat_type='group',
+        )
+        sent_at = timezone.now()
+        messages = []
+        for offset, text in enumerate([
+            '*WTB* 18 Pro max 256gb Burgundy *50pc* Hk Non Active',
+            '*WTB* 18 Pro max 256gb Blue *15pc* Hk Non Active',
+        ]):
+            message = WhatsAppMessage.objects.create(
+                account=account, chat=chat, contact=contact,
+                provider_message_id=f'{prefix}_{offset}', sender_number=contact.phone_number,
+                direction='inbound', message_type='text', message_text=text,
+                content_fingerprint=message_text_fingerprint(text),
+                dedup_key=message_dedup_key(
+                    'inbound', contact.wa_contact_id, message_text_fingerprint(text),
+                ),
+                message_time=sent_at + timedelta(seconds=10 * offset),
+            )
+            MessageEmbedding.objects.create(
+                message=message, embedding=[1.0] + [0.0] * 511, embedding_model='test',
+            )
+            messages.append(message)
+        return messages
+
+    def test_similar_but_different_message_is_not_skipped(self):
+        from .services.ingestion_service import _is_duplicate_group_broadcast
+
+        first, second = self._template_pair('SIMILAR')
+
+        self.assertFalse(_is_duplicate_group_broadcast(first))
+        self.assertFalse(_is_duplicate_group_broadcast(second))
+
+    def test_similarity_is_recorded_without_skipping(self):
+        from apps.message_intelligence.models import MessageSimilarityMatch
+        from apps.message_intelligence.services.similarity_match_service import record_similarity_matches
+
+        first, second = self._template_pair('RECORDED')
+        record_similarity_matches([first.pk, second.pk])
+
+        self.assertFalse(MessageSimilarityMatch.objects.filter(message=first).exists())
+        match = MessageSimilarityMatch.objects.get(message=second)
+        self.assertEqual(match.similar_message_id, first.pk)
+        self.assertTrue(match.same_chat)
+        self.assertTrue(match.same_sender)
+        self.assertFalse(match.exact_fingerprint)
+
+    def test_older_same_chat_copy_does_not_mask_cross_chat_copy(self):
+        from .services.ingestion_service import _is_duplicate_group_broadcast
+        from .services.message_fingerprint import message_dedup_key, message_text_fingerprint
+
+        account = _make_account(phone_number='971500000888', worker_session_id='mask-session')
+        contact = WhatsAppContact.objects.create(
+            account=account, wa_contact_id='971500000999@s.whatsapp.net', phone_number='971500000999',
+        )
+        group_a = WhatsAppChat.objects.create(account=account, wa_chat_id='120363000000000004@g.us', chat_type='group')
+        group_b = WhatsAppChat.objects.create(account=account, wa_chat_id='120363000000000005@g.us', chat_type='group')
+        text = 'WTS 18 Pro Max 256GB Silver 20pc'
+        fingerprint = message_text_fingerprint(text)
+        sent_at = timezone.now()
+        messages = []
+        for offset, (chat, minutes) in enumerate([(group_a, 0), (group_b, 5), (group_a, 10)]):
+            messages.append(WhatsAppMessage.objects.create(
+                account=account, chat=chat, contact=contact,
+                provider_message_id=f'MASK_{offset}', sender_number=contact.phone_number,
+                direction='inbound', message_type='text', message_text=text,
+                content_fingerprint=fingerprint,
+                dedup_key=message_dedup_key('inbound', contact.wa_contact_id, fingerprint),
+                message_time=sent_at + timedelta(minutes=minutes),
+            ))
+
+        self.assertTrue(_is_duplicate_group_broadcast(messages[2]))

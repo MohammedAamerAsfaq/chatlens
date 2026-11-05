@@ -42,6 +42,8 @@ class WhatsAppMessage(models.Model):
     message_type = models.CharField(max_length=50, choices=MessageType.choices)
     message_text = models.TextField(blank=True)
     content_fingerprint = models.CharField(max_length=64, blank=True, db_index=True)
+    # '{contact wa_contact_id}:{content_fingerprint}' for inbound messages (message_dedup_key).
+    dedup_key = models.CharField(max_length=128, blank=True, db_index=True)
     message_time = models.DateTimeField()
     has_media = models.BooleanField(default=False)
     media_mime_type = models.CharField(max_length=255, blank=True)

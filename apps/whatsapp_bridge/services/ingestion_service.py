@@ -29,93 +29,55 @@ def _resolve_dropped_message(account: WhatsAppAccount, msg_id: str) -> None:
 logger = logging.getLogger(__name__)
 
 DUPLICATE_BROADCAST_WINDOW_MINUTES   = 60
-DUPLICATE_BROADCAST_SIMILARITY_THRESHOLD = 0.92  # same bar as inquiry_service's layer-2 match
 
 # A match against a message in the SAME chat only counts as a duplicate within this tight
-# window — an accidental double-paste/double-send. Beyond it, two similarly-worded messages
-# in the same chat are far more likely to be genuinely distinct sequential requests (e.g.
-# same model, different region/storage/qty — "Silver Japan 10pc" then "Silver USA 15pc" ten
-# minutes later) than a repost of the same ask. Cross-chat matches keep the full
-# DUPLICATE_BROADCAST_WINDOW_MINUTES — that's this check's actual intended case (the same
-# list posted to several different groups), where a wider window is exactly the point.
+# window — an accidental double-paste/double-send. Beyond it, an identical message in the
+# same chat is a deliberate repeat of the ask, not a broadcast copy. Cross-chat matches keep
+# the full DUPLICATE_BROADCAST_WINDOW_MINUTES — that's this check's actual intended case (the
+# same list posted to several different groups), where a wider window is exactly the point.
 DUPLICATE_BROADCAST_SAME_CHAT_WINDOW_SECONDS = 60
 
 
 def _is_duplicate_group_broadcast(message) -> bool:
-    """Skip deterministic same-sender copies, then semantic near-duplicates."""
+    """Skip only deterministic same-sender copies (identical in-house dedup_key —
+    sender contact + content_fingerprint, see message_fingerprint.message_dedup_key).
+
+    Embedding similarity never decides a skip: template reposts that differ by one
+    product-defining word ("Burgundy 50pc" vs "Blue 15pc") score as near-identical and
+    were being dropped as duplicates. Similarity is recorded separately, for observation
+    only, by message_intelligence's similarity_match_service.
+    """
     from datetime import timedelta
 
-    if message.chat.chat_type != ChatType.GROUP:
+    if message.chat.chat_type != ChatType.GROUP or not message.dedup_key:
         return False
 
     window_start = message.message_time - timedelta(minutes=DUPLICATE_BROADCAST_WINDOW_MINUTES)
     window_end = message.message_time + timedelta(minutes=DUPLICATE_BROADCAST_WINDOW_MINUTES)
-    if message.content_fingerprint:
-        exact = WhatsAppMessage.objects.filter(
+    same_chat_gap = timedelta(seconds=DUPLICATE_BROADCAST_SAME_CHAT_WINDOW_SECONDS)
+    candidate = (
+        WhatsAppMessage.objects
+        .filter(
             account_id=message.account_id,
             chat__chat_type=ChatType.GROUP,
-            direction='inbound',
-            content_fingerprint=message.content_fingerprint,
+            dedup_key=message.dedup_key,
             message_time__range=(window_start, window_end),
             pk__lt=message.pk,
         )
-        sender_identity = Q()
-        if message.contact_id:
-            sender_identity |= Q(contact_id=message.contact_id)
-        if message.sender_number:
-            sender_identity |= Q(sender_number=message.sender_number)
-        if not sender_identity:
-            return False
-        exact = exact.filter(sender_identity)
-        candidate = exact.order_by('pk').first()
-        if candidate:
-            gap = abs((message.message_time - candidate.message_time).total_seconds())
-            if candidate.chat_id != message.chat_id or gap <= DUPLICATE_BROADCAST_SAME_CHAT_WINDOW_SECONDS:
-                logger.info(
-                    'duplicate_group_broadcast | exact message_id=%s matches earlier message_id=%s',
-                    message.pk, candidate.pk,
-                )
-                return True
-
-    try:
-        from apps.message_intelligence.models import MessageEmbedding
-        from pgvector.django import CosineDistance
-
-        my_emb = MessageEmbedding.objects.filter(message=message).first()
-        if not my_emb or my_emb.embedding is None:
-            return False
-
-        candidate = (
-            MessageEmbedding.objects
-            .filter(
-                message__account_id=message.account_id,
-                message__chat__chat_type=ChatType.GROUP,
-                message__classification__is_inquiry=True,
-                message__message_time__range=(window_start, window_end),
-                message_id__lt=message.pk,
-                embedding__isnull=False,
-            )
-            .select_related('message')
-            .annotate(distance=CosineDistance('embedding', my_emb.embedding))
-            .order_by('distance')
-            .first()
+        .filter(
+            ~Q(chat_id=message.chat_id)
+            | Q(message_time__range=(message.message_time - same_chat_gap, message.message_time + same_chat_gap))
         )
-        if not candidate or candidate.distance > (1 - DUPLICATE_BROADCAST_SIMILARITY_THRESHOLD):
-            return False
-
-        if candidate.message.chat_id == message.chat_id:
-            gap_seconds = abs((message.message_time - candidate.message.message_time).total_seconds())
-            if gap_seconds > DUPLICATE_BROADCAST_SAME_CHAT_WINDOW_SECONDS:
-                return False
-
-        logger.info(
-            'duplicate_group_broadcast | message_id=%s matches earlier message_id=%s | distance=%.4f',
-            message.pk, candidate.message_id, candidate.distance,
-        )
-        return True
-    except Exception:
-        logger.debug('duplicate_group_broadcast | check failed, failing open', exc_info=True)
-    return False
+        .order_by('pk')
+        .first()
+    )
+    if not candidate:
+        return False
+    logger.info(
+        'duplicate_group_broadcast | exact message_id=%s matches earlier message_id=%s',
+        message.pk, candidate.pk,
+    )
+    return True
 
 
 def _base_eligibility_skip_reason(message) -> str | None:
@@ -225,6 +187,10 @@ def _log_ai_parsing_and_classify(message) -> None:
             'classification_version': classification_version,
         },
     )
+    if reason == 'duplicate_broadcast':
+        # Not re-classified, but still counted: attach to the original's inquiry.
+        from apps.trading.services.inquiry_service import link_duplicate_broadcast
+        link_duplicate_broadcast(message)
     if not reason:
         from apps.trading.services.classification_dispatch import enqueue_classification
         if enqueue_classification(message):
@@ -886,10 +852,13 @@ class IngestionService:
         contact: WhatsAppContact,
         payload: dict,
     ) -> WhatsAppMessage:
-        from .message_fingerprint import message_text_fingerprint
+        from .message_fingerprint import message_dedup_key, message_text_fingerprint
 
         message_time = parse_datetime(payload['message_time'])
         fingerprint = message_text_fingerprint(payload.get('message_text', ''))
+        dedup_key = message_dedup_key(
+            payload['direction'], contact.wa_contact_id if contact else '', fingerprint,
+        )
 
         message, created = WhatsAppMessage.objects.get_or_create(
             account=account,
@@ -902,6 +871,7 @@ class IngestionService:
                 'message_type': payload.get('message_type', 'text'),
                 'message_text': payload.get('message_text', ''),
                 'content_fingerprint': fingerprint,
+                'dedup_key': dedup_key,
                 'message_time': message_time,
                 'has_media': payload.get('has_media', False),
                 'media_mime_type': payload.get('media_mime_type', ''),
@@ -916,10 +886,12 @@ class IngestionService:
             message.message_text = payload['message_text']
             message.message_type = payload.get('message_type', message.message_type)
             message.content_fingerprint = fingerprint
-            update_fields += ['message_text', 'message_type', 'content_fingerprint']
+            message.dedup_key = dedup_key
+            update_fields += ['message_text', 'message_type', 'content_fingerprint', 'dedup_key']
         elif not created and not message.content_fingerprint and fingerprint:
             message.content_fingerprint = fingerprint
-            update_fields.append('content_fingerprint')
+            message.dedup_key = dedup_key
+            update_fields += ['content_fingerprint', 'dedup_key']
         if not created and not message.media_url and payload.get('media_url'):
             message.media_url = payload['media_url']
             update_fields.append('media_url')

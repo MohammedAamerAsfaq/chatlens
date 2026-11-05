@@ -239,7 +239,6 @@ def _parse_response(raw: str) -> dict:
         'is_inquiry':   is_inquiry,
         'inquiry_type': inquiry_type,
         'summary':      str(data.get('summary') or ''),
-        'dedup_key':    str(data.get('dedup_key') or ''),
         'contact_category_suggestion': contact_category_suggestion,
         'raw':          data,
     }
@@ -311,7 +310,6 @@ def _parse_v2_extraction_response(raw: str) -> dict:
         'is_inquiry': is_inquiry,
         'inquiry_type': inquiry_type,
         'summary': str(data.get('summary') or ''),
-        'dedup_key': str(data.get('dedup_key') or ''),
         'contact_category_suggestion': contact_category_suggestion,
         'raw': data,
     }
@@ -832,7 +830,7 @@ def classify_message(message, *, propagate_errors=False) -> bool:
         is_inquiry   = parsed['is_inquiry'],
         inquiry_type = parsed['inquiry_type'],
         ai_summary   = parsed['summary'],
-        dedup_key    = parsed['dedup_key'],
+        dedup_key    = message.dedup_key,
         suggested_contact_category = parsed['contact_category_suggestion'],
         raw_response = parsed['raw'],
         classification_version = CLASSIFICATION_V1,
@@ -952,7 +950,7 @@ def classify_message_v2(message) -> None:
         is_inquiry=parsed['is_inquiry'],
         inquiry_type=parsed['inquiry_type'],
         ai_summary=parsed['summary'],
-        dedup_key=parsed['dedup_key'],
+        dedup_key=message.dedup_key,
         suggested_contact_category=parsed['contact_category_suggestion'],
         raw_response={'v2_pass1': parsed['raw']},
         classification_version=CLASSIFICATION_V2,

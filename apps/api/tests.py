@@ -1554,6 +1554,7 @@ class TenantScopedApiTests(TestCase):
             direction='inbound',
             message_type='text',
             message_text='Need Product A',
+            dedup_key='971544732206@s.whatsapp.net:need-product-a',
             message_time=now(),
         )
         classification = MessageClassification.objects.create(
@@ -1563,13 +1564,13 @@ class TenantScopedApiTests(TestCase):
             is_inquiry=True,
             inquiry_type='buy',
             ai_summary='Need Product A',
-            dedup_key='buy:product-a:1:971544732206',
+            dedup_key=message.dedup_key,
             raw_response={},
         )
 
         process_inquiry(message, classification)
 
-        inquiry = Inquiry.objects.get(dedup_key='buy:product-a:1:971544732206')
+        inquiry = Inquiry.objects.get(dedup_key=message.dedup_key)
         self.assertEqual(inquiry.company_id, self.company_a.id)
 
         self.client.force_authenticate(self.user_a)

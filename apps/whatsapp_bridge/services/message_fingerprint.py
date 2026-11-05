@@ -18,3 +18,14 @@ def message_text_fingerprint(value: str) -> str:
     # Ignore WhatsApp emphasis markers so formatting-only reposts still match.
     normalized = re.sub(r'(?<!\w)[*_~]|[*_~](?!\w)', '', normalized)
     return hashlib.sha256(normalized.encode('utf-8')).hexdigest()
+
+
+def message_dedup_key(direction: str, contact_wa_id: str, fingerprint: str) -> str:
+    """In-house dedup key: same sender + identical normalized text.
+
+    Shared by the duplicate-broadcast skip and inquiry merging. Only inbound messages
+    carry one — the sender of an outbound message is ourselves, not the chat contact.
+    """
+    if direction != 'inbound' or not contact_wa_id or not fingerprint:
+        return ''
+    return f'{contact_wa_id}:{fingerprint}'

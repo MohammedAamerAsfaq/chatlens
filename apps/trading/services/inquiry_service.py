@@ -5,8 +5,9 @@ from django.db import transaction
 
 logger = logging.getLogger(__name__)
 
-DEDUP_WINDOW_HOURS = 4
-SIMILARITY_THRESHOLD = 0.92
+# An inquiry absorbs a message only when one of its linked messages carries the same
+# in-house dedup_key (same sender + identical normalized text) within this window.
+DEDUP_WINDOW_MINUTES = 60
 
 
 def _link_message(inquiry, message) -> None:
@@ -51,66 +52,62 @@ def _resolve_contact(message):
     return None
 
 
-def _layer1_match(account, contact, dedup_key: str, inquiry_type: str, message_time):
-    """Exact dedup_key lookup within the time window."""
-    if not dedup_key:
-        return None
+def _dedup_window(message):
+    window = timedelta(minutes=DEDUP_WINDOW_MINUTES)
+    return message.message_time - window, message.message_time + window
+
+
+def _exact_match_inquiries(message, inquiry_type: str = ''):
+    """Open inquiries holding a message with this message's dedup_key inside the window.
+
+    Exact match only — never embedding similarity: near-identical template reposts that
+    differ by one product-defining word are different requests.
+    """
     from apps.trading.models import Inquiry, InquiryStatus
 
-    window_start = message_time - timedelta(hours=DEDUP_WINDOW_HOURS)
-    window_end = message_time + timedelta(hours=DEDUP_WINDOW_HOURS)
     qs = Inquiry.objects.filter(
-        account=account,
-        contact=contact,
-        dedup_key=dedup_key,
+        account=message.account,
+        dedup_key=message.dedup_key,
         status=InquiryStatus.OPEN,
-        first_seen_at__range=(window_start, window_end),
+        inquiry_messages__message__dedup_key=message.dedup_key,
+        inquiry_messages__message__message_time__range=_dedup_window(message),
     )
-    if inquiry_type in ('buy', 'sell'):
+    if inquiry_type:
         qs = qs.filter(inquiry_type=inquiry_type)
-    return qs.first()
+    return qs.distinct().order_by('-first_seen_at')
 
 
-def _layer2_match(account, contact, message, inquiry_type: str):
-    """Semantic similarity fallback using stored embeddings."""
-    try:
-        from apps.message_intelligence.models import MessageEmbedding
-        from apps.trading.models import Inquiry, InquiryStatus
-        from pgvector.django import CosineDistance
+def _link_skipped_reposts(inquiry, message) -> None:
+    """Attach exact copies that skipped classification as duplicate broadcasts, so the
+    inquiry keeps the true repost frequency. Covers copies that arrived before this
+    inquiry existed; link_duplicate_broadcast covers those arriving after."""
+    from apps.whatsapp_bridge.models import WhatsAppMessage
 
-        new_emb_row = MessageEmbedding.objects.filter(message=message).first()
-        if not new_emb_row or new_emb_row.embedding is None:
-            return None
-
-        window_start = message.message_time - timedelta(hours=DEDUP_WINDOW_HOURS)
-        window_end = message.message_time + timedelta(hours=DEDUP_WINDOW_HOURS)
-        recent = Inquiry.objects.filter(
-            account=account,
-            contact=contact,
-            status=InquiryStatus.OPEN,
-            first_seen_at__range=(window_start, window_end),
+    reposts = (
+        WhatsAppMessage.objects
+        .filter(
+            account=message.account,
+            dedup_key=message.dedup_key,
+            message_time__range=_dedup_window(message),
+            ai_parsing_log__skip_reason='duplicate_broadcast',
         )
-        if inquiry_type in ('buy', 'sell'):
-            recent = recent.filter(inquiry_type=inquiry_type)
-        for candidate in recent:
-            first_link = candidate.inquiry_messages.select_related('message').first()
-            if not first_link:
-                continue
-            src_emb_row = MessageEmbedding.objects.filter(message=first_link.message).first()
-            if not src_emb_row or src_emb_row.embedding is None:
-                continue
-            dist = (
-                MessageEmbedding.objects
-                .filter(pk=src_emb_row.pk)
-                .annotate(d=CosineDistance('embedding', new_emb_row.embedding))
-                .values_list('d', flat=True)
-                .first()
-            )
-            if dist is not None and dist <= (1 - SIMILARITY_THRESHOLD):
-                return candidate
-    except Exception:
-        logger.debug('inquiry_service | layer2 similarity check failed', exc_info=True)
-    return None
+        .exclude(inquiry_links__inquiry=inquiry)
+    )
+    for repost in reposts:
+        _link_message(inquiry, repost)
+
+
+def link_duplicate_broadcast(message) -> list:
+    """Link a message skipped as duplicate_broadcast to the open inquiry its exact
+    original already produced. Returns the linked inquiries (none if the original is
+    still being classified — _link_skipped_reposts attaches it once the inquiry exists)."""
+    if not message.dedup_key:
+        return []
+    with transaction.atomic():
+        inquiries = list(_exact_match_inquiries(message))
+        for inquiry in inquiries:
+            _link_message(inquiry, message)
+    return inquiries
 
 
 def process_inquiry(message, classification) -> None:
@@ -121,19 +118,17 @@ def process_inquiry(message, classification) -> None:
     from apps.trading.models import Inquiry
     from apps.tenancy.services.access import company_for_message
 
+    if not message.dedup_key:
+        raise ValueError(f'process_inquiry | message has no dedup_key | message_id={message.pk}')
+
     with transaction.atomic():
         account = message.account
         company = company_for_message(message)
         contact = _resolve_contact(message)
-        dedup_key = classification.dedup_key or ''
+        dedup_key = message.dedup_key
         inquiry_type = classification.inquiry_type
-        match_inquiry_type = inquiry_type
 
-        existing = _layer1_match(
-            account, contact, dedup_key, match_inquiry_type, message.message_time,
-        )
-        if not existing:
-            existing = _layer2_match(account, contact, message, match_inquiry_type)
+        existing = _exact_match_inquiries(message, inquiry_type).first()
 
         from apps.trading.services.classification_service import validate_category_suggestion
 
@@ -144,6 +139,7 @@ def process_inquiry(message, classification) -> None:
 
         if existing:
             _link_message(existing, message)
+            _link_skipped_reposts(existing, message)
             existing.suggested_contact_category = suggested_category
             existing.classification_version = classification.classification_version or existing.classification_version
             if classification.classification_version == 'v2':
@@ -181,6 +177,7 @@ def process_inquiry(message, classification) -> None:
             ),
         )
         _link_message(inquiry, message)
+        _link_skipped_reposts(inquiry, message)
 
         logger.info(
             'inquiry_service | created | inquiry_id=%s | type=%s | message_id=%s',
