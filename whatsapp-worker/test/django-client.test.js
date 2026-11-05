@@ -89,16 +89,15 @@ test('metadata update failures are written to local fallback reports', async () 
   await client.sendAccountCapacity('session-1', { cap: { status: 'unavailable' } });
 
   const records = readFallbackRecords(logsDir);
+  // Participant deltas are not kept: the full group sync that follows reconciles them.
   assert.deepEqual(records.map(record => record.kind), [
     'contacts_update',
     'group_update',
-    'group_participants_update',
     'account_capacity_update',
   ]);
   assert.equal(records[0].payload.worker_session_id, 'session-1');
   assert.equal(records[1].payload.group_id, '120363@g.us');
-  assert.equal(records[2].payload.action, 'add');
-  assert.equal(records[3].payload.cap.status, 'unavailable');
+  assert.equal(records[2].payload.cap.status, 'unavailable');
 });
 
 test('outbound receipt failures are retained for replay', async () => {
@@ -155,8 +154,8 @@ test('fallback replay posts replay-safe metadata records and removes the file on
 
   const result = await client.replayFallbackReports();
 
-  assert.deepEqual(result, { attempted: 4, replayed: 4, retained: 0, discarded: 0 });
-  assert.equal(client.http.post.mock.callCount(), 4);
+  assert.deepEqual(result, { attempted: 3, replayed: 3, retained: 0, discarded: 1 });
+  assert.equal(client.http.post.mock.callCount(), 3);
   assert.equal(fs.existsSync(filePath), false);
 });
 
@@ -181,7 +180,7 @@ test('fallback replay posts worker safety-net records and removes the file on su
   assert.equal(fs.existsSync(filePath), false);
 });
 
-test('fallback replay discards group participant modify records because they are replay-unsafe', async () => {
+test('fallback replay discards every group participant delta because full sync supersedes it', async () => {
   const { client, logger, logsDir } = makeClient();
   const filePath = path.join(logsDir, 'failed-reports.ndjson');
   fs.writeFileSync(filePath, [
@@ -194,15 +193,29 @@ test('fallback replay discards group participant modify records because they are
         participants: ['123@lid'],
       },
     }),
+    JSON.stringify({
+      kind: 'group_participants_update',
+      payload: {
+        worker_session_id: 'session-1',
+        group_id: '120363@g.us',
+        action: 'add',
+        participants: [{ id: '94515067109390@lid', admin: null }],
+      },
+    }),
   ].join('\n') + '\n', 'utf8');
   client.http.post = test.mock.fn(async () => ({ data: { success: true } }));
 
   const result = await client.replayFallbackReports();
 
-  assert.deepEqual(result, { attempted: 0, replayed: 0, retained: 0, discarded: 1 });
+  assert.deepEqual(result, { attempted: 0, replayed: 0, retained: 0, discarded: 2 });
   assert.equal(client.http.post.mock.callCount(), 0);
   assert.equal(fs.existsSync(filePath), false);
-  assert.equal(logger.warn.mock.calls[0].arguments[0].reason, 'group_participants_modify_is_replay_unsafe');
+  assert.equal(logger.warn.mock.callCount(), 1);
+  assert.deepEqual(logger.warn.mock.calls[0].arguments[0], {
+    kind: 'group_participants_update',
+    reason: 'group_participants_delta_superseded_by_full_sync',
+    count: 2,
+  });
 });
 
 test('fallback replay retains records that still fail', async () => {

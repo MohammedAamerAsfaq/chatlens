@@ -58,14 +58,14 @@ class DjangoClient {
       return { status: 'replayed' };
     }
     if (record.kind === 'group_participants_update') {
-      if (payload.action === 'modify') {
-        return {
-          status: 'discarded',
-          reason: 'group_participants_modify_is_replay_unsafe',
-        };
-      }
-      await this.http.post('/api/internal/whatsapp/group-participants-update/', payload);
-      return { status: 'replayed' };
+      // A participant delta is superseded by the full group metadata the worker sends right
+      // after each event and for every group on connect. Replaying stale deltas would only
+      // re-apply old joins/leaves on top of that newer authoritative state. Records written
+      // by older workers are cleared here instead of being retried on every restart.
+      return {
+        status: 'discarded',
+        reason: 'group_participants_delta_superseded_by_full_sync',
+      };
     }
     if (record.kind === 'account_capacity_update') {
       await this.http.post('/api/internal/whatsapp/account-capacity/', payload);
@@ -105,6 +105,7 @@ class DjangoClient {
     }
 
     const retained = [];
+    const discardedByReason = new Map();
     let attempted = 0;
     let replayed = 0;
     let discarded = 0;
@@ -134,16 +135,10 @@ class DjangoClient {
         }
         if (replayResult.status === 'discarded') {
           discarded += 1;
-          this.logger.warn(
-            {
-              kind: record.kind,
-              reason: replayResult.reason,
-              sessionId: record.payload?.worker_session_id,
-              groupId: record.payload?.group_id,
-              action: record.payload?.action,
-            },
-            'Fallback report replay skipped - discarding replay-unsafe record',
-          );
+          // One summary line per kind/reason after the loop — a large stale backlog
+          // must not flood the log with one line per record.
+          const key = `${record.kind}|${replayResult.reason}`;
+          discardedByReason.set(key, (discardedByReason.get(key) || 0) + 1);
           continue;
         }
         if (replayResult.status === 'replayed') {
@@ -164,6 +159,11 @@ class DjangoClient {
           'Fallback report replay failed - retaining record',
         );
       }
+    }
+
+    for (const [key, count] of discardedByReason) {
+      const [kind, reason] = key.split('|');
+      this.logger.warn({ kind, reason, count }, 'Fallback report replay skipped - discarding replay-unsafe records');
     }
 
     try {
@@ -447,11 +447,12 @@ class DjangoClient {
     try {
       await this.http.post('/api/internal/whatsapp/group-participants-update/', payload);
     } catch (err) {
+      // No local fallback: the full group metadata sent right after this event (and on
+      // every connect) carries the authoritative participant list, so a lost delta heals.
       this.logger.warn(
-        { sessionId, groupId, action, error: err.message },
-        'Failed to send group participants update to Django - falling back to local file',
+        { sessionId, groupId, action, ...this._httpErrorLogFields(err) },
+        'Failed to send group participants update to Django - full group sync will reconcile',
       );
-      this._writeFallback('group_participants_update', payload);
     }
   }
 

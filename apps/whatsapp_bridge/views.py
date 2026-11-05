@@ -553,6 +553,18 @@ def internal_group_participants_update(request):
             {'error': 'Missing/invalid worker_session_id, group_id, or action'}, status=400
         )
 
+    # Baileys sends participant objects ({"id": "...@lid", "admin": null}); older workers and
+    # the normalized full-sync shape use plain JIDs or {"jid": ...}. Anything else is a
+    # malformed request (400), not a server error.
+    jids = []
+    for entry in participant_jids:
+        if isinstance(entry, dict):
+            entry = entry.get('id') or entry.get('jid')
+        if not isinstance(entry, str):
+            return JsonResponse({'error': f'Invalid participant entry: {entry!r}'}, status=400)
+        if entry.strip():
+            jids.append(entry.strip())
+
     try:
         account = WhatsAppAccount.objects.get(pk=worker_session_id)
     except WhatsAppAccount.DoesNotExist:
@@ -566,11 +578,7 @@ def internal_group_participants_update(request):
 
     try:
         updated = 0
-        for jid in participant_jids:
-            jid = (jid or '').strip()
-            if not jid:
-                continue
-
+        for jid in jids:
             contact = None
             if jid.endswith('@s.whatsapp.net'):
                 try:

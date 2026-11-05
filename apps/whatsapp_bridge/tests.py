@@ -1143,3 +1143,44 @@ class GroupBroadcastDeduplicationTests(TestCase):
             ))
 
         self.assertTrue(_is_duplicate_group_broadcast(messages[2]))
+
+
+class GroupParticipantsUpdateEndpointTests(TestCase):
+    """Baileys sends participant objects; the endpoint must accept them, not 500."""
+
+    def setUp(self):
+        from django.conf import settings
+        settings.INTERNAL_API_TOKEN = 'test-token'
+        self.client = Client()
+        self.account = _make_account(phone_number='971500000888', worker_session_id='participants-session')
+        self.group = WhatsAppGroup.objects.create(account=self.account, wa_group_id='120363402967141088@g.us')
+
+    def _post(self, action, participants):
+        return self.client.post(
+            '/api/internal/whatsapp/group-participants-update/',
+            data=json.dumps({
+                'worker_session_id': str(self.account.pk), 'group_id': self.group.wa_group_id,
+                'action': action, 'participants': participants,
+            }),
+            content_type='application/json', **INTERNAL_HEADERS,
+        )
+
+    def test_baileys_participant_objects_are_applied(self):
+        response = self._post('add', [{'id': '94515067109390@lid', 'admin': None}, '971500000999@s.whatsapp.net'])
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            set(WhatsAppGroupParticipant.objects.filter(group=self.group, is_active=True).values_list('wa_jid', flat=True)),
+            {'94515067109390@lid', '971500000999@s.whatsapp.net'},
+        )
+
+        response = self._post('remove', [{'id': '94515067109390@lid', 'admin': None}])
+        self.assertEqual(response.status_code, 200)
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.participant_count, 1)
+
+    def test_malformed_participant_is_a_bad_request(self):
+        response = self._post('add', [{'admin': 'admin'}])
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(WhatsAppGroupParticipant.objects.filter(group=self.group).exists())
