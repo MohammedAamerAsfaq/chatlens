@@ -364,10 +364,11 @@ Respond ONLY with valid JSON matching this schema:
 """
 
 INQUIRY_GATE_V2_DEFAULT = """\
-Classify this WhatsApp message for a wholesale trading desk. Return ONLY JSON:
-{"decision":"buy"|"sell"|"not_inquiry"}.
-Use business intent, not merely literal WTB/WTS tokens. Greetings, links, logistics,
-and unrelated messages are not_inquiry. Do not extract products or explain reasoning.\
+Decide whether this WhatsApp message is a trade inquiry for a wholesale trading desk.
+Return ONLY JSON: {"decision":"inquiry"|"not_inquiry"}.
+An inquiry offers products for sale or asks to buy products. Do not decide whether it is
+buying or selling. Greetings, links, logistics, and unrelated messages are not_inquiry.
+Do not extract products or explain reasoning.\
 """
 
 

@@ -2,7 +2,8 @@
 import json
 import time
 
-VALID_DECISIONS = {'buy', 'sell', 'not_inquiry'}
+# GatePass only qualifies whether a message is an inquiry; buy/sell is decided in pass 1.
+VALID_DECISIONS = {'inquiry', 'not_inquiry'}
 
 
 def _parse_decision(raw_response):
@@ -13,7 +14,7 @@ def _parse_decision(raw_response):
         text = text.split('\n', 1)[-1].rsplit('```', 1)[0]
     decision = json.loads(text).get('decision')
     if decision not in VALID_DECISIONS:
-        raise ValueError('GatePass decision must be buy, sell, or not_inquiry.')
+        raise ValueError('GatePass decision must be inquiry or not_inquiry.')
     return decision
 
 

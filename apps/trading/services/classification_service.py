@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import time
+import unicodedata
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +183,54 @@ def _build_v2_extraction_prompts(message) -> tuple[str, str]:
     return system, user
 
 
-def _parse_response(raw: str) -> dict:
+SELL_KEYWORDS = ('wts', 'selling')
+BUY_KEYWORDS = ('wtb', 'buying')
+_KEYWORD_TYPES = {**{word: 'sell' for word in SELL_KEYWORDS}, **{word: 'buy' for word in BUY_KEYWORDS}}
+_LEADING_KEYWORD_RE = re.compile(r'^[^a-z0-9]*(' + '|'.join(_KEYWORD_TYPES) + r')\b')
+
+
+def leading_keyword_inquiry_type(message_text: str) -> str:
+    """In-house buy/sell from the message's opening WTS/WTB keyword; '' when undecided.
+
+    Undecided when the message has no leading keyword or also names the opposite side
+    anywhere (mixed WTS + WTB posts), so the AI's reading stands for those.
+    """
+    text = unicodedata.normalize('NFKC', message_text or '').casefold()
+    text = re.sub(r'[*_~]', ' ', text).strip()
+    match = _LEADING_KEYWORD_RE.match(text)
+    if not match:
+        return ''
+    inquiry_type = _KEYWORD_TYPES[match.group(1)]
+    opposite = BUY_KEYWORDS if inquiry_type == 'sell' else SELL_KEYWORDS
+    if re.search(r'\b(' + '|'.join(opposite) + r')\b', text):
+        return ''
+    return inquiry_type
+
+
+def _resolve_inquiry_type(data: dict, tags: list, is_inquiry: bool, message_text: str) -> str:
+    """Leading WTS/WTB keyword decides buy/sell; the AI decides only when there is none."""
+    ai_type = data.get('inquiry_type') or ''
+    if ai_type == 'both':
+        raise ValueError('Message inquiry_type cannot be both; buy and sell are mutually exclusive.')
+    if not is_inquiry:
+        return ''
+    keyword_type = leading_keyword_inquiry_type(message_text)
+    if keyword_type:
+        if keyword_type != ai_type:
+            data['inhouse_inquiry_type'] = {'ai': ai_type, 'keyword': keyword_type}
+            logger.info('inquiry_type keyword override | ai=%r | keyword=%s', ai_type, keyword_type)
+        return keyword_type
+    if ai_type in ('buy', 'sell'):
+        return ai_type
+    # Derive from tags if AI left inquiry_type null despite is_inquiry=True
+    if 'wts' in tags:
+        return 'sell'
+    if 'wtb' in tags:
+        return 'buy'
+    return ''
+
+
+def _parse_response(raw: str, message_text: str) -> dict:
     """Parse and validate the AI JSON response. Returns a sanitised dict."""
     # Strip markdown fences if the model includes them despite instructions
     text = raw.strip()
@@ -215,19 +263,7 @@ def _parse_response(raw: str) -> dict:
         })
 
     is_inquiry   = bool(data.get('is_inquiry', False))
-    inquiry_type = data.get('inquiry_type') or ''
-    if inquiry_type == 'both':
-        raise ValueError('Message inquiry_type cannot be both; buy and sell are mutually exclusive.')
-    if inquiry_type not in ('buy', 'sell'):
-        inquiry_type = ''
-    if not is_inquiry:
-        inquiry_type = ''
-    # Derive from tags if AI left inquiry_type null despite is_inquiry=True
-    if is_inquiry and not inquiry_type:
-        if 'wts' in tags:
-            inquiry_type = 'sell'
-        elif 'wtb' in tags:
-            inquiry_type = 'buy'
+    inquiry_type = _resolve_inquiry_type(data, tags, is_inquiry, message_text)
 
     contact_category_suggestion = data.get('contact_category_suggestion') or ''
     if contact_category_suggestion not in VALID_CATEGORY_SUGGESTIONS:
@@ -252,7 +288,7 @@ def _clean_json_response(raw: str):
     return json.loads(text)
 
 
-def _parse_v2_extraction_response(raw: str) -> dict:
+def _parse_v2_extraction_response(raw: str, message_text: str) -> dict:
     data = _clean_json_response(raw)
 
     tags = [t for t in (data.get('tags') or []) if t in VALID_TAGS]
@@ -286,19 +322,9 @@ def _parse_v2_extraction_response(raw: str) -> dict:
         })
 
     is_inquiry = bool(data.get('is_inquiry', False))
-    inquiry_type = data.get('inquiry_type') or ''
-    if inquiry_type == 'both':
-        raise ValueError('Message inquiry_type cannot be both; buy and sell are mutually exclusive.')
-    if inquiry_type not in ('buy', 'sell'):
-        inquiry_type = ''
+    inquiry_type = _resolve_inquiry_type(data, tags, is_inquiry, message_text)
     if not is_inquiry:
-        inquiry_type = ''
         products = []
-    if is_inquiry and not inquiry_type:
-        if 'wts' in tags:
-            inquiry_type = 'sell'
-        elif 'wtb' in tags:
-            inquiry_type = 'buy'
 
     contact_category_suggestion = data.get('contact_category_suggestion') or ''
     if contact_category_suggestion not in VALID_CATEGORY_SUGGESTIONS:
@@ -467,8 +493,20 @@ def _find_v2_candidates(
         search_limit = max(top_k * 4, 20)
         params = {'qv': query_vec_text, 'company_id': company.pk, 'top_k': search_limit}
         if brand_values:
-            brand_filter = "AND LOWER(p.brand) = ANY(%(brand_values)s)"
+            # The AI's brand wording is not authoritative ("Fitbit" vs inventory brand
+            # "Google"), so a whole-word hit in the product name or an alias also qualifies.
+            brand_filter = """
+                  AND (
+                      LOWER(p.brand) = ANY(%(brand_values)s)
+                      OR LOWER(p.name) ~ %(brand_word)s
+                      OR EXISTS (
+                          SELECT 1 FROM trading_product_alias brand_alias
+                          WHERE brand_alias.product_id = p.id
+                            AND LOWER(brand_alias.alias) ~ %(brand_word)s
+                      )
+                  )"""
             params['brand_values'] = brand_values
+            params['brand_word'] = r'\m(' + '|'.join(re.escape(value) for value in brand_values) + r')\M'
 
         search_start = time.perf_counter()
         sql = """
@@ -809,7 +847,7 @@ def classify_message(message, *, propagate_errors=False) -> bool:
         return False
 
     try:
-        parsed = _parse_response(raw_response)
+        parsed = _parse_response(raw_response, message.message_text)
     except Exception:
         logger.exception(
             'classify_message | response parse failed | message_id=%s | raw=%r',
@@ -925,7 +963,7 @@ def classify_message_v2(message) -> None:
         )
         log.pass1_ai_ms = _elapsed_ms(pass1_ai_start)
         log.pass1_response = raw_response
-        parsed = _parse_v2_extraction_response(raw_response)
+        parsed = _parse_v2_extraction_response(raw_response, message.message_text)
     except Exception as exc:
         if log.pass1_ai_ms is None:
             log.pass1_ai_ms = _elapsed_ms(pass1_ai_start) if 'pass1_ai_start' in locals() else None

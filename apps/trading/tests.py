@@ -316,7 +316,7 @@ class V2ClassificationRecoveryTests(TestCase):
         response = '{"tags":["wtb","wts"],"products":[],"is_inquiry":true,"inquiry_type":"both"}'
 
         with self.assertRaisesRegex(ValueError, 'cannot be both'):
-            _parse_v2_extraction_response(response)
+            _parse_v2_extraction_response(response, 'WTB WTS')
 
     @patch('apps.trading.services.classification_service._call_agent_with_timeout')
     def test_pass1_timeout_marks_v2_log_error(self, call_with_timeout):
