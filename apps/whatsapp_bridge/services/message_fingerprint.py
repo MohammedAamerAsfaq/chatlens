@@ -29,3 +29,22 @@ def message_dedup_key(direction: str, contact_wa_id: str, fingerprint: str) -> s
     if direction != 'inbound' or not contact_wa_id or not fingerprint:
         return ''
     return f'{contact_wa_id}:{fingerprint}'
+
+
+def dedup_scope_account_ids(account) -> list[int]:
+    """Accounts whose messages are compared by dedup_key: every WhatsApp account of the
+    same company. Two company numbers in the same group see the same post; only the
+    first copy is classified, the rest are linked as reposts."""
+    from apps.whatsapp_bridge.models import WhatsAppAccount
+    from apps.tenancy.services.access import company_for_whatsapp_account
+
+    company = company_for_whatsapp_account(account)
+    if company is None:
+        return [account.pk]
+    ids = set(
+        WhatsAppAccount.objects
+        .filter(communication_account__company=company)
+        .values_list('pk', flat=True)
+    )
+    ids.add(account.pk)
+    return sorted(ids)

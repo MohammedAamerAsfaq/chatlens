@@ -406,13 +406,33 @@ def _normalize_attribute_value(value) -> str:
     return re.sub(r'\s+', ' ', value).strip()
 
 
-def _attribute_match_score(extracted_attributes: dict | None, candidate: dict) -> tuple[float, list[str]]:
+# Sender region shorthand → inventory wording, so "HK" compares equal to "Hong Kong".
+REGION_TOKEN_ALIASES = {
+    'hk': 'hong kong', 'jp': 'japan', 'jpn': 'japan', 'sg': 'singapore', 'sgp': 'singapore',
+    'ae': 'uae', 'tdra': 'uae', 'tra': 'uae', 'us': 'usa', 'ind': 'india', 'kr': 'korea',
+    'ksa': 'saudi arabia',
+}
+
+
+def _attribute_tokens(value) -> set[str]:
+    tokens = set()
+    for token in _normalize_attribute_value(value).split():
+        tokens.update(REGION_TOKEN_ALIASES.get(token, token).split())
+    return tokens
+
+
+def _attribute_match_score(
+    extracted_attributes: dict | None, candidate: dict, query: str = '',
+) -> tuple[float, list[str]]:
     """Score extracted attributes against a candidate without eliminating it.
 
     AI-extracted attribute wording is useful, but not authoritative enough for exact SQL
-    filters. Example: extracted Series "17" should still match inventory Series
-    "iPhone 17". This function only ranks candidates before pass 2 AI makes the final
-    decision.
+    filters, and keys are split differently (extracted Model "18 Pro Max" vs inventory
+    Series "iPhone 18" + Model "Pro Max"). Words are compared both ways:
+    - a word the sender gave that the candidate has nowhere (name or any attribute) is a
+      mismatch — "18 pro max" vs Model "Pro" lacks "max", so a Pro never outranks a Pro Max;
+    - a word in the candidate's value the sender never wrote makes it only near.
+    This function only ranks candidates before pass 2 AI makes the final decision.
     """
     if not extracted_attributes:
         return 0.0, []
@@ -422,11 +442,18 @@ def _attribute_match_score(extracted_attributes: dict | None, candidate: dict) -
         for attr in candidate.get('attributes') or []
         if str(attr.get('key') or '').strip()
     }
+    candidate_words = _attribute_tokens(candidate.get('name'))
+    for value in candidate_attrs.values():
+        candidate_words |= _attribute_tokens(value)
+    sender_words = _attribute_tokens(query)
+    for value in extracted_attributes.values():
+        sender_words |= _attribute_tokens(value)
+
     notes = []
     score = 0.0
     for raw_key, raw_value in extracted_attributes.items():
         key = str(raw_key or '').strip().lower()
-        expected = _normalize_attribute_value(raw_value)
+        expected = _attribute_tokens(raw_value)
         if not key or not expected:
             continue
 
@@ -436,14 +463,16 @@ def _attribute_match_score(extracted_attributes: dict | None, candidate: dict) -
             score -= 0.05
             continue
 
-        actual = _normalize_attribute_value(actual_raw)
+        actual = _attribute_tokens(actual_raw)
+        absent_from_candidate = expected - actual - candidate_words
+        unrequested = actual - expected - sender_words
         if not actual:
             notes.append(f'{raw_key}: blank')
             score -= 0.05
-        elif expected == actual or expected in actual.split() or actual in expected.split():
+        elif not absent_from_candidate and not unrequested:
             notes.append(f'{raw_key}: match')
             score += 0.25
-        elif expected in actual or actual in expected:
+        elif expected & actual and not absent_from_candidate:
             notes.append(f'{raw_key}: near')
             score += 0.12
         else:
@@ -453,12 +482,19 @@ def _attribute_match_score(extracted_attributes: dict | None, candidate: dict) -
     return score, notes
 
 
-def _rank_v2_candidates(candidates: list[dict], attributes: dict | None, top_k: int) -> list[dict]:
+# Breaks near-ties toward stocked variants (e.g. regional variants when the sender gave no
+# region) so they reach the shortlist; far too small to outweigh an attribute match (0.25).
+IN_STOCK_RANKING_BONUS = 0.03
+
+
+def _rank_v2_candidates(candidates: list[dict], attributes: dict | None, top_k: int, query: str = '') -> list[dict]:
     ranked = []
     for candidate in candidates:
-        attribute_score, notes = _attribute_match_score(attributes, candidate)
+        attribute_score, notes = _attribute_match_score(attributes, candidate, query)
         distance = float(candidate.get('distance') or 0.0)
         ranking_score = (1.0 - distance) + attribute_score
+        if candidate.get('in_stock'):
+            ranking_score += IN_STOCK_RANKING_BONUS
         ranked.append({
             **candidate,
             'attribute_score': round(attribute_score, 4),
@@ -558,7 +594,7 @@ def _find_v2_candidates(
             for product_id, distance in rows
             if product_id in products_by_id
         ]
-        ranked = _rank_v2_candidates(candidates, attributes or {}, top_k)
+        ranked = _rank_v2_candidates(candidates, attributes or {}, top_k, query)
         if timing_accumulator is not None:
             timing_accumulator['candidate_search_ms'] = (
                 timing_accumulator.get('candidate_search_ms', 0) + _elapsed_ms(search_start)
@@ -722,6 +758,41 @@ def _no_candidate_v2_result(index: int, reason: str | None = None, rejected_cand
     }
 
 
+def _resolve_region_unspecified(index: int, result: dict, candidates: list[dict]) -> dict:
+    """Sender gave no region and the AI found candidates differing only by region.
+
+    The AI decides identity (which candidates match everything but region); code decides
+    availability: exactly one of them in stock becomes a near match, otherwise no match.
+    """
+    by_id = {candidate['product_id']: candidate for candidate in candidates}
+    region_ids = result['region_unspecified_candidate_ids']
+    outside = [pid for pid in region_ids if pid not in by_id]
+    if outside:
+        raise ValueError(
+            f'V2 match region_unspecified_candidate_ids {outside} outside candidates for line_index={index}'
+        )
+    in_stock = [by_id[pid] for pid in region_ids if by_id[pid].get('in_stock')]
+    if len(in_stock) != 1:
+        return {
+            **result,
+            'reason': (
+                f"{result['reason']} Region not specified; {len(in_stock)} of {len(region_ids)} "
+                'regional variants in stock, so no single suggestion.'
+            ).strip(),
+        }
+    chosen = in_stock[0]
+    return {
+        **result,
+        'product_id': chosen['product_id'],
+        'match_type': 'near',
+        'reason': (
+            f"Region not specified by sender; {chosen['name']} is the only in-stock regional variant "
+            f"(qty {chosen.get('qty')}). AI: {result['reason']}"
+        ).strip(),
+        'region_unspecified_resolved': True,
+    }
+
+
 def _parse_v2_match_response(raw: str, expected_indexes: set[int]) -> dict[int, dict]:
     data = _clean_json_response(raw)
     rows = data.get('results')
@@ -745,12 +816,18 @@ def _parse_v2_match_response(raw: str, expected_indexes: set[int]) -> dict[int, 
             confidence = float(confidence)
         except (TypeError, ValueError):
             confidence = 0.0
+        region_ids = row.get('region_unspecified_candidate_ids') or []
+        if not isinstance(region_ids, list) or not all(isinstance(pid, int) for pid in region_ids):
+            raise ValueError(
+                f'V2 match region_unspecified_candidate_ids must be a list of integers | line_index={line_index}'
+            )
         parsed[line_index] = {
             'product_id': row.get('product_id'),
             'match_type': match_type,
             'confidence': max(0.0, min(1.0, confidence)),
             'reason': str(row.get('reason') or ''),
             'rejected_candidate_ids': row.get('rejected_candidate_ids') or [],
+            'region_unspecified_candidate_ids': region_ids,
         }
 
     missing = expected_indexes - set(parsed)
@@ -1451,6 +1528,10 @@ def _run_v2_batched_match(message_id: int, classification_id: int, inquiry_ids: 
             }
             match_results[index] = result
             product_id = None
+        if product_id is None and result.get('region_unspecified_candidate_ids'):
+            result = _resolve_region_unspecified(index, result, candidates_by_index.get(index, []))
+            match_results[index] = result
+            product_id = result['product_id']
         updated = {
             **product,
             'product_id': product_id,

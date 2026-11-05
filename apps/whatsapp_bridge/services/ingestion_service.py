@@ -38,9 +38,14 @@ DUPLICATE_BROADCAST_WINDOW_MINUTES   = 60
 DUPLICATE_BROADCAST_SAME_CHAT_WINDOW_SECONDS = 60
 
 
-def _is_duplicate_group_broadcast(message) -> bool:
+def _is_duplicate_group_broadcast(message, company_wide: bool = True) -> bool:
     """Skip only deterministic same-sender copies (identical in-house dedup_key —
     sender contact + content_fingerprint, see message_fingerprint.message_dedup_key).
+
+    company_wide compares against every WhatsApp account of the company: two company
+    numbers in the same group receive the same post (each as its own chat row, so it
+    counts as a cross-chat copy). Automation passes False — a rule configured on one
+    account must still fire for that account's copy.
 
     Embedding similarity never decides a skip: template reposts that differ by one
     product-defining word ("Burgundy 50pc" vs "Blue 15pc") score as near-identical and
@@ -48,9 +53,11 @@ def _is_duplicate_group_broadcast(message) -> bool:
     only, by message_intelligence's similarity_match_service.
     """
     from datetime import timedelta
+    from .message_fingerprint import dedup_scope_account_ids
 
     if message.chat.chat_type != ChatType.GROUP or not message.dedup_key:
         return False
+    account_ids = dedup_scope_account_ids(message.account) if company_wide else [message.account_id]
 
     window_start = message.message_time - timedelta(minutes=DUPLICATE_BROADCAST_WINDOW_MINUTES)
     window_end = message.message_time + timedelta(minutes=DUPLICATE_BROADCAST_WINDOW_MINUTES)
@@ -58,7 +65,7 @@ def _is_duplicate_group_broadcast(message) -> bool:
     candidate = (
         WhatsAppMessage.objects
         .filter(
-            account_id=message.account_id,
+            account_id__in=account_ids,
             chat__chat_type=ChatType.GROUP,
             dedup_key=message.dedup_key,
             message_time__range=(window_start, window_end),
@@ -150,7 +157,7 @@ def _automation_skip_reason(message) -> str | None:
     reason = _base_eligibility_skip_reason(message)
     if reason:
         return reason
-    if _is_duplicate_group_broadcast(message):
+    if _is_duplicate_group_broadcast(message, company_wide=False):
         return 'duplicate_broadcast'
     return None
 

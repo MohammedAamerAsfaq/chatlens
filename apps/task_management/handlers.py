@@ -21,6 +21,11 @@ def _queued_classification_skip_reason(message):
         AiParsingLog.objects.filter(message=message).update(
             status='skipped', skip_reason=reason, classification_version='',
         )
+    if reason == 'duplicate_broadcast':
+        # A copy whose original committed only after ingestion (e.g. the same post
+        # reaching two company numbers milliseconds apart) is caught here; still count it.
+        from apps.trading.services.inquiry_service import link_duplicate_broadcast
+        link_duplicate_broadcast(message)
     return reason
 
 

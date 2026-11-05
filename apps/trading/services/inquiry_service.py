@@ -64,9 +64,10 @@ def _exact_match_inquiries(message, inquiry_type: str = ''):
     differ by one product-defining word are different requests.
     """
     from apps.trading.models import Inquiry, InquiryStatus
+    from apps.whatsapp_bridge.services.message_fingerprint import dedup_scope_account_ids
 
     qs = Inquiry.objects.filter(
-        account=message.account,
+        account_id__in=dedup_scope_account_ids(message.account),
         dedup_key=message.dedup_key,
         status=InquiryStatus.OPEN,
         inquiry_messages__message__dedup_key=message.dedup_key,
@@ -82,11 +83,12 @@ def _link_skipped_reposts(inquiry, message) -> None:
     inquiry keeps the true repost frequency. Covers copies that arrived before this
     inquiry existed; link_duplicate_broadcast covers those arriving after."""
     from apps.whatsapp_bridge.models import WhatsAppMessage
+    from apps.whatsapp_bridge.services.message_fingerprint import dedup_scope_account_ids
 
     reposts = (
         WhatsAppMessage.objects
         .filter(
-            account=message.account,
+            account_id__in=dedup_scope_account_ids(message.account),
             dedup_key=message.dedup_key,
             message_time__range=_dedup_window(message),
             ai_parsing_log__skip_reason='duplicate_broadcast',

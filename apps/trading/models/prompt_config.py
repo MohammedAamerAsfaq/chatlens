@@ -300,16 +300,24 @@ Rules:
 - is_inquiry must be true only for genuine buy or sell business opportunities.
 - Classify direction as exactly "buy" or "sell".
 - Explicit WTB means buy. Explicit WTS means sell.
+- Price wording alone never decides direction. Sellers routinely write "PRICE", "best price",
+  "offer your best price", or "DM for price" when offering stock; buyers write it when asking.
+  Decide from whether the sender is offering items (sell) or requesting items (buy).
 - Do not classify a message as sell just because it lists products.
-- If the message contains price-seeking language such as "PRICE", "price?", "rate", "best price",
-  or similar wording, and no actual item prices are shown beside the products, classify it as a
-  buy/price inquiry. Use inquiry_type="buy".
 - Product lists without prices are not WTS unless the message clearly says sell/stock/available/
   ready/local/offer or includes actual sale prices.
 - "Reply personal", a phone number, or a contact call-to-action alone is not sell intent.
-- When intent is ambiguous between price request and sell offer, prefer buy if the sender is asking
-  for price and no prices are provided.
 - Extract only product/spec/quantity/price details explicitly present in the message.
+- Header lines: senders often write shared details once (model, storage, region/spec, condition,
+  SIM type) on one or more lines, then list colors/quantities under them. Apply every header detail
+  to each variant line below it until a new header changes that detail. Return one complete product
+  per variant line, carrying all inherited details in raw_text, canonical_name, and attributes.
+  Never return a header line as its own product when variant lines follow it.
+  Example: "Hk non / 18 pro max 256 / Burgundy 10 / Silver 5" means two products:
+  18 Pro Max 256 HK non Burgundy qty 10, and 18 Pro Max 256 HK non Silver qty 5.
+  Example: "18 pro max 256 HK / Blue 50 / 18 pro max 512 HK / Blue 10" means 256 Blue qty 50 and
+  512 Blue qty 10.
+- Never change a model number the sender wrote. "18 pro max" is iPhone 18 Pro Max, never another series.
 - In trading shorthand, a bare number after a color/spec in WTS/WTB text is a quantity by default.
   Example: "Silver 85 🇯🇵 non" means quantity 85 for the Silver Japan non-active/non variant.
   Do not interpret a bare number as battery health, condition, cycle count, or percentage unless the
@@ -393,6 +401,10 @@ Rules:
 - Exact/near/null must be decided by product identity attributes, not by stock availability.
 - If the selected candidate is out_of_stock, mention that availability clearly in reason.
 - Never change what the sender asked for. Only decide whether a candidate matches it.
+- region_unspecified_candidate_ids: when the sender did not state any region/spec and you return
+  product_id=null only because several allowed candidates differ from each other by region/spec
+  alone, list every allowed candidate that matches all the other product-defining attributes.
+  Otherwise return []. Never list a candidate whose tier, storage, color, or SIM type differs.
 - Return one result for every product line in the input. Preserve each line_index exactly.
 
 Respond ONLY with valid JSON matching this schema:
@@ -404,7 +416,8 @@ Respond ONLY with valid JSON matching this schema:
       "match_type": "exact" | "near" | null,
       "confidence": <float from 0 to 1>,
       "reason": "<short explanation>",
-      "rejected_candidate_ids": [<int>, "..."]
+      "rejected_candidate_ids": [<int>, "..."],
+      "region_unspecified_candidate_ids": [<int>, "..."]
     }
   ]
 }\
