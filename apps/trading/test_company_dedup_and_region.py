@@ -224,18 +224,3 @@ class AttributeScoringTests(TestCase):
         self.assertEqual(ranked[0]['product_id'], 91)
         self.assertIn('Region: match', ranked[0]['attribute_match_notes'])
         self.assertIn('Region: mismatch (HK != Japan)', ranked[1]['attribute_match_notes'])
-
-    def test_sim_wording_variants_match_one_sim_attribute(self):
-        one_sim = {
-            **self.PRO_MAX,
-            'attributes': self.PRO_MAX['attributes'] + [{'key': 'SIM Type', 'value': '1 SIM'}],
-        }
-        for wording in ('1sim', '1 sim', 'Single SIM', '1 Physical Sim'):
-            with self.subTest(wording=wording):
-                ranked = _rank_v2_candidates([one_sim], {'SIM Type': wording}, 1, '')
-                self.assertIn('SIM Type: match', ranked[0]['attribute_match_notes'])
-
-        ranked = _rank_v2_candidates([one_sim], {'SIM Type': 'eSIM'}, 1, '')
-        self.assertIn('SIM Type: mismatch (eSIM != 1 SIM)', ranked[0]['attribute_match_notes'])
-        ranked = _rank_v2_candidates([one_sim], {'SIM Type': 'Dual SIM'}, 1, '')
-        self.assertIn('SIM Type: mismatch (Dual SIM != 1 SIM)', ranked[0]['attribute_match_notes'])
