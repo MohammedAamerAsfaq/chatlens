@@ -413,10 +413,19 @@ REGION_TOKEN_ALIASES = {
     'ksa': 'saudi arabia',
 }
 
+# Sender SIM wording → inventory wording, so "1sim", "single sim" and "1 physical sim" all
+# compare equal to SIM Type "1 SIM". "physical" adds nothing: a SIM is physical unless it is
+# an eSIM, which keeps its own distinct token.
+SIM_TOKEN_ALIASES = {
+    '1sim': '1 sim', '2sim': '2 sim', 'dualsim': 'dual sim', 'singlesim': '1 sim',
+    'single': '1', 'physical': '',
+}
+
 
 def _attribute_tokens(value) -> set[str]:
     tokens = set()
     for token in _normalize_attribute_value(value).split():
+        token = SIM_TOKEN_ALIASES.get(token, token)
         tokens.update(REGION_TOKEN_ALIASES.get(token, token).split())
     return tokens
 
