@@ -1,6 +1,13 @@
 import { computed, ref } from 'vue'
 
 export const feedPageSizeOptions = [25, 50, 100, 200]
+// Match filter, applied on top of status/type/contact/date. An inquiry qualifies when at
+// least one of its lines matched that way (server: services/inquiry_match_filter.py).
+export const feedMatchOptions = [
+  { value: 'all', label: 'All' },
+  { value: 'exact', label: 'Exact Matches' },
+  { value: 'near', label: 'Near Matches' },
+]
 export const feedSortOptions = [
   { value: 'latest', label: 'Latest first' },
   { value: 'oldest', label: 'Oldest first' },
@@ -73,7 +80,7 @@ function createFeed() {
   }
 }
 
-export function useTradingFeedController({ api, accountId, status, contacts, resetContact }) {
+export function useTradingFeedController({ api, accountId, status, match, contacts, resetContact }) {
   const stats = ref({})
   const products = ref([])
   const lastUpdate = ref(null)
@@ -86,6 +93,7 @@ export function useTradingFeedController({ api, accountId, status, contacts, res
     return {
       ...(accountId.value ? { account: accountId.value } : {}),
       status: status.value,
+      match: match.value,
       type,
       page: feed.page.value,
       page_size: feed.pageSize.value,

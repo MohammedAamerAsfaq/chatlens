@@ -46,6 +46,7 @@ from .serializers import (
     InquiryForwardingRuleSerializer,
 )
 from apps.tenancy.permissions import CompanyAdminPermission, TenantRolePermission
+from .services.inquiry_match_filter import MATCH_FILTER_ALL, MATCH_FILTERS, filter_inquiries_by_match
 from .services.product_cache import invalidate as invalidate_product_cache
 
 logger = logging.getLogger(__name__)
@@ -1834,6 +1835,7 @@ class InquiryViewSet(viewsets.GenericViewSet,
         type_val   = request.query_params.get('type')
         sort_val   = request.query_params.get('sort', 'latest')
         contact_id = request.query_params.get('contact')
+        match_val  = request.query_params.get('match', MATCH_FILTER_ALL)
 
         try:
             page = int(request.query_params.get('page', 1))
@@ -1856,6 +1858,8 @@ class InquiryViewSet(viewsets.GenericViewSet,
         }
         if sort_val not in sort_map:
             raise ValidationError({'detail': f'Unsupported sort value: {sort_val}'})
+        if match_val not in MATCH_FILTERS:
+            raise ValidationError({'detail': f'Unsupported match value: {match_val}'})
 
         start, end = _resolve_date_range(request)
         qs = _visible_inquiry_queryset(
@@ -1875,6 +1879,7 @@ class InquiryViewSet(viewsets.GenericViewSet,
 
         if contact_id:
             qs = qs.filter(contact_id=contact_id)
+        qs = filter_inquiries_by_match(qs, match_val)
 
         qs = qs.order_by(sort_map[sort_val], '-id')
         count = qs.count()

@@ -15,7 +15,7 @@ from apps.tenancy.models import (
     CompanyMembership, ConnectionProvider,
 )
 from apps.trading.models import (
-    BuyingInquiry, FormattedPriceList, Inquiry, InquiryProduct, MessageClassification, Product, PromptConfig,
+    BuyingInquiry, FormattedPriceList, Inquiry, InquiryProduct, InquiryStatus, MessageClassification, Product, PromptConfig,
     SellingOffer, SellingOfferProduct,
 )
 from apps.trading.services.inquiry_service import process_inquiry
@@ -1583,6 +1583,52 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         feed_ids = {row['id'] for row in resp.json()['results']}
         self.assertIn(inquiry.pk, feed_ids)
+
+    def test_open_feed_match_filter_narrows_on_top_of_other_filters(self):
+        pid = self.product_a.pk
+
+        def inquiry(key, products, inquiry_type='buy'):
+            return Inquiry.objects.create(
+                company=self.company_a, account=self.account_a, inquiry_type=inquiry_type,
+                products=products, summary=key, dedup_key=f'buy:match-filter:{key}',
+                source_type='direct', first_seen_at=now(),
+            )
+
+        exact = inquiry('exact', [{'product_id': pid, 'match_type': 'exact'}])
+        near = inquiry('near', [{'product_id': pid, 'match_type': 'near'}])
+        mixed = inquiry('mixed', [
+            {'product_id': pid, 'match_type': 'near'},
+            {'product_id': pid, 'match_type': 'exact'},
+        ])
+        # Lines the board shows as exact: manual picks and lines predating match_type.
+        manual = inquiry('manual', [{'product_id': pid, 'match_type': 'manual'}])
+        legacy = inquiry('legacy', [{'product_id': pid}])
+        unmatched = inquiry('unmatched', [{'canonical_name': 'Unknown', 'product_id': None, 'match_type': None}])
+        sell_exact = inquiry('sell-exact', [{'product_id': pid, 'match_type': 'exact'}], inquiry_type='sell')
+
+        self.client.force_authenticate(self.user_a)
+
+        def feed_ids(**params):
+            resp = self.client.get('/api/inquiries/open-feed/', {'type': 'buy', 'status': 'all', **params})
+            self.assertEqual(resp.status_code, 200)
+            return {row['id'] for row in resp.json()['results']}
+
+        created = {exact.pk, near.pk, mixed.pk, manual.pk, legacy.pk, unmatched.pk}
+        self.assertEqual(feed_ids() & created, created)
+        self.assertEqual(feed_ids(match='all') & created, created)
+        self.assertEqual(feed_ids(match='exact') & created, {exact.pk, mixed.pk, manual.pk, legacy.pk})
+        self.assertEqual(feed_ids(match='near') & created, {near.pk, mixed.pk})
+        # Still combined with the type filter: the WTS exact inquiry never leaks into WTB.
+        self.assertNotIn(sell_exact.pk, feed_ids(match='exact'))
+        # And with status: closing an exact inquiry drops it from the Open + Exact view.
+        exact.status = InquiryStatus.CLOSED
+        exact.save(update_fields=['status'])
+        self.assertNotIn(exact.pk, feed_ids(match='exact', status='open'))
+
+    def test_open_feed_rejects_unknown_match_filter(self):
+        self.client.force_authenticate(self.user_a)
+        resp = self.client.get('/api/inquiries/open-feed/', {'type': 'buy', 'match': 'similar'})
+        self.assertEqual(resp.status_code, 400)
 
     def test_prompt_configs_are_company_scoped(self):
         self.client.force_authenticate(self.user_a)

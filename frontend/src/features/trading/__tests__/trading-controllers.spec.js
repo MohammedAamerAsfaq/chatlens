@@ -33,6 +33,7 @@ describe('Trading feature controllers', () => {
       api,
       accountId: ref(3),
       status: ref('open'),
+      match: ref('all'),
       contacts: { buy: ref(''), sell: ref('') },
       resetContact: vi.fn(),
     })
@@ -45,6 +46,28 @@ describe('Trading feature controllers', () => {
     await controller.changePage('buy', 2)
     expect(controller.buy.items.value).toEqual(['buy-2'])
     expect(controller.sell.page.value).toBe(1)
+  })
+
+  it('sends the match filter alongside status on every feed request', async () => {
+    const api = {
+      getOpenFeed: vi.fn().mockResolvedValue({ data: { results: [], count: 0 } }),
+    }
+    const match = ref('all')
+    const controller = useTradingFeedController({
+      api,
+      accountId: ref(3),
+      status: ref('open'),
+      match,
+      contacts: { buy: ref(''), sell: ref('') },
+      resetContact: vi.fn(),
+    })
+
+    match.value = 'exact'
+    await controller.load('buy')
+    expect(api.getOpenFeed).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'buy', status: 'open', match: 'exact' }))
+    match.value = 'near'
+    await controller.load('sell')
+    expect(api.getOpenFeed).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'sell', status: 'open', match: 'near' }))
   })
 
   it('loads and selects contacts through the picker controller', async () => {

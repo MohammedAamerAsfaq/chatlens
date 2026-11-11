@@ -22,6 +22,12 @@
             <option v-for="filter in statusFilters" :key="filter.value" :value="filter.value">{{ filter.label }}</option>
           </select>
         </label>
+        <label class="toolbar-control">
+          <FontAwesomeIcon :icon="faBullseye" title="Match type" aria-label="Match type" />
+          <select :value="selectedMatch" class="account-select match-filter-select" @change="setMatchFilter($event.target.value)">
+            <option v-for="option in feedMatchOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select>
+        </label>
         <TradingToolbarSettings
           v-model:selected-account="selectedAccount"
           v-model:close-stale-hours="closeStaleHours"
@@ -311,7 +317,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { faFilter, faPlus, faRotateRight } from '@fortawesome/free-solid-svg-icons'
+import { faBullseye, faFilter, faPlus, faRotateRight } from '@fortawesome/free-solid-svg-icons'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useConversationsStore } from '@/stores/conversations'
@@ -323,6 +329,7 @@ import { useInquiryProductsController } from '@/features/trading/composables/use
 import { useMarketPartiesController } from '@/features/trading/composables/useMarketPartiesController'
 import {
   feedDateOptions,
+  feedMatchOptions,
   feedPageSizeOptions,
   useTradingFeedController,
 } from '@/features/trading/composables/useTradingFeedController'
@@ -365,6 +372,7 @@ async function viewChat(chatId, accountId, messageId, messageTime) {
 const accounts          = ref([])
 const selectedAccount   = ref('')
 const selectedStatus    = ref('open')
+const selectedMatch     = ref('all')
 const formattedPriceList = ref('')
 // Hot-settable WhatsApp price-reply composition (§ AI Instructions > Trading
 // dashboard) — same defaults the backend falls back to.
@@ -449,6 +457,7 @@ const feedController = useTradingFeedController({
   api: tradingApi,
   accountId: selectedAccount,
   status: selectedStatus,
+  match: selectedMatch,
   contacts: { buy: buyContact, sell: sellContact },
   resetContact: type => contactPickers.clear(type, { notify: false, reload: true }),
 })
@@ -804,6 +813,15 @@ function setStatusFilter(val) {
   loadContactOptions('buy', { reset: true })
   loadContactOptions('sell', { reset: true })
   refresh()
+}
+
+// Narrows both feeds on top of status/contact/date; unlike status it keeps the chosen
+// contacts, since the match filter doesn't change which contacts are relevant.
+function setMatchFilter(val) {
+  selectedMatch.value = val
+  feedController.resetPages()
+  feedController.load('buy')
+  feedController.load('sell')
 }
 
 const productMap = computed(() => {
@@ -1233,6 +1251,7 @@ onUnmounted(() => {
 .header-right { display: flex; flex-wrap: wrap; row-gap: 6px; gap: 7px; align-items: center; margin-left: auto; }
 .toolbar-control { display: flex; align-items: center; gap: 6px; color: var(--ui-text-muted); font-size: .72rem; font-weight: 700; text-transform: uppercase; }
 .status-filter-select { width: 126px; text-transform: none; }
+.match-filter-select { width: 126px; text-transform: none; }
 .account-select { padding: 5px 10px; border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-xs); background: var(--ui-surface); color: var(--ui-text); font-size: 0.85rem; }
 .toolbar-icon-button { display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-xs); background: var(--ui-surface); color: var(--ui-text-muted); cursor: pointer; }
 .toolbar-icon-button:hover { border-color: var(--ui-primary); color: var(--ui-primary); }
