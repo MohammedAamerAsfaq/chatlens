@@ -12,6 +12,14 @@ from apps.real_estate.services.opportunity_search_scoring import rank_opportunit
 
 
 RELEVANCE_THRESHOLDS = {'all': 0.0, 'possible': 0.35, 'strong': 0.55}
+# Search category meaning every activity type at once.
+ALL_ACTIVITY_TYPES = 'all'
+
+
+def valid_search_activity_type(activity_type):
+    return activity_type == ALL_ACTIVITY_TYPES or activity_type in {
+        value for value, _label in ActivityType.choices
+    }
 
 
 def search_opportunities(
@@ -20,28 +28,24 @@ def search_opportunities(
 ):
     """Return a lane ranked by vectors plus explicit property constraints."""
     _validate(activity_type, relevance)
-    queryset = queryset.filter(
-        activity_type=activity_type,
-        classification_status=ClassificationStatus.CLASSIFIED,
-    )
+    queryset = queryset.filter(classification_status=ClassificationStatus.CLASSIFIED)
+    if activity_type != ALL_ACTIVITY_TYPES:
+        queryset = queryset.filter(activity_type=activity_type)
     query = (query or '').strip()
     if not query:
         return queryset
 
     embedding_query = search_plan.embedding_query if search_plan else query
     vector = ai_manager.embed(embedding_query, company=company)
-    is_requirement = activity_type in ActivityType.requirement_values()
-    embedding_field = (
-        'requirement__embedding_record__embedding'
-        if is_requirement else 'property_candidate__embedding_record__embedding'
-    )
-    status_field = (
-        'requirement__embedding_record__status'
-        if is_requirement else 'property_candidate__embedding_record__status'
-    )
-    rows = list(queryset.filter(
-        **{status_field: EmbeddingStatus.EMBEDDED, f'{embedding_field}__isnull': False},
-    ).annotate(search_distance=CosineDistance(embedding_field, vector)))
+    # Requirements (buying, leasing inquiry) and offers (selling, leasing offer) are embedded
+    # on different records; "all" searches both and ranks them together with one scoring.
+    if activity_type == ALL_ACTIVITY_TYPES:
+        rows = (
+            _embedded_rows(queryset.filter(activity_type__in=ActivityType.requirement_values()), vector, True)
+            + _embedded_rows(queryset.filter(activity_type__in=ActivityType.offer_values()), vector, False)
+        )
+    else:
+        rows = _embedded_rows(queryset, vector, activity_type in ActivityType.requirement_values())
     constraints = search_plan.constraints if search_plan else parse_constraints(query, company)
     for row in rows:
         rank_opportunity(row, constraints)
@@ -53,8 +57,16 @@ def search_opportunities(
     return _group(rows) if group_duplicates else rows
 
 
+def _embedded_rows(queryset, vector, is_requirement):
+    record = 'requirement' if is_requirement else 'property_candidate'
+    embedding_field = f'{record}__embedding_record__embedding'
+    return list(queryset.filter(
+        **{f'{record}__embedding_record__status': EmbeddingStatus.EMBEDDED, f'{embedding_field}__isnull': False},
+    ).annotate(search_distance=CosineDistance(embedding_field, vector)))
+
+
 def _validate(activity_type, relevance):
-    if activity_type not in {value for value, _label in ActivityType.choices}:
+    if not valid_search_activity_type(activity_type):
         raise ValueError('A valid Real Estate activity type is required.')
     if relevance not in RELEVANCE_THRESHOLDS:
         raise ValueError('Relevance must be all, possible, or strong.')
@@ -86,4 +98,5 @@ def _row_fingerprint(row):
             item.property_type_id or 0, _normalize(item.location_raw),
             str(item.bedrooms_min or ''), str(amount or ''), item.currency,
         ))
-    return repr(sorted(values))
+    # Activity type is part of the key so "all" never groups a buyer with a seller.
+    return repr((row.activity_type, sorted(values)))

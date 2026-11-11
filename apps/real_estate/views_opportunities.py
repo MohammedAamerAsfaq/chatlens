@@ -21,7 +21,7 @@ from apps.real_estate.services.opportunity_item_service import (
 )
 from apps.real_estate.services.inquiry_media import seed_default_inquiry_media
 from apps.real_estate.services.manual_opportunities import create_manual_opportunity
-from apps.real_estate.services.opportunity_search import search_opportunities
+from apps.real_estate.services.opportunity_search import ALL_ACTIVITY_TYPES, search_opportunities
 from apps.real_estate.services.opportunity_search_input import prepare_opportunity_search
 
 
@@ -40,7 +40,8 @@ class OpportunityViewSet(CompanyOwnedViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         for param in ('activity_type', 'classification_status', 'status'):
-            if value := self.request.query_params.get(param):
+            value = self.request.query_params.get(param)
+            if value and not (param == 'activity_type' and value == ALL_ACTIVITY_TYPES):
                 qs = qs.filter(**{param: value})
         if search := self.request.query_params.get('search'):
             qs = qs.filter(

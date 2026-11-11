@@ -5,8 +5,9 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
-from apps.real_estate.models import ActivityType, RealEstateAgentCallLog, RealEstatePromptConfig
+from apps.real_estate.models import RealEstateAgentCallLog, RealEstatePromptConfig
 from apps.real_estate.services.agent_call import call_real_estate_agent
+from apps.real_estate.services.opportunity_search import valid_search_activity_type
 from apps.real_estate.services.opportunity_search_query import build_constraints, parse_constraints
 from apps.real_estate.services.property_attributes import normalize_number
 from apps.real_estate.services.prompts import configured_prompt
@@ -28,7 +29,7 @@ class OpportunitySearchPlan:
 
 def prepare_opportunity_search(*, company, activity_type, query, mode=SEARCH_MODE_HYBRID):
     query = (query or '').strip()
-    if activity_type not in {value for value, _label in ActivityType.choices}:
+    if not valid_search_activity_type(activity_type):
         raise ValueError('A valid Real Estate activity type is required.')
     if mode not in SEARCH_MODES:
         raise ValueError('Search mode must be hybrid or structured.')

@@ -10,25 +10,20 @@ import UiPage from '@/components/ui/UiPage.vue'
 import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import TradingConversationDialog from '@/features/trading/components/TradingConversationDialog.vue'
-import { useTradingConversationDialog } from '@/features/trading/composables/useTradingConversationDialog'
+import { useOpportunityWhatsApp } from '@/features/realEstate/composables/useOpportunityWhatsApp'
 import { apiError } from '@/features/realEstate/apiErrors'
 import {
   formatDate, money, opportunityParty, opportunityStatuses, statusTone,
 } from '@/features/realEstate/boardOptions'
 import { title } from '@/features/realEstate/options'
 import { useAuthStore } from '@/stores/auth'
-import { useConversationsStore } from '@/stores/conversations'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const canUpdate = computed(() => auth.hasPermission('real_estate.opportunities.update'))
 
-// Reuses the same "open the original WhatsApp message" mechanism as the Trading
-// inquiries board (MessagePanel inside a modal, deep-linked to the source chat +
-// message) - nothing here is trading-specific, it just lives under that feature folder.
-const conversationsStore = useConversationsStore()
-const conversationDialog = useTradingConversationDialog(conversationsStore)
+const { dialog: waDialog, viewSource, openInInbox, messageContact } = useOpportunityWhatsApp()
 const {
   open: waDialogOpen,
   loading: waDialogLoading,
@@ -37,30 +32,7 @@ const {
   inquiry: waDialogInquiry,
   title: waDialogTitle,
   close: closeWaDialog,
-  openSource: openWaSource,
-  openSourceInInbox,
-} = conversationDialog
-
-function sourceTarget() {
-  return {
-    account: opportunity.value.account,
-    source_chat_id: opportunity.value.source_chat,
-    source_message_id: opportunity.value.source_message,
-    source_message_time: opportunity.value.source_message_time,
-    contact_name: opportunity.value.contact_name,
-    contact_phone: opportunity.value.contact_phone,
-  }
-}
-
-function openSourceMessage() {
-  if (!opportunity.value?.source_chat) return
-  openWaSource(sourceTarget(), { title: 'Original Message', draft: '' })
-}
-
-function openSourceInboxMessage() {
-  if (!opportunity.value?.source_chat) return
-  openSourceInInbox(sourceTarget())
-}
+} = waDialog
 
 const opportunity = ref(null)
 const properties = ref([])
@@ -178,8 +150,9 @@ onMounted(() => Promise.all([load(), loadProperties()]))
             <dt>Source</dt>
             <dd>
               {{ opportunity.source_chat_name || opportunity.source_reference || 'Manual entry' }}
-              <button v-if="opportunity.source_chat" type="button" class="wa-ref-link" @click="openSourceMessage">View WhatsApp message</button>
-              <button v-if="opportunity.source_chat" type="button" class="wa-ref-link" @click="openSourceInboxMessage">Open in Inbox</button>
+              <button v-if="opportunity.source_chat" type="button" class="wa-ref-link" @click="viewSource(opportunity)">View WhatsApp message</button>
+              <button v-if="opportunity.source_chat" type="button" class="wa-ref-link" @click="openInInbox(opportunity)">Open in Inbox</button>
+              <button v-if="opportunity.contact" type="button" class="wa-ref-link" @click="messageContact(opportunity)">Message contact</button>
             </dd>
           </div>
           <div v-if="opportunity.source_reference"><dt>Reference</dt><dd>{{ opportunity.source_reference }}</dd></div>

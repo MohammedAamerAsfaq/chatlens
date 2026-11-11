@@ -1,6 +1,9 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import { faWhatsapp } from '@fortawesome/free-brands-svg-icons'
+import { faInbox, faMessage } from '@fortawesome/free-solid-svg-icons'
 import { realEstateApi } from '@/api'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
@@ -13,10 +16,22 @@ import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTabs from '@/components/ui/UiTabs.vue'
+import TradingConversationDialog from '@/features/trading/components/TradingConversationDialog.vue'
+import { useOpportunityWhatsApp } from '@/features/realEstate/composables/useOpportunityWhatsApp'
 import { apiError } from '@/features/realEstate/apiErrors'
 import { formatDate, moneyRange, opportunityLanes, opportunityParty, statusFilters } from '@/features/realEstate/boardOptions'
 
 const router = useRouter()
+const { dialog: waDialog, viewSource, openInInbox, messageContact } = useOpportunityWhatsApp()
+const {
+  open: waDialogOpen,
+  loading: waDialogLoading,
+  error: waDialogError,
+  draft: waDialogDraft,
+  inquiry: waDialogInquiry,
+  title: waDialogTitle,
+  close: closeWaDialog,
+} = waDialog
 const activeActivity = ref('buying')
 const query = ref('')
 const submittedQuery = ref('')
@@ -34,7 +49,9 @@ const pageSize = ref(20)
 const loading = ref(false)
 const error = ref('')
 const pages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
-const tabs = opportunityLanes.map(lane => ({ value: lane.key, label: lane.label }))
+// "all" searches every activity type at once (requirements and offers ranked together).
+const tabs = [{ value: 'all', label: 'All' }, ...opportunityLanes.map(lane => ({ value: lane.key, label: lane.label }))]
+const laneLabels = Object.fromEntries(opportunityLanes.map(lane => [lane.key, lane.label]))
 const pageSizes = [10, 20, 50].map(value => ({ value, label: `${value} results` }))
 const relevanceOptions = [
   { value: 'strong', label: 'Strong matches only' },
@@ -157,6 +174,7 @@ onMounted(load)
         <header>
           <div><h2>{{ opportunityParty(row) }}</h2><p>#{{ row.id }} - {{ formatDate(row.first_seen_at) }}</p></div>
           <div class="opportunity-search__badges">
+            <UiBadge v-if="activeActivity === 'all'" tone="info">{{ laneLabels[row.activity_type] || row.activity_type }}</UiBadge>
             <UiBadge>{{ row.status }}</UiBadge>
             <UiBadge v-if="row.search_score != null" :tone="relevanceTone(row.search_relevance)">{{ Math.round(row.search_score * 100) }}% {{ row.search_relevance }}</UiBadge>
             <UiBadge v-if="row.duplicate_count > 1" tone="neutral">{{ row.duplicate_count }} similar</UiBadge>
@@ -177,10 +195,31 @@ onMounted(load)
           </div>
           <span v-if="!row.items?.length" class="opportunity-search__empty">No extracted property items.</span>
         </div>
+        <footer v-if="row.source_chat || row.contact" class="opportunity-search__actions" @click.stop @keydown.stop>
+          <UiButton v-if="row.source_chat" size="small" variant="outline" title="View the original WhatsApp message" @click="viewSource(row)">
+            <FontAwesomeIcon :icon="faWhatsapp" />
+          </UiButton>
+          <UiButton v-if="row.source_chat" size="small" variant="outline" title="Open the original message in the WhatsApp Inbox" @click="openInInbox(row)">
+            <FontAwesomeIcon :icon="faInbox" />
+          </UiButton>
+          <UiButton v-if="row.contact" size="small" variant="outline" title="Message this contact directly" @click="messageContact(row)">
+            <FontAwesomeIcon :icon="faMessage" />
+          </UiButton>
+        </footer>
       </article>
     </section>
     <UiNotice v-else-if="!loading && !error" tone="neutral">No opportunities match this search.</UiNotice>
     <UiPagination :page="page" :pages="pages" @change="changePage" />
+
+    <TradingConversationDialog
+      :open="waDialogOpen"
+      :title="waDialogTitle"
+      :inquiry="waDialogInquiry"
+      :loading="waDialogLoading"
+      :error="waDialogError"
+      :draft="waDialogDraft"
+      @close="closeWaDialog"
+    />
   </UiPage>
 </template>
 
@@ -198,6 +237,7 @@ onMounted(load)
 .opportunity-search__result { background:var(--ui-surface); border:1px solid var(--ui-border); border-left:4px solid var(--ui-primary); border-radius:var(--ui-radius); padding:1rem; cursor:pointer; }
 .opportunity-search__result:hover { box-shadow:var(--ui-shadow); transform:translateY(-1px); }
 .opportunity-search__result header { display:flex; justify-content:space-between; gap:1rem; }
+.opportunity-search__actions { display:flex; justify-content:flex-end; gap:.4rem; margin-top:.8rem; padding-top:.7rem; border-top:1px solid var(--ui-border); cursor:default; }
 .opportunity-search__result h2,.opportunity-search__result header p { margin:0; }
 .opportunity-search__badges { display:flex; gap:.4rem; align-items:flex-start; }
 .opportunity-search__message { margin:.8rem 0; }

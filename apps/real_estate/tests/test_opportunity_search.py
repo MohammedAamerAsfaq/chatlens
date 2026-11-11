@@ -225,6 +225,72 @@ class OpportunitySearchApiTests(TestCase):
         self.assertEqual([row['id'] for row in response.json()['results']], [visible.pk])
         embed.assert_not_called()
 
+    def embedded_buyer(self, summary, vector):
+        opportunity = self.create_opportunity(ActivityType.BUYING, summary=summary)
+        requirement = PropertyRequirement.objects.create(company=self.company, opportunity=opportunity)
+        RequirementEmbedding.objects.create(
+            company=self.company, requirement=requirement,
+            status=EmbeddingStatus.EMBEDDED, embedding=vector,
+        )
+        return opportunity
+
+    def embedded_seller(self, summary, vector, *, company=None):
+        company = company or self.company
+        opportunity = self.create_opportunity(ActivityType.SELLING, company=company, summary=summary)
+        candidate = PropertyCandidate.objects.create(company=company, opportunity=opportunity)
+        CandidateEmbedding.objects.create(
+            company=company, candidate=candidate,
+            status=EmbeddingStatus.EMBEDDED, embedding=vector,
+        )
+        return opportunity
+
+    @patch('apps.real_estate.services.opportunity_search.ai_manager.embed')
+    def test_all_categories_ranks_requirements_and_offers_together(self, embed):
+        embed.return_value = self.vector(1.0)
+        seller = self.embedded_seller('Marina villa for sale', self.vector(1.0))
+        buyer = self.embedded_buyer('Buyer wants a marina villa', self.vector(0.5, 1.0))
+        self.embedded_seller('Hidden villa', self.vector(1.0), company=self.other_company)
+
+        response = self.client.get('/api/real-estate/opportunities/search/', {
+            'activity_type': 'all', 'q': 'marina villa', 'relevance': 'all',
+        })
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual([row['id'] for row in response.json()['results']], [seller.pk, buyer.pk])
+        embed.assert_called_once()
+
+    @patch('apps.real_estate.services.opportunity_search.ai_manager.embed')
+    def test_all_categories_blank_query_browses_every_lane(self, embed):
+        buying = self.create_opportunity(ActivityType.BUYING)
+        leasing = self.create_opportunity(ActivityType.LEASING_OFFER)
+
+        response = self.client.get('/api/real-estate/opportunities/search/', {'activity_type': 'all'})
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual({row['id'] for row in response.json()['results']}, {buying.pk, leasing.pk})
+        embed.assert_not_called()
+
+    @patch('apps.real_estate.services.opportunity_search.ai_manager.embed')
+    def test_all_categories_never_groups_a_buyer_with_a_seller(self, embed):
+        embed.return_value = self.vector(1.0)
+        seller = self.embedded_seller('Marina villa', self.vector(1.0))
+        buyer = self.embedded_buyer('Marina villa', self.vector(1.0))
+        for opportunity in (seller, buyer):
+            OpportunityItem.objects.create(
+                company=self.company, opportunity=opportunity, sequence=1,
+                item_kind=OpportunityItem.KIND_DEMAND, amount_role=OpportunityItem.AMOUNT_BUDGET,
+                title='Villa', location_raw='Dubai Marina',
+            )
+
+        response = self.client.get('/api/real-estate/opportunities/search/', {
+            'activity_type': 'all', 'q': 'marina villa', 'relevance': 'all', 'group_duplicates': 'true',
+        })
+
+        self.assertEqual(response.status_code, 200, response.json())
+        rows = response.json()['results']
+        self.assertEqual({row['id'] for row in rows}, {seller.pk, buyer.pk})
+        self.assertTrue(all(row['duplicate_count'] == 1 for row in rows))
+
     def test_activity_is_required(self):
         response = self.client.get('/api/real-estate/opportunities/search/')
 

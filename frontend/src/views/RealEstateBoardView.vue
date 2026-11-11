@@ -12,12 +12,11 @@ import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTabs from '@/components/ui/UiTabs.vue'
 import OpportunityLane from '@/features/realEstate/components/OpportunityLane.vue'
 import TradingConversationDialog from '@/features/trading/components/TradingConversationDialog.vue'
-import { useTradingConversationDialog } from '@/features/trading/composables/useTradingConversationDialog'
+import { useOpportunityWhatsApp } from '@/features/realEstate/composables/useOpportunityWhatsApp'
 import { opportunityLanes, opportunityStatuses, statusFilters } from '@/features/realEstate/boardOptions'
 import { cardFields, defaultCardFieldIds } from '@/features/realEstate/cardFields'
 import { apiError } from '@/features/realEstate/apiErrors'
 import { useAuthStore } from '@/stores/auth'
-import { useConversationsStore } from '@/stores/conversations'
 
 const COLUMNS_STORAGE_KEY = 'chatlens:real-estate-board:columns'
 const PAGE_SIZE_STORAGE_KEY = 'chatlens:real-estate-board:page-size'
@@ -45,10 +44,7 @@ const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 
-// Reuses the same "open the original WhatsApp message" mechanism as the Trading
-// inquiries board (MessagePanel inside a modal, deep-linked to the source chat +
-// message) - nothing here is trading-specific, it just lives under that feature folder.
-const conversationsStore = useConversationsStore()
+const { dialog: waDialog, viewSource, openInInbox, messageContact } = useOpportunityWhatsApp()
 const {
   open: waDialogOpen,
   loading: waDialogLoading,
@@ -57,43 +53,8 @@ const {
   inquiry: waDialogInquiry,
   title: waDialogTitle,
   close: closeWaDialog,
-  openSource: openWaSource,
-  openSourceInInbox,
-  openDirect: openWaDirect,
-} = useTradingConversationDialog(conversationsStore)
+} = waDialog
 
-function sourceTarget(opportunity) {
-  return {
-    account: opportunity.account,
-    source_chat_id: opportunity.source_chat,
-    source_message_id: opportunity.source_message,
-    source_message_time: opportunity.source_message_time,
-    contact_name: opportunity.contact_name,
-    contact_phone: opportunity.contact_phone,
-  }
-}
-
-function openSourceMessage(opportunity) {
-  if (!opportunity.source_chat) return
-  openWaSource(sourceTarget(opportunity), { title: 'Original Message', draft: '' })
-}
-
-function openSourceInboxMessage(opportunity) {
-  if (!opportunity.source_chat) return
-  openSourceInInbox(sourceTarget(opportunity))
-}
-
-// One-to-one chat with the opportunity's contact (even when the source was a group),
-// in the same dialog, ready to type a message.
-function messageContact(opportunity) {
-  if (!opportunity.contact) return
-  openWaDirect({
-    account: opportunity.account,
-    contact: opportunity.contact,
-    contact_name: opportunity.contact_name,
-    contact_phone: opportunity.contact_phone,
-  }, { title: 'Direct Message', draft: '' })
-}
 const search = ref('')
 const status = ref('')
 const requestedLane = opportunityLanes.some(lane => lane.key === route.query.lane)
@@ -351,8 +312,8 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
         @change-page="goToPage"
         @open="opportunity => router.push({ name: 'real-estate-opportunity-detail', params: { id: opportunity.id } })"
         @set-status="setOpportunityStatus"
-        @view-source="openSourceMessage"
-        @open-inbox="openSourceInboxMessage"
+        @view-source="viewSource"
+        @open-inbox="openInInbox"
         @message-contact="messageContact"
       />
     </div>
