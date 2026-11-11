@@ -8,6 +8,9 @@ import { useTradingContactPicker } from '../composables/useTradingContactPicker'
 import { useTradingConversationDialog } from '../composables/useTradingConversationDialog'
 import { feedDateRangeParams, useTradingFeedController } from '../composables/useTradingFeedController'
 
+const routerPush = vi.fn().mockResolvedValue()
+vi.mock('vue-router', () => ({ useRouter: () => ({ push: routerPush }) }))
+
 describe('Trading feature controllers', () => {
   it('builds local calendar and rolling feed ranges', () => {
     const now = new Date('2026-10-03T12:00:00+04:00')
@@ -103,6 +106,21 @@ describe('Trading feature controllers', () => {
     expect(store.selectChat).toHaveBeenCalledWith(8, { messageId: 12, messageTime: 'now' })
     expect(dialog.loading.value).toBe(false)
     expect(dialog.error.value).toBe('')
+  })
+
+  it('opens the source message in the WhatsApp Inbox', async () => {
+    const store = {
+      selectedAccountId: 1,
+      switchAccount: vi.fn().mockResolvedValue(),
+      selectChat: vi.fn().mockResolvedValue(),
+    }
+    const dialog = useTradingConversationDialog(store)
+    await dialog.openSourceInInbox({ account: 2, source_chat_id: 8, source_message_id: 12, source_message_time: 'now' })
+
+    expect(store.switchAccount).toHaveBeenCalledWith(2)
+    expect(routerPush).toHaveBeenCalledWith({ name: 'conversations' })
+    expect(store.selectChat).toHaveBeenCalledWith(8, { messageId: 12, messageTime: 'now' })
+    expect(dialog.open.value).toBe(false)
   })
 
   it('creates a catalog product and patches the inquiry feed', async () => {

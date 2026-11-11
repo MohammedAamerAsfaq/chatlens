@@ -118,16 +118,25 @@ export const useConversationsStore = defineStore('conversations', () => {
     clearUnread(chats.value, accounts.value, id, selectedAccountId.value)
     chatsApi.markRead(id).catch(() => {})
     try {
-      const params = { limit: 40 }
       if (messageTime) {
-        // Load 40 messages ending just after the target so it appears near the bottom
+        // Load a window around the target (it plus older messages, and newer messages
+        // after it) so it can sit mid-view with context on both sides. Messages newer than
+        // the window keep arriving through the 5s poll.
         const t = new Date(messageTime)
         t.setSeconds(t.getSeconds() + 1)
-        params.before = t.toISOString()
+        const cursor = t.toISOString()
+        const [older, newer] = await Promise.all([
+          chatsApi.messages(id, { before: cursor, limit: 30 }),
+          chatsApi.messages(id, { after: cursor, limit: 20 }),
+        ])
+        const olderIds = new Set(older.data.results.map(m => m.id))
+        messages.value = [...older.data.results, ...newer.data.results.filter(m => !olderIds.has(m.id))]
+        hasMoreMessages.value = older.data.has_more
+      } else {
+        const { data } = await chatsApi.messages(id, { limit: 40 })
+        messages.value = data.results
+        hasMoreMessages.value = data.has_more
       }
-      const { data } = await chatsApi.messages(id, params)
-      messages.value = data.results
-      hasMoreMessages.value = data.has_more
       if (messageId) highlightMessageId.value = messageId
       if (messageId) highlightChatId.value = id
     } finally {

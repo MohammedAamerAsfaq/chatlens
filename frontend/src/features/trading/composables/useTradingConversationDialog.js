@@ -1,6 +1,8 @@
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 export function useTradingConversationDialog(conversationsStore) {
+  const router = useRouter()
   const open = ref(false)
   const loading = ref(false)
   const error = ref('')
@@ -55,6 +57,21 @@ export function useTradingConversationDialog(conversationsStore) {
     }
   }
 
+  // Same deep link as openSource, but in the full WhatsApp Inbox page instead of the
+  // modal. The store selection (chat + source message) carries over to the Inbox's
+  // MessagePanel, which jumps to and marks the message.
+  async function openSourceInInbox(target) {
+    if (!target?.source_chat_id) return
+    if (String(conversationsStore.selectedAccountId) !== String(target.account)) {
+      await conversationsStore.switchAccount(target.account)
+    }
+    await router.push({ name: 'conversations' })
+    await conversationsStore.selectChat(target.source_chat_id, {
+      messageId: target.source_message_id,
+      messageTime: target.source_message_time,
+    })
+  }
+
   function close() {
     open.value = false
     inquiry.value = null
@@ -64,5 +81,5 @@ export function useTradingConversationDialog(conversationsStore) {
     conversationsStore.stopPolling()
   }
 
-  return { open, loading, error, draft, inquiry, title, openDirect, openSource, close }
+  return { open, loading, error, draft, inquiry, title, openDirect, openSource, openSourceInInbox, close }
 }

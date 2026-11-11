@@ -38,18 +38,28 @@ const {
   title: waDialogTitle,
   close: closeWaDialog,
   openSource: openWaSource,
+  openSourceInInbox,
 } = conversationDialog
 
-function openSourceMessage() {
-  if (!opportunity.value?.source_chat) return
-  openWaSource({
+function sourceTarget() {
+  return {
     account: opportunity.value.account,
     source_chat_id: opportunity.value.source_chat,
     source_message_id: opportunity.value.source_message,
     source_message_time: opportunity.value.source_message_time,
     contact_name: opportunity.value.contact_name,
     contact_phone: opportunity.value.contact_phone,
-  }, { title: 'Original Message', draft: '' })
+  }
+}
+
+function openSourceMessage() {
+  if (!opportunity.value?.source_chat) return
+  openWaSource(sourceTarget(), { title: 'Original Message', draft: '' })
+}
+
+function openSourceInboxMessage() {
+  if (!opportunity.value?.source_chat) return
+  openSourceInInbox(sourceTarget())
 }
 
 const opportunity = ref(null)
@@ -169,6 +179,7 @@ onMounted(() => Promise.all([load(), loadProperties()]))
             <dd>
               {{ opportunity.source_chat_name || opportunity.source_reference || 'Manual entry' }}
               <button v-if="opportunity.source_chat" type="button" class="wa-ref-link" @click="openSourceMessage">View WhatsApp message</button>
+              <button v-if="opportunity.source_chat" type="button" class="wa-ref-link" @click="openSourceInboxMessage">Open in Inbox</button>
             </dd>
           </div>
           <div v-if="opportunity.source_reference"><dt>Reference</dt><dd>{{ opportunity.source_reference }}</dd></div>

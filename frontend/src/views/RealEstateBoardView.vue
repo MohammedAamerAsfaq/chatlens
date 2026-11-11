@@ -58,18 +58,28 @@ const {
   title: waDialogTitle,
   close: closeWaDialog,
   openSource: openWaSource,
+  openSourceInInbox,
 } = useTradingConversationDialog(conversationsStore)
 
-function openSourceMessage(opportunity) {
-  if (!opportunity.source_chat) return
-  openWaSource({
+function sourceTarget(opportunity) {
+  return {
     account: opportunity.account,
     source_chat_id: opportunity.source_chat,
     source_message_id: opportunity.source_message,
     source_message_time: opportunity.source_message_time,
     contact_name: opportunity.contact_name,
     contact_phone: opportunity.contact_phone,
-  }, { title: 'Original Message', draft: '' })
+  }
+}
+
+function openSourceMessage(opportunity) {
+  if (!opportunity.source_chat) return
+  openWaSource(sourceTarget(opportunity), { title: 'Original Message', draft: '' })
+}
+
+function openSourceInboxMessage(opportunity) {
+  if (!opportunity.source_chat) return
+  openSourceInInbox(sourceTarget(opportunity))
 }
 const search = ref('')
 const status = ref('')
@@ -329,6 +339,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
         @open="opportunity => router.push({ name: 'real-estate-opportunity-detail', params: { id: opportunity.id } })"
         @set-status="setOpportunityStatus"
         @view-source="openSourceMessage"
+        @open-inbox="openSourceInboxMessage"
       />
     </div>
 

@@ -1,5 +1,5 @@
 <script setup>
-import { watch, nextTick, ref, computed, onUnmounted } from 'vue'
+import { watch, nextTick, ref, computed, onMounted, onUnmounted } from 'vue'
 import { useConversationsStore } from '@/stores/conversations'
 import { accountsApi, outboundAssetsApi } from '@/api'
 import ClientPulseChatAction from '@/features/clientpulse/components/ClientPulseChatAction.vue'
@@ -186,12 +186,11 @@ const lastMessageId = computed(() =>
 
 watch(lastMessageId, async (newId) => {
   if (!newId || store.loadingOlderMessages) return
-  // A deep-linked/highlighted message (e.g. "view original" from Trading or Real
-  // Estate) is deliberately not at the bottom - don't let a background poll that
-  // appends later history (refreshMessages) yank the view away from it. Once the
-  // user has actually scrolled to the bottom themselves, isAtBottom covers the
-  // normal "new message arrived while already watching live" case.
-  if (store.highlightMessageId || !isAtBottom.value) return
+  // A deep-linked source message (e.g. "view original" from Trading or Real Estate)
+  // stays in view until the user scrolls themselves - a background poll appending later
+  // history (refreshMessages) must not yank the view away from it. After that,
+  // isAtBottom covers the normal "new message arrived while watching live" case.
+  if (anchorPinned.value || !isAtBottom.value) return
   await nextTick()
   scrollToBottom()
   // Second pass: handles images/media that affect height after initial render
@@ -222,19 +221,74 @@ watch(sendingEnabled, (enabled, previous) => {
   if (enabled && !previous) loadPreflight()
 })
 
-// Scroll to and highlight a specific message when navigated from Trading
-watch(() => store.highlightMessageId, async (msgId) => {
-  if (!msgId) return
-  await nextTick()
-  const el = messagesEl.value?.querySelector(`[data-msg-id="${msgId}"]`)
-  if (!el) return
-  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  el.classList.add('msg-highlight')
-  setTimeout(() => {
-    el.classList.remove('msg-highlight')
-    store.highlightMessageId = null
-  }, 3000)
-}, { immediate: true })
+// Deep-linked source message (navigated from Trading / Real Estate / reports).
+// - Jumps instantly (a smooth scroll gets interrupted by load-older and image loads).
+// - Stays pinned mid-view, re-centering as images above it load, until the user
+//   scrolls, clicks or types in the message list.
+// - The source marker is a reactive class, so poll re-renders never wipe it; it stays
+//   for as long as this chat is open, and pulses while pinned.
+const anchorPinned = ref(false)
+const anchorPulsing = ref(false)
+const anchorMissing = ref(false)
+let anchoredFor = null
+let pulseTimer = null
+
+function isSourceMessage(msg) {
+  return store.highlightMessageId != null && String(msg.id) === String(store.highlightMessageId)
+}
+
+function centerAnchor() {
+  const container = messagesEl.value
+  const el = container?.querySelector(`[data-msg-id="${store.highlightMessageId}"]`)
+  if (!el) return false
+  const offset = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop
+  container.scrollTop = Math.max(0, offset - (container.clientHeight - el.offsetHeight) / 2)
+  return true
+}
+
+// Called on wheel/touch/pointer/key in the message list: the user is now in control.
+function releaseAnchor() {
+  anchorPinned.value = false
+}
+
+function onMediaLoaded() {
+  if (anchorPinned.value) centerAnchor()
+}
+
+function anchorToSourceMessage() {
+  const msgId = store.highlightMessageId
+  const key = msgId == null ? null : `${store.selectedChatId}:${msgId}`
+  if (key === null) {
+    anchoredFor = null
+    anchorMissing.value = false
+    anchorPinned.value = false
+    return
+  }
+  if (key === anchoredFor || store.loadingMessages || !store.messages.length) return
+  anchoredFor = key
+  if (!centerAnchor()) {
+    // Fail loud: the source message is not in the loaded window.
+    anchorMissing.value = true
+    anchorPinned.value = false
+    return
+  }
+  anchorMissing.value = false
+  anchorPinned.value = true
+  anchorPulsing.value = true
+  clearTimeout(pulseTimer)
+  pulseTimer = setTimeout(() => { anchorPulsing.value = false }, 10000)
+}
+
+// flush 'post' so the rendered message rows exist; the first check runs on mount for
+// panels opened after the messages were already loaded (the source-message dialog).
+watch(
+  () => [store.highlightMessageId, store.selectedChatId, store.loadingMessages, store.messages.length],
+  anchorToSourceMessage,
+  { flush: 'post' },
+)
+onMounted(anchorToSourceMessage)
+
+onUnmounted(() => clearTimeout(pulseTimer))
 
 function scrollToBottom() {
   if (messagesEl.value) {
@@ -248,7 +302,7 @@ async function onScroll() {
   if (!el) return
   const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
   isAtBottom.value = distFromBottom < 80
-  if (store.loadingOlderMessages || !store.hasMoreMessages) return
+  if (anchorPinned.value || store.loadingOlderMessages || !store.hasMoreMessages) return
   if (el.scrollTop < 80) {
     const prevHeight = el.scrollHeight
     await store.loadOlderMessages()
@@ -406,7 +460,16 @@ watch(lightbox, (val) => {
         ref="messagesEl"
         class="message-panel__messages h-full overflow-y-auto px-4 py-3"
         @scroll.passive="onScroll"
+        @wheel.passive="releaseAnchor"
+        @touchstart.passive="releaseAnchor"
+        @pointerdown="releaseAnchor"
+        @keydown="releaseAnchor"
+        @load.capture="onMediaLoaded"
+        @loadedmetadata.capture="onMediaLoaded"
       >
+        <div v-if="anchorMissing" class="flex justify-center py-2">
+          <span class="text-xs text-red-600 bg-white px-3 py-1 rounded-full shadow-sm">The source message was not found in this chat's loaded history.</span>
+        </div>
         <!-- Load-older spinner -->
         <div v-if="store.loadingOlderMessages" class="flex justify-center py-3">
           <span class="text-xs text-gray-500 bg-white px-3 py-1 rounded-full shadow-sm">Loading older messages…</span>
@@ -435,7 +498,14 @@ watch(lightbox, (val) => {
             </div>
 
             <!-- Message -->
-            <div :data-msg-id="msg.id" :class="['group flex items-end gap-1 mb-1', msg.direction === 'outbound' ? 'justify-end' : 'justify-start']">
+            <div
+              :data-msg-id="msg.id"
+              :class="[
+                'group flex items-end gap-1 mb-1',
+                msg.direction === 'outbound' ? 'justify-end' : 'justify-start',
+                { 'msg-source': isSourceMessage(msg), 'msg-source-pulse': isSourceMessage(msg) && anchorPulsing },
+              ]"
+            >
               <!-- WA icon — left of outbound bubble, right of inbound bubble -->
               <a
                 v-if="msg.direction === 'outbound' && waLinkForMessage(msg)"
@@ -754,10 +824,16 @@ watch(lightbox, (val) => {
 .ai-auto { background: #f3f4f6; border: 1px solid var(--ui-border-strong); color: #6b7280; }
 .ai-auto:hover:not(:disabled) { background: #e5e7eb; }
 
-.msg-highlight .message-bubble {
+/* Deep-linked source message: the marker stays while the chat is open; it pulses
+   for the first seconds after the jump so the eye finds it. */
+.msg-source .message-bubble {
   outline: 3px solid #f59e0b;
   outline-offset: 3px;
-  animation: reference-pulse 0.8s ease-in-out 3;
+  background-image: linear-gradient(rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.12));
+}
+
+.msg-source-pulse .message-bubble {
+  animation: reference-pulse 1.2s ease-in-out infinite;
 }
 
 @keyframes reference-pulse {
