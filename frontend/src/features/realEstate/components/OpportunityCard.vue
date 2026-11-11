@@ -3,7 +3,7 @@
 import { computed } from 'vue'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faWhatsapp } from '@fortawesome/free-brands-svg-icons'
-import { faInbox } from '@fortawesome/free-solid-svg-icons'
+import { faInbox, faMessage } from '@fortawesome/free-solid-svg-icons'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiDropdown from '@/components/ui/UiDropdown.vue'
@@ -17,7 +17,7 @@ const props = defineProps({
   fieldIds: { type: Array, default: () => defaultCardFieldIds },
   actionConfig: { type: Object, default: () => ({ statuses: [], max_inline: 2 }) },
 })
-defineEmits(['open', 'set-status', 'view-source', 'open-inbox'])
+defineEmits(['open', 'set-status', 'view-source', 'open-inbox', 'message-contact'])
 
 function fieldValue(id) {
   const field = cardFieldsById[id]
@@ -92,6 +92,13 @@ const overflowStatuses = computed(() => (props.actionConfig.statuses || []).slic
           @click="$emit('open-inbox', opportunity)"
         >
           <FontAwesomeIcon :icon="faInbox" />
+        </UiButton>
+        <UiButton
+          v-if="opportunity.contact"
+          size="small" variant="outline" title="Message this contact directly"
+          @click="$emit('message-contact', opportunity)"
+        >
+          <FontAwesomeIcon :icon="faMessage" />
         </UiButton>
         <UiButton size="small" variant="outline" @click="$emit('open', opportunity)">
           Details

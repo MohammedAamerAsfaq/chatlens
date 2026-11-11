@@ -59,6 +59,7 @@ const {
   close: closeWaDialog,
   openSource: openWaSource,
   openSourceInInbox,
+  openDirect: openWaDirect,
 } = useTradingConversationDialog(conversationsStore)
 
 function sourceTarget(opportunity) {
@@ -80,6 +81,18 @@ function openSourceMessage(opportunity) {
 function openSourceInboxMessage(opportunity) {
   if (!opportunity.source_chat) return
   openSourceInInbox(sourceTarget(opportunity))
+}
+
+// One-to-one chat with the opportunity's contact (even when the source was a group),
+// in the same dialog, ready to type a message.
+function messageContact(opportunity) {
+  if (!opportunity.contact) return
+  openWaDirect({
+    account: opportunity.account,
+    contact: opportunity.contact,
+    contact_name: opportunity.contact_name,
+    contact_phone: opportunity.contact_phone,
+  }, { title: 'Direct Message', draft: '' })
 }
 const search = ref('')
 const status = ref('')
@@ -340,6 +353,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
         @set-status="setOpportunityStatus"
         @view-source="openSourceMessage"
         @open-inbox="openSourceInboxMessage"
+        @message-contact="messageContact"
       />
     </div>
 

@@ -190,11 +190,13 @@ watch(lastMessageId, async (newId) => {
   // stays in view until the user scrolls themselves - a background poll appending later
   // history (refreshMessages) must not yank the view away from it. After that,
   // isAtBottom covers the normal "new message arrived while watching live" case.
-  if (anchorPinned.value || !isAtBottom.value) return
+  if (deepLinkHoldsView() || !isAtBottom.value) return
   await nextTick()
-  scrollToBottom()
+  // Re-checked after every wait: when a deep-linked chat loads into an already-mounted
+  // panel (the Inbox page), the jump lands during that wait.
+  if (!deepLinkHoldsView()) scrollToBottom()
   // Second pass: handles images/media that affect height after initial render
-  setTimeout(scrollToBottom, 150)
+  setTimeout(() => { if (!deepLinkHoldsView()) scrollToBottom() }, 150)
 })
 
 // Also scroll when switching chats (messages may already be loaded)
@@ -208,7 +210,7 @@ watch(() => store.selectedChatId, async (chatId, previousChatId) => {
   isAtBottom.value = true
   await loadPreflight()
   await nextTick()
-  if (!store.highlightMessageId) scrollToBottom()
+  if (!deepLinkHoldsView()) scrollToBottom()
 }, { immediate: true })
 
 watch(() => props.initialDraft, value => {
@@ -244,6 +246,15 @@ function centerAnchor() {
   const offset = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop
   container.scrollTop = Math.max(0, offset - (container.clientHeight - el.offsetHeight) / 2)
   return true
+}
+
+// True while a deep-linked source message owns the scroll position: from the moment it
+// is requested (its jump may still be pending) until the user takes over. Every
+// automatic "follow the newest message" scroll checks this.
+function deepLinkHoldsView() {
+  if (store.highlightMessageId == null) return false
+  if (store.loadingMessages) return true
+  return `${store.selectedChatId}:${store.highlightMessageId}` !== anchoredFor || anchorPinned.value
 }
 
 // Called on wheel/touch/pointer/key in the message list: the user is now in control.
