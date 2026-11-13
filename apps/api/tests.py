@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
@@ -1624,6 +1625,28 @@ class TenantScopedApiTests(TestCase):
         exact.status = InquiryStatus.CLOSED
         exact.save(update_fields=['status'])
         self.assertNotIn(exact.pk, feed_ids(match='exact', status='open'))
+
+    def test_report_summary_counts_every_inquiry_per_status(self):
+        # Regression: tenant scoping used .distinct(), which put the default ordering
+        # (first_seen_at) into GROUP BY, so each status reported a count of 1.
+        seen = now()
+        for n, status_value in enumerate(['open', 'open', 'open', 'closed', 'closed', 'quoted_waiting']):
+            Inquiry.objects.create(
+                company=self.company_a, account=self.account_a, inquiry_type='buy',
+                products=[], summary=f'status {n}', dedup_key=f'buy:report-status:{n}',
+                source_type='direct', status=status_value,
+                first_seen_at=seen - timedelta(minutes=n),
+            )
+        self.client.force_authenticate(self.user_a)
+        resp = self.client.get('/api/reports/summary/', {
+            'date_from': (seen - timedelta(days=1)).date().isoformat(), 'date_to': seen.date().isoformat(),
+        })
+        self.assertEqual(resp.status_code, 200)
+        counts = {row['status']: row['count'] for row in resp.json()['status_breakdown']}
+        self.assertEqual(counts['open'], 3)
+        self.assertEqual(counts['closed'], 2)
+        self.assertEqual(counts['quoted_waiting'], 1)
+        self.assertEqual(sum(counts.values()), resp.json()['total_inquiries_created'])
 
     def test_open_feed_rejects_unknown_match_filter(self):
         self.client.force_authenticate(self.user_a)

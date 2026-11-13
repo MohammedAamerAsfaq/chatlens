@@ -145,9 +145,12 @@ def visible_accounts_queryset(user, qs: QuerySet | None = None) -> QuerySet:
 
 def scope_queryset_to_visible_accounts(qs: QuerySet, user, account_field: str = 'account') -> QuerySet:
     visible_account_ids = visible_accounts_queryset(user).values('pk')
-    return qs.filter(**{f'{account_field}__in': visible_account_ids}).distinct()
+    # No .distinct(): an __in subquery on a single-valued FK path cannot duplicate rows, and
+    # DISTINCT forces the model's default ordering into GROUP BY, which silently turned
+    # .values('status').annotate(Count(...)) reports into one group per row.
+    return qs.filter(**{f'{account_field}__in': visible_account_ids})
 
 
 def scope_queryset_to_visible_companies(qs: QuerySet, user, company_field: str = 'company') -> QuerySet:
     visible_company_ids = visible_companies_queryset(user).values('pk')
-    return qs.filter(**{f'{company_field}__in': visible_company_ids}).distinct()
+    return qs.filter(**{f'{company_field}__in': visible_company_ids})
