@@ -48,7 +48,7 @@ from .serializers import (
 )
 from apps.tenancy.permissions import CompanyAdminPermission, TenantRolePermission
 from .services.inquiry_match_filter import MATCH_FILTER_ALL, MATCH_FILTERS, filter_inquiries_by_match
-from .services import inquiry_sharing
+from .services import inquiry_sharing, inquiry_status
 from .services.product_cache import invalidate as invalidate_product_cache
 
 logger = logging.getLogger(__name__)
@@ -990,15 +990,6 @@ class InquiryViewSet(viewsets.GenericViewSet,
             return self._update_shared(inquiry, status_val, remarks, rating)
 
         update_fields = ['updated_at']
-        if status_val and status_val in InquiryStatus.values:
-            inquiry.status = status_val
-            update_fields.append('status')
-            if status_val in (InquiryStatus.CLOSED, InquiryStatus.DEAL_DONE):
-                inquiry.closed_at = now()
-                update_fields.append('closed_at')
-        if remarks is not None:
-            inquiry.remarks = remarks
-            update_fields.append('remarks')
         if rating is not None:
             try:
                 rating = int(rating)
@@ -1009,8 +1000,34 @@ class InquiryViewSet(viewsets.GenericViewSet,
             inquiry.classification_rating = rating
             update_fields.append('classification_rating')
 
-        inquiry.save(update_fields=update_fields)
+        with transaction.atomic():
+            if status_val:
+                # Status (with its remarks) goes through the status service so the change
+                # is recorded with who made it.
+                try:
+                    inquiry_status.set_status(inquiry, status_val, user=request.user, remarks=remarks)
+                except inquiry_status.InquiryStatusError as exc:
+                    return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            elif remarks is not None:
+                inquiry.remarks = remarks
+                update_fields.append('remarks')
+            if len(update_fields) > 1:
+                inquiry.save(update_fields=update_fields)
         return Response(InquiryDetailSerializer(inquiry).data)
+
+    def update(self, request, *args, **kwargs):
+        # Full PUT would write status through the serializer and skip the status
+        # history; every client uses PATCH.
+        if not kwargs.get('partial'):
+            return Response(
+                {'detail': 'Use PATCH to update an inquiry.'}, status=status.HTTP_405_METHOD_NOT_ALLOWED,
+            )
+        return super().update(request, *args, **kwargs)
+
+    @action(detail=True, methods=['get'], url_path='status-history')
+    def status_history(self, request, pk=None):
+        """Every change to this inquiry's status: who, from, to, remarks, when."""
+        return Response({'results': inquiry_status.status_history(self.get_object())})
 
     def _update_shared(self, inquiry, status_val, remarks, rating):
         # A recipient's action is theirs alone: recorded on SharedInquiryAction, never on
@@ -1070,7 +1087,9 @@ class InquiryViewSet(viewsets.GenericViewSet,
         company = default_company_for_user(request.user)
         serializer = ManualInquirySerializer(data=request.data, context={'request': request, 'company': company})
         serializer.is_valid(raise_exception=True)
-        inquiry = create_manual_inquiry(company=company, validated_data=serializer.validated_data)
+        with transaction.atomic():
+            inquiry = create_manual_inquiry(company=company, validated_data=serializer.validated_data)
+            inquiry_status.record_initial_status(inquiry, user=request.user)
         return Response(InquiryDetailSerializer(inquiry).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['get'], url_path='product-lines')
@@ -1774,7 +1793,7 @@ class InquiryViewSet(viewsets.GenericViewSet,
             visible_account = _visible_account_or_none(request.user, account_id)
             qs = qs.filter(account=visible_account) if visible_account else qs.none()
 
-        closed_count = qs.update(status=InquiryStatus.CLOSED, closed_at=now())
+        closed_count = inquiry_status.close_open_inquiries(qs, user=request.user)
         return Response({'closed': closed_count})
 
     @action(detail=False, methods=['get'], url_path='stats')
@@ -1964,6 +1983,7 @@ class InquiryViewSet(viewsets.GenericViewSet,
         page_rows = list(qs[offset:offset + page_size])
         shared_ids = set(shared.filter(pk__in=[row.pk for row in page_rows]).values_list('pk', flat=True))
         inquiry_sharing.attach_viewer_context(page_rows, request.user, company, shared_ids)
+        inquiry_status.attach_last_change([row for row in page_rows if row.pk not in shared_ids])
         return Response({
             'count': count,
             'page': page,

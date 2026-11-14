@@ -442,6 +442,7 @@ export const tradingApi = {
   trackNonInventoryFromInquiryLine: (id, index) => http.post(`/inquiries/${id}/product-lines/${index}/track-non-inventory/`),
   updateInquiry:          (id, data)    => http.patch(`/inquiries/${id}/`, data),
   getInquiryShares:       (id)          => http.get(`/inquiries/${id}/shares/`),
+  getInquiryStatusHistory: (id)         => http.get(`/inquiries/${id}/status-history/`),
   setInquiryShares:       (id, recipientIds) => http.post(`/inquiries/${id}/shares/`, { recipient_ids: recipientIds }),
   sharedDirectChat:       (id, account) => http.post(`/inquiries/${id}/shared-direct-chat/`, { account }),
   getInquirySharing:      ()            => http.get('/inquiry-sharing/'),

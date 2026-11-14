@@ -104,6 +104,7 @@
               :fresh="isFreshInquiry(inq)"
               :can-share="canShareInquiries"
               @share="shareTarget = inq"
+              @history="historyTarget = inq"
               @set-category="setContactCategory(inq, $event)"
               @apply-suggestion="applySuggestedCategory(inq)"
               @set-status="setStatus(inq, $event)"
@@ -198,6 +199,7 @@
               :fresh="isFreshInquiry(inq)"
               :can-share="canShareInquiries"
               @share="shareTarget = inq"
+              @history="historyTarget = inq"
               @set-category="setContactCategory(inq, $event)"
               @apply-suggestion="applySuggestedCategory(inq)"
               @set-status="setStatus(inq, $event)"
@@ -305,6 +307,7 @@
   />
 
   <InquiryShareDialog :inquiry="shareTarget" @close="shareTarget = null" @saved="refresh" />
+  <InquiryStatusHistoryDialog :inquiry="historyTarget" @close="historyTarget = null" />
   <MarketPartiesDialog
     :open="marketModalOpen"
     :title="marketModalTitle"
@@ -349,6 +352,7 @@ import {
   InquiryCardReview,
   InquiryProductsDialog,
   InquiryShareDialog,
+  InquiryStatusHistoryDialog,
   InquiryStockHints,
   ExpandedInquiryDialog,
   MatchFixDialog,
@@ -386,6 +390,8 @@ const selectedStatus    = ref('open')
 const selectedMatch     = ref('all')
 // Inquiry being shared through the share dialog (null when closed).
 const shareTarget       = ref(null)
+// Inquiry whose status history is open (null when closed).
+const historyTarget     = ref(null)
 const formattedPriceList = ref('')
 // Hot-settable WhatsApp price-reply composition (§ AI Instructions > Trading
 // dashboard) — same defaults the backend falls back to.

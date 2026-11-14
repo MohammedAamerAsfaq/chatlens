@@ -3,7 +3,7 @@ from .campaign_audience import CampaignAudience, CampaignMessageMode
 from .product_alias import ProductAlias
 from .product_attribute import ProductAttribute
 from .message_classification import MessageClassification, MessageTag
-from .inquiry import Inquiry, InquiryMessage, InquiryStatus
+from .inquiry import Inquiry, InquiryMessage, InquiryStatus, InquiryStatusEvent
 from .inquiry_sharing import InquiryShare, InquirySharingRule, SharedInquiryAction, SharedInquiryActionEvent
 from .inquiry_product import (
     InquiryProduct,
@@ -72,7 +72,7 @@ __all__ = [
     'ProductAlias',
     'ProductAttribute',
     'MessageClassification', 'MessageTag',
-    'Inquiry', 'InquiryMessage', 'InquiryStatus',
+    'Inquiry', 'InquiryMessage', 'InquiryStatus', 'InquiryStatusEvent',
     'InquiryShare', 'InquirySharingRule', 'SharedInquiryAction', 'SharedInquiryActionEvent',
     'InquiryProduct',
     'InquiryProductDecisionStatus',

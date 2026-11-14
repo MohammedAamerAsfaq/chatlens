@@ -164,6 +164,8 @@ class InquirySerializer(serializers.ModelSerializer):
     is_shared       = serializers.SerializerMethodField()
     shared_by       = serializers.SerializerMethodField()
     shared_handling = serializers.SerializerMethodField()
+    # Latest change to the inquiry's own status (set by inquiry_status.attach_last_change).
+    status_change   = serializers.SerializerMethodField()
 
     class Meta:
         model  = Inquiry
@@ -175,7 +177,7 @@ class InquirySerializer(serializers.ModelSerializer):
             'source_message_time', 'source_message_text', 'first_seen_at', 'closed_at',
             'classification_rating', 'classification_version', 'product_match_status',
             'product_match_error', 'age_seconds', 'created_at', 'updated_at',
-            'is_shared', 'shared_by', 'shared_handling',
+            'is_shared', 'shared_by', 'shared_handling', 'status_change',
         ]
         read_only_fields = [
             'id', 'account', 'account_name', 'contact', 'contact_name', 'contact_phone',
@@ -194,6 +196,9 @@ class InquirySerializer(serializers.ModelSerializer):
 
     def get_shared_handling(self, obj):
         return getattr(obj, 'viewer_shared_handling', [])
+
+    def get_status_change(self, obj):
+        return getattr(obj, 'viewer_status_change', None)
 
     def to_representation(self, obj):
         data = super().to_representation(obj)

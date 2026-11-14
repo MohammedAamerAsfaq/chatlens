@@ -120,3 +120,47 @@ class InquiryMessage(models.Model):
     class Meta:
         db_table = 'trading_inquiry_message'
         unique_together = [('inquiry', 'message')]
+
+class InquiryStatusEvent(models.Model):
+    """Append-only history of Inquiry.status: who changed it, from what, to what, when.
+
+    Written only through services/inquiry_status.py, which every status-changing path
+    uses (board/Inquiries page updates, Close stale, manual inquiry creation). Inquiries
+    created by the AI pipeline start Open with no event. Shared recipients' own statuses
+    have their own history (SharedInquiryActionEvent).
+    """
+    SOURCE_UPDATE = 'update'
+    SOURCE_CLOSE_STALE = 'close_stale'
+    SOURCE_MANUAL_CREATE = 'manual_create'
+    SOURCE_CHOICES = [
+        (SOURCE_UPDATE, 'Status update'),
+        (SOURCE_CLOSE_STALE, 'Close stale'),
+        (SOURCE_MANUAL_CREATE, 'Manual inquiry'),
+    ]
+
+    company = models.ForeignKey(
+        'tenancy.Company', null=True, blank=True, on_delete=models.CASCADE,
+        related_name='inquiry_status_events',
+    )
+    inquiry = models.ForeignKey(Inquiry, on_delete=models.CASCADE, related_name='status_events')
+    user = models.ForeignKey(
+        'auth.User', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='inquiry_status_events',
+    )
+    # Blank for the first status of a manually created inquiry.
+    old_status = models.CharField(max_length=20, choices=InquiryStatus.choices, blank=True)
+    new_status = models.CharField(max_length=20, choices=InquiryStatus.choices)
+    remarks = models.TextField(blank=True)
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = 'trading_inquiry_status_event'
+        ordering = ['created_at', 'id']
+        indexes = [
+            models.Index(fields=['inquiry', 'created_at'], name='trading_inq_status_evt_inq'),
+            models.Index(fields=['company', 'new_status', 'created_at'], name='trading_inq_status_evt_rpt'),
+        ]
+
+    def __str__(self):
+        return f'InquiryStatusEvent({self.inquiry_id} {self.old_status}->{self.new_status})'
