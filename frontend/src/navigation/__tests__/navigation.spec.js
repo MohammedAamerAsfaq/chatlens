@@ -56,3 +56,28 @@ describe('company-admin-gated navigation', () => {
     expect(memberLogs.map(item => item.route)).not.toContain('ai-operations')
   })
 })
+
+describe('personal settings', () => {
+  const memberContext = (granted) => ({
+    industry: 'trading', canManageTenants: false, isCompanyAdmin: false,
+    hasPermission: code => granted.includes(code),
+  })
+
+  it('shows Sessions and Inquiry Sharing without company settings access', async () => {
+    const { visibleSettingsNavigation } = await import('../navigation')
+    const visible = visibleSettingsNavigation(memberContext(['conversations.accounts.view', 'trading.board.view']))
+    expect(visible.map(item => item.route)).toEqual(['sessions', 'inquiry-sharing'])
+  })
+
+  it('still needs each personal item own permission', async () => {
+    const { visibleSettingsNavigation } = await import('../navigation')
+    expect(visibleSettingsNavigation(memberContext(['conversations.accounts.view'])).map(item => item.route)).toEqual(['sessions'])
+    expect(visibleSettingsNavigation(memberContext([]))).toEqual([])
+  })
+
+  it('shows company settings only with settings.company.view', async () => {
+    const { visibleSettingsNavigation } = await import('../navigation')
+    const visible = visibleSettingsNavigation(memberContext(['settings.company.view', 'conversations.accounts.view']))
+    expect(visible.map(item => item.route)).toContain('storage')
+  })
+})

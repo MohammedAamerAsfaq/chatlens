@@ -144,7 +144,8 @@ const router = createRouter({
 // 'sessions' (path '/') is excluded even though it's listed in settingsNavigation: it
 // doubles as the app's home/fallback route, and every permission check below redirects
 // here on denial — gating it the same way would create a redirect loop.
-const SETTINGS_ROUTES = new Set(settingsNavigation.map(item => item.route).filter(route => route !== 'sessions'))
+// Personal settings items (Sessions, Inquiry Sharing) are gated only by their own permission.
+const SETTINGS_ROUTES = new Set(settingsNavigation.filter(item => !item.personal).map(item => item.route).filter(route => route !== 'sessions'))
 const OPERATIONS_ROUTES = new Set(logsNavigation.map(item => item.route))
 
 router.beforeEach(async (to) => {

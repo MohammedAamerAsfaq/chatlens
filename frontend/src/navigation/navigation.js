@@ -69,8 +69,11 @@ export const moreNavigation = [
   { label: 'Groups', to: '/groups', route: 'groups' },
 ]
 
+// Settings are company administration, shown with settings.company.view. Items marked
+// personal are about the user's own work (their WhatsApp sessions, their inquiry sharing)
+// and show whenever the user has that item's own permission.
 export const settingsNavigation = [
-  { label: 'Sessions', to: '/', route: 'sessions' },
+  { label: 'Sessions', to: '/', route: 'sessions', permission: 'conversations.accounts.view', personal: true },
   { label: 'Storage', to: '/storage', route: 'storage' },
   { label: 'Integrations', to: '/integrations', route: 'integrations', permission: 'integrations.connections.view' },
   { label: 'API Consumer', to: '/api-consumer-settings', route: 'api-consumer-settings', requiresCompanyAdmin: true },
@@ -80,7 +83,7 @@ export const settingsNavigation = [
   { label: 'V2 Settings', to: '/v2-settings', route: 'v2-settings', industries: ['trading'] },
   { label: 'V2 Match Training', to: '/v2-match-training', route: 'v2-match-training', industries: ['trading'] },
   { label: 'Inquiry Forwarding', to: '/inquiry-forwarding', route: 'inquiry-forwarding', industries: ['trading'] },
-  { label: 'Inquiry Sharing', to: '/inquiry-sharing', route: 'inquiry-sharing', industries: ['trading'], permission: 'trading.board.view' },
+  { label: 'Inquiry Sharing', to: '/inquiry-sharing', route: 'inquiry-sharing', industries: ['trading'], permission: 'trading.board.view', personal: true },
   { label: 'Task & Queues', to: '/task-queues', route: 'task-queues' },
   { label: 'ClientPulse', to: '/clientpulse-settings', route: 'clientpulse-settings', permission: 'settings.company.view' },
   { label: 'Real Estate Mock Data', to: '/real-estate/mock-data', route: 'real-estate-mock-data', permission: 'real_estate.properties.manage', industries: ['real_estate'] },
@@ -111,6 +114,12 @@ export function navigationItemVisible(item, context) {
   if (item.requiresCompanyAdmin && !context.isCompanyAdmin) return false
   if (item.industries && !item.industries.includes(context.industry)) return false
   return true
+}
+
+export function visibleSettingsNavigation(context) {
+  return settingsNavigation.filter(item => (
+    (item.personal || context.hasPermission('settings.company.view')) && navigationItemVisible(item, context)
+  ))
 }
 
 export function industryHomePath(industry) {

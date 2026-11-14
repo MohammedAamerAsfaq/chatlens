@@ -4,7 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { workerAlertsApi, stuckReceiptsApi, unresolvedMessagesApi } from '@/api'
 import { useAuthStore } from '@/stores/auth.js'
 import { useConversationsStore } from '@/stores/conversations'
-import { industryHomePath, logsNavigation, moreNavigation, navigationItemVisible, primaryNavigation, settingsNavigation } from '@/navigation/navigation'
+import { industryHomePath, logsNavigation, moreNavigation, navigationItemVisible, primaryNavigation, settingsNavigation, visibleSettingsNavigation } from '@/navigation/navigation'
 import chatlensIcon from '@/assets/chatlens-icon.png'
 import '@/assets/app-navigation.css'
 
@@ -19,16 +19,17 @@ const switchingTheme = ref(false)
 const alerts = ref({ worker: 0, receipts: 0, messages: 0 })
 let alertPollTimer = null
 
-const canShow = item => navigationItemVisible(item, {
+const navigationContext = () => ({
   industry: auth.currentCompany?.industry_type,
   canManageTenants: auth.canManageTenants,
   isCompanyAdmin: auth.isCompanyAdmin,
   hasPermission: auth.hasPermission,
 })
+const canShow = item => navigationItemVisible(item, navigationContext())
 const visiblePrimary = computed(() => primaryNavigation.filter(canShow))
-const canShowSettings = computed(() => auth.hasPermission('settings.company.view'))
+const visibleSettings = computed(() => visibleSettingsNavigation(navigationContext()))
+const canShowSettings = computed(() => visibleSettings.value.length > 0)
 const canShowOperations = computed(() => auth.hasPermission('tasks.company.view'))
-const visibleSettings = computed(() => canShowSettings.value ? settingsNavigation.filter(canShow) : [])
 const visibleLogs = computed(() => canShowOperations.value ? logsNavigation.filter(canShow) : [])
 const totalAlerts = computed(() => alerts.value.worker + alerts.value.receipts + alerts.value.messages)
 const routeName = computed(() => String(route.name || ''))

@@ -20,6 +20,8 @@ const switchingCompany = ref(false)
 const togglingAiParsing = ref(false)
 const aiParsingError = ref('')
 const currentCompany = computed(() => auth.currentCompany)
+// Adding an account and scanning its QR code need conversations.accounts.manage.
+const canManageAccounts = computed(() => auth.hasPermission('conversations.accounts.manage'))
 const companyAiParsingEnabled = computed(() => currentCompany.value?.ai_parsing_enabled !== false)
 const canToggleCompanyAiParsing = computed(() => {
   const role = auth.currentRole
@@ -155,7 +157,7 @@ async function toggleCompanyAiParsing() {
             <small>{{ workerStatus.detail }}</small>
           </span>
         </div>
-        <UiButton variant="primary" @click="showCreate = true">+ Add Account</UiButton>
+        <UiButton v-if="canManageAccounts" variant="primary" @click="showCreate = true">+ Add Account</UiButton>
       </div></template>
     </UiPageHeader>
 
@@ -165,7 +167,9 @@ async function toggleCompanyAiParsing() {
 
     <UiNotice v-else-if="store.error" tone="danger">{{store.error}}</UiNotice>
 
-    <UiEmptyState v-else-if="store.accounts.length === 0" title="No accounts yet" description="Add an account to connect the first WhatsApp linked device."><UiButton variant="primary" size="small" @click="showCreate=true">Add Account</UiButton></UiEmptyState>
+    <UiEmptyState v-else-if="store.accounts.length === 0 && canManageAccounts" title="No accounts yet" description="Add an account to connect the first WhatsApp linked device."><UiButton variant="primary" size="small" @click="showCreate=true">Add Account</UiButton></UiEmptyState>
+
+    <UiEmptyState v-else-if="store.accounts.length === 0" title="No WhatsApp accounts assigned to you" description="Ask a company admin to assign you an account, or to grant Accounts: Manage so you can add and scan your own number." />
 
     <div v-else class="session-account-grid">
       <AccountCard

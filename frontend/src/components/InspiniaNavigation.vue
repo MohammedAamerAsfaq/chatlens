@@ -4,7 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { stuckReceiptsApi, unresolvedMessagesApi, workerAlertsApi } from '@/api'
 import { useAuthStore } from '@/stores/auth.js'
 import { useConversationsStore } from '@/stores/conversations'
-import { industryHomePath, logsNavigation, moreNavigation, navigationItemVisible, primaryNavigation, settingsNavigation } from '@/navigation/navigation'
+import { industryHomePath, logsNavigation, moreNavigation, navigationItemVisible, primaryNavigation, settingsNavigation, visibleSettingsNavigation } from '@/navigation/navigation'
 import { pageDescription as resolvePageDescription } from '@/navigation/pageDescriptions'
 import InspiniaSidebarProfile from '@/components/navigation/InspiniaSidebarProfile.vue'
 import InspiniaTopbarMenus from '@/components/navigation/InspiniaTopbarMenus.vue'
@@ -29,16 +29,17 @@ const alerts = ref({ worker: 0, receipts: 0, messages: 0 })
 let pollTimer = null
 
 const routeName = computed(() => String(route.name || ''))
-const canShow = item => navigationItemVisible(item, {
+const navigationContext = () => ({
   industry: auth.currentCompany?.industry_type,
   canManageTenants: auth.canManageTenants,
   isCompanyAdmin: auth.isCompanyAdmin,
   hasPermission: auth.hasPermission,
 })
+const canShow = item => navigationItemVisible(item, navigationContext())
 const primary = computed(() => primaryNavigation.filter(canShow))
-const canShowSettings = computed(() => auth.hasPermission('settings.company.view'))
 const canShowOperations = computed(() => auth.hasPermission('tasks.company.view'))
-const settings = computed(() => canShowSettings.value ? settingsNavigation.filter(canShow) : [])
+const settings = computed(() => visibleSettingsNavigation(navigationContext()))
+const canShowSettings = computed(() => settings.value.length > 0)
 const logs = computed(() => canShowOperations.value ? logsNavigation.filter(canShow) : [])
 const topbarSections = computed(() => primary.value.map(item => ({ ...item, children: item.children?.filter(canShow) || [] })))
 const topbarApps = computed(() => [...moreNavigation.filter(canShow), ...settings.value])
