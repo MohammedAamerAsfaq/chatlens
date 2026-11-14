@@ -309,12 +309,18 @@ def recipient_direct_chat(inquiry, account):
         raise SharingError('This contact has no resolved WhatsApp phone number.')
     phone = phone or jid.split('@', 1)[0]
 
+    # is_existing_chat drives the outbound new-chat safety checks (new-chat cap, unknown
+    # new-chat policy). The model defaults it to True, which would let the first message to
+    # a customer this account has never talked to skip those checks, so a contact created
+    # here is existing only if this account already has message history with them.
+    has_history = WhatsAppChat.objects.filter(account=account, wa_chat_id=jid, messages__isnull=False).exists()
     contact, _ = WhatsAppContact.objects.get_or_create(
         account=account, wa_contact_id=jid,
         defaults={
             'phone_number': phone,
             'display_name': source.display_name or source.push_name,
             'company_contact_id': source.company_contact_id,
+            'is_existing_chat': has_history,
         },
     )
     chat, _ = WhatsAppChat.objects.get_or_create(

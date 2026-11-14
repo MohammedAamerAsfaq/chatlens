@@ -214,3 +214,7 @@ class InquirySharingTests(TestCase):
         self.assertEqual(chat.wa_chat_id, '971555000111@s.whatsapp.net')
         self.assertEqual(chat.contact.phone_number, '971555000111')
         self.assertEqual(WhatsAppContact.objects.filter(account=self.bob_account).count(), 1)
+        # A customer Bob has never chatted with must stay subject to the new-chat safety checks.
+        self.assertFalse(chat.contact.is_existing_chat)
+        from apps.whatsapp_bridge.outbound.policy import new_chat_snapshot
+        self.assertEqual(new_chat_snapshot(self.bob_account, chat.wa_chat_id)['state'], 'likely_new')

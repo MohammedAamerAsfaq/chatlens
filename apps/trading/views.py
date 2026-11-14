@@ -1954,7 +1954,9 @@ class InquiryViewSet(viewsets.GenericViewSet,
                 Value(InquiryStatus.OPEN),
             )).filter(viewer_status=status_val)
 
-        qs = Inquiry.objects.filter(
+        # Built on base so the date range bounds the scan; the two subqueries only decide
+        # membership within it.
+        qs = base.filter(
             Q(pk__in=own.values('pk')) | Q(pk__in=shared.values('pk')),
         ).select_related('account', 'contact').order_by(sort_map[sort_val], '-id')
         count = qs.count()
