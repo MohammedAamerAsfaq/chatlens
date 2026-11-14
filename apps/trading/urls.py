@@ -16,6 +16,7 @@ router.register('selling-offers',   views.SellingOfferViewSet,        basename='
 router.register('supplier-quotes',  views.SupplierQuoteViewSet,       basename='supplier-quotes')
 router.register('reports',          views.ReportViewSet,              basename='reports')
 router.register('trading-settings', views.TradingSettingsViewSet,     basename='trading-settings')
+router.register('inquiry-sharing',  views.InquirySharingViewSet,      basename='inquiry-sharing')
 router.register('product-price-update', views.ProductPriceUpdateViewSet, basename='product-price-update')
 router.register('automation-rules', views.AutomationRuleViewSet, basename='automation-rules')
 router.register('inquiry-forwarding-rules', views.InquiryForwardingRuleViewSet, basename='inquiry-forwarding-rules')

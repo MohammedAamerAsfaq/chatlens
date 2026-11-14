@@ -1,5 +1,9 @@
 <script setup>
-defineProps({ hints: { type: Array, default: () => [] } })
+defineProps({
+  hints: { type: Array, default: () => [] },
+  // Shared inquiries: match fixing stays with the owner, so no actions.
+  readOnly: { type: Boolean, default: false },
+})
 defineEmits(['verify', 'create-inquiry', 'auto-match', 'fix-match'])
 </script>
 
@@ -12,7 +16,7 @@ defineEmits(['verify', 'create-inquiry', 'auto-match', 'fix-match'])
       <span v-if="hint.product.sale_price"> · Sale: {{ hint.product.currency || 'USD' }} {{ hint.product.sale_price }}</span>
       <span> · Qty: {{ hint.product.qty }}</span>
       <span v-if="hint.product.cost_price"> · <span :class="{ loss: hint.product.sale_price != null && hint.product.sale_price < hint.product.cost_price }">Cost: {{ hint.product.currency || 'USD' }} {{ hint.product.cost_price }}</span></span>
-      <span class="actions">
+      <span v-if="!readOnly" class="actions">
         <button type="button" class="verify" :disabled="hint.verification?.loading" title="Ask AI to compare the source and this stock suggestion" @click.stop="$emit('verify', hint)">{{ hint.verification?.loading ? 'Checking' : 'Verify' }}</button>
         <button type="button" class="create" :disabled="hint.createState?.loading || hint.createState?.saved" title="Save this stock suggestion as an inquiry product trace" @click.stop="$emit('create-inquiry', hint)">{{ hint.createLabel }}</button>
         <button v-if="hint.mismatch" type="button" class="auto" title="Auto-search inventory for the correct product" @click.stop="$emit('auto-match', hint)">Auto</button>

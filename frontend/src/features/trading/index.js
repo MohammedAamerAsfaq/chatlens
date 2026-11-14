@@ -4,6 +4,7 @@ export { default as InquiryCardHeader } from './components/InquiryCardHeader.vue
 export { default as InquiryCardReview } from './components/InquiryCardReview.vue'
 export { default as InquiryStockHints } from './components/InquiryStockHints.vue'
 export { default as InquiryProductsDialog } from './components/InquiryProductsDialog.vue'
+export { default as InquiryShareDialog } from './components/InquiryShareDialog.vue'
 export { default as ExpandedInquiryDialog } from './components/ExpandedInquiryDialog.vue'
 export { default as MatchFixDialog } from './components/MatchFixDialog.vue'
 export { default as MarketPartiesDialog } from './components/MarketPartiesDialog.vue'

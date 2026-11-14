@@ -35,6 +35,7 @@ import ProductPriceUpdateView from '../views/ProductPriceUpdateView.vue'
 import AutomationView from '../views/AutomationView.vue'
 import AIInstructionsView   from '../views/AIInstructionsView.vue'
 import V2SettingsView        from '../views/V2SettingsView.vue'
+import InquirySharingView    from '../views/InquirySharingView.vue'
 import BuyingInquiriesView  from '../views/BuyingInquiriesView.vue'
 import GroupBuyingInquiriesView from '../views/GroupBuyingInquiriesView.vue'
 import GroupSellingOffersView from '../views/GroupSellingOffersView.vue'
@@ -117,6 +118,7 @@ const router = createRouter({
     { path: '/ai-operations', name: 'ai-operations', component: AIOperationsView, meta: { title: 'AI Operations', requiresCompanyAdmin: true } },
     { path: '/task-queues', name: 'task-queues', component: TaskQueueSettingsView, meta: { title: 'Task & Queues' } },
     { path: '/kiwi-router', name: 'kiwi-router', component: KiwiRouterView, meta: { title: 'KiwiRouter' } },
+    { path: '/inquiry-sharing', name: 'inquiry-sharing', component: InquirySharingView, meta: { title: 'Inquiry Sharing', industries: ['trading'], permission: 'trading.board.view' } },
     { path: '/inquiry-forwarding', name: 'inquiry-forwarding', component: InquiryForwardingView, meta: { title: 'Inquiry Forwarding', industries: ['trading'] } },
     { path: '/my-account', name: 'my-account', component: AccountSettingsView, meta: { title: 'My Account' } },
     { path: '/company-users', name: 'company-users', component: CompanyUsersView, meta: { title: 'Users', permission: 'users.memberships.view' } },

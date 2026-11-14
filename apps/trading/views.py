@@ -2,7 +2,8 @@ import json
 import logging
 import threading
 from django.db import connection as _db_conn, transaction
-from django.db.models import Count, F, Max, Min, Prefetch, Q, Sum
+from django.db.models import Count, F, Max, Min, OuterRef, Prefetch, Q, Subquery, Sum, Value
+from django.db.models.functions import Coalesce
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import now, make_aware, is_naive
 from datetime import timedelta, date as _date, datetime as _datetime, time as _time
@@ -22,7 +23,7 @@ from apps.tenancy.services.access import (
 )
 from apps.tenancy.api_permissions import CompanyPermissionRequired
 from apps.tenancy.services.authorization import permission_scope
-from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, NonInventoryProduct, NonInventoryProductMention, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_GATE_V2_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, BuyingInquiryGroup, BuyingInquiryProduct, BuyingInquirySupplier, BuyingInquirySupplierSource, BuyingInquiryStatus, CampaignAudience, CampaignMessageMode, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture, InquiryForwardingExclusion, InquiryForwardingRule, InquiryForwardingTarget, SellingOffer, SellingOfferCustomer, SellingOfferCustomerSource, SellingOfferGroup, SellingOfferProduct, SellingOfferStatus
+from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, SharedInquiryAction, NonInventoryProduct, NonInventoryProductMention, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_GATE_V2_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, BuyingInquiryGroup, BuyingInquiryProduct, BuyingInquirySupplier, BuyingInquirySupplierSource, BuyingInquiryStatus, CampaignAudience, CampaignMessageMode, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture, InquiryForwardingExclusion, InquiryForwardingRule, InquiryForwardingTarget, SellingOffer, SellingOfferCustomer, SellingOfferCustomerSource, SellingOfferGroup, SellingOfferProduct, SellingOfferStatus
 from .serializers import (
     ProductSerializer,
     ProductAliasSerializer,
@@ -47,6 +48,7 @@ from .serializers import (
 )
 from apps.tenancy.permissions import CompanyAdminPermission, TenantRolePermission
 from .services.inquiry_match_filter import MATCH_FILTER_ALL, MATCH_FILTERS, filter_inquiries_by_match
+from .services import inquiry_sharing
 from .services.product_cache import invalidate as invalidate_product_cache
 
 logger = logging.getLogger(__name__)
@@ -942,11 +944,18 @@ class InquiryViewSet(viewsets.GenericViewSet,
             return InquiryDetailSerializer
         return InquirySerializer
 
+    # Actions a recipient may take on an inquiry shared with them. Everything else
+    # (matching, rating, product lines, market parties) stays with the owner.
+    SHARED_ACTIONS = {'partial_update', 'shared_direct_chat'}
+
     def get_queryset(self):
-        qs = _visible_inquiry_queryset(
-            self.request.user,
-            Inquiry.objects.select_related('account', 'contact').prefetch_related('contact__role_tags').order_by('-first_seen_at'),
-        )
+        base = Inquiry.objects.select_related('account', 'contact').prefetch_related('contact__role_tags').order_by('-first_seen_at')
+        qs = _visible_inquiry_queryset(self.request.user, base)
+        if self.action in self.SHARED_ACTIONS:
+            shared = inquiry_sharing.shared_inquiry_queryset(
+                self.request.user, default_company_for_user(self.request.user), Inquiry.objects.all(),
+            )
+            qs = base.filter(Q(pk__in=qs.values('pk')) | Q(pk__in=shared.values('pk')))
         p = self.request.query_params
 
         if account_id := p.get('account'):
@@ -968,11 +977,17 @@ class InquiryViewSet(viewsets.GenericViewSet,
 
         return qs
 
+    def _is_own(self, inquiry):
+        return _visible_inquiry_queryset(self.request.user, Inquiry.objects.filter(pk=inquiry.pk)).exists()
+
     def partial_update(self, request, *args, **kwargs):
         inquiry = self.get_object()
         status_val = request.data.get('status')
         remarks    = request.data.get('remarks')
         rating     = request.data.get('classification_rating')
+
+        if not self._is_own(inquiry):
+            return self._update_shared(inquiry, status_val, remarks, rating)
 
         update_fields = ['updated_at']
         if status_val and status_val in InquiryStatus.values:
@@ -996,6 +1011,57 @@ class InquiryViewSet(viewsets.GenericViewSet,
 
         inquiry.save(update_fields=update_fields)
         return Response(InquiryDetailSerializer(inquiry).data)
+
+    def _update_shared(self, inquiry, status_val, remarks, rating):
+        # A recipient's action is theirs alone: recorded on SharedInquiryAction, never on
+        # the inquiry, so the owner's status and other recipients' are untouched.
+        if rating is not None:
+            return Response(
+                {'detail': 'Only the inquiry owner can rate its classification.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if status_val is None and remarks is None:
+            return Response({'detail': 'Provide status or remarks.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            inquiry_sharing.record_shared_action(inquiry, self.request.user, status=status_val or None, remarks=remarks)
+        except inquiry_sharing.SharingError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        company = default_company_for_user(self.request.user)
+        inquiry_sharing.attach_viewer_context([inquiry], self.request.user, company, {inquiry.pk})
+        return Response(InquirySerializer(inquiry).data)
+
+    @action(detail=True, methods=['get', 'post'], url_path='shares')
+    def shares(self, request, pk=None):
+        """Who this inquiry is shared with. POST {recipient_ids: [...]} sets the individual
+        shares to exactly that list; shares from a 'share all' rule are reported, not changed."""
+        inquiry = self.get_object()
+        if request.method == 'GET':
+            return Response(inquiry_sharing.inquiry_shares(inquiry, request.user))
+        try:
+            data = inquiry_sharing.set_inquiry_shares(inquiry, request.user, request.data.get('recipient_ids'))
+        except inquiry_sharing.SharingError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(data)
+
+    @action(detail=True, methods=['post'], url_path='shared-direct-chat')
+    def shared_direct_chat(self, request, pk=None):
+        """A recipient's own 1:1 chat with a shared inquiry's contact, on their account."""
+        from apps.api.serializers import ChatSerializer
+
+        inquiry = self.get_object()
+        if self._is_own(inquiry):
+            return Response(
+                {'detail': 'This inquiry is your own; open its direct chat normally.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        account = _visible_account_or_none(request.user, request.data.get('account'))
+        if not account:
+            return Response({'detail': 'Choose one of your own WhatsApp accounts.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            chat = inquiry_sharing.recipient_direct_chat(inquiry, account)
+        except inquiry_sharing.SharingError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(ChatSerializer(chat, context={'request': request}).data)
 
     @action(detail=False, methods=['post'], url_path='manual')
     def manual(self, request):
@@ -1862,28 +1928,40 @@ class InquiryViewSet(viewsets.GenericViewSet,
             raise ValidationError({'detail': f'Unsupported match value: {match_val}'})
 
         start, end = _resolve_date_range(request)
-        qs = _visible_inquiry_queryset(
-            request.user,
-            Inquiry.objects.filter(
-                first_seen_at__gte=start, first_seen_at__lt=end,
-            ).select_related('account', 'contact'),
-        )
+        company = default_company_for_user(request.user)
+        base = Inquiry.objects.filter(first_seen_at__gte=start, first_seen_at__lt=end)
+        if type_val in ('buy', 'sell'):
+            base = base.filter(inquiry_type=type_val)
+        if contact_id:
+            base = base.filter(contact_id=contact_id)
+        base = filter_inquiries_by_match(base, match_val)
 
+        own = _visible_inquiry_queryset(request.user, base)
         if status_val and status_val != 'all':
-            qs = qs.filter(status=status_val)
+            own = own.filter(status=status_val)
         if account_id:
             visible_account = _visible_account_or_none(request.user, account_id)
-            qs = qs.filter(account=visible_account) if visible_account else qs.none()
-        if type_val in ('buy', 'sell'):
-            qs = qs.filter(inquiry_type=type_val)
+            own = own.filter(account=visible_account) if visible_account else own.none()
 
-        if contact_id:
-            qs = qs.filter(contact_id=contact_id)
-        qs = filter_inquiries_by_match(qs, match_val)
+        # Inquiries other users shared with this one. The account filter only lists the
+        # viewer's own accounts, so it does not apply to them; status is the viewer's own.
+        shared = inquiry_sharing.shared_inquiry_queryset(request.user, company, base)
+        if status_val and status_val != 'all':
+            shared = shared.annotate(viewer_status=Coalesce(
+                Subquery(SharedInquiryAction.objects.filter(
+                    inquiry=OuterRef('pk'), user=request.user,
+                ).values('status')[:1]),
+                Value(InquiryStatus.OPEN),
+            )).filter(viewer_status=status_val)
 
-        qs = qs.order_by(sort_map[sort_val], '-id')
+        qs = Inquiry.objects.filter(
+            Q(pk__in=own.values('pk')) | Q(pk__in=shared.values('pk')),
+        ).select_related('account', 'contact').order_by(sort_map[sort_val], '-id')
         count = qs.count()
         offset = (page - 1) * page_size
+        page_rows = list(qs[offset:offset + page_size])
+        shared_ids = set(shared.filter(pk__in=[row.pk for row in page_rows]).values_list('pk', flat=True))
+        inquiry_sharing.attach_viewer_context(page_rows, request.user, company, shared_ids)
         return Response({
             'count': count,
             'page': page,
@@ -1892,7 +1970,7 @@ class InquiryViewSet(viewsets.GenericViewSet,
             'sort': sort_val,
             'date_from': start.date().isoformat(),
             'date_to': (end - timedelta(days=1)).date().isoformat(),
-            'results': InquirySerializer(qs[offset:offset + page_size], many=True).data,
+            'results': InquirySerializer(page_rows, many=True).data,
         })
 
     @action(detail=False, methods=['get'], url_path='classification-activity')
@@ -4519,6 +4597,35 @@ class ReportViewSet(viewsets.ViewSet):
                 'date_to': (end - timedelta(days=1)).date().isoformat(),
             },
         })
+
+
+class InquirySharingViewSet(viewsets.ViewSet):
+    """The current user's "share all my inquiries" setting: which colleagues see every
+    inquiry that arrives on the WhatsApp accounts they own, from the moment it is
+    switched on. Recipients' actions are kept separately (SharedInquiryAction)."""
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+
+    def permission_code_for(self, request):
+        return (
+            'trading.inquiries.update'
+            if request.method not in permissions.SAFE_METHODS
+            else 'trading.board.view'
+        )
+
+    def list(self, request):
+        company = default_company_for_user(request.user)
+        return Response(inquiry_sharing.sharing_settings(request.user, company))
+
+    @action(detail=False, methods=['put'], url_path='recipients')
+    def recipients(self, request):
+        company = default_company_for_user(request.user)
+        try:
+            data = inquiry_sharing.set_sharing_recipients(
+                request.user, company, request.data.get('recipient_ids'),
+            )
+        except inquiry_sharing.SharingError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(data)
 
 
 class TradingSettingsViewSet(viewsets.ViewSet):

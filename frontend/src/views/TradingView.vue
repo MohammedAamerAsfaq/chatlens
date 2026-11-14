@@ -102,6 +102,8 @@
               :category-value="categoryDisplayValue(inq)"
               :suggestion-available="hasSuggestion(inq)"
               :fresh="isFreshInquiry(inq)"
+              :can-share="canShareInquiries"
+              @share="shareTarget = inq"
               @set-category="setContactCategory(inq, $event)"
               @apply-suggestion="applySuggestedCategory(inq)"
               @set-status="setStatus(inq, $event)"
@@ -112,6 +114,7 @@
               :hints="inventoryHintRows(inq)"
               :expanded-row="expandedBodyRow?.inqId === inq.id ? expandedBodyRow.row : ''"
               :matching-pending="isProductMatchingPending(inq)"
+              :read-only="inq.is_shared"
               @toggle-row="toggleBodyRow(inq.id, $event)"
               @verify="verifyStockMatch(inq, $event)"
               @create-inquiry="createInquiryFromStockHint(inq, $event)"
@@ -139,6 +142,7 @@
                 @price-list-direct-chatlens="openDirectPriceListChatLens(inq)"
               />
               <InquiryCardReview
+                v-if="!inq.is_shared"
                 :rating="inq.classification_rating ?? 5"
                 :incorrect-open="Boolean(incorrectMatchForms[inq.id]?.open)"
                 :incorrect-reason="incorrectMatchForms[inq.id]?.reason || ''"
@@ -192,6 +196,8 @@
               :category-value="categoryDisplayValue(inq)"
               :suggestion-available="hasSuggestion(inq)"
               :fresh="isFreshInquiry(inq)"
+              :can-share="canShareInquiries"
+              @share="shareTarget = inq"
               @set-category="setContactCategory(inq, $event)"
               @apply-suggestion="applySuggestedCategory(inq)"
               @set-status="setStatus(inq, $event)"
@@ -202,6 +208,7 @@
               :hints="inventoryHintRows(inq)"
               :expanded-row="expandedBodyRow?.inqId === inq.id ? expandedBodyRow.row : ''"
               :matching-pending="isProductMatchingPending(inq)"
+              :read-only="inq.is_shared"
               @toggle-row="toggleBodyRow(inq.id, $event)"
               @verify="verifyStockMatch(inq, $event)"
               @create-inquiry="createInquiryFromStockHint(inq, $event)"
@@ -224,6 +231,7 @@
                 @ask-price-direct-chatlens="openDirectAskPriceChatLens(inq)"
               />
               <InquiryCardReview
+                v-if="!inq.is_shared"
                 :rating="inq.classification_rating ?? 5"
                 :incorrect-open="Boolean(incorrectMatchForms[inq.id]?.open)"
                 :incorrect-reason="incorrectMatchForms[inq.id]?.reason || ''"
@@ -296,6 +304,7 @@
     @track-non-inventory="trackNonInventoryFromLine"
   />
 
+  <InquiryShareDialog :inquiry="shareTarget" @close="shareTarget = null" @saved="refresh" />
   <MarketPartiesDialog
     :open="marketModalOpen"
     :title="marketModalTitle"
@@ -339,6 +348,7 @@ import {
   InquiryCardHeader,
   InquiryCardReview,
   InquiryProductsDialog,
+  InquiryShareDialog,
   InquiryStockHints,
   ExpandedInquiryDialog,
   MatchFixDialog,
@@ -358,6 +368,7 @@ defineOptions({ inheritAttrs: false })
 
 const router = useRouter()
 const auth = useAuthStore()
+const canShareInquiries = computed(() => auth.hasPermission('trading.inquiries.update'))
 const convStore = useConversationsStore()
 
 async function viewChat(chatId, accountId, messageId, messageTime) {
@@ -373,6 +384,8 @@ const accounts          = ref([])
 const selectedAccount   = ref('')
 const selectedStatus    = ref('open')
 const selectedMatch     = ref('all')
+// Inquiry being shared through the share dialog (null when closed).
+const shareTarget       = ref(null)
 const formattedPriceList = ref('')
 // Hot-settable WhatsApp price-reply composition (§ AI Instructions > Trading
 // dashboard) — same defaults the backend falls back to.
@@ -674,8 +687,20 @@ function openChatLensWa(inq) {
   })
 }
 
+// The board's own accounts, for messaging the customer of an inquiry someone shared:
+// the account picked in the toolbar, else the first one.
+function ownAccountId() {
+  return selectedAccount.value || accounts.value[0]?.id || null
+}
+
+function openDirectFor(inq, options) {
+  return inq.is_shared
+    ? conversationDialog.openSharedDirect(inq, ownAccountId(), options)
+    : conversationDialog.openDirect(inq, options)
+}
+
 function openDirectChatLensWa(inq) {
-  return conversationDialog.openDirect(inq, {
+  return openDirectFor(inq, {
     title: 'WA ChatLens - Direct Message',
     draft: waPrefillText(inq),
   })
@@ -696,7 +721,7 @@ function openAskPriceChatLens(inq) {
 }
 
 function openDirectAskPriceChatLens(inq) {
-  return conversationDialog.openDirect(inq, {
+  return openDirectFor(inq, {
     title: 'Ask Price - Direct Message',
     draft: waAskPriceText(inq),
   })
@@ -710,7 +735,7 @@ function openPriceListChatLens(inq) {
 }
 
 function openDirectPriceListChatLens(inq) {
-  return conversationDialog.openDirect(inq, {
+  return openDirectFor(inq, {
     title: 'Price List - Direct Message',
     draft: formattedPriceList.value,
   })

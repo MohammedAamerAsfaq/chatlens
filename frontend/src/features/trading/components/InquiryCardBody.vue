@@ -6,6 +6,7 @@ defineProps({
   hints: { type: Array, default: () => [] },
   expandedRow: { type: String, default: '' },
   matchingPending: { type: Boolean, default: false },
+  readOnly: { type: Boolean, default: false },
 })
 
 defineEmits(['toggle-row', 'verify', 'create-inquiry', 'auto-match', 'fix-match'])
@@ -21,7 +22,7 @@ defineEmits(['toggle-row', 'verify', 'create-inquiry', 'auto-match', 'fix-match'
     </div>
     <div class="body-row" :class="{ expanded: expandedRow === 'stock' }" @click.stop="$emit('toggle-row', 'stock')">
       <div class="label">Stock Suggestion</div>
-      <div class="content"><InquiryStockHints :hints="hints" @verify="$emit('verify', $event)" @create-inquiry="$emit('create-inquiry', $event)" @auto-match="$emit('auto-match', $event)" @fix-match="$emit('fix-match', $event)" /></div>
+      <div class="content"><InquiryStockHints :hints="hints" :read-only="readOnly" @verify="$emit('verify', $event)" @create-inquiry="$emit('create-inquiry', $event)" @auto-match="$emit('auto-match', $event)" @fix-match="$emit('fix-match', $event)" /></div>
     </div>
     <div v-if="matchingPending" class="pending">Product matching in progress. Extracted inquiry products are available now; inventory match results will update after V2 pass 2 completes.</div>
   </div>

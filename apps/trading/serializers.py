@@ -159,6 +159,11 @@ class InquirySerializer(serializers.ModelSerializer):
     source_message_id   = serializers.SerializerMethodField()
     source_message_time = serializers.SerializerMethodField()
     source_message_text = serializers.SerializerMethodField()
+    # Per-viewer sharing context, set by inquiry_sharing.attach_viewer_context. Defaults
+    # describe an own inquiry nobody else has handled.
+    is_shared       = serializers.SerializerMethodField()
+    shared_by       = serializers.SerializerMethodField()
+    shared_handling = serializers.SerializerMethodField()
 
     class Meta:
         model  = Inquiry
@@ -170,6 +175,7 @@ class InquirySerializer(serializers.ModelSerializer):
             'source_message_time', 'source_message_text', 'first_seen_at', 'closed_at',
             'classification_rating', 'classification_version', 'product_match_status',
             'product_match_error', 'age_seconds', 'created_at', 'updated_at',
+            'is_shared', 'shared_by', 'shared_handling',
         ]
         read_only_fields = [
             'id', 'account', 'account_name', 'contact', 'contact_name', 'contact_phone',
@@ -179,6 +185,27 @@ class InquirySerializer(serializers.ModelSerializer):
             'first_seen_at', 'classification_version', 'product_match_status',
             'product_match_error', 'age_seconds', 'created_at', 'updated_at',
         ]
+
+    def get_is_shared(self, obj):
+        return getattr(obj, 'viewer_is_shared', False)
+
+    def get_shared_by(self, obj):
+        return getattr(obj, 'viewer_shared_by', [])
+
+    def get_shared_handling(self, obj):
+        return getattr(obj, 'viewer_shared_handling', [])
+
+    def to_representation(self, obj):
+        data = super().to_representation(obj)
+        if getattr(obj, 'viewer_is_shared', False):
+            # A recipient works a shared inquiry with their own status, and cannot open
+            # the owner's WhatsApp chat, so the source chat references are withheld.
+            data['status'] = obj.viewer_status
+            data['remarks'] = obj.viewer_remarks
+            data['closed_at'] = None
+            data['source_chat_id'] = None
+            data['source_message_id'] = None
+        return data
 
     def get_account_name(self, obj):
         a = obj.account

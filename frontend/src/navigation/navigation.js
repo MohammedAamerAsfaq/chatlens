@@ -80,6 +80,7 @@ export const settingsNavigation = [
   { label: 'V2 Settings', to: '/v2-settings', route: 'v2-settings', industries: ['trading'] },
   { label: 'V2 Match Training', to: '/v2-match-training', route: 'v2-match-training', industries: ['trading'] },
   { label: 'Inquiry Forwarding', to: '/inquiry-forwarding', route: 'inquiry-forwarding', industries: ['trading'] },
+  { label: 'Inquiry Sharing', to: '/inquiry-sharing', route: 'inquiry-sharing', industries: ['trading'], permission: 'trading.board.view' },
   { label: 'Task & Queues', to: '/task-queues', route: 'task-queues' },
   { label: 'ClientPulse', to: '/clientpulse-settings', route: 'clientpulse-settings', permission: 'settings.company.view' },
   { label: 'Real Estate Mock Data', to: '/real-estate/mock-data', route: 'real-estate-mock-data', permission: 'real_estate.properties.manage', industries: ['real_estate'] },

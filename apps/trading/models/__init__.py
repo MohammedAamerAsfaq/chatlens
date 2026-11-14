@@ -4,6 +4,7 @@ from .product_alias import ProductAlias
 from .product_attribute import ProductAttribute
 from .message_classification import MessageClassification, MessageTag
 from .inquiry import Inquiry, InquiryMessage, InquiryStatus
+from .inquiry_sharing import InquiryShare, InquirySharingRule, SharedInquiryAction, SharedInquiryActionEvent
 from .inquiry_product import (
     InquiryProduct,
     InquiryProductDecisionStatus,
@@ -72,6 +73,7 @@ __all__ = [
     'ProductAttribute',
     'MessageClassification', 'MessageTag',
     'Inquiry', 'InquiryMessage', 'InquiryStatus',
+    'InquiryShare', 'InquirySharingRule', 'SharedInquiryAction', 'SharedInquiryActionEvent',
     'InquiryProduct',
     'InquiryProductDecisionStatus',
     'InquiryProductEmbeddingStatus',

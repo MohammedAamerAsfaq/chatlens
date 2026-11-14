@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { tradingApi } from '@/api'
 
 export function useTradingConversationDialog(conversationsStore) {
   const router = useRouter()
@@ -25,6 +26,24 @@ export function useTradingConversationDialog(conversationsStore) {
     try {
       if (!conversationsStore.accounts.length) await conversationsStore.fetchChatsInitial()
       await conversationsStore.selectDirectChat(target.account, target.contact)
+    } catch (requestError) {
+      error.value = requestError.response?.data?.detail
+        || requestError.message
+        || 'Unable to open this direct conversation.'
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // Direct chat for an inquiry another user shared with us: the customer is the owner's
+  // contact, so the chat is opened on one of our own accounts instead.
+  async function openSharedDirect(inquiry, accountId, options) {
+    if (!inquiry?.id) return
+    begin(inquiry, options)
+    try {
+      if (!accountId) throw new Error('You need a WhatsApp account of your own to message this customer.')
+      if (!conversationsStore.accounts.length) await conversationsStore.fetchChatsInitial()
+      await conversationsStore.selectResolvedChat(accountId, () => tradingApi.sharedDirectChat(inquiry.id, accountId))
     } catch (requestError) {
       error.value = requestError.response?.data?.detail
         || requestError.message
@@ -81,5 +100,5 @@ export function useTradingConversationDialog(conversationsStore) {
     conversationsStore.stopPolling()
   }
 
-  return { open, loading, error, draft, inquiry, title, openDirect, openSource, openSourceInInbox, close }
+  return { open, loading, error, draft, inquiry, title, openDirect, openSharedDirect, openSource, openSourceInInbox, close }
 }

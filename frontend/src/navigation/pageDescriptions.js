@@ -40,6 +40,7 @@ const pageDescriptions = {
   'task-queues': 'Configure queue concurrency, modes, and timeouts.',
   'kiwi-router': 'Route AI work across ordered provider agents.',
   'inquiry-forwarding': 'Configure strict WTB and WTS forwarding rules.',
+  'inquiry-sharing': 'Share your inquiries with colleagues who work them separately.',
   'company-users': 'Manage workspace users and memberships.',
   'company-roles': 'Configure role permissions and access boundaries.',
   clientpulse: 'Maintain customer relationships and follow-up context.',

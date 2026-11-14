@@ -146,10 +146,16 @@ export const useConversationsStore = defineStore('conversations', () => {
   }
 
   async function selectDirectChat(accountId, contactId) {
+    return selectResolvedChat(accountId, () => chatsApi.resolveDirect(accountId, contactId))
+  }
+
+  // Switch to the account, resolve a chat on it (resolve returns an axios response with
+  // the chat), make sure it is in the chat list, and open it.
+  async function selectResolvedChat(accountId, resolve) {
     if (String(selectedAccountId.value) !== String(accountId)) {
       await switchAccount(accountId)
     }
-    const { data } = await chatsApi.resolveDirect(accountId, contactId)
+    const { data } = await resolve()
     const index = chats.value.findIndex(chat => chat.id === data.id)
     if (index === -1) chats.value.unshift(data)
     else chats.value[index] = data
@@ -189,7 +195,7 @@ export const useConversationsStore = defineStore('conversations', () => {
     selectedChatId, messages, loadingChats, loadingMessages,
     loadingOlderMessages, hasMoreMessages, highlightMessageId, highlightChatId,
     searchQuery, selectedChat, filteredChats,
-    fetchChats, fetchChatsInitial, selectChat, selectDirectChat, switchAccount,
+    fetchChats, fetchChatsInitial, selectChat, selectDirectChat, selectResolvedChat, switchAccount,
     loadOlderMessages, markAllRead, startPolling, stopPolling,
     setChatAiParsing,
   }
