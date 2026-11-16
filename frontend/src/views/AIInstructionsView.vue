@@ -78,7 +78,7 @@
           </select>
           <label class="checkbox-field">
             <input type="checkbox" v-model="wtsReply.send_color" />
-            Include Color as a circle emoji (⚫, 🔵, …)
+            Include Color emoji (set per color below)
           </label>
           <select v-model="wtsReply.color_position" class="pos-select">
             <option value="prefix">Before name</option>
@@ -127,6 +127,32 @@
           </div>
           <button class="btn-primary btn-sm" @click="saveWtsReply">Save</button>
           <div v-if="wtsReplySaved" class="pricing-ok">Saved.</div>
+        </div>
+      </div>
+
+      <!-- Color emoji card -->
+      <div v-if="!isRealEstate" class="agent-card">
+        <div class="agent-header">
+          <div class="agent-title">
+            <span class="agent-name">Color Emoji</span>
+          </div>
+          <span class="agent-label">Price replies · Selling offers</span>
+        </div>
+        <p class="color-emoji-help">
+          The emoji added for each catalog Color value when "Include Color" is on. A color left blank gets no emoji.
+        </p>
+        <div v-if="colorEmojiError" class="color-emoji-error">{{ colorEmojiError }}</div>
+        <p v-if="!colorEmojiRows.length && !colorEmojiError" class="color-emoji-help">No products have a Color attribute yet.</p>
+        <div v-else class="color-emoji-grid">
+          <label v-for="row in colorEmojiRows" :key="row.color" class="color-emoji-row" :class="{ unmapped: !row.emoji.trim() }">
+            <span class="color-emoji-name">{{ row.color }}</span>
+            <span class="color-emoji-count">{{ row.products }} product{{ row.products === 1 ? '' : 's' }}</span>
+            <input v-model="row.emoji" type="text" maxlength="16" placeholder="none" @keydown.enter="saveColorEmoji" />
+          </label>
+        </div>
+        <div class="pricing-row">
+          <button class="btn-primary btn-sm" :disabled="colorEmojiSaving" @click="saveColorEmoji">Save</button>
+          <div v-if="colorEmojiSaved" class="pricing-ok">Saved.</div>
         </div>
       </div>
 
@@ -362,6 +388,10 @@ const wtsReply      = ref({
   heading_blank_lines: 0,
 })
 const wtsReplySaved = ref(false)
+const colorEmojiRows = ref([])
+const colorEmojiSaving = ref(false)
+const colorEmojiSaved = ref(false)
+const colorEmojiError = ref('')
 const inquiryProductSave = ref({ mode: 'manual' })
 const inquiryProductSaveSaved = ref(false)
 
@@ -395,6 +425,7 @@ function expandAllPrompts() {
 async function loadPrompts() {
   promptsLoading.value = true
   try {
+    if (!isRealEstate.value) loadColorEmoji()
     const [pr, ar, ao, kro, wr, ips] = await Promise.all([
       promptApi.value.listPrompts(),
       promptApi.value.getActiveAgent().catch(() => ({ data: {} })),
@@ -481,6 +512,33 @@ async function savePricing() {
   })
   pricingSaved.value = true
   setTimeout(() => { pricingSaved.value = false }, 2000)
+}
+
+async function loadColorEmoji() {
+  try {
+    const { data } = await tradingApi.getColorEmojiSettings()
+    colorEmojiRows.value = data.colors
+    colorEmojiError.value = ''
+  } catch (exc) {
+    colorEmojiError.value = exc.response?.data?.detail || exc.message || 'Unable to load the Color emoji settings.'
+  }
+}
+
+async function saveColorEmoji() {
+  colorEmojiSaving.value = true
+  colorEmojiSaved.value = false
+  colorEmojiError.value = ''
+  try {
+    const emoji = Object.fromEntries(colorEmojiRows.value.map(row => [row.color, row.emoji]))
+    const { data } = await tradingApi.setColorEmojiSettings(emoji)
+    colorEmojiRows.value = data.colors
+    colorEmojiSaved.value = true
+    setTimeout(() => { colorEmojiSaved.value = false }, 2000)
+  } catch (exc) {
+    colorEmojiError.value = exc.response?.data?.detail || exc.message || 'Unable to save the Color emoji settings.'
+  } finally {
+    colorEmojiSaving.value = false
+  }
 }
 
 async function saveWtsReply() {
@@ -584,6 +642,14 @@ onMounted(loadPrompts)
 .price-field input { padding: 5px 9px; border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-xs); color: var(--ui-text); font-size: 0.85rem; width: 180px; background: var(--ui-surface); }
 .price-info { padding: 5px 9px; font-size: 0.82rem; color: var(--ui-text-muted); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-xs); background: var(--ui-surface); }
 .pricing-ok { font-size: 0.82rem; color: var(--ui-success); align-self: flex-end; padding-bottom: 6px; }
+.color-emoji-help { margin: 0 0 10px; font-size: 0.8rem; color: var(--ui-text-muted); }
+.color-emoji-error { margin-bottom: 10px; font-size: 0.82rem; color: var(--ui-danger); }
+.color-emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px 14px; margin-bottom: 12px; }
+.color-emoji-row { display: grid; grid-template-columns: 1fr auto 64px; align-items: center; gap: 8px; padding: 4px 8px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-xs); background: var(--ui-surface); }
+.color-emoji-row.unmapped { border-color: var(--ui-warning); }
+.color-emoji-name { font-size: 0.84rem; color: var(--ui-text); font-weight: 500; }
+.color-emoji-count { font-size: 0.72rem; color: var(--ui-text-muted); }
+.color-emoji-row input { width: 64px; padding: 3px 6px; border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-xs); background: var(--ui-surface); color: var(--ui-text); font-size: 0.95rem; text-align: center; }
 
 /* Prompt cards */
 .prompt-toolbar { display: flex; justify-content: flex-end; gap: 8px; }

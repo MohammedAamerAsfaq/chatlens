@@ -12,6 +12,7 @@
     </div>
 
     <div v-if="error" class="error-box">{{ error }}</div>
+    <div v-if="colorEmojiError" class="error-box">Offers will go out without Color emoji: {{ colorEmojiError }}</div>
 
     <div class="layout-grid">
       <section class="panel compose-panel">
@@ -485,6 +486,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons'
 import { contactsApi, tradingApi } from '@/api'
+import { useColorEmoji } from '@/features/trading/composables/useColorEmoji'
 import {
   CampaignAttachmentPanel,
   CampaignMessagePreview,
@@ -502,17 +504,8 @@ const DEFAULT_SEND_FLAG = false
 const DEFAULT_FLAG_POSITION = 'prefix'
 const DEFAULT_SEND_COLOR = false
 const DEFAULT_COLOR_POSITION = 'prefix'
-const COLOR_EMOJI = {
-  red: '\u{1F534}', pink: '\u{1F534}', rose: '\u{1F534}', magenta: '\u{1F534}',
-  orange: '\u{1F7E0}',
-  yellow: '\u{1F7E1}', gold: '\u{1F7E1}', citrus: '\u{1F7E1}',
-  green: '\u{1F7E2}', mint: '\u{1F7E2}',
-  blue: '\u{1F535}', sky: '\u{1F535}', navy: '\u{1F535}',
-  purple: '\u{1F7E3}', violet: '\u{1F7E3}', indigo: '\u{1F7E3}', lavender: '\u{1F7E3}',
-  brown: '\u{1F7E4}', bronze: '\u{1F7E4}', copper: '\u{1F7E4}', 'rose gold': '\u{1F7E4}',
-  black: '\u26AB', graphite: '\u26AB', midnight: '\u26AB', 'space gray': '\u26AB', 'space grey': '\u26AB',
-  white: '\u26AA', silver: '\u26AA', starlight: '\u26AA', pearl: '\u26AA', ivory: '\u26AA', grey: '\u26AA', gray: '\u26AA',
-}
+
+const { colorEmoji, loadError: colorEmojiError, load: loadColorEmoji } = useColorEmoji()
 
 const offers = ref([])
 const productOptions = ref([])
@@ -600,7 +593,10 @@ const offerRangeText = computed(() => {
   return `Showing ${start}-${end} of ${offerTotal.value}`
 })
 
-onMounted(loadOffers)
+onMounted(() => {
+  loadOffers()
+  loadColorEmoji()
+})
 
 async function loadOffers() {
   loadingOffers.value = true
@@ -1099,11 +1095,6 @@ function valueOrDefault(value, fallback) {
 
 function attributeValue(row, key) {
   return row?.attributes?.find(attr => attr.key === key)?.value || ''
-}
-
-function colorEmoji(colorName) {
-  if (!colorName) return ''
-  return COLOR_EMOJI[colorName.trim().toLowerCase()] || ''
 }
 
 function affixLine(line, token, position = 'prefix') {

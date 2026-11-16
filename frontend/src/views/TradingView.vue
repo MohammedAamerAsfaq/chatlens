@@ -56,6 +56,11 @@
     <!-- Close-stale result banner -->
     <div v-if="closeStaleMsg" class="close-stale-msg">{{ closeStaleMsg }}</div>
 
+    <div v-if="colorEmojiError" class="error-banner">
+      Replies will go out without Color emoji: {{ colorEmojiError }}
+      <button class="error-dismiss" @click="colorEmojiError = ''">✕</button>
+    </div>
+
     <!-- Error banner -->
     <div v-if="categoryError" class="error-banner">
       {{ categoryError }}
@@ -339,6 +344,7 @@ import { useTradingConversationDialog } from '@/features/trading/composables/use
 import { useInquiryMatchController } from '@/features/trading/composables/useInquiryMatchController'
 import { useInquiryProductsController } from '@/features/trading/composables/useInquiryProductsController'
 import { useMarketPartiesController } from '@/features/trading/composables/useMarketPartiesController'
+import { useColorEmoji } from '@/features/trading/composables/useColorEmoji'
 import {
   feedDateOptions,
   feedMatchOptions,
@@ -395,6 +401,8 @@ const historyTarget     = ref(null)
 const formattedPriceList = ref('')
 // Hot-settable WhatsApp price-reply composition (§ AI Instructions > Trading
 // dashboard) — same defaults the backend falls back to.
+const { colorEmoji, loadError: colorEmojiError, load: loadColorEmoji } = useColorEmoji()
+
 const wtsReply          = ref({
   heading: 'WTS',
   send_flag: true, flag_position: 'prefix',
@@ -870,22 +878,10 @@ function matchInventory(p) {
   return p.product_id ? productMap.value[p.product_id] : null
 }
 
-// A matched inventory record is only trustworthy for pricing/prefill purposes when
-// it's actually the SAME product the customer asked for — not just close enough that
-// product_id resolved to something. Two independent checks, either one can veto:
-//  1. The AI itself flagged this as a near (not exact) match.
-//  2. The matched product's own name doesn't equal what was requested — this catches
-//     the AI mismarking something "exact" when it demonstrably isn't (e.g. matching
-//     "iPhone 17 Pro Max" to a catalog entry actually named "iPhone 17 Pro"), and also
-//     protects older inquiries stored before match_type existed.
-// Whether product_id was correctly matched is the AI's judgment call to make (that's what
-// match_type is for — exact/near/null), not ours to re-derive here. Re-verifying it with
-// our own string comparison duplicates a fuzzy-matching problem we already pay the agent
-// to solve, with a strictly worse tool (exact-string-equality can't handle aliases, tier
-// suffixes, brand formatting, or regional synonyms the way the agent can) — and it already
-// produced a false positive the first time a brand prefix showed up. Trust match_type.
-// Only "near" is untrustworthy for pricing; missing match_type (older inquiries, predating
-// this field) falls back to trusted, same as before this field existed.
+// A matched catalog product is trusted for pricing and prefill unless the AI marked the
+// line a near (not exact) match. Whether product_id is the right product is the AI's
+// call (match_type exact/near/null); we don't re-check it with our own string compare.
+// A line with no match_type (older inquiries, before the field existed) is trusted.
 function isReliableMatch(p, match) {
   if (!match) return false
   return p.match_type !== 'near'
@@ -908,27 +904,6 @@ function attributeValue(match, key) {
   return match?.attributes?.find(a => a.key === key)?.value || ''
 }
 
-// Maps a Color attribute value to the closest standard colored-circle emoji. Only
-// the 9 solid circles Unicode actually defines (🔴🟠🟡🟢🔵🟣🟤⚫⚪) — no dedicated
-// pink/gray circle exists, so those map to the nearest hue rather than guessing
-// with an unrelated symbol. Unrecognized color names get no emoji at all (silent
-// gap, not a wrong-colored guess).
-const COLOR_EMOJI = {
-  red: '🔴', pink: '🔴', rose: '🔴', magenta: '🔴',
-  orange: '🟠',
-  yellow: '🟡', gold: '🟡', citrus: '🟡',
-  green: '🟢', mint: '🟢',
-  blue: '🔵', sky: '🔵', navy: '🔵',
-  purple: '🟣', violet: '🟣', indigo: '🟣', lavender: '🟣',
-  brown: '🟤', bronze: '🟤', copper: '🟤', 'rose gold': '🟤',
-  black: '⚫', graphite: '⚫', midnight: '⚫', 'space gray': '⚫', 'space grey': '⚫',
-  white: '⚪', silver: '⚪', starlight: '⚪', pearl: '⚪', ivory: '⚪', grey: '⚪', gray: '⚪',
-}
-
-function colorEmoji(colorName) {
-  if (!colorName) return ''
-  return COLOR_EMOJI[colorName.trim().toLowerCase()] || ''
-}
 
 function getInventoryHints(inq) {
   const hints = []
@@ -1248,6 +1223,7 @@ onMounted(async () => {
   // on the Products page, not on the 15s live-feed cadence.
   tradingApi.getPriceList().then(({ data }) => { formattedPriceList.value = data.body }).catch(() => {})
   tradingApi.getWtsReplySettings().then(({ data }) => { Object.assign(wtsReply.value, data) }).catch(() => {})
+  loadColorEmoji()
   tradingApi.getCardAnimationSettings().then(({ data }) => { Object.assign(cardAnimation.value, data) }).catch(() => {})
   document.addEventListener('pointerdown', closeContactPickersOnOutsideClick)
   document.addEventListener('pointerdown', closeCardMenusOnOutsideClick)

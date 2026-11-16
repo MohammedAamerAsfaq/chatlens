@@ -4800,6 +4800,21 @@ class TradingSettingsViewSet(viewsets.ViewSet):
         )
         return Response(payload)
 
+    @action(detail=False, methods=['get', 'put'], url_path='color-emoji')
+    def color_emoji(self, request):
+        """The emoji for each catalog Color value, used wherever outgoing text folds
+        a product's Color in (Trading board replies, selling offers). PUT body:
+        {"emoji": {"<Color value>": "<emoji>"}}; an empty emoji unmaps that value."""
+        from apps.trading.services import color_emoji
+
+        company = default_company_for_user(request.user)
+        if request.method == 'GET':
+            return Response(color_emoji.color_emoji_settings(company))
+        try:
+            return Response(color_emoji.save_color_emoji(company, request.data.get('emoji')))
+        except color_emoji.ColorEmojiError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
     @action(detail=False, methods=['get', 'put'], url_path='inquiry-products')
     def inquiry_products(self, request):
         from apps.trading.services.trading_settings_service import (
