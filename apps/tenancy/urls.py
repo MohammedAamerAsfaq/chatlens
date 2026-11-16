@@ -1,14 +1,16 @@
 from django.urls import path
 
 from .api_users import (
-    company_communication_accounts_view, company_user_communication_accounts_view,
-    company_user_detail_view, company_users_view,
+    company_communication_accounts_view, company_password_rules_view, company_user_communication_accounts_view,
+    company_user_detail_view, company_user_password_view, company_users_view,
 )
 from .api_views import company_permissions_view, company_role_detail_view, company_roles_view
 
 urlpatterns = [
     path('company/users/', company_users_view, name='company-users'),
+    path('company/users/password-rules/', company_password_rules_view, name='company-password-rules'),
     path('company/users/<int:membership_id>/', company_user_detail_view, name='company-user-detail'),
+    path('company/users/<int:membership_id>/password/', company_user_password_view, name='company-user-password'),
     path('company/communication-accounts/', company_communication_accounts_view, name='company-communication-accounts'),
     path('company/users/<int:membership_id>/communication-accounts/', company_user_communication_accounts_view, name='company-user-communication-accounts'),
     path('company/roles/', company_roles_view, name='company-roles'),

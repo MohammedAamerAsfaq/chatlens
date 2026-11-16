@@ -41,6 +41,9 @@ export const companyAccessApi = {
   users: () => http.get('/company/users/'),
   createUser: (data) => http.post('/company/users/', data),
   updateUser: (id, data) => http.patch(`/company/users/${id}/`, data),
+  removeUser: (id) => http.delete(`/company/users/${id}/`),
+  setUserPassword: (id, password) => http.post(`/company/users/${id}/password/`, { password }),
+  passwordRules: () => http.get('/company/users/password-rules/'),
   communicationAccounts: () => http.get('/company/communication-accounts/'),
   updateUserCommunicationAccounts: (id, data) => http.put(
     `/company/users/${id}/communication-accounts/`, data,

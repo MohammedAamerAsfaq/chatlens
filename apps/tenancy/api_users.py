@@ -1,3 +1,4 @@
+from django.contrib.auth import update_session_auth_hash
 from django.db import transaction
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -12,6 +13,7 @@ from apps.tenancy.models import (
 from apps.tenancy.services.access import active_membership_for_user, default_company_for_user
 from apps.tenancy.services.authorization import bump_authorization_version, permission_scope_for_membership
 from apps.tenancy.services.enrollment_service import CompanyEnrollmentService
+from apps.tenancy.services import user_admin
 
 
 def _owner_count(company):
@@ -32,12 +34,16 @@ def company_users_view(request):
         roles = {role.key: role for role in CompanyRole.objects.filter(company=company, is_active=True)}
         if 'user' not in roles:
             return Response({'detail': 'Default company roles are not initialized.'}, status=status.HTTP_409_CONFLICT)
+        email = str(request.data.get('email') or '').strip()
+        username = str(request.data.get('username') or '').strip()
+        password = request.data.get('password') or ''
         try:
+            user_admin.check_password_strength(password, username=username, email=email)
             result = CompanyEnrollmentService().create_company_user(
                 company=company,
-                email=str(request.data.get('email') or '').strip(),
-                username=str(request.data.get('username') or '').strip(),
-                password=request.data.get('password') or '',
+                email=email,
+                username=username,
+                password=password,
                 role=CompanyMembership.ROLE_USER,
             )
         except ValueError as exc:
@@ -49,7 +55,9 @@ def company_users_view(request):
             return error
         _audit(company, request.user, 'membership.created', membership=membership, after=_membership_payload(membership))
         return Response(_membership_payload(membership), status=status.HTTP_201_CREATED)
-    memberships = CompanyMembership.objects.filter(company=company).select_related('user').order_by('user__username')
+    memberships = CompanyMembership.objects.filter(
+        company=company, removed_at__isnull=True,
+    ).select_related('user').order_by('user__username')
     return Response([_membership_payload(item) for item in memberships])
 
 
@@ -82,7 +90,24 @@ def _replace_roles(request, membership, role_ids):
     return None
 
 
-@api_view(['PATCH'])
+def _actor(request):
+    return user_admin.Actor(user=request.user, membership=active_membership_for_user(request.user))
+
+
+def _admin_error(exc):
+    return Response({'detail': str(exc)}, status=exc.status)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def company_password_rules_view(request):
+    denied = _denied(request, 'users.memberships.manage')
+    if denied:
+        return denied
+    return Response({'rules': user_admin.password_rules()})
+
+
+@api_view(['PATCH', 'DELETE'])
 @permission_classes([IsAuthenticated])
 @transaction.atomic
 def company_user_detail_view(request, membership_id):
@@ -95,20 +120,66 @@ def company_user_detail_view(request, membership_id):
     ).first()
     if not membership:
         return Response({'detail': 'Membership not found.'}, status=status.HTTP_404_NOT_FOUND)
+    if request.method == 'DELETE':
+        before = _membership_payload(membership)
+        try:
+            old = user_admin.remove_user(_actor(request), membership)
+        except user_admin.UserAdminError as exc:
+            return _admin_error(exc)
+        _audit(
+            company, request.user, 'membership.removed', membership=membership,
+            before={**before, 'user': {**before['user'], **old}}, after=_membership_payload(membership),
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+    if membership.removed_at:
+        return Response({'detail': 'This user has been removed.'}, status=status.HTTP_409_CONFLICT)
     before = _membership_payload(membership)
+    if 'username' in request.data:
+        try:
+            user_admin.change_username(_actor(request), membership, request.data.get('username'))
+        except user_admin.UserAdminError as exc:
+            transaction.set_rollback(True)
+            return _admin_error(exc)
     if 'role_ids' in request.data:
         error = _replace_roles(request, membership, request.data['role_ids'])
         if error:
+            transaction.set_rollback(True)
             return error
     if 'is_active' in request.data:
         active = request.data['is_active'] in (True, 1, '1', 'true')
         if not active and membership.is_active and _is_owner(membership) and _owner_count(company) <= 1:
+            transaction.set_rollback(True)
             return Response({'detail': 'A company must retain an active Owner.'}, status=status.HTTP_400_BAD_REQUEST)
         membership.is_active = active
         membership.save(update_fields=['is_active'])
         bump_authorization_version(membership)
     _audit(company, request.user, 'membership.updated', membership=membership, before=before, after=_membership_payload(membership))
     return Response(_membership_payload(membership))
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def company_user_password_view(request, membership_id):
+    company = default_company_for_user(request.user)
+    denied = _denied(request, 'users.memberships.manage')
+    if denied:
+        return denied
+    membership = CompanyMembership.objects.select_for_update().select_related('user').filter(
+        company=company, pk=membership_id,
+    ).first()
+    if not membership:
+        return Response({'detail': 'Membership not found.'}, status=status.HTTP_404_NOT_FOUND)
+    try:
+        user_admin.set_password(_actor(request), membership, request.data.get('password') or '')
+    except user_admin.UserAdminError as exc:
+        return _admin_error(exc)
+    if membership.user_id == request.user.pk:
+        # Keep the admin signed in after changing their own password.
+        update_session_auth_hash(request, membership.user)
+    # The password itself is never written to the audit log.
+    _audit(company, request.user, 'membership.password_set', membership=membership)
+    return Response({'detail': f'Password changed for {membership.user.username}.'})
 
 
 @api_view(['GET'])

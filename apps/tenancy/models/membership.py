@@ -31,6 +31,15 @@ class CompanyMembership(models.Model):
     is_active = models.BooleanField(default=True)
     authorization_version = models.PositiveIntegerField(default=1)
     joined_at = models.DateTimeField(auto_now_add=True)
+    # Set when an admin removes the user from the company (Users page → Remove). The row
+    # stays so their history keeps its name; removed members never come back active.
+    removed_at = models.DateTimeField(null=True, blank=True)
+    removed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+    )
 
     class Meta:
         db_table = 'tenant_company_membership'

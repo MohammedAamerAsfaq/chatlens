@@ -9,6 +9,9 @@ import UiFormField from '@/components/ui/UiFormField.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
 import UiPage from '@/components/ui/UiPage.vue'
 import UiPageHeader from '@/components/ui/UiPageHeader.vue'
+import UiModal from '@/components/ui/UiModal.vue'
+import PasswordField from '@/components/PasswordField.vue'
+import { useAuthStore } from '@/stores/auth'
 
 const users = ref([])
 const roles = ref([])
@@ -20,6 +23,12 @@ const busy = ref('')
 const error = ref('')
 const success = ref('')
 const form = reactive({ username: '', email: '', password: '', role_ids: [] })
+const passwordRules = ref([])
+const auth = useAuthStore()
+
+// One dialog at a time: { kind: 'username' | 'password' | 'remove', user, value }
+const dialog = ref(null)
+const dialogError = ref('')
 
 function message(exc, fallback) {
   return exc.response?.data?.detail || fallback
@@ -32,6 +41,9 @@ async function load() {
     const [usersResponse, rolesResponse, accountsResponse] = await Promise.all([
       companyAccessApi.users(), companyAccessApi.roles(), companyAccessApi.communicationAccounts(),
     ])
+    companyAccessApi.passwordRules()
+      .then(({ data }) => { passwordRules.value = data.rules })
+      .catch(exc => { error.value = message(exc, 'Unable to load the password rules.') })
     users.value = usersResponse.data
     roles.value = rolesResponse.data.filter(role => role.is_active)
     communicationAccounts.value = accountsResponse.data
@@ -106,6 +118,48 @@ async function setActive(user, active) {
   } finally { busy.value = '' }
 }
 
+function openDialog(kind, user) {
+  dialogError.value = ''
+  dialog.value = { kind, user, value: kind === 'username' ? user.user.username : '' }
+}
+
+function isSelf(user) {
+  return user.user.id === auth.user?.id
+}
+
+function replaceUser(data) {
+  const index = users.value.findIndex(item => item.id === data.id)
+  if (index >= 0) users.value[index] = data
+}
+
+async function submitDialog() {
+  const { kind, user, value } = dialog.value
+  busy.value = `${kind}-${user.id}`
+  dialogError.value = ''; error.value = ''; success.value = ''
+  try {
+    if (kind === 'username') {
+      const { data } = await companyAccessApi.updateUser(user.id, { username: value.trim() })
+      replaceUser(data)
+      if (isSelf(user) && auth.user) auth.user.username = data.user.username
+      success.value = `${user.user.username} is now ${data.user.username}.`
+    } else if (kind === 'password') {
+      await companyAccessApi.setUserPassword(user.id, value)
+      success.value = isSelf(user)
+        ? 'Your password was changed. Your other sessions are signed out.'
+        : `Password changed for ${user.user.username}. They are signed out everywhere and must use the new password.`
+    } else {
+      await companyAccessApi.removeUser(user.id)
+      users.value = users.value.filter(item => item.id !== user.id)
+      success.value = `${user.user.username} was removed. Their records are kept and the username is free to reuse.`
+    }
+    dialog.value = null
+  } catch (exc) {
+    dialogError.value = message(exc, 'The change was not saved.')
+  } finally { busy.value = '' }
+}
+
+const DIALOG_TITLES = { username: 'Change username', password: 'Set a new password', remove: 'Remove user' }
+
 onMounted(load)
 </script>
 
@@ -115,11 +169,11 @@ onMounted(load)
     <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
     <UiNotice v-if="success" tone="success">{{ success }}</UiNotice>
 
-    <UiCard title="Add user" subtitle="A temporary password is required in this implementation phase." class="create-card">
+    <UiCard title="Add user" subtitle="Give them a strong temporary password and share it privately." class="create-card">
       <form class="create-form" @submit.prevent="createUser">
         <UiFormField label="Username"><input v-model.trim="form.username" required /></UiFormField>
         <UiFormField label="Email"><input v-model.trim="form.email" type="email" required /></UiFormField>
-        <UiFormField label="Temporary password"><input v-model="form.password" type="password" required /></UiFormField>
+        <UiFormField label="Temporary password"><PasswordField v-model="form.password" :username="form.username" :email="form.email" :rules="passwordRules" required /></UiFormField>
         <UiFormField label="Initial role"><select v-model="form.role_ids" multiple required><option v-for="role in roles" :key="role.id" :value="role.id">{{ role.name }}</option></select></UiFormField>
         <UiButton variant="primary" type="submit" :disabled="busy === 'create'">{{ busy === 'create' ? 'Creating...' : 'Create user' }}</UiButton>
       </form>
@@ -151,9 +205,45 @@ onMounted(load)
             <p v-else class="empty-accounts">No communication accounts are configured.</p>
           </div>
           <div class="actions"><UiButton variant="primary" size="small" :disabled="busy === `save-${user.id}` || !(roleDrafts[user.id] || []).length" @click="saveUser(user)">Save access</UiButton><UiButton v-if="user.is_active" variant="danger" size="small" :disabled="busy === `active-${user.id}`" @click="setActive(user, false)">Suspend</UiButton><UiButton v-else size="small" :disabled="busy === `active-${user.id}`" @click="setActive(user, true)">Reactivate</UiButton></div>
+          <div class="login-actions">
+            <UiButton v-if="user.is_active" size="small" @click="openDialog('username', user)">Change username</UiButton>
+            <UiButton size="small" @click="openDialog('password', user)">Set password</UiButton>
+            <UiButton v-if="!isSelf(user)" variant="danger" size="small" @click="openDialog('remove', user)">Remove</UiButton>
+          </div>
         </article>
       </div>
     </UiCard>
+
+    <UiModal
+      :open="Boolean(dialog)"
+      :title="dialog ? DIALOG_TITLES[dialog.kind] : 'User'"
+      :subtitle="dialog ? dialog.user.user.username : ''"
+      size="small"
+      @close="dialog = null"
+    >
+      <form v-if="dialog" class="dialog-form" @submit.prevent="submitDialog">
+        <UiNotice v-if="dialogError" tone="danger">{{ dialogError }}</UiNotice>
+        <UiFormField v-if="dialog.kind === 'username'" label="New username">
+          <input v-model="dialog.value" required maxlength="150" />
+        </UiFormField>
+        <template v-else-if="dialog.kind === 'password'">
+          <UiFormField label="New password">
+            <PasswordField v-model="dialog.value" :username="dialog.user.user.username" :email="dialog.user.user.email" :rules="passwordRules" required />
+          </UiFormField>
+          <p class="dialog-note">{{ isSelf(dialog.user) ? 'You stay signed in here; your other sessions are signed out.' : 'They will be signed out everywhere and must sign in with this password.' }}</p>
+        </template>
+        <div v-else class="dialog-note">
+          <p>{{ dialog.user.user.username }} will no longer be able to sign in and will disappear from this list. This cannot be undone.</p>
+          <p>Nothing they worked on is deleted: their WhatsApp accounts, chats, inquiries and history stay, shown under <strong>{{ dialog.user.user.username }}-deleted-…</strong>. The username and email become free for a new user. Inquiry sharing they were part of ends.</p>
+        </div>
+        <div class="dialog-actions">
+          <UiButton @click="dialog = null">Cancel</UiButton>
+          <UiButton :variant="dialog.kind === 'remove' ? 'danger' : 'primary'" type="submit" :disabled="busy === `${dialog.kind}-${dialog.user.id}`">
+            {{ dialog.kind === 'remove' ? 'Remove user' : 'Save' }}
+          </UiButton>
+        </div>
+      </form>
+    </UiModal>
   </UiPage>
 </template>
 
