@@ -16,6 +16,7 @@ from apps.whatsapp_bridge.models import (
 
 from .models import ApiKey, WebhookDeliveryAttempt, WebhookSubscription
 from .task_handlers import deliver_webhook
+from apps.tenancy.testing import create_member
 
 
 def _make_company(**overrides):
@@ -40,7 +41,7 @@ class ApiKeyManagementViewTests(TestCase):
     def setUp(self):
         self.company = _make_company(name='Mgmt Co', slug='mgmt-co')
         self.admin = User.objects.create_user(username='mgmt-admin', password='pass12345')
-        CompanyMembership.objects.create(company=self.company, user=self.admin, role=CompanyMembership.ROLE_ADMIN)
+        create_member(company=self.company, user=self.admin, role='admin')
         self.client = Client()
         self.client.force_login(self.admin)
 

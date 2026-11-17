@@ -14,6 +14,7 @@ from apps.queue_management.services import (
     TaskWorker, WorkerQueueConflict, claim_tasks, enqueue_due_schedules, enqueue_task,
     release_stale_locks,
 )
+from apps.tenancy.testing import create_member
 
 
 def _test_handler(payload, context):
@@ -243,10 +244,10 @@ class DurableTaskQueueTests(TestCase):
         user = User.objects.create_user(username='queue-viewer', password='pw')
         from apps.tenancy.models import Company, CompanyMembership
         control = Company.objects.get(company_type=Company.TYPE_CONTROL)
-        CompanyMembership.objects.create(
+        create_member(
             company=control,
             user=user,
-            role=CompanyMembership.ROLE_VIEWER,
+            role='viewer',
         )
         task = enqueue_task(
             task_key='tests.success', payload={'version': 1, 'value': 'visible'},
@@ -270,8 +271,8 @@ class DurableTaskQueueTests(TestCase):
         first = Company.objects.create(name='Queue Tenant One', slug='queue-tenant-one')
         second = Company.objects.create(name='Queue Tenant Two', slug='queue-tenant-two')
         user = User.objects.create_user(username='tenant-queue-viewer', password='pw')
-        CompanyMembership.objects.create(
-            company=first, user=user, role=CompanyMembership.ROLE_VIEWER,
+        create_member(
+            company=first, user=user, role='viewer',
         )
         own_task = enqueue_task(
             task_key='tests.success', payload={'version': 1, 'value': 'own'},

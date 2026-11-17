@@ -9,6 +9,7 @@ from apps.real_estate.models import (
 from apps.real_estate.services.inquiry_media import seed_default_inquiry_media
 from apps.real_estate.services.property_types import seed_default_property_types
 from apps.tenancy.models import Company, CompanyMembership
+from apps.tenancy.testing import create_member
 
 
 class ManualOpportunityApiTests(TestCase):
@@ -20,8 +21,8 @@ class ManualOpportunityApiTests(TestCase):
             name='Other Estate', slug='manual-other-estate', industry_type='real_estate',
         )
         self.user = get_user_model().objects.create_user('manual-estate-owner')
-        CompanyMembership.objects.create(
-            company=self.company, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
+        create_member(
+            company=self.company, user=self.user, role='super_user',
         )
         self.client = APIClient()
         self.client.force_authenticate(self.user)

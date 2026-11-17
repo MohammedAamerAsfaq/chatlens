@@ -10,6 +10,7 @@ from apps.integrations.models import (
 )
 from apps.integrations.services.google_maps import current_period_start
 from apps.tenancy.models import Company, CompanyMembership
+from apps.tenancy.testing import create_member
 
 
 class FakeGoogleMapsClient:
@@ -51,8 +52,8 @@ class GoogleMapsApiTests(TestCase):
                 company_type=Company.TYPE_CONTROL,
             )
         self.user = get_user_model().objects.create_user('google-admin', password='pw')
-        CompanyMembership.objects.create(
-            company=self.control, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
+        create_member(
+            company=self.control, user=self.user, role='super_user',
         )
         self.client = APIClient()
         self.client.force_authenticate(self.user)
@@ -209,8 +210,8 @@ class GoogleMapsApiTests(TestCase):
     def test_customer_workspace_admin_cannot_manage_shared_google_source(self):
         customer = Company.objects.create(name='Customer', slug='google-customer')
         user = get_user_model().objects.create_user('google-customer-admin')
-        CompanyMembership.objects.create(
-            company=customer, user=user, role=CompanyMembership.ROLE_SUPER_USER,
+        create_member(
+            company=customer, user=user, role='super_user',
         )
         client = APIClient()
         client.force_authenticate(user)

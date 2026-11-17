@@ -14,18 +14,19 @@ from apps.whatsapp_bridge.models import (
     ChatType, MessageDirection, MessageType, WhatsAppAccount, WhatsAppChat,
     WhatsAppContact, WhatsAppGroup, WhatsAppMessage,
 )
+from apps.tenancy.testing import create_member
 
 
 class ClientConversationHistoryTests(TestCase):
     def setUp(self):
         self.company = Company.objects.create(name='History Company', slug='history-company')
         self.admin = get_user_model().objects.create_user('history-admin')
-        CompanyMembership.objects.create(
-            company=self.company, user=self.admin, role=CompanyMembership.ROLE_SUPER_USER,
+        create_member(
+            company=self.company, user=self.admin, role='super_user',
         )
         self.member = get_user_model().objects.create_user('history-member')
-        self.member_membership = CompanyMembership.objects.create(
-            company=self.company, user=self.member, role=CompanyMembership.ROLE_USER,
+        self.member_membership = create_member(
+            company=self.company, user=self.member, role='user',
         )
         self.provider = ConnectionProvider.objects.create(
             key='history-baileys', name='History Baileys', channel='whatsapp',

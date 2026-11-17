@@ -14,18 +14,13 @@ from apps.tenancy.services.authorization import (
     bump_authorization_version, has_company_permission, permission_scope_for_membership,
 )
 from apps.tenancy.services.enrollment_service import CompanyEnrollmentService
+from apps.tenancy.services.ownership import is_owner
 
 
 def _denied(request, code):
     return None if has_company_permission(request.user, code) else Response(
         {'detail': 'You do not have permission to perform this action.'},
         status=status.HTTP_403_FORBIDDEN,
-    )
-
-
-def _is_owner(membership):
-    return membership.role_assignments.filter(role__is_owner_role=True, role__is_active=True).exists() or (
-        not membership.role_assignments.exists() and membership.role == CompanyMembership.ROLE_SUPER_USER
     )
 
 
@@ -118,7 +113,7 @@ def company_role_detail_view(request, role_id):
     role = CompanyRole.objects.select_for_update().filter(company=company, pk=role_id).first()
     if not role:
         return Response({'detail': 'Role not found.'}, status=status.HTTP_404_NOT_FOUND)
-    if role.is_owner_role and not _is_owner(active_membership_for_user(request.user)):
+    if role.is_owner_role and not is_owner(active_membership_for_user(request.user)):
         return Response({'detail': 'Only an Owner can modify the Owner role.'}, status=status.HTTP_403_FORBIDDEN)
     if role.is_owner_role and 'permissions' in request.data:
         return Response({'detail': 'Owner permissions are immutable.'}, status=status.HTTP_400_BAD_REQUEST)

@@ -37,7 +37,7 @@ from apps.whatsapp_bridge.models import (
 )
 from apps.tenancy.models import (
     AccountEndpoint, CommunicationAccount, CommunicationAccountAssignment,
-    Company, CompanyMembership, UserCompanyPreference,
+    Company, CompanyMembership, CompanyRole, UserCompanyPreference,
 )
 from apps.tenancy.api_permissions import CompanyPermissionRequired
 from apps.tenancy.services.access import (
@@ -52,7 +52,13 @@ from apps.tenancy.services.access import (
     visible_accounts_queryset,
 )
 from apps.tenancy.services.enrollment_service import CompanyEnrollmentService
-from apps.tenancy.services.authorization import effective_permission_grants, has_company_permission
+from apps.tenancy.services.authorization import (
+    bump_authorization_version, effective_permission_grants, has_company_permission,
+)
+from apps.tenancy.services.ownership import active_owner_count, is_owner
+from apps.tenancy.services.permission_catalog import OWNER_ROLE_KEY
+from apps.tenancy.services.role_seed import assign_role
+from apps.tenancy.services.user_admin import check_password_strength
 from apps.tenancy.services.provider_service import ProviderService
 from apps.tenancy.ui_preferences import (
     INSPINIA_OPTIONS,
@@ -1361,7 +1367,9 @@ class ActivityPagination(PageNumberPagination):
 
 class SyncLogViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = SyncLogSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = 'tasks.company.view'
+    write_permission = 'tasks.company.retry'
     pagination_class = ActivityPagination
 
     def get_queryset(self):
@@ -1415,7 +1423,9 @@ class SyncLogViewSet(viewsets.ReadOnlyModelViewSet):
 
 class DroppedMessageViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = DroppedMessageSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = 'tasks.company.view'
+    write_permission = 'tasks.company.retry'
     pagination_class = ActivityPagination
 
     def get_queryset(self):
@@ -1445,7 +1455,9 @@ class WorkerAlertViewSet(viewsets.ReadOnlyModelViewSet):
     """Structured, queryable record of worker-side failures that would otherwise
     only exist in a raw log file — see WorkerAlert model docstring."""
     serializer_class = WorkerAlertSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = 'tasks.company.view'
+    write_permission = 'tasks.company.retry'
     pagination_class = ActivityPagination
 
     def get_queryset(self):
@@ -1549,7 +1561,9 @@ class BaileysEventViewSet(viewsets.ReadOnlyModelViewSet):
     decisions. This is intentionally read-only from the UI; writes come only
     from the internal worker endpoint."""
     serializer_class = BaileysEventSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = 'tasks.company.view'
+    write_permission = 'tasks.company.retry'
     pagination_class = ActivityPagination
 
     def get_queryset(self):
@@ -1599,7 +1613,9 @@ class StuckReceiptViewSet(viewsets.ReadOnlyModelViewSet):
     review/audit marker; it does not affect the worker's in-memory skip-list
     (that's keyed off the row's mere existence, not its resolved_at)."""
     serializer_class = StuckReceiptSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = 'tasks.company.view'
+    write_permission = 'tasks.company.retry'
     pagination_class = ActivityPagination
 
     def get_queryset(self):
@@ -1644,7 +1660,9 @@ class UnresolvedMessageViewSet(viewsets.ReadOnlyModelViewSet):
     known) — this viewset is read-only, purely for audit visibility. See
     'docs/Contact Message Loss — LID Resolution Fix Proposal.md'."""
     serializer_class = UnresolvedMessageSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = 'tasks.company.view'
+    write_permission = 'tasks.company.retry'
     pagination_class = ActivityPagination
 
     def get_queryset(self):
@@ -2139,12 +2157,6 @@ def _serialize_auth_user(user):
                 role__is_active=True,
             ).order_by('role__name')
         ]
-        if not effective_roles:
-            effective_roles = [{
-                'id': None,
-                'key': effective_membership.role,
-                'name': effective_membership.get_role_display(),
-            }]
     if current_company:
         current_membership = memberships.get(current_company.pk)
         preference = UserCompanyPreference.objects.filter(
@@ -2163,7 +2175,6 @@ def _serialize_auth_user(user):
             'enforce_validity_period': current_company.enforce_validity_period,
             'validity_status': current_company.validity_status,
             'access_is_valid': current_company.access_is_valid,
-            'role': current_membership.role if current_membership else ('super_user' if user.is_superuser else ''),
             'roles': effective_roles,
         }
 
@@ -2172,6 +2183,7 @@ def _serialize_auth_user(user):
         'username': user.username,
         'email': user.email,
         'is_superuser': user.is_superuser,
+        'can_manage_tenants': is_control_company_admin(user),
         'current_company': company_payload,
         'membership': {
             'id': effective_membership.pk if effective_membership else None,
@@ -2202,11 +2214,22 @@ def _serialize_auth_user(user):
                     'validity_status': company.validity_status,
                     'access_is_valid': company.access_is_valid,
                 },
-                'role': memberships[company.pk].role if company.pk in memberships else ('super_user' if user.is_superuser else ''),
+                'roles': _role_names(memberships.get(company.pk)),
             }
             for company in visible_companies
         ],
     }
+
+
+def _role_names(membership):
+    if membership is None:
+        return []
+    return [
+        {'key': assignment.role.key, 'name': assignment.role.name}
+        for assignment in membership.role_assignments.select_related('role').filter(
+            role__is_active=True,
+        ).order_by('role__name')
+    ]
 
 
 def _parse_bool_param(value, field_name):
@@ -2241,6 +2264,10 @@ def _serialize_company(company):
         'valid_until': company.valid_until.isoformat() if company.valid_until else None,
         'notes': company.notes,
         'membership_count': membership_count,
+        'roles': [
+            {'key': role.key, 'name': role.name, 'is_owner_role': role.is_owner_role}
+            for role in company.roles.filter(is_active=True).order_by('name')
+        ],
         'created_at': company.created_at.isoformat() if company.created_at else None,
     }
 
@@ -2248,7 +2275,10 @@ def _serialize_company(company):
 def _serialize_membership(membership):
     return {
         'id': membership.pk,
-        'role': membership.role,
+        'roles': [
+            {**item, 'is_owner_role': item['key'] == OWNER_ROLE_KEY}
+            for item in _role_names(membership)
+        ],
         'is_active': membership.is_active,
         'joined_at': membership.joined_at.isoformat() if membership.joined_at else None,
         'company': {
@@ -2394,19 +2424,8 @@ def auth_current_company_settings_view(request):
     if not company:
         return Response({'detail': 'No active company'}, status=status.HTTP_404_NOT_FOUND)
 
-    role = ''
-    membership = (
-        CompanyMembership.objects
-        .filter(company=company, user=request.user, is_active=True)
-        .first()
-    )
-    if membership:
-        role = membership.role
-    elif request.user.is_superuser:
-        role = CompanyMembership.ROLE_SUPER_USER
-
-    if role not in (CompanyMembership.ROLE_SUPER_USER, CompanyMembership.ROLE_ADMIN):
-        return Response({'detail': 'Company admin access required'}, status=status.HTTP_403_FORBIDDEN)
+    if not has_company_permission(request.user, 'settings.company.manage', company):
+        return Response({'detail': 'Needs Company settings: Manage.'}, status=status.HTTP_403_FORBIDDEN)
 
     update_fields = []
     if 'ai_parsing_enabled' in request.data:
@@ -2598,7 +2617,7 @@ def admin_company_users_view(request):
     email = (request.data.get('email') or '').strip()
     username = (request.data.get('username') or '').strip()
     password = request.data.get('password') or ''
-    role = (request.data.get('role') or CompanyMembership.ROLE_USER).strip()
+    role_key = str(request.data.get('role_key') or 'user').strip()
 
     try:
         company = Company.objects.get(pk=company_id, is_active=True)
@@ -2611,7 +2630,8 @@ def admin_company_users_view(request):
             email=email,
             username=username,
             password=password,
-            role=role,
+            role_key=role_key,
+            assigned_by=request.user,
         )
     except ValueError as exc:
         return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -2622,6 +2642,7 @@ def admin_company_users_view(request):
 
 @api_view(['PATCH', 'DELETE'])
 @permission_classes([IsAuthenticated])
+@transaction.atomic
 def admin_company_user_detail_view(request, membership_id):
     denied = _require_control_admin(request)
     if denied:
@@ -2632,54 +2653,59 @@ def admin_company_user_detail_view(request, membership_id):
     if not membership:
         return Response({'detail': 'Membership not found'}, status=status.HTTP_404_NOT_FOUND)
 
+    last_owner = is_owner(membership) and membership.is_active and active_owner_count(membership.company) <= 1
+    keep_owner = {'detail': 'A company must retain an active Owner.'}
+
     if request.method == 'DELETE':
-        if (
-            membership.role == CompanyMembership.ROLE_SUPER_USER
-            and membership.company.memberships.filter(
-                role=CompanyMembership.ROLE_SUPER_USER, is_active=True,
-            ).count() <= 1
-        ):
-            return Response({'detail': 'A company must retain an active super user.'}, status=status.HTTP_400_BAD_REQUEST)
+        if last_owner:
+            return Response(keep_owner, status=status.HTTP_400_BAD_REQUEST)
         membership.is_active = False
         membership.save(update_fields=['is_active'])
+        bump_authorization_version(membership)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    last_super_user = (
-        membership.role == CompanyMembership.ROLE_SUPER_USER
-        and membership.is_active
-        and membership.company.memberships.filter(
-            role=CompanyMembership.ROLE_SUPER_USER, is_active=True,
-        ).count() <= 1
-    )
-    requested_role = request.data.get('role', membership.role)
+    role = None
+    if 'role_key' in request.data:
+        role = CompanyRole.objects.filter(
+            company=membership.company, key=str(request.data.get('role_key') or ''), is_active=True,
+        ).first()
+        if role is None:
+            return Response({'detail': 'That role does not exist in this company.'}, status=status.HTTP_400_BAD_REQUEST)
     requested_active = request.data.get('is_active', membership.is_active)
     if isinstance(requested_active, str):
         requested_active = requested_active.lower() in {'true', '1'}
-    if last_super_user and (
-        requested_role != CompanyMembership.ROLE_SUPER_USER or not requested_active
-    ):
-        return Response({'detail': 'A company must retain an active super user.'}, status=status.HTTP_400_BAD_REQUEST)
+    if last_owner and ((role is not None and not role.is_owner_role) or not requested_active):
+        return Response(keep_owner, status=status.HTTP_400_BAD_REQUEST)
+    if request.data.get('password'):
+        try:
+            check_password_strength(
+                request.data['password'], username=membership.user.username,
+                email=membership.user.email, user=membership.user,
+            )
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-    if 'role' in request.data:
-        role = request.data.get('role')
-        if role not in {choice[0] for choice in CompanyMembership.ROLE_CHOICES}:
-            return Response({'detail': 'role is invalid'}, status=status.HTTP_400_BAD_REQUEST)
-        membership.role = role
+    if role is not None:
+        assign_role(membership, role.key, assigned_by=request.user, replace=True)
     if 'is_active' in request.data:
         enabled, error = _parse_bool_param(request.data.get('is_active'), 'is_active')
         if error:
+            transaction.set_rollback(True)
             return Response({'detail': error}, status=status.HTTP_400_BAD_REQUEST)
         membership.is_active = enabled
     if 'email' in request.data:
         email = str(request.data.get('email') or '').strip()
         if not email:
+            transaction.set_rollback(True)
             return Response({'detail': 'email is required'}, status=status.HTTP_400_BAD_REQUEST)
         if User.objects.exclude(pk=membership.user_id).filter(email=email).exists():
+            transaction.set_rollback(True)
             return Response({'detail': 'Email is already in use.'}, status=status.HTTP_400_BAD_REQUEST)
         membership.user.email = email
         membership.user.save(update_fields=['email'])
     if request.data.get('password'):
         membership.user.set_password(request.data['password'])
         membership.user.save(update_fields=['password'])
-    membership.save(update_fields=['role', 'is_active'])
+    membership.save(update_fields=['is_active'])
+    bump_authorization_version(membership)
     return Response(_serialize_membership(membership))

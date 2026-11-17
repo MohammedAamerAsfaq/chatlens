@@ -5,7 +5,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.tenancy.api_views import _audit, _denied, _is_owner, _membership_payload
+from apps.tenancy.api_views import _audit, _denied, _membership_payload
 from apps.tenancy.models import (
     CommunicationAccount, CommunicationAccountAssignment, CompanyMembership,
     CompanyRole, MembershipRoleAssignment,
@@ -14,12 +14,7 @@ from apps.tenancy.services.access import active_membership_for_user, default_com
 from apps.tenancy.services.authorization import bump_authorization_version, permission_scope_for_membership
 from apps.tenancy.services.enrollment_service import CompanyEnrollmentService
 from apps.tenancy.services import user_admin
-
-
-def _owner_count(company):
-    return MembershipRoleAssignment.objects.filter(
-        company=company, role__is_owner_role=True, membership__is_active=True,
-    ).values('membership_id').distinct().count()
+from apps.tenancy.services.ownership import active_owner_count, is_owner
 
 
 @api_view(['GET', 'POST'])
@@ -38,13 +33,13 @@ def company_users_view(request):
         username = str(request.data.get('username') or '').strip()
         password = request.data.get('password') or ''
         try:
-            user_admin.check_password_strength(password, username=username, email=email)
             result = CompanyEnrollmentService().create_company_user(
                 company=company,
                 email=email,
                 username=username,
                 password=password,
-                role=CompanyMembership.ROLE_USER,
+                role_key='user',
+                assigned_by=request.user,
             )
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -69,11 +64,11 @@ def _replace_roles(request, membership, role_ids):
     if len(roles) != len(set(role_ids)):
         return Response({'detail': 'One or more roles were not found.'}, status=status.HTTP_400_BAD_REQUEST)
     actor_membership = active_membership_for_user(request.user)
-    changes_owner = any(role.is_owner_role for role in roles) or _is_owner(membership)
-    if changes_owner and not _is_owner(actor_membership):
+    changes_owner = any(role.is_owner_role for role in roles) or is_owner(membership)
+    if changes_owner and not is_owner(actor_membership):
         return Response({'detail': 'Only an Owner can assign or remove the Owner role.'}, status=status.HTTP_403_FORBIDDEN)
-    removing_owner = _is_owner(membership) and not any(role.is_owner_role for role in roles)
-    if removing_owner and membership.is_active and _owner_count(membership.company) <= 1:
+    removing_owner = is_owner(membership) and not any(role.is_owner_role for role in roles)
+    if removing_owner and membership.is_active and active_owner_count(membership.company) <= 1:
         return Response({'detail': 'A company must retain an active Owner.'}, status=status.HTTP_400_BAD_REQUEST)
     membership.role_assignments.all().delete()
     MembershipRoleAssignment.objects.bulk_create([
@@ -82,10 +77,6 @@ def _replace_roles(request, membership, role_ids):
             source=MembershipRoleAssignment.SOURCE_MANUAL, assigned_by=request.user,
         ) for role in roles
     ])
-    precedence = ['super_user', 'admin', 'manager', 'user', 'viewer']
-    keys = {role.key for role in roles}
-    membership.role = next((key for key in precedence if key in keys), CompanyMembership.ROLE_VIEWER)
-    membership.save(update_fields=['role'])
     bump_authorization_version(membership)
     return None
 
@@ -147,7 +138,7 @@ def company_user_detail_view(request, membership_id):
             return error
     if 'is_active' in request.data:
         active = request.data['is_active'] in (True, 1, '1', 'true')
-        if not active and membership.is_active and _is_owner(membership) and _owner_count(company) <= 1:
+        if not active and membership.is_active and is_owner(membership) and active_owner_count(company) <= 1:
             transaction.set_rollback(True)
             return Response({'detail': 'A company must retain an active Owner.'}, status=status.HTTP_400_BAD_REQUEST)
         membership.is_active = active

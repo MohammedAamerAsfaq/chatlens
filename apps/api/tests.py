@@ -32,6 +32,8 @@ from apps.whatsapp_bridge.models import (
     OutboundMessage,
     SyncLog,
 )
+from apps.tenancy.services.role_seed import assign_role
+from apps.tenancy.testing import create_member
 
 
 class TenantScopedApiTests(TestCase):
@@ -47,10 +49,10 @@ class TenantScopedApiTests(TestCase):
         cls.control_company = Company.objects.filter(company_type=Company.TYPE_CONTROL).first()
         if cls.control_company is None:
             cls.control_company = Company.objects.create(name='Control Company', slug='control-company', company_type=Company.TYPE_CONTROL)
-        CompanyMembership.objects.create(company=cls.company_a, user=cls.user_a, role=CompanyMembership.ROLE_SUPER_USER)
-        CompanyMembership.objects.create(company=cls.company_b, user=cls.user_a, role=CompanyMembership.ROLE_ADMIN)
-        CompanyMembership.objects.create(company=cls.company_b, user=cls.user_b, role=CompanyMembership.ROLE_SUPER_USER)
-        CompanyMembership.objects.create(company=cls.control_company, user=cls.control_admin, role=CompanyMembership.ROLE_SUPER_USER)
+        create_member(company=cls.company_a, user=cls.user_a, role='super_user')
+        create_member(company=cls.company_b, user=cls.user_a, role='admin')
+        create_member(company=cls.company_b, user=cls.user_b, role='super_user')
+        create_member(company=cls.control_company, user=cls.control_admin, role='super_user')
 
         provider = ConnectionProvider.objects.get(key='baileys')
         comm_a = CommunicationAccount.objects.create(
@@ -178,8 +180,8 @@ class TenantScopedApiTests(TestCase):
 
     def test_viewer_role_is_read_only(self):
         viewer = get_user_model().objects.create_user('tenant-viewer', password='pw')
-        CompanyMembership.objects.create(
-            company=self.company_a, user=viewer, role=CompanyMembership.ROLE_VIEWER,
+        create_member(
+            company=self.company_a, user=viewer, role='viewer',
         )
         self.client.login(username='tenant-viewer', password='pw')
         self.assertEqual(self.client.get('/api/products/').status_code, 200)
@@ -543,8 +545,9 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(payload['current_company']['id'], self.company_a.id)
         self.assertEqual(payload['current_company']['name'], 'Company A')
         self.assertEqual(payload['current_company']['ai_parsing_enabled'], True)
-        self.assertEqual(payload['current_company']['role'], CompanyMembership.ROLE_SUPER_USER)
-        self.assertEqual(payload['membership']['roles'][0]['key'], CompanyMembership.ROLE_SUPER_USER)
+        self.assertEqual([role['key'] for role in payload['current_company']['roles']], ['super_user'])
+        self.assertFalse(payload['can_manage_tenants'])
+        self.assertEqual(payload['membership']['roles'][0]['key'], 'super_user')
         self.assertEqual(payload['permissions']['users.roles.manage'], 'all')
         self.assertGreaterEqual(payload['authorization_version'], 1)
         self.assertEqual(payload['preferences']['ui_theme'], 'chatlens')
@@ -689,7 +692,7 @@ class TenantScopedApiTests(TestCase):
         self.assertGreaterEqual(self.company_a.ai_parsing_enabled_at, enabled_at)
 
     def test_company_toggle_rejects_non_admin_member(self):
-        CompanyMembership.objects.filter(company=self.company_b, user=self.user_a).update(role=CompanyMembership.ROLE_USER)
+        assign_role(CompanyMembership.objects.get(company=self.company_b, user=self.user_a), 'user', replace=True)
         self.client.force_authenticate(self.user_a)
         self.client.post('/api/auth/select-company/', {'company_id': self.company_b.id}, format='json')
 
@@ -842,8 +845,8 @@ class TenantScopedApiTests(TestCase):
 
     def test_assigned_user_can_toggle_ai_parsing_for_their_account(self):
         agent = get_user_model().objects.create_user(username='assigned-agent', password='pw')
-        membership = CompanyMembership.objects.create(
-            company=self.company_a, user=agent, role=CompanyMembership.ROLE_USER,
+        membership = create_member(
+            company=self.company_a, user=agent, role='user',
         )
         CommunicationAccountAssignment.objects.create(
             company=self.company_a, communication_account=self.account_a.communication_account,
@@ -877,8 +880,8 @@ class TenantScopedApiTests(TestCase):
         from apps.tenancy.models import CompanyRole, CompanyRolePermission, MembershipRoleAssignment, PermissionDefinition
 
         agent = get_user_model().objects.create_user(username='custom-role-agent', password='pw')
-        membership = CompanyMembership.objects.create(
-            company=self.company_a, user=agent, role=CompanyMembership.ROLE_USER,
+        membership = create_member(
+            company=self.company_a, user=agent, role='user',
         )
         role = CompanyRole.objects.create(company=self.company_a, key='field-agent', name='Field Agent')
         MembershipRoleAssignment.objects.create(company=self.company_a, membership=membership, role=role)
@@ -906,8 +909,8 @@ class TenantScopedApiTests(TestCase):
 
     def test_unassigned_user_cannot_toggle_ai_parsing_for_other_accounts(self):
         agent = get_user_model().objects.create_user(username='unassigned-agent', password='pw')
-        CompanyMembership.objects.create(
-            company=self.company_a, user=agent, role=CompanyMembership.ROLE_USER,
+        create_member(
+            company=self.company_a, user=agent, role='user',
         )
         self.client.force_login(agent)
 
@@ -926,8 +929,8 @@ class TenantScopedApiTests(TestCase):
         # so an admin with full manage rights in their OWN company must not be able to
         # use that to reach into a different company's account.
         agent = get_user_model().objects.create_user(username='company-b-admin', password='pw')
-        CompanyMembership.objects.create(
-            company=self.company_b, user=agent, role=CompanyMembership.ROLE_SUPER_USER,
+        create_member(
+            company=self.company_b, user=agent, role='super_user',
         )
         self.client.force_login(agent)
 
@@ -946,8 +949,8 @@ class TenantScopedApiTests(TestCase):
         # limits, etc.) and intentionally has no narrow carve-out - an assigned-but-
         # not-full-manage user must use the dedicated /toggle-ai/ endpoint instead.
         agent = get_user_model().objects.create_user(username='assigned-agent-2', password='pw')
-        membership = CompanyMembership.objects.create(
-            company=self.company_a, user=agent, role=CompanyMembership.ROLE_USER,
+        membership = create_member(
+            company=self.company_a, user=agent, role='user',
         )
         CommunicationAccountAssignment.objects.create(
             company=self.company_a, communication_account=self.account_a.communication_account,
@@ -968,8 +971,8 @@ class TenantScopedApiTests(TestCase):
     def test_assigned_user_can_set_per_chat_ai_parsing(self):
         chat = self._existing_direct_chat('91')
         agent = get_user_model().objects.create_user(username='chat-assigned-agent', password='pw')
-        membership = CompanyMembership.objects.create(
-            company=self.company_a, user=agent, role=CompanyMembership.ROLE_USER,
+        membership = create_member(
+            company=self.company_a, user=agent, role='user',
         )
         CommunicationAccountAssignment.objects.create(
             company=self.company_a, communication_account=self.account_a.communication_account,
@@ -988,8 +991,8 @@ class TenantScopedApiTests(TestCase):
     def test_unassigned_user_cannot_set_per_chat_ai_parsing(self):
         chat = self._existing_direct_chat('92')
         agent = get_user_model().objects.create_user(username='chat-unassigned-agent', password='pw')
-        CompanyMembership.objects.create(
-            company=self.company_a, user=agent, role=CompanyMembership.ROLE_USER,
+        create_member(
+            company=self.company_a, user=agent, role='user',
         )
         self.client.force_login(agent)
 
@@ -1692,7 +1695,7 @@ class TenantScopedApiTests(TestCase):
             'industry_type': Company.INDUSTRY_REAL_ESTATE,
             'email': 'c-admin@example.com',
             'username': 'company_c_admin',
-            'password': 'pw123456',
+            'password': 'Strong-Enrol-Pass-71',
         }, format='json')
         self.assertEqual(resp.status_code, 201)
         self.assertTrue(Company.objects.filter(name='Company C', industry_type=Company.INDUSTRY_REAL_ESTATE).exists())
@@ -1703,14 +1706,31 @@ class TenantScopedApiTests(TestCase):
             'company_id': self.company_a.id,
             'email': 'new-user@example.com',
             'username': 'company_a_user',
-            'password': 'pw123456',
-            'role': CompanyMembership.ROLE_MANAGER,
+            'password': 'Strong-Member-Pass-72',
+            'role_key': 'manager',
         }, format='json')
         self.assertEqual(resp.status_code, 201)
-        self.assertTrue(
-            CompanyMembership.objects.filter(
-                company=self.company_a,
-                user__username='company_a_user',
-                role=CompanyMembership.ROLE_MANAGER,
-            ).exists()
-        )
+        self.assertEqual([role['key'] for role in resp.json()['roles']], ['manager'])
+        membership = CompanyMembership.objects.get(company=self.company_a, user__username='company_a_user')
+        self.assertEqual(list(membership.role_assignments.values_list('role__key', flat=True)), ['manager'])
+
+    def test_tenant_admin_refuses_weak_passwords_and_keeps_the_last_owner(self):
+        self.client.force_authenticate(self.control_admin)
+        weak = self.client.post('/api/admin/users/', {
+            'company_id': self.company_a.id, 'email': 'weak@example.com',
+            'username': 'weak_user', 'password': '12345678', 'role_key': 'user',
+        }, format='json')
+        self.assertEqual(weak.status_code, 400)
+        self.assertFalse(get_user_model().objects.filter(username='weak_user').exists())
+
+        owner = CompanyMembership.objects.get(company=self.company_b, user=self.user_b)
+        demoted = self.client.patch(f'/api/admin/users/{owner.pk}/', {'role_key': 'user'}, format='json')
+        self.assertEqual(demoted.status_code, 400)
+        self.assertEqual(list(owner.role_assignments.values_list('role__key', flat=True)), ['super_user'])
+
+        member = CompanyMembership.objects.get(company=self.company_b, user=self.user_a)
+        changed = self.client.patch(f'/api/admin/users/{member.pk}/', {'role_key': 'viewer'}, format='json')
+        self.assertEqual(changed.status_code, 200)
+        self.assertEqual([role['key'] for role in changed.json()['roles']], ['viewer'])
+        bad_password = self.client.patch(f'/api/admin/users/{member.pk}/', {'password': 'abc'}, format='json')
+        self.assertEqual(bad_password.status_code, 400)

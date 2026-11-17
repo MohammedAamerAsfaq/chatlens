@@ -32,14 +32,15 @@ from apps.whatsapp_bridge.models import (
     WhatsAppGroup,
     WhatsAppMessage,
 )
+from apps.tenancy.testing import create_member
 
 
 class InquiryForwardingTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='forwarder')
         self.company = Company.objects.create(name='Forward Co', slug='forward-co')
-        CompanyMembership.objects.create(
-            company=self.company, user=self.user, role=CompanyMembership.ROLE_ADMIN,
+        create_member(
+            company=self.company, user=self.user, role='admin',
         )
         provider = ConnectionProvider.objects.create(
             key='forward-wa', name='WhatsApp', channel=ConnectionProvider.CHANNEL_WHATSAPP,

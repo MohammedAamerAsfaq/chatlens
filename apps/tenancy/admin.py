@@ -26,9 +26,9 @@ class CompanyAdmin(admin.ModelAdmin):
 
 @admin.register(CompanyMembership)
 class CompanyMembershipAdmin(admin.ModelAdmin):
-    list_display = ('company', 'user', 'role', 'is_active', 'joined_at')
+    list_display = ('company', 'user', 'is_active', 'joined_at')
     search_fields = ('company__name', 'user__username', 'user__email')
-    list_filter = ('role', 'is_active')
+    list_filter = ('is_active',)
 
 
 @admin.register(UserCompanyPreference)

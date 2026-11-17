@@ -3,7 +3,6 @@ export interface NavigationItem {
   to: string
   route: string
   permission?: string
-  requiresCompanyAdmin?: boolean
   tenantAdmin?: boolean
   industries?: string[]
   badge?: string

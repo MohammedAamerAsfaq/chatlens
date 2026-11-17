@@ -11,11 +11,11 @@ export const primaryNavigation = [
     children: [
       { label: 'Dashboard', to: '/trading', route: 'trading' },
       { label: 'Create Inquiry', to: '/inquiries/manual', route: 'manual-inquiry', permission: 'trading.inquiries.update' },
-      { label: 'Products', to: '/products', route: 'products' },
+      { label: 'Products', to: '/products', route: 'products', permission: 'trading.products.view' },
       { label: 'Inquiry Products', to: '/inquiry-products', route: 'inquiry-products' },
-      { label: 'Non-Inventory', to: '/non-inventory-products', route: 'non-inventory-products' },
+      { label: 'Non-Inventory', to: '/non-inventory-products', route: 'non-inventory-products', permission: 'trading.products.view' },
       { label: 'Candidate Search', to: '/v2-candidate-search', route: 'v2-candidate-search' },
-      { label: 'Price Updates', to: '/product-price-update', route: 'product-price-update' },
+      { label: 'Price Updates', to: '/product-price-update', route: 'product-price-update', permission: 'trading.products.view' },
     ],
   },
   {
@@ -76,10 +76,10 @@ export const settingsNavigation = [
   { label: 'Sessions', to: '/', route: 'sessions', permission: 'conversations.accounts.view', personal: true },
   { label: 'Storage', to: '/storage', route: 'storage' },
   { label: 'Integrations', to: '/integrations', route: 'integrations', permission: 'integrations.connections.view' },
-  { label: 'API Consumer', to: '/api-consumer-settings', route: 'api-consumer-settings', requiresCompanyAdmin: true },
-  { label: 'AI Providers', to: '/ai-providers', route: 'ai-providers', requiresCompanyAdmin: true },
+  { label: 'API Consumer', to: '/api-consumer-settings', route: 'api-consumer-settings', permission: 'settings.company.manage' },
+  { label: 'AI Providers', to: '/ai-providers', route: 'ai-providers', permission: 'settings.company.manage' },
   { label: 'KiwiRouter', to: '/kiwi-router', route: 'kiwi-router' },
-  { label: 'AI Instructions', to: '/ai-instructions', route: 'ai-instructions', industries: ['trading', 'real_estate'], requiresCompanyAdmin: true },
+  { label: 'AI Instructions', to: '/ai-instructions', route: 'ai-instructions', industries: ['trading', 'real_estate'], permission: 'settings.company.manage' },
   { label: 'V2 Settings', to: '/v2-settings', route: 'v2-settings', industries: ['trading'] },
   { label: 'V2 Match Training', to: '/v2-match-training', route: 'v2-match-training', industries: ['trading'] },
   { label: 'Inquiry Forwarding', to: '/inquiry-forwarding', route: 'inquiry-forwarding', industries: ['trading'] },
@@ -94,7 +94,7 @@ export const settingsNavigation = [
 ]
 
 export const logsNavigation = [
-  { label: 'AI Operations', to: '/ai-operations', route: 'ai-operations', requiresCompanyAdmin: true },
+  { label: 'AI Operations', to: '/ai-operations', route: 'ai-operations', permission: 'settings.company.manage' },
   { label: 'Activity', to: '/activity', route: 'activity' },
   { label: 'Message Logs', to: '/message-logs', route: 'message-logs' },
   { label: 'Dropped', to: '/dropped-messages', route: 'dropped-messages' },
@@ -103,15 +103,14 @@ export const logsNavigation = [
   { label: 'Worker Alerts', to: '/worker-alerts', route: 'worker-alerts', badge: 'worker' },
   { label: 'Stuck Receipts', to: '/stuck-receipts', route: 'stuck-receipts', badge: 'receipts' },
   { label: 'Unresolved Messages', to: '/unresolved-messages', route: 'unresolved-messages', badge: 'messages' },
-  { label: 'AI Parsing', to: '/ai-parsing-log', route: 'ai-parsing-log', industries: ['trading'] },
-  { label: 'AI Parse V2', to: '/ai-parse-v2-log', route: 'ai-parse-v2-log', industries: ['trading'] },
+  { label: 'AI Parsing', to: '/ai-parsing-log', route: 'ai-parsing-log', industries: ['trading'], permission: 'settings.company.view' },
+  { label: 'AI Parse V2', to: '/ai-parse-v2-log', route: 'ai-parse-v2-log', industries: ['trading'], permission: 'settings.company.view' },
   { label: 'Task Operations', to: '/task-operations', route: 'task-operations' },
 ]
 
 export function navigationItemVisible(item, context) {
   if (item.permission && !context.hasPermission(item.permission)) return false
   if (item.tenantAdmin && !context.canManageTenants) return false
-  if (item.requiresCompanyAdmin && !context.isCompanyAdmin) return false
   if (item.industries && !item.industries.includes(context.industry)) return false
   return true
 }

@@ -13,6 +13,7 @@ from apps.real_estate.services.mock_inquiry_cleanup import clear_mock_inquiries
 from apps.real_estate.services.mock_inquiry_profiles import PROFILES, parse_source_record
 from apps.task_management.models import BackgroundTask
 from apps.tenancy.models import Company, CompanyMembership
+from apps.tenancy.testing import create_member
 
 
 class RealEstateMockInquiryTests(TestCase):
@@ -24,9 +25,9 @@ class RealEstateMockInquiryTests(TestCase):
             name='Other Estate', slug='other-mock-estate', industry_type='real_estate',
         )
         self.user = get_user_model().objects.create_user('mock-estate-owner')
-        CompanyMembership.objects.create(
+        create_member(
             company=self.company, user=self.user,
-            role=CompanyMembership.ROLE_SUPER_USER,
+            role='super_user',
         )
         self.client = APIClient()
         self.client.force_authenticate(self.user)

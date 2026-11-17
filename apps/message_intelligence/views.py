@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from apps.tenancy.services.access import visible_accounts_queryset
+from apps.tenancy.services.authorization import has_company_permission
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,8 @@ def embedding_backfill_view(request):
     """
     from apps.whatsapp_bridge.models import WhatsAppMessage
 
+    if not has_company_permission(request.user, 'settings.company.manage'):
+        return Response({'detail': 'Needs Company settings: Manage.'}, status=status.HTTP_403_FORBIDDEN)
     account_id = request.data.get('account_id')
     limit      = int(request.data.get('limit', 500))
 

@@ -23,6 +23,7 @@ from apps.tenancy.models import (
 from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppChat, WhatsAppMessage
 from apps.real_estate.services.property_types import seed_default_property_types
 from apps.real_estate.services.extraction_projection import project_extraction
+from apps.tenancy.testing import create_member
 
 
 class RealEstateApiTests(TestCase):
@@ -32,8 +33,8 @@ class RealEstateApiTests(TestCase):
         self.types = {item.code: item for item in seed_default_property_types(self.company)}
         self.other_types = {item.code: item for item in seed_default_property_types(self.other)}
         self.user = get_user_model().objects.create_user('api-estate-owner')
-        CompanyMembership.objects.create(
-            company=self.company, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
+        create_member(
+            company=self.company, user=self.user, role='super_user',
         )
         self.client = APIClient()
         self.client.force_authenticate(self.user)
@@ -145,8 +146,8 @@ class RealEstateApiTests(TestCase):
 
     def test_card_configs_readable_by_any_member_but_writable_only_by_admins(self):
         member_user = get_user_model().objects.create_user('api-estate-member')
-        CompanyMembership.objects.create(
-            company=self.company, user=member_user, role=CompanyMembership.ROLE_USER,
+        create_member(
+            company=self.company, user=member_user, role='user',
         )
         member_client = APIClient()
         member_client.force_authenticate(member_user)
@@ -167,8 +168,8 @@ class RealEstateApiTests(TestCase):
 
     def test_card_configs_are_company_scoped(self):
         other_user = get_user_model().objects.create_user('api-estate-other-owner')
-        CompanyMembership.objects.create(
-            company=self.other, user=other_user, role=CompanyMembership.ROLE_SUPER_USER,
+        create_member(
+            company=self.other, user=other_user, role='super_user',
         )
         self.client.put(
             '/api/real-estate/prompts/card-field-config/', {'fields': ['party_name']}, format='json',
@@ -423,8 +424,8 @@ class RealEstateApiTests(TestCase):
 
     def test_agent_sees_assigned_manual_and_assigned_account_opportunities(self):
         agent = get_user_model().objects.create_user('estate-agent')
-        membership = CompanyMembership.objects.create(
-            company=self.company, user=agent, role=CompanyMembership.ROLE_USER,
+        membership = create_member(
+            company=self.company, user=agent, role='user',
         )
         provider = ConnectionProvider.objects.get(key='baileys')
         visible_communication = CommunicationAccount.objects.create(

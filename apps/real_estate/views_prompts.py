@@ -1,4 +1,5 @@
 from rest_framework import status, viewsets
+from apps.tenancy.api_permissions import CompanyPermissionRequired
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -9,12 +10,13 @@ from apps.real_estate.models import (
 )
 from apps.real_estate.services.prompts import DEFAULT_PROMPTS
 from apps.tenancy.models import Company
-from apps.tenancy.permissions import CompanyAdminPermission
 from apps.tenancy.services.access import default_company_for_user
 
 
 class RealEstatePromptViewSet(viewsets.GenericViewSet):
-    permission_classes = [IsAuthenticated, CompanyAdminPermission]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = 'settings.company.manage'
+    write_permission = 'settings.company.manage'
     # Reading the card display config must work for every board viewer so the board
     # actually renders the admin's chosen layout for everyone, not just admins —
     # only saving changes is admin-gated.

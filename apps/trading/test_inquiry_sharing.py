@@ -12,6 +12,7 @@ from apps.trading.models import (
     Inquiry, InquiryShare, InquiryStatus, SharedInquiryAction, SharedInquiryActionEvent,
 )
 from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppChat, WhatsAppContact
+from apps.tenancy.testing import create_member
 
 
 class InquirySharingTests(TestCase):
@@ -26,10 +27,10 @@ class InquirySharingTests(TestCase):
         cls.company = Company.objects.create(name='Share Co', slug='share-co', industry_type=Company.INDUSTRY_TRADING)
         other = Company.objects.create(name='Other Co', slug='other-co', industry_type=Company.INDUSTRY_TRADING)
         memberships = {
-            user: CompanyMembership.objects.create(company=cls.company, user=user, role=CompanyMembership.ROLE_USER)
+            user: create_member(company=cls.company, user=user, role='user')
             for user in (cls.owner, cls.bob, cls.carol)
         }
-        CompanyMembership.objects.create(company=other, user=cls.outsider, role=CompanyMembership.ROLE_USER)
+        create_member(company=other, user=cls.outsider, role='user')
 
         provider = ConnectionProvider.objects.get(key='baileys')
 

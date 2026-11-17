@@ -6,14 +6,15 @@ from rest_framework.test import APIClient
 from apps.tenancy.models import CommunicationAccount, Company, CompanyMembership, ConnectionProvider
 from apps.trading.models import Inquiry, InquiryProduct
 from apps.whatsapp_bridge.models import WhatsAppAccount
+from apps.tenancy.testing import create_member
 
 
 class InquiryProductPaginationTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_superuser('pager', 'pager@example.com', 'pw')
         company = Company.objects.create(name='Pager Co', slug='pager-co')
-        CompanyMembership.objects.create(
-            company=company, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
+        create_member(
+            company=company, user=self.user, role='super_user',
         )
         self.user.active_company = company
         provider = ConnectionProvider.objects.create(

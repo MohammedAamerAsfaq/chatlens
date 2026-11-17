@@ -10,6 +10,7 @@ from apps.tenancy.models import (
 from apps.tenancy.services.enrollment_service import CompanyEnrollmentService
 from apps.trading.models import InquirySharingRule
 from apps.whatsapp_bridge.models import WhatsAppAccount
+from apps.tenancy.testing import create_member
 
 STRONG = 'Harbor-Violet-58-Kite'
 
@@ -128,7 +129,7 @@ class CompanyUserAdminTests(TestCase):
 
     def test_login_shared_with_another_company_is_not_changed_from_here(self):
         other = Company.objects.create(name='Other', slug='other-admin', industry_type=Company.INDUSTRY_TRADING)
-        CompanyMembership.objects.create(company=other, user=self.member.user, role=CompanyMembership.ROLE_USER)
+        create_member(company=other, user=self.member.user, role='user')
         self.assertEqual(self.client.delete(self.url(self.member)).status_code, 409)
         self.assertEqual(self.client.post(self.url(self.member, 'password/'), {'password': STRONG}, format='json').status_code, 409)
 

@@ -8,7 +8,9 @@ export const useAuthStore = defineStore('auth', () => {
   const user  = ref(null)
   const ready = ref(false)
   const currentCompany = computed(() => user.value?.current_company ?? null)
-  const currentRole = computed(() => currentCompany.value?.role ?? '')
+  // Names of the roles assigned in the current company, for display only. Access is
+  // decided by permissions, never by role names.
+  const currentRoleNames = computed(() => (currentCompany.value?.roles ?? []).map(role => role.name))
   const memberships = computed(() => user.value?.memberships ?? [])
   const permissions = computed(() => user.value?.permissions ?? {})
   const uiTheme = computed(() => normalizeTheme(user.value?.preferences?.ui_theme || DEFAULT_THEME))
@@ -16,12 +18,9 @@ export const useAuthStore = defineStore('auth', () => {
   const inspiniaConfig = computed(() => normalizeInspiniaConfig(user.value?.preferences?.inspinia_config))
   const inspiniaOptions = computed(() => user.value?.preferences?.inspinia_options ?? {})
   const hasMultipleMemberships = computed(() => memberships.value.length > 1)
-  const canManageTenants = computed(() => {
-    const company = currentCompany.value
-    if (!company) return false
-    return company.company_type === 'control' && ['super_user', 'admin'].includes(currentRole.value)
-  })
-  const isCompanyAdmin = computed(() => ['super_user', 'admin'].includes(currentRole.value))
+  // Platform administration (Tenant Admin) is decided by the server: an Owner of the
+  // control company, working in the control company.
+  const canManageTenants = computed(() => Boolean(user.value?.can_manage_tenants))
   const hasPermission = (code) => Boolean(permissions.value[code])
   const permissionScope = (code) => permissions.value[code] ?? null
 
@@ -74,7 +73,7 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     ready,
     currentCompany,
-    currentRole,
+    currentRoleNames,
     memberships,
     permissions,
     uiTheme,
@@ -83,7 +82,6 @@ export const useAuthStore = defineStore('auth', () => {
     inspiniaOptions,
     hasMultipleMemberships,
     canManageTenants,
-    isCompanyAdmin,
     hasPermission,
     permissionScope,
     init,

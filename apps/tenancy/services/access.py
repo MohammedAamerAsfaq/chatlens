@@ -74,10 +74,8 @@ def is_control_company_admin(user) -> bool:
         return False
     if user.is_superuser:
         return True
-    membership = active_membership_for_user(user)
-    if not membership:
-        return False
-    return membership.role in {CompanyMembership.ROLE_SUPER_USER, CompanyMembership.ROLE_ADMIN}
+    from apps.tenancy.services.ownership import is_owner
+    return is_owner(active_membership_for_user(user))
 
 
 def control_company_for_platform_admin(user):
@@ -87,13 +85,8 @@ def control_company_for_platform_admin(user):
         return None
     if user.is_superuser:
         return control
-    membership = CompanyMembership.objects.filter(
-        user=user,
-        company=control,
-        is_active=True,
-        role__in={CompanyMembership.ROLE_SUPER_USER, CompanyMembership.ROLE_ADMIN},
-    ).first()
-    return control if membership else None
+    from apps.tenancy.services.ownership import owner_memberships
+    return control if owner_memberships(control).filter(user=user).exists() else None
 
 
 def is_platform_admin(user) -> bool:

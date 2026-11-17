@@ -1,5 +1,6 @@
 from django.db.models import Count, Sum
 from rest_framework.decorators import action
+from apps.tenancy.api_permissions import CompanyPermissionRequired
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
@@ -11,7 +12,6 @@ from apps.ai_providers.operations_data import (
     section_queryset,
     serialize_row,
 )
-from apps.tenancy.permissions import CompanyAdminPermission
 from apps.tenancy.services.access import default_company_for_user
 
 
@@ -19,7 +19,9 @@ SECTIONS = ('parsing', 'calls', 'routing', 'reservations', 'embeddings', 'tasks'
 
 
 class AIOperationsViewSet(ViewSet):
-    permission_classes = [IsAuthenticated, CompanyAdminPermission]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = 'settings.company.manage'
+    write_permission = 'settings.company.manage'
 
     @staticmethod
     def _company(request):

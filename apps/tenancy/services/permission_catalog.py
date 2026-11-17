@@ -77,6 +77,10 @@ PERMISSION_SPECS = [
 
 ALL_CODES = {item['code'] for item in PERMISSION_SPECS}
 
+# The built-in role every company has as its Owner (full ownership, platform admin in
+# the control company).
+OWNER_ROLE_KEY = 'super_user'
+
 ROLE_SPECS = {
     'super_user': {'name': 'Owner', 'description': 'Full company ownership and administration.', 'owner': True},
     'admin': {'name': 'Administrator', 'description': 'Company administration without ownership transfer.'},

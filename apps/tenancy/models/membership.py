@@ -3,19 +3,8 @@ from django.db import models
 
 
 class CompanyMembership(models.Model):
-    ROLE_SUPER_USER = 'super_user'
-    ROLE_ADMIN = 'admin'
-    ROLE_MANAGER = 'manager'
-    ROLE_USER = 'user'
-    ROLE_VIEWER = 'viewer'
-
-    ROLE_CHOICES = [
-        (ROLE_SUPER_USER, 'Super User'),
-        (ROLE_ADMIN, 'Admin'),
-        (ROLE_MANAGER, 'Manager'),
-        (ROLE_USER, 'User'),
-        (ROLE_VIEWER, 'Viewer'),
-    ]
+    """A user's place in a company. What they may do comes from the roles assigned to
+    the membership (MembershipRoleAssignment), never from a field on this row."""
 
     company = models.ForeignKey(
         'tenancy.Company',
@@ -27,7 +16,6 @@ class CompanyMembership(models.Model):
         on_delete=models.CASCADE,
         related_name='company_memberships',
     )
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES)
     is_active = models.BooleanField(default=True)
     authorization_version = models.PositiveIntegerField(default=1)
     joined_at = models.DateTimeField(auto_now_add=True)
@@ -52,4 +40,4 @@ class CompanyMembership(models.Model):
         ]
 
     def __str__(self):
-        return f'{self.company} -> {self.user} ({self.role})'
+        return f'{self.company} -> {self.user}'

@@ -4,6 +4,7 @@ from rest_framework.test import APIClient
 
 from apps.clientpulse.models import ClientProfile, ClientTag, ClientTagAssignment
 from apps.tenancy.models import Company, CompanyContact, CompanyMembership
+from apps.tenancy.testing import create_member
 
 
 class ClientTagApiTests(TestCase):
@@ -12,8 +13,8 @@ class ClientTagApiTests(TestCase):
         self.company = Company.objects.create(name='Tags Company', slug='tags-company')
         self.other_company = Company.objects.create(name='Other Tags', slug='other-tags')
         self.user = User.objects.create_user('tags-owner')
-        CompanyMembership.objects.create(
-            company=self.company, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
+        create_member(
+            company=self.company, user=self.user, role='super_user',
         )
         contact = CompanyContact.objects.create(company=self.company, display_name='Tagged Client')
         self.profile = ClientProfile.objects.create(

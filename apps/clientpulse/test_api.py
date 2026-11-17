@@ -10,6 +10,7 @@ from apps.tenancy.models import (
     CompanyMembership, ConnectionProvider,
 )
 from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppContact
+from apps.tenancy.testing import create_member
 
 
 class ClientPulseApiTests(TestCase):
@@ -18,13 +19,13 @@ class ClientPulseApiTests(TestCase):
         self.company = Company.objects.create(name='CRM Company', slug='crm-company')
         self.other = Company.objects.create(name='Other CRM', slug='other-crm')
         self.owner_user = User.objects.create_user('crm-owner')
-        self.owner_membership = CompanyMembership.objects.create(
+        self.owner_membership = create_member(
             company=self.company, user=self.owner_user,
-            role=CompanyMembership.ROLE_SUPER_USER,
+            role='super_user',
         )
         self.agent_user = User.objects.create_user('crm-agent')
-        self.agent_membership = CompanyMembership.objects.create(
-            company=self.company, user=self.agent_user, role=CompanyMembership.ROLE_USER,
+        self.agent_membership = create_member(
+            company=self.company, user=self.agent_user, role='user',
         )
         self.client = APIClient()
         self.client.force_authenticate(self.owner_user)
@@ -113,8 +114,8 @@ class ClientPulseApiTests(TestCase):
 
     def test_cross_company_owner_and_tag_are_rejected(self):
         foreign_user = get_user_model().objects.create_user('foreign-owner')
-        foreign_owner = CompanyMembership.objects.create(
-            company=self.other, user=foreign_user, role=CompanyMembership.ROLE_ADMIN,
+        foreign_owner = create_member(
+            company=self.other, user=foreign_user, role='admin',
         )
         foreign_tag = ClientTag.objects.create(company=self.other, name='Foreign')
         response = self.client.post('/api/clientpulse/clients/', {
@@ -183,8 +184,8 @@ class ClientPulseApiTests(TestCase):
 
     def test_viewer_cannot_create_client(self):
         viewer = get_user_model().objects.create_user('crm-viewer')
-        CompanyMembership.objects.create(
-            company=self.company, user=viewer, role=CompanyMembership.ROLE_VIEWER,
+        create_member(
+            company=self.company, user=viewer, role='viewer',
         )
         self.client.force_authenticate(viewer)
         response = self.client.post(

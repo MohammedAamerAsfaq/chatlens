@@ -8,6 +8,7 @@ from apps.tenancy.models import (
     CompanyContact, CompanyContactIdentity, CompanyMembership, ConnectionProvider,
 )
 from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppContact
+from apps.tenancy.testing import create_member
 
 
 class ConversationConversionTests(TestCase):
@@ -15,8 +16,8 @@ class ConversationConversionTests(TestCase):
         self.company = Company.objects.create(name='Conversation CRM', slug='conversation-crm')
         self.other_company = Company.objects.create(name='Foreign CRM', slug='foreign-crm')
         self.user = get_user_model().objects.create_user('conversation-owner')
-        CompanyMembership.objects.create(
-            company=self.company, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
+        create_member(
+            company=self.company, user=self.user, role='super_user',
         )
         provider = ConnectionProvider.objects.create(
             key='conversation-baileys', name='Conversation Baileys', channel='whatsapp',
@@ -133,8 +134,8 @@ class ConversationConversionTests(TestCase):
 
     def test_non_admin_candidate_list_only_includes_owned_accounts(self):
         member = get_user_model().objects.create_user('conversation-member')
-        member_membership = CompanyMembership.objects.create(
-            company=self.company, user=member, role=CompanyMembership.ROLE_USER,
+        member_membership = create_member(
+            company=self.company, user=member, role='user',
         )
         communication = CommunicationAccount.objects.create(
             company=self.company, provider=self.account.communication_account.provider,
@@ -161,8 +162,8 @@ class ConversationConversionTests(TestCase):
 
     def test_non_admin_cannot_convert_contact_from_unassigned_account(self):
         member = get_user_model().objects.create_user('unassigned-conversation-member')
-        CompanyMembership.objects.create(
-            company=self.company, user=member, role=CompanyMembership.ROLE_USER,
+        create_member(
+            company=self.company, user=member, role='user',
         )
         self.client.force_authenticate(member)
 
@@ -199,8 +200,8 @@ class ConversationConversionTests(TestCase):
         self.whatsapp_contact.company_contact = contact
         self.whatsapp_contact.save(update_fields=['company_contact', 'updated_at'])
         agent = get_user_model().objects.create_user('conversation-agent')
-        CompanyMembership.objects.create(
-            company=self.company, user=agent, role=CompanyMembership.ROLE_USER,
+        create_member(
+            company=self.company, user=agent, role='user',
         )
         self.client.force_authenticate(agent)
 

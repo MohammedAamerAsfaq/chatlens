@@ -4,14 +4,15 @@ from django.test import TestCase
 from apps.tenancy.models import CommunicationAccount, Company, CompanyMembership, ConnectionProvider
 from apps.trading.models import Inquiry, InquiryStatus, Product
 from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppContact
+from apps.tenancy.testing import create_member
 
 
 class ManualInquiryTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='manual-creator')
         self.company = Company.objects.create(name='Manual Co', slug='manual-co')
-        CompanyMembership.objects.create(
-            company=self.company, user=self.user, role=CompanyMembership.ROLE_ADMIN,
+        create_member(
+            company=self.company, user=self.user, role='admin',
         )
         provider = ConnectionProvider.objects.create(
             key='manual-wa', name='WhatsApp', channel=ConnectionProvider.CHANNEL_WHATSAPP,

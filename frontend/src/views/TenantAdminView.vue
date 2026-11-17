@@ -9,12 +9,21 @@ import UiNotice from '@/components/ui/UiNotice.vue'
 import UiPage from '@/components/ui/UiPage.vue'
 import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import UiTableFrame from '@/components/ui/UiTableFrame.vue'
+import PasswordField from '@/components/PasswordField.vue'
 
 const auth = useAuthStore()
 
 const loading = ref(false)
 const error = ref('')
 const companies = ref([])
+// Roles are per company; a membership can hold several. Tenant Admin sets one role,
+// replacing the others; finer assignment is on that company's Users page.
+function rolesFor(companyId) {
+  return companies.value.find(company => company.id === Number(companyId))?.roles ?? []
+}
+function roleNames(membership) {
+  return (membership.roles ?? []).map(role => role.name).join(', ')
+}
 const memberships = ref([])
 
 const companyForm = ref({
@@ -29,7 +38,7 @@ const userForm = ref({
   email: '',
   username: '',
   password: '',
-  role: 'user',
+  role_key: 'user',
 })
 const savingCompany = ref(false)
 const savingUser = ref(false)
@@ -73,8 +82,6 @@ function validateCompanyForm() {
   if (!companyForm.value.password) {
     setFieldError(companyFieldErrors, 'password', 'Admin password is required.')
     valid = false
-  } else if (companyForm.value.password.length < 6) {
-    setFieldError(companyFieldErrors, 'password', 'Use at least 6 characters for the password.')
     valid = false
   }
   return valid
@@ -101,8 +108,6 @@ function validateUserForm() {
   if (!userForm.value.password) {
     setFieldError(userFieldErrors, 'password', 'Password is required.')
     valid = false
-  } else if (userForm.value.password.length < 6) {
-    setFieldError(userFieldErrors, 'password', 'Use at least 6 characters for the password.')
     valid = false
   }
   return valid
@@ -167,13 +172,13 @@ async function submitUser() {
       ...userForm.value,
       company_id: Number(userForm.value.company_id),
     })
-    userSuccess.value = `Created ${data.user.username} in ${data.company.name} as ${data.role.replaceAll('_', ' ')}.`
+    userSuccess.value = `Created ${data.user.username} in ${data.company.name} as ${roleNames(data)}.`
     userForm.value = {
       company_id: userForm.value.company_id,
       email: '',
       username: '',
       password: '',
-      role: 'user',
+      role_key: userForm.value.role_key,
     }
     resetUserErrors()
     await load()
@@ -291,7 +296,7 @@ async function removeMembership(membership) {
             </label>
             <label>
               <span>Admin password</span>
-              <input v-model="companyForm.password" type="password" required />
+              <PasswordField v-model="companyForm.password" :username="companyForm.username" :email="companyForm.email" required />
               <small v-if="companyFieldErrors.password" class="field-error">{{ companyFieldErrors.password }}</small>
             </label>
             <UiButton variant="primary" type="submit" :disabled="savingCompany">
@@ -317,12 +322,8 @@ async function removeMembership(membership) {
             </label>
             <label>
               <span>Role</span>
-              <select v-model="userForm.role">
-                <option value="super_user">Super User</option>
-                <option value="admin">Admin</option>
-                <option value="manager">Manager</option>
-                <option value="user">User</option>
-                <option value="viewer">Viewer</option>
+              <select v-model="userForm.role_key">
+                <option v-for="role in rolesFor(userForm.company_id)" :key="role.key" :value="role.key">{{ role.name }}</option>
               </select>
             </label>
             <label>
@@ -337,7 +338,7 @@ async function removeMembership(membership) {
             </label>
             <label>
               <span>Password</span>
-              <input v-model="userForm.password" type="password" required />
+              <PasswordField v-model="userForm.password" :username="userForm.username" :email="userForm.email" required />
               <small v-if="userFieldErrors.password" class="field-error">{{ userFieldErrors.password }}</small>
             </label>
             <UiButton variant="primary" type="submit" :disabled="savingUser || !manageableCompanies.length">
@@ -454,7 +455,7 @@ async function removeMembership(membership) {
                   <th>User</th>
                   <th>Email</th>
                   <th>Company</th>
-                  <th>Role</th>
+                  <th>Roles</th>
                   <th>Status</th>
                   <th></th>
                 </tr>
@@ -467,15 +468,14 @@ async function removeMembership(membership) {
                   <td>
                     <select
                       class="inline-select"
-                      :value="membership.role"
-                      @change="updateMembership(membership, { role: $event.target.value })"
+                      :value="membership.roles.length === 1 ? membership.roles[0].key : ''"
+                      :title="roleNames(membership)"
+                      @change="updateMembership(membership, { role_key: $event.target.value })"
                     >
-                      <option value="super_user">Super User</option>
-                      <option value="admin">Admin</option>
-                      <option value="manager">Manager</option>
-                      <option value="user">User</option>
-                      <option value="viewer">Viewer</option>
+                      <option v-if="membership.roles.length !== 1" value="" disabled>{{ roleNames(membership) || 'No role' }}</option>
+                      <option v-for="role in rolesFor(membership.company.id)" :key="role.key" :value="role.key">{{ role.name }}</option>
                     </select>
+                    <small v-if="membership.roles.length > 1" class="field-hint">Choosing one replaces all {{ membership.roles.length }} roles.</small>
                   </td>
                   <td>
                     <label class="toggle-label">
@@ -523,6 +523,11 @@ async function removeMembership(membership) {
   color: #b91c1c;
   font-size: 0.78rem;
   line-height: 1.35;
+}
+.field-hint {
+  display: block;
+  color: #64748b;
+  font-size: 0.72rem;
 }
 .inline-empty-state {
   margin-top: 16px;

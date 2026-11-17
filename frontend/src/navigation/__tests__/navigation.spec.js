@@ -36,30 +36,40 @@ describe('industry-aware navigation', () => {
   })
 })
 
-describe('company-admin-gated navigation', () => {
-  const adminContext = isCompanyAdmin => ({ industry: 'trading', canManageTenants: false, isCompanyAdmin, hasPermission: () => true })
+describe('permission-gated navigation', () => {
+  // Menus follow permissions, never role names.
+  const grantedContext = granted => ({ industry: 'trading', canManageTenants: false, hasPermission: code => granted.includes(code) })
+  const ALL_BUT = missing => ({ industry: 'trading', canManageTenants: false, hasPermission: code => code !== missing })
 
-  it('hides API Consumer settings from non-admins', () => {
-    const visible = settingsNavigation.filter(item => navigationItemVisible(item, adminContext(false)))
-    expect(visible.map(item => item.route)).not.toContain('api-consumer-settings')
+  it('shows API Consumer and AI Providers only with settings.company.manage', () => {
+    const hidden = settingsNavigation.filter(item => navigationItemVisible(item, ALL_BUT('settings.company.manage')))
+    const shown = settingsNavigation.filter(item => navigationItemVisible(item, grantedContext(['settings.company.manage'])))
+    expect(hidden.map(item => item.route)).not.toContain('api-consumer-settings')
+    expect(hidden.map(item => item.route)).not.toContain('ai-providers')
+    expect(shown.map(item => item.route)).toContain('api-consumer-settings')
+    expect(shown.map(item => item.route)).toContain('ai-providers')
   })
 
-  it('shows API Consumer settings to company admins, including control-account admins', () => {
-    const visible = settingsNavigation.filter(item => navigationItemVisible(item, adminContext(true)))
-    expect(visible.map(item => item.route)).toContain('api-consumer-settings')
+  it('shows AI Operations only with settings.company.manage', () => {
+    expect(logsNavigation.filter(item => navigationItemVisible(item, ALL_BUT('settings.company.manage'))).map(item => item.route)).not.toContain('ai-operations')
+    expect(logsNavigation.filter(item => navigationItemVisible(item, grantedContext(['settings.company.manage']))).map(item => item.route)).toContain('ai-operations')
   })
 
-  it('shows AI Operations only to company admins', () => {
-    const adminLogs = logsNavigation.filter(item => navigationItemVisible(item, adminContext(true)))
-    const memberLogs = logsNavigation.filter(item => navigationItemVisible(item, adminContext(false)))
-    expect(adminLogs.map(item => item.route)).toContain('ai-operations')
-    expect(memberLogs.map(item => item.route)).not.toContain('ai-operations')
+  it('shows Products, Non-Inventory and Price Updates only with trading.products.view', () => {
+    const trading = primaryNavigation.find(item => item.id === 'trading')
+    const without = trading.children.filter(item => navigationItemVisible(item, ALL_BUT('trading.products.view'))).map(item => item.route)
+    const withIt = trading.children.filter(item => navigationItemVisible(item, grantedContext(['trading.products.view']))).map(item => item.route)
+    for (const route of ['products', 'non-inventory-products', 'product-price-update']) {
+      expect(without).not.toContain(route)
+      expect(withIt).toContain(route)
+    }
+    expect(without).toContain('trading')
   })
 })
 
 describe('personal settings', () => {
   const memberContext = (granted) => ({
-    industry: 'trading', canManageTenants: false, isCompanyAdmin: false,
+    industry: 'trading', canManageTenants: false,
     hasPermission: code => granted.includes(code),
   })
 

@@ -32,7 +32,6 @@ const routeName = computed(() => String(route.name || ''))
 const navigationContext = () => ({
   industry: auth.currentCompany?.industry_type,
   canManageTenants: auth.canManageTenants,
-  isCompanyAdmin: auth.isCompanyAdmin,
   hasPermission: auth.hasPermission,
 })
 const canShow = item => navigationItemVisible(item, navigationContext())
@@ -46,7 +45,7 @@ const topbarApps = computed(() => [...moreNavigation.filter(canShow), ...setting
 const alertTotal = computed(() => Object.values(alerts.value).reduce((sum, value) => sum + value, 0))
 const pageTitle = computed(() => route.meta.title || 'Workspace')
 const pageDescription = computed(() => resolvePageDescription(routeName.value))
-const roleLabel = computed(() => auth.currentRole?.replaceAll('_', ' ') || '')
+const roleLabel = computed(() => auth.currentRoleNames.join(', '))
 
 function isSectionOpen(item) { return item.routes?.includes(routeName.value) || expanded.value.has(item.id) }
 function isUtilityOpen(id, items) { return expanded.value.has(id) || items.some(item => item.route === routeName.value) }
@@ -69,6 +68,8 @@ function toggleNavigation() {
 }
 
 async function fetchAlerts() {
+  // The counts come from Operations logs, which need tasks.company.view.
+  if (!canShowOperations.value) return
   try { alerts.value.worker = (await workerAlertsApi.unacknowledgedCount()).data.count } catch { /* optional */ }
   try { alerts.value.receipts = (await stuckReceiptsApi.unresolvedCount()).data.count } catch { /* optional */ }
   try { alerts.value.messages = (await unresolvedMessagesApi.counts()).data.pending } catch { /* optional */ }

@@ -1,9 +1,9 @@
 from rest_framework import status, viewsets
+from apps.tenancy.api_permissions import CompanyPermissionRequired
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.tenancy.permissions import CompanyAdminPermission
 from apps.tenancy.services.access import default_company_for_user
 
 from .management_serializers import ApiKeyCreateSerializer, ApiKeySerializer
@@ -11,7 +11,9 @@ from .models import ApiKey
 
 
 class ApiKeyViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, CompanyAdminPermission]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = 'settings.company.manage'
+    write_permission = 'settings.company.manage'
     serializer_class = ApiKeySerializer
     http_method_names = ['get', 'post', 'head', 'options']
 

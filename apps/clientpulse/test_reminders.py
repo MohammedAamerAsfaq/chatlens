@@ -17,14 +17,15 @@ from apps.queue_management.models import BackgroundWorker
 from apps.tenancy.models import Company, CompanyContact, CompanyMembership
 from apps.tenancy.services.enrollment_service import CompanyEnrollmentService
 from apps.whatsapp_bridge.models import OutboundMessage
+from apps.tenancy.testing import create_member
 
 
 class ClientReminderTests(TestCase):
     def setUp(self):
         self.company = Company.objects.create(name='Reminder Co', slug='reminder-co')
         self.user = get_user_model().objects.create_user('reminder-owner')
-        self.membership = CompanyMembership.objects.create(
-            company=self.company, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
+        self.membership = create_member(
+            company=self.company, user=self.user, role='super_user',
         )
         contact = CompanyContact.objects.create(company=self.company, display_name='Reminder Client')
         self.profile = ClientProfile.objects.create(

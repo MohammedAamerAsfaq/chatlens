@@ -80,17 +80,17 @@ const router = createRouter({
     { path: '/activity', name: 'activity', component: ActivityView, meta: { title: 'Activity' } },
     { path: '/storage', name: 'storage', component: StorageView, meta: { title: 'Storage' } },
     { path: '/integrations', name: 'integrations', component: IntegrationsView, meta: { title: 'Integrations', permission: 'integrations.connections.view' } },
-    { path: '/api-consumer-settings', name: 'api-consumer-settings', component: ApiConsumerSettingsView, meta: { title: 'API Consumer', requiresCompanyAdmin: true } },
+    { path: '/api-consumer-settings', name: 'api-consumer-settings', component: ApiConsumerSettingsView, meta: { title: 'API Consumer', permission: 'settings.company.manage' } },
     { path: '/message-logs', name: 'message-logs', component: MessageLogsView, meta: { title: 'Message Logs' } },
-    { path: '/ai-providers', name: 'ai-providers', component: AIProvidersView, meta: { title: 'AI Providers', requiresCompanyAdmin: true } },
+    { path: '/ai-providers', name: 'ai-providers', component: AIProvidersView, meta: { title: 'AI Providers', permission: 'settings.company.manage' } },
     { path: '/dropped-messages', name: 'dropped-messages', component: DroppedMessagesView, meta: { title: 'Dropped Messages' } },
     { path: '/worker-alerts', name: 'worker-alerts', component: WorkerAlertsView, meta: { title: 'Worker Alerts' } },
     { path: '/baileys-events', name: 'baileys-events', component: BaileysEventsView, meta: { title: 'Baileys Events' } },
     { path: '/stuck-receipts', name: 'stuck-receipts', component: StuckReceiptsView, meta: { title: 'Stuck Receipts' } },
     { path: '/unresolved-messages', name: 'unresolved-messages', component: UnresolvedMessagesView, meta: { title: 'Unresolved Messages' } },
     { path: '/message-trace', name: 'message-trace', component: MessageTraceView, meta: { title: 'Message Trace' } },
-    { path: '/ai-parsing-log', name: 'ai-parsing-log', component: AiParsingLogView, meta: { title: 'AI Parsing Log', industries: ['trading'] } },
-    { path: '/ai-parse-v2-log', name: 'ai-parse-v2-log', component: AiParseV2LogView, meta: { title: 'AI Parse V2 Logs', industries: ['trading'] } },
+    { path: '/ai-parsing-log', name: 'ai-parsing-log', component: AiParsingLogView, meta: { title: 'AI Parsing Log', industries: ['trading'], permission: 'settings.company.view' } },
+    { path: '/ai-parse-v2-log', name: 'ai-parse-v2-log', component: AiParseV2LogView, meta: { title: 'AI Parse V2 Logs', industries: ['trading'], permission: 'settings.company.view' } },
     { path: '/contacts', name: 'contacts', component: ContactsView, meta: { title: 'Contacts' } },
     { path: '/groups', name: 'groups', component: GroupsView, meta: { title: 'Groups' } },
     { path: '/trading', name: 'trading', component: TradingView, meta: { title: 'Trading Dashboard', industries: ['trading'] } },
@@ -102,20 +102,20 @@ const router = createRouter({
     { path: '/selling-offers-report', name: 'selling-offers-report', component: SellingOffersReportView, meta: { title: 'Selling Offers Report', industries: ['trading'] } },
     { path: '/inquiries', name: 'inquiries', component: InquiriesView, meta: { title: 'Inquiries', industries: ['trading'] } },
     { path: '/inquiry-products', name: 'inquiry-products', component: InquiryProductsView, meta: { title: 'Inquiry Products', industries: ['trading'] } },
-    { path: '/non-inventory-products', name: 'non-inventory-products', component: NonInventoryProductsView, meta: { title: 'Non-Inventory Products', industries: ['trading'] } },
-    { path: '/products', name: 'products', component: ProductsView, meta: { title: 'Products', industries: ['trading'] } },
+    { path: '/non-inventory-products', name: 'non-inventory-products', component: NonInventoryProductsView, meta: { title: 'Non-Inventory Products', industries: ['trading'], permission: 'trading.products.view' } },
+    { path: '/products', name: 'products', component: ProductsView, meta: { title: 'Products', industries: ['trading'], permission: 'trading.products.view' } },
     { path: '/v2-candidate-search', name: 'v2-candidate-search', component: V2CandidateSearchView, meta: { title: 'V2 Candidate Search', industries: ['trading'] } },
-    { path: '/product-price-update', name: 'product-price-update', component: ProductPriceUpdateView, meta: { title: 'Product Price Update', industries: ['trading'] } },
+    { path: '/product-price-update', name: 'product-price-update', component: ProductPriceUpdateView, meta: { title: 'Product Price Update', industries: ['trading'], permission: 'trading.products.view' } },
     { path: '/automation', name: 'price-automation', component: AutomationView, meta: { title: 'Price Automation', industries: ['trading'] } },
     { path: '/buying-inquiries', name: 'buying-inquiries', component: BuyingInquiriesView, meta: { title: 'Buying Inquiries', industries: ['trading'] } },
     { path: '/group-buying-inquiries', name: 'group-buying-inquiries', component: GroupBuyingInquiriesView, meta: { title: 'Group Buying Inquiries', industries: ['trading'] } },
     { path: '/group-selling-offers', name: 'group-selling-offers', component: GroupSellingOffersView, meta: { title: 'Group Selling Offers', industries: ['trading'] } },
-    { path: '/ai-instructions', name: 'ai-instructions', component: AIInstructionsView, meta: { title: 'AI Instructions', industries: ['trading', 'real_estate'], requiresCompanyAdmin: true } },
+    { path: '/ai-instructions', name: 'ai-instructions', component: AIInstructionsView, meta: { title: 'AI Instructions', industries: ['trading', 'real_estate'], permission: 'settings.company.manage' } },
     { path: '/v2-settings', name: 'v2-settings', component: V2SettingsView, meta: { title: 'V2 Settings', industries: ['trading'] } },
     { path: '/tenant-admin', name: 'tenant-admin', component: TenantAdminView, meta: { title: 'Tenant Admin' } },
     { path: '/v2-match-training', name: 'v2-match-training', component: V2MatchTrainingView, meta: { title: 'V2 Match Training', industries: ['trading'] } },
     { path: '/task-operations', name: 'task-operations', component: TaskOperationsView, meta: { title: 'Task Operations' } },
-    { path: '/ai-operations', name: 'ai-operations', component: AIOperationsView, meta: { title: 'AI Operations', requiresCompanyAdmin: true } },
+    { path: '/ai-operations', name: 'ai-operations', component: AIOperationsView, meta: { title: 'AI Operations', permission: 'settings.company.manage' } },
     { path: '/task-queues', name: 'task-queues', component: TaskQueueSettingsView, meta: { title: 'Task & Queues' } },
     { path: '/kiwi-router', name: 'kiwi-router', component: KiwiRouterView, meta: { title: 'KiwiRouter' } },
     { path: '/inquiry-sharing', name: 'inquiry-sharing', component: InquirySharingView, meta: { title: 'Inquiry Sharing', industries: ['trading'], permission: 'trading.board.view' } },
@@ -164,9 +164,6 @@ router.beforeEach(async (to) => {
     return { name: 'sessions' }
   }
   if (typeof to.meta.permission === 'string' && !auth.hasPermission(to.meta.permission)) {
-    return { name: 'sessions' }
-  }
-  if (to.meta.requiresCompanyAdmin && !auth.isCompanyAdmin) {
     return { name: 'sessions' }
   }
 })

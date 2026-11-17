@@ -9,6 +9,7 @@ from apps.chatlens_core.models import SystemSettings
 from apps.tenancy.models import Company, CompanyMembership
 from apps.trading.models import Product, ProductAttribute
 from apps.trading.services.color_emoji import COLOR_EMOJI_KEY, saved_color_emoji
+from apps.tenancy.testing import create_member
 
 URL = '/api/trading-settings/color-emoji/'
 
@@ -18,7 +19,7 @@ class ColorEmojiSettingsTests(TestCase):
     def setUpTestData(cls):
         cls.user = get_user_model().objects.create_user(username='u', password='pw')
         cls.company = Company.objects.create(name='Emoji Co', slug='emoji-co', industry_type=Company.INDUSTRY_TRADING)
-        CompanyMembership.objects.create(company=cls.company, user=cls.user, role=CompanyMembership.ROLE_ADMIN)
+        create_member(company=cls.company, user=cls.user, role='admin')
         other = Company.objects.create(name='Other', slug='other-emoji', industry_type=Company.INDUSTRY_TRADING)
         for company, name, color in [
             (cls.company, 'A', 'Silver'), (cls.company, 'B', 'Silver'), (cls.company, 'C', 'Glacier'),

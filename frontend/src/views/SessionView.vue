@@ -23,10 +23,7 @@ const currentCompany = computed(() => auth.currentCompany)
 // Adding an account and scanning its QR code need conversations.accounts.manage.
 const canManageAccounts = computed(() => auth.hasPermission('conversations.accounts.manage'))
 const companyAiParsingEnabled = computed(() => currentCompany.value?.ai_parsing_enabled !== false)
-const canToggleCompanyAiParsing = computed(() => {
-  const role = auth.currentRole
-  return ['super_user', 'admin'].includes(role)
-})
+const canToggleCompanyAiParsing = computed(() => auth.hasPermission('settings.company.manage'))
 let accountRefreshTimer = null
 
 const workerStatus = computed(() => {
@@ -128,7 +125,7 @@ async function toggleCompanyAiParsing() {
         </div>
         <div v-if="auth.hasMultipleMemberships" class="workspace-memberships">
           <button v-for="membership in auth.memberships" :key="membership.company.id" type="button" class="workspace-pill" :class="{ 'workspace-pill-active': membership.company.id === currentCompany?.id }" :disabled="switchingCompany || membership.company.id === currentCompany?.id" @click="switchCompany(membership.company.id)">
-            <span>{{ membership.company.name }}</span><span class="workspace-pill-role">{{ membership.role.replaceAll('_', ' ') }}</span>
+            <span>{{ membership.company.name }}</span><span class="workspace-pill-role">{{ membership.roles.map(role => role.name).join(', ') }}</span>
           </button>
         </div>
       </div>
@@ -142,7 +139,7 @@ async function toggleCompanyAiParsing() {
             class="company-ai-toggle"
             :class="companyAiParsingEnabled ? 'company-ai-on' : 'company-ai-off'"
             :disabled="!currentCompany || !canToggleCompanyAiParsing || togglingAiParsing"
-            :title="canToggleCompanyAiParsing ? 'Toggle AI parsing for this company' : 'Company admin access required'"
+            :title="canToggleCompanyAiParsing ? 'Toggle AI parsing for this company' : 'Needs Company settings: Manage'"
             @click="toggleCompanyAiParsing"
           >
             <span class="company-ai-label">AI Parsing</span>

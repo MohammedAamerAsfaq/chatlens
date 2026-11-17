@@ -10,6 +10,7 @@ from apps.tenancy.models import (
 )
 from apps.trading.models import Inquiry, InquiryStatus, InquiryStatusEvent
 from apps.whatsapp_bridge.models import WhatsAppAccount
+from apps.tenancy.testing import create_member
 
 
 class InquiryStatusHistoryTests(TestCase):
@@ -19,10 +20,10 @@ class InquiryStatusHistoryTests(TestCase):
         cls.owner = users.create_user(username='owner', password='pw')
         cls.admin = users.create_user(username='boss', password='pw', first_name='Boss')
         cls.company = Company.objects.create(name='Hist Co', slug='hist-co', industry_type=Company.INDUSTRY_TRADING)
-        owner_membership = CompanyMembership.objects.create(
-            company=cls.company, user=cls.owner, role=CompanyMembership.ROLE_USER,
+        owner_membership = create_member(
+            company=cls.company, user=cls.owner, role='user',
         )
-        CompanyMembership.objects.create(company=cls.company, user=cls.admin, role=CompanyMembership.ROLE_SUPER_USER)
+        create_member(company=cls.company, user=cls.admin, role='super_user')
         comm = CommunicationAccount.objects.create(
             company=cls.company, provider=ConnectionProvider.objects.get(key='baileys'),
             channel='whatsapp', name='Owner WA',

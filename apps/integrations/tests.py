@@ -9,6 +9,7 @@ from apps.integrations.services.geography_sync import sync_country
 from apps.queue_management.models import QueueDefinition
 from apps.task_management.models import BackgroundTask
 from apps.tenancy.models import Company, CompanyMembership
+from apps.tenancy.testing import create_member
 
 
 class FakeGeoNamesClient:
@@ -91,8 +92,8 @@ class IntegrationApiTests(TestCase):
                 company_type=Company.TYPE_CONTROL,
             )
         self.user = get_user_model().objects.create_user('integration-admin', password='pw')
-        CompanyMembership.objects.create(
-            company=self.control, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
+        create_member(
+            company=self.control, user=self.user, role='super_user',
         )
         self.client.force_authenticate(self.user)
         session = self.client.session
@@ -114,8 +115,8 @@ class IntegrationApiTests(TestCase):
 
     def test_control_admin_can_manage_platform_source_from_customer_workspace(self):
         customer = Company.objects.create(name='Real Estate', slug='real-estate')
-        CompanyMembership.objects.create(
-            company=customer, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
+        create_member(
+            company=customer, user=self.user, role='super_user',
         )
         session = self.client.session
         session['active_company_id'] = customer.pk
@@ -130,8 +131,8 @@ class IntegrationApiTests(TestCase):
 
     def test_platform_sync_is_owned_by_control_company_from_customer_workspace(self):
         customer = Company.objects.create(name='Real Estate', slug='real-estate-sync')
-        CompanyMembership.objects.create(
-            company=customer, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
+        create_member(
+            company=customer, user=self.user, role='super_user',
         )
         session = self.client.session
         session['active_company_id'] = customer.pk
@@ -189,8 +190,8 @@ class IntegrationApiTests(TestCase):
     def test_customer_company_cannot_manage_platform_source(self):
         customer = Company.objects.create(name='Customer', slug='integration-customer')
         user = get_user_model().objects.create_user('customer-admin')
-        CompanyMembership.objects.create(
-            company=customer, user=user, role=CompanyMembership.ROLE_SUPER_USER,
+        create_member(
+            company=customer, user=user, role='super_user',
         )
         client = APIClient()
         client.force_authenticate(user)

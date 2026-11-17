@@ -21,8 +21,9 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils.timezone import now
 
-from apps.tenancy.models import CompanyMembership, MembershipRoleAssignment
+from apps.tenancy.models import CompanyMembership
 from apps.tenancy.services.authorization import bump_authorization_version
+from apps.tenancy.services.ownership import active_owner_count, is_owner
 
 DELETED_MARKER = '-deleted-'
 
@@ -39,18 +40,6 @@ class UserAdminError(ValueError):
 class Actor:
     user: object
     membership: object
-
-
-def _is_owner(membership):
-    return membership.role_assignments.filter(role__is_owner_role=True, role__is_active=True).exists() or (
-        not membership.role_assignments.exists() and membership.role == CompanyMembership.ROLE_SUPER_USER
-    )
-
-
-def _active_owner_count(company):
-    return MembershipRoleAssignment.objects.filter(
-        company=company, role__is_owner_role=True, membership__is_active=True,
-    ).values('membership_id').distinct().count()
 
 
 def password_rules():
@@ -76,7 +65,7 @@ def _guard(actor, membership):
     target = membership.user
     if target.is_superuser and not actor.user.is_superuser:
         raise UserAdminError('Only a platform superuser can change a superuser login.', status=403)
-    if _is_owner(membership) and not (actor.membership and _is_owner(actor.membership)):
+    if is_owner(membership) and not (actor.membership and is_owner(actor.membership)):
         raise UserAdminError('Only an Owner can change an Owner login.', status=403)
     other = CompanyMembership.objects.filter(user=target, removed_at__isnull=True).exclude(company=membership.company)
     if other.exists():
@@ -127,7 +116,7 @@ def remove_user(actor, membership):
     if actor.user.pk == membership.user_id:
         raise UserAdminError('You cannot remove yourself.')
     _guard(actor, membership)
-    if membership.is_active and _is_owner(membership) and _active_owner_count(membership.company) <= 1:
+    if membership.is_active and is_owner(membership) and active_owner_count(membership.company) <= 1:
         raise UserAdminError('A company must retain an active Owner.')
 
     target = membership.user

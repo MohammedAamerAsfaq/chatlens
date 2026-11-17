@@ -21,7 +21,7 @@ from apps.tenancy.services.access import (
     scope_queryset_to_visible_companies,
     visible_accounts_queryset,
 )
-from apps.tenancy.api_permissions import CompanyPermissionRequired
+from apps.tenancy.api_permissions import ANY_MEMBER, CATALOG_READ_PERMISSIONS, CompanyPermissionRequired
 from apps.tenancy.services.authorization import permission_scope
 from .models import Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryProduct, SharedInquiryAction, NonInventoryProduct, NonInventoryProductMention, InquiryStatus, PromptConfig, PRODUCT_EXTRACTION_DEFAULT, INQUIRY_CLASSIFICATION_DEFAULT, INQUIRY_GATE_V2_DEFAULT, INQUIRY_EXTRACTION_V2_DEFAULT, INQUIRY_MATCH_DECISION_V2_DEFAULT, INVENTORY_UPDATE_DEFAULT, PRICE_LIST_FORMAT_DEFAULT, QTY_COST_UPDATE_DEFAULT, SALE_PRICE_UPDATE_DEFAULT, MATCH_VERIFICATION_DEFAULT, AgentCallLog, AiParsingLog, AiParseV2Log, BuyingInquiry, BuyingInquiryGroup, BuyingInquiryProduct, BuyingInquirySupplier, BuyingInquirySupplierSource, BuyingInquiryStatus, CampaignAudience, CampaignMessageMode, SupplierQuote, AutomationRule, AutomationRuleSource, AutomatedPriceCapture, InquiryForwardingExclusion, InquiryForwardingRule, InquiryForwardingTarget, SellingOffer, SellingOfferCustomer, SellingOfferCustomerSource, SellingOfferGroup, SellingOfferProduct, SellingOfferStatus
 from .serializers import (
@@ -46,7 +46,6 @@ from .serializers import (
     AutomatedPriceCaptureSerializer,
     InquiryForwardingRuleSerializer,
 )
-from apps.tenancy.permissions import CompanyAdminPermission, TenantRolePermission
 from .services.inquiry_match_filter import MATCH_FILTER_ALL, MATCH_FILTERS, filter_inquiries_by_match
 from .services import inquiry_sharing, inquiry_status
 from .services.product_cache import invalidate as invalidate_product_cache
@@ -314,7 +313,9 @@ def _embed_aliases_batch_in_background(alias_ids: list):
 
 class ProductViewSet(viewsets.ModelViewSet):
     serializer_class   = ProductSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = CATALOG_READ_PERMISSIONS
+    write_permission = 'trading.products.manage'
 
     def get_queryset(self):
         qs = scope_queryset_to_visible_companies(
@@ -2400,7 +2401,9 @@ class NonInventoryProductPagination(PageNumberPagination):
 
 class NonInventoryProductViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin):
     serializer_class = NonInventoryProductSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = 'trading.products.view'
+    write_permission = 'trading.products.manage'
     pagination_class = NonInventoryProductPagination
     ordering_map = {
         'last_seen_newest': ('-last_seen_at', '-id'),
@@ -2650,7 +2653,9 @@ class MessageClassificationViewSet(viewsets.GenericViewSet, mixins.ListModelMixi
 
 
 class PromptConfigViewSet(viewsets.GenericViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = ANY_MEMBER
+    write_permission = 'settings.company.manage'
 
     def _prompt_defaults(self):
         return {
@@ -2827,7 +2832,9 @@ class PromptConfigViewSet(viewsets.GenericViewSet):
 
 
 class AgentCallLogViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
-    permission_classes = [IsAuthenticated, CompanyAdminPermission]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = 'settings.company.view'
+    write_permission = 'settings.company.manage'
 
     def get_queryset(self):
         qs = AgentCallLog.objects.filter(
@@ -2895,7 +2902,9 @@ class AiParsingLogPagination(PageNumberPagination):
 
 class AiParsingLogViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AiParsingLogSerializer
-    permission_classes = [IsAuthenticated, CompanyAdminPermission]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = 'settings.company.view'
+    write_permission = 'settings.company.manage'
     pagination_class = AiParsingLogPagination
 
     def get_queryset(self):
@@ -2914,7 +2923,9 @@ class AiParsingLogViewSet(viewsets.ReadOnlyModelViewSet):
 
 class AiParseV2LogViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AiParseV2LogSerializer
-    permission_classes = [IsAuthenticated, CompanyAdminPermission]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = 'settings.company.view'
+    write_permission = 'settings.company.manage'
     pagination_class = AiParsingLogPagination
 
     def get_queryset(self):
@@ -2943,7 +2954,9 @@ class V2MatchTrainingViewSet(viewsets.ViewSet):
     retrieval quality), and records a human verdict per line so the threshold
     values can be checked against ground truth instead of the guessed defaults
     they shipped with."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = ANY_MEMBER
+    write_permission = 'trading.matches.manage'
 
     @staticmethod
     def _historical_stock_by_product(log, line_index):
@@ -4302,7 +4315,9 @@ class SupplierQuoteViewSet(
     mixins.DestroyModelMixin,
 ):
     serializer_class = SupplierQuoteSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = ANY_MEMBER
+    write_permission = 'trading.products.manage'
 
     def get_queryset(self):
         return scope_queryset_to_visible_accounts(
@@ -4656,7 +4671,9 @@ class TradingSettingsViewSet(viewsets.ViewSet):
     values the frontend reads when composing something itself. Backed by the
     generic chatlens_core.SystemSettings key/value store rather than a dedicated
     model, since it's exactly the "misc named setting" case that table exists for."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = ANY_MEMBER
+    write_permission = 'settings.company.manage'
 
     WTS_REPLY_KEY = 'trading_wts_reply_settings'
     WTS_REPLY_DEFAULTS = {
@@ -4870,7 +4887,9 @@ class ProductPriceUpdateViewSet(viewsets.ViewSet):
     textbox, because the two source lists come from different parties with different
     naming conventions — mixing them the way the older feature does makes the AI's
     matching job harder, not easier."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = 'trading.products.view'
+    write_permission = 'trading.products.manage'
 
     def _parse(self, request, prompt_key, prompt_default):
         text = (request.data.get('text') or '').strip()
@@ -4943,7 +4962,9 @@ class AutomationRuleViewSet(viewsets.ModelViewSet):
     replaced wholesale on every create/update — simpler and safer than diffing
     individual source rows for what's a small, human-edited list."""
     serializer_class = AutomationRuleSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = ANY_MEMBER
+    write_permission = 'trading.automation.manage'
     queryset = AutomationRule.objects.none()
 
     def get_queryset(self):
@@ -5014,7 +5035,9 @@ class AutomationRuleViewSet(viewsets.ModelViewSet):
 
 class InquiryForwardingRuleViewSet(viewsets.ModelViewSet):
     serializer_class = InquiryForwardingRuleSerializer
-    permission_classes = [TenantRolePermission]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = ANY_MEMBER
+    write_permission = 'trading.automation.manage'
     queryset = InquiryForwardingRule.objects.none()
 
     def get_queryset(self):
@@ -5120,7 +5143,9 @@ class AutomatedPriceCaptureViewSet(viewsets.GenericViewSet, mixins.ListModelMixi
     queued capture. Auto-applied captures show up here too, already resolved,
     purely as an audit trail."""
     serializer_class = AutomatedPriceCaptureSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = 'trading.products.view'
+    write_permission = 'trading.products.manage'
     pagination_class = AutomatedPriceCapturePagination
 
     def get_queryset(self):

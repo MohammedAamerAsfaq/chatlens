@@ -22,7 +22,6 @@ let alertPollTimer = null
 const navigationContext = () => ({
   industry: auth.currentCompany?.industry_type,
   canManageTenants: auth.canManageTenants,
-  isCompanyAdmin: auth.isCompanyAdmin,
   hasPermission: auth.hasPermission,
 })
 const canShow = item => navigationItemVisible(item, navigationContext())
@@ -41,7 +40,7 @@ const activeUtility = computed(() => {
   return null
 })
 const contextSection = computed(() => activePrimary.value || activeUtility.value)
-const roleLabel = computed(() => auth.currentRole?.replaceAll('_', ' ') || '')
+const roleLabel = computed(() => auth.currentRoleNames.join(', '))
 
 function badgeFor(item) {
   return item.badge ? alerts.value[item.badge] : 0
@@ -56,7 +55,8 @@ function closeMenus() {
 }
 
 async function fetchAlertCounts() {
-  if (!auth.user) return
+  // The counts come from Operations logs, which need tasks.company.view.
+  if (!auth.user || !canShowOperations.value) return
   try { alerts.value.worker = (await workerAlertsApi.unacknowledgedCount()).data.count } catch { /* non-critical */ }
   try { alerts.value.receipts = (await stuckReceiptsApi.unresolvedCount()).data.count } catch { /* non-critical */ }
   try { alerts.value.messages = (await unresolvedMessagesApi.counts()).data.pending } catch { /* non-critical */ }

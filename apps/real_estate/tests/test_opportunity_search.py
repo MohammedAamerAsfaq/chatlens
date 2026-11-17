@@ -21,6 +21,7 @@ from apps.real_estate.models import (
     RequirementEmbedding,
 )
 from apps.tenancy.models import Company, CompanyMembership
+from apps.tenancy.testing import create_member
 
 
 class OpportunitySearchApiTests(TestCase):
@@ -32,10 +33,10 @@ class OpportunitySearchApiTests(TestCase):
             name='Other Estate', slug='other-search-estate', industry_type='real_estate',
         )
         self.user = get_user_model().objects.create_user('search-estate-owner')
-        CompanyMembership.objects.create(
+        create_member(
             company=self.company,
             user=self.user,
-            role=CompanyMembership.ROLE_SUPER_USER,
+            role='super_user',
         )
         self.client = APIClient()
         self.client.force_authenticate(self.user)

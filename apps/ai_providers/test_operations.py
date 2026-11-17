@@ -6,6 +6,7 @@ from rest_framework.test import APIClient
 from apps.tenancy.models import Company, CompanyMembership
 from apps.task_management.models import BackgroundTask
 from apps.trading.models import AgentCallLog
+from apps.tenancy.testing import create_member
 
 
 class AIOperationsApiTests(TestCase):
@@ -20,11 +21,11 @@ class AIOperationsApiTests(TestCase):
         )
         self.admin = get_user_model().objects.create_user('ai-ops-admin', password='pw')
         self.manager = get_user_model().objects.create_user('ai-ops-manager', password='pw')
-        CompanyMembership.objects.create(
-            company=self.company, user=self.admin, role=CompanyMembership.ROLE_ADMIN,
+        create_member(
+            company=self.company, user=self.admin, role='admin',
         )
-        CompanyMembership.objects.create(
-            company=self.company, user=self.manager, role=CompanyMembership.ROLE_MANAGER,
+        create_member(
+            company=self.company, user=self.manager, role='manager',
         )
         for number in range(30):
             AgentCallLog.objects.create(

@@ -1,12 +1,12 @@
 import logging
 from rest_framework import viewsets, status
+from apps.tenancy.api_permissions import CompanyPermissionRequired
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from .models import AIProviderConfig, DefaultAgentTarget, KiwiRouter, KiwiRoutingDecision
 from .serializers import AIProviderConfigSerializer, KiwiRouterSerializer, KiwiRoutingDecisionSerializer, PROVIDER_MODELS
 from .manager import build_provider
-from apps.tenancy.permissions import CompanyAdminPermission
 from apps.tenancy.services.access import default_company_for_user
 
 logger = logging.getLogger(__name__)
@@ -14,7 +14,9 @@ logger = logging.getLogger(__name__)
 
 class AIProviderConfigViewSet(viewsets.ModelViewSet):
     serializer_class = AIProviderConfigSerializer
-    permission_classes = [IsAuthenticated, CompanyAdminPermission]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = 'settings.company.manage'
+    write_permission = 'settings.company.manage'
 
     def get_queryset(self):
         company = default_company_for_user(self.request.user)
@@ -188,7 +190,9 @@ class AIProviderConfigViewSet(viewsets.ModelViewSet):
 
 class KiwiRouterViewSet(viewsets.ModelViewSet):
     serializer_class = KiwiRouterSerializer
-    permission_classes = [IsAuthenticated, CompanyAdminPermission]
+    permission_classes = [IsAuthenticated, CompanyPermissionRequired]
+    read_permission = 'settings.company.manage'
+    write_permission = 'settings.company.manage'
 
     def get_queryset(self):
         company = default_company_for_user(self.request.user)

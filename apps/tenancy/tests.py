@@ -19,6 +19,7 @@ from apps.trading.services.trading_settings_service import (
     V2_MATCHING_SETTINGS_KEY,
 )
 from rest_framework.test import APIClient
+from apps.tenancy.testing import create_member
 
 
 class TenancySeedMigrationTests(TestCase):
@@ -52,7 +53,10 @@ class CompanyEnrollmentServiceTests(TestCase):
         self.assertEqual(user.username, 'acme_owner')
         self.assertEqual(membership.company_id, company.pk)
         self.assertEqual(membership.user_id, user.pk)
-        self.assertEqual(membership.role, CompanyMembership.ROLE_SUPER_USER)
+        self.assertEqual(
+            list(membership.role_assignments.values_list('role__key', 'role__is_owner_role')),
+            [('super_user', True)],
+        )
         self.assertSetEqual(
             set(SystemSettings.objects.filter(company=company).values_list('key', flat=True)),
             {INQUIRY_PRODUCT_SAVE_KEY, V2_MATCHING_SETTINGS_KEY},
@@ -97,8 +101,8 @@ class CompanyValidityTests(TestCase):
             valid_from=timezone.localdate() + timedelta(days=1),
             enforce_validity_period=False,
         )
-        CompanyMembership.objects.create(
-            company=company, user=user, role=CompanyMembership.ROLE_ADMIN,
+        create_member(
+            company=company, user=user, role='admin',
         )
         self.assertEqual(company.validity_status, 'not_started')
         self.assertTrue(can_user_access_company(user, company.pk))
@@ -186,7 +190,7 @@ class CompanyAuthorizationTests(TestCase):
     def test_manager_cannot_manage_roles_and_owner_grants_are_immutable(self):
         result = CompanyEnrollmentService().create_company_user(
             company=self.company, email='manager@rbac.test', username='rbac_manager',
-            password='secret-pass-123', role=CompanyMembership.ROLE_MANAGER,
+            password='secret-pass-123', role_key='manager',
         )
         manager = get_user_model().objects.get(pk=result.user_id)
         self.client.force_authenticate(manager)
@@ -219,7 +223,7 @@ class CommunicationAccountAuthorizationTests(TestCase):
             email='agent@account-scope.test',
             username='account_scope_agent',
             password='secret-pass-123',
-            role=CompanyMembership.ROLE_USER,
+            role_key='user',
         )
         self.agent = get_user_model().objects.get(pk=user_result.user_id)
         self.agent_membership = CompanyMembership.objects.get(pk=user_result.membership_id)
@@ -277,7 +281,7 @@ class CommunicationAccountAuthorizationTests(TestCase):
             email='admin@account-scope.test',
             username='account_scope_admin',
             password='secret-pass-123',
-            role=CompanyMembership.ROLE_ADMIN,
+            role_key='admin',
         )
         admin = get_user_model().objects.get(pk=admin_result.user_id)
         admin_ids = set(visible_accounts_queryset(admin).values_list('pk', flat=True))

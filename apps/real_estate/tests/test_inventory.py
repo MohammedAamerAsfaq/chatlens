@@ -17,6 +17,7 @@ from apps.tenancy.models import Company, CompanyMembership
 from apps.real_estate.services.property_types import seed_default_property_types
 from apps.real_estate.services.property_types import resolve_property_type
 from apps.task_management.models import BackgroundTask
+from apps.tenancy.testing import create_member
 
 
 class RealEstateInventoryTests(TestCase):
@@ -26,8 +27,8 @@ class RealEstateInventoryTests(TestCase):
         self.types = {item.code: item for item in seed_default_property_types(self.company)}
         self.other_types = {item.code: item for item in seed_default_property_types(self.other)}
         self.user = get_user_model().objects.create_user('estate-owner')
-        CompanyMembership.objects.create(
-            company=self.company, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
+        create_member(
+            company=self.company, user=self.user, role='super_user',
         )
 
     def opportunity(self, activity):

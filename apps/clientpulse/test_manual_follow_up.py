@@ -10,6 +10,7 @@ from apps.tenancy.models import (
     CompanyMembership, ConnectionProvider,
 )
 from apps.whatsapp_bridge.models import OutboundAsset, OutboundMessage, WhatsAppAccount, WhatsAppContact
+from apps.tenancy.testing import create_member
 
 
 class ManualFollowUpTests(TestCase):
@@ -17,8 +18,8 @@ class ManualFollowUpTests(TestCase):
         self.company = Company.objects.create(name='Follow Up Co', slug='follow-up-co')
         self.other = Company.objects.create(name='Other Follow Up', slug='other-follow-up')
         self.user = get_user_model().objects.create_user('follow-up-owner')
-        self.membership = CompanyMembership.objects.create(
-            company=self.company, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
+        self.membership = create_member(
+            company=self.company, user=self.user, role='super_user',
         )
         provider, _ = ConnectionProvider.objects.get_or_create(
             key='follow-up-baileys',
@@ -128,8 +129,8 @@ class ManualFollowUpTests(TestCase):
 
     def test_assigned_scope_cannot_send_for_unassigned_client(self):
         agent = get_user_model().objects.create_user('follow-up-agent')
-        CompanyMembership.objects.create(
-            company=self.company, user=agent, role=CompanyMembership.ROLE_USER,
+        create_member(
+            company=self.company, user=agent, role='user',
         )
         self.client.force_authenticate(agent)
         response = self._send()
@@ -137,8 +138,8 @@ class ManualFollowUpTests(TestCase):
 
     def test_profile_owner_cannot_send_through_unassigned_account(self):
         agent = get_user_model().objects.create_user('follow-up-profile-owner')
-        membership = CompanyMembership.objects.create(
-            company=self.company, user=agent, role=CompanyMembership.ROLE_USER,
+        membership = create_member(
+            company=self.company, user=agent, role='user',
         )
         self.profile.owner = membership
         self.profile.save(update_fields=['owner', 'updated_at'])

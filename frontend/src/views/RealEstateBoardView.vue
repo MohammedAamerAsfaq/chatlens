@@ -252,14 +252,14 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
           <UiSelect v-model="pageSize" class="board-page-size__select" :options="pageSizeOptions" />
         </div>
         <div class="board-total"><strong>{{ totalOpportunities }}</strong><span>visible opportunities</span></div>
-        <UiButton v-if="auth.isCompanyAdmin" size="small" @click="cardConfigOpen = !cardConfigOpen">
+        <UiButton v-if="auth.hasPermission('settings.company.manage')" size="small" @click="cardConfigOpen = !cardConfigOpen">
           Card Display{{ cardConfigOpen ? ' ▴' : ' ▾' }}
         </UiButton>
         <UiButton @click="loadAll"><i class="fa-solid fa-rotate"></i> Refresh board</UiButton>
       </div>
     </UiCard>
 
-    <UiCard v-if="cardConfigOpen && auth.isCompanyAdmin" class="card-config">
+    <UiCard v-if="cardConfigOpen && auth.hasPermission('settings.company.manage')" class="card-config">
       <UiNotice v-if="cardConfigError" tone="danger">{{ cardConfigError }}</UiNotice>
       <div class="card-config__section">
         <h4>Card fields</h4>

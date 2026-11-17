@@ -12,6 +12,7 @@ from .kiwi_router_service import execute_agent, reserve_agent
 from .models import AIProviderConfig, KiwiRouter, KiwiRouterMember, KiwiRouterReservation
 from .provider_deadline import _run_provider_call
 from .serializers import KiwiRouterSerializer
+from apps.tenancy.testing import create_member
 
 
 class KiwiRouterReservationTests(TestCase):
@@ -166,8 +167,8 @@ class CompanyOwnedProviderApiTests(TestCase):
         self.company_a = Company.objects.create(name='Provider A', slug='provider-a')
         self.company_b = Company.objects.create(name='Provider B', slug='provider-b')
         self.user = get_user_model().objects.create_user('provider-admin', password='pw')
-        CompanyMembership.objects.create(
-            company=self.company_a, user=self.user, role=CompanyMembership.ROLE_ADMIN,
+        create_member(
+            company=self.company_a, user=self.user, role='admin',
         )
         self.provider_a = AIProviderConfig.objects.create(
             company=self.company_a, display_name='A Agent', provider='deepseek',

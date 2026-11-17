@@ -2,17 +2,8 @@ from django.db.models import F
 
 from apps.tenancy.models import CompanyMembership, CompanyRolePermission, PermissionDefinition
 from apps.tenancy.services.access import active_membership_for_user, default_company_for_user
-from .permission_catalog import ROLE_GRANTS, default_scope, PERMISSION_SPECS
 
 SCOPE_WEIGHT = {'own': 1, 'assigned': 2, 'all': 3}
-
-
-def _legacy_grants(membership):
-    specs = {item['code']: item for item in PERMISSION_SPECS}
-    return {
-        code: default_scope(membership.role, specs[code])
-        for code in ROLE_GRANTS.get(membership.role, set())
-    }
 
 
 def effective_permission_grants(user, company=None):
@@ -39,7 +30,7 @@ def effective_permission_grants(user, company=None):
     for code, scope in rows:
         if SCOPE_WEIGHT[scope] > SCOPE_WEIGHT.get(grants.get(code), 0):
             grants[code] = scope
-    return (grants or _legacy_grants(membership)), membership
+    return grants, membership
 
 
 def permission_grants_for_membership(membership):
@@ -53,7 +44,7 @@ def permission_grants_for_membership(membership):
     for code, scope in rows:
         if SCOPE_WEIGHT[scope] > SCOPE_WEIGHT.get(grants.get(code), 0):
             grants[code] = scope
-    return grants or _legacy_grants(membership)
+    return grants
 
 
 def permission_scope_for_membership(membership, permission_code):

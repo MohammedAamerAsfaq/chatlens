@@ -14,14 +14,15 @@ from apps.whatsapp_bridge.models import (
     ChatType, MessageDirection, MessageType, WhatsAppAccount, WhatsAppChat,
     WhatsAppContact, WhatsAppMessage,
 )
+from apps.tenancy.testing import create_member
 
 
 class ClientDirectoryMetricsTests(TestCase):
     def setUp(self):
         self.company = Company.objects.create(name='Metrics Company', slug='metrics-company')
         self.user = get_user_model().objects.create_user('metrics-owner')
-        self.membership = CompanyMembership.objects.create(
-            company=self.company, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
+        self.membership = create_member(
+            company=self.company, user=self.user, role='super_user',
         )
         provider = ConnectionProvider.objects.create(
             key='metrics-baileys', name='Metrics Baileys', channel='whatsapp',

@@ -20,6 +20,7 @@ from apps.real_estate.services.embedding_service import embed_real_estate
 from apps.task_management.models import BackgroundTask
 from apps.tenancy.models import Company, CompanyMembership
 from apps.real_estate.services.property_types import seed_default_property_types
+from apps.tenancy.testing import create_member
 
 
 class RealEstateEmbeddingTests(TestCase):
@@ -32,8 +33,8 @@ class RealEstateEmbeddingTests(TestCase):
         )
         self.types = {item.code: item for item in seed_default_property_types(self.company)}
         self.user = get_user_model().objects.create_user('embedding-owner')
-        CompanyMembership.objects.create(
-            company=self.company, user=self.user, role=CompanyMembership.ROLE_SUPER_USER,
+        create_member(
+            company=self.company, user=self.user, role='super_user',
         )
         AIProviderConfig.objects.create(
             company=self.company, display_name='Test vectors', provider='voyage',
