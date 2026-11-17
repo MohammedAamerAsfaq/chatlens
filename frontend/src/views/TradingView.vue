@@ -345,6 +345,7 @@ import { useInquiryMatchController } from '@/features/trading/composables/useInq
 import { useInquiryProductsController } from '@/features/trading/composables/useInquiryProductsController'
 import { useMarketPartiesController } from '@/features/trading/composables/useMarketPartiesController'
 import { useColorEmoji } from '@/features/trading/composables/useColorEmoji'
+import { isReliableMatch, replyItemName } from '@/features/trading/composables/replyItems'
 import {
   feedDateOptions,
   feedMatchOptions,
@@ -878,26 +879,6 @@ function matchInventory(p) {
   return p.product_id ? productMap.value[p.product_id] : null
 }
 
-// A matched catalog product is trusted for pricing and prefill unless the AI marked the
-// line a near (not exact) match. Whether product_id is the right product is the AI's
-// call (match_type exact/near/null); we don't re-check it with our own string compare.
-// A line with no match_type (older inquiries, before the field existed) is trusted.
-function isReliableMatch(p, match) {
-  if (!match) return false
-  return p.match_type !== 'near'
-}
-
-// Product.name in the catalog never includes the brand (brand is a separate field), but
-// canonical_name from the AI sometimes does — either bracketed "[Apple] iPhone..." or a
-// bare "Apple iPhone..." prefix. Purely cosmetic cleanup for outgoing WhatsApp text.
-function stripBrandPrefix(name, brand) {
-  let s = (name || '').replace(/^\[[^\]]*\]\s*/, '')
-  if (brand) {
-    s = s.replace(new RegExp('^' + brand.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s+', 'i'), '')
-  }
-  return s.trim()
-}
-
 // Looks up a hot-added key/value attribute (§ ProductAttribute) on the matched catalog
 // row — used to prefix outgoing reply text with the region flag/color when set.
 function attributeValue(match, key) {
@@ -1135,9 +1116,8 @@ function waPrefillText(inq) {
   const lines = []
   for (const p of sortProductsForReply(inq.products || [], r.sort_by)) {
     const match = matchInventory(p)
-    let line = p.canonical_name || match?.name
+    let line = replyItemName(p, match)
     if (!line) continue
-    line = stripBrandPrefix(line, match?.brand)
     if (r.send_flag) {
       line = affix(line, attributeValue(match, 'Flag'), r.flag_position)
     }
@@ -1182,10 +1162,10 @@ function waLink(inq) {
 function waAskPriceText(inq) {
   const lines = []
   for (const p of (inq.products || [])) {
-    let line = p.canonical_name
+    const match = matchInventory(p)
+    let line = replyItemName(p, match)
     if (!line) continue
-    line = line.replace(/^\[[^\]]*\]\s*/, '')
-    const flag = attributeValue(matchInventory(p), 'Flag')
+    const flag = attributeValue(match, 'Flag')
     if (flag) line = `${flag} ${line}`
     lines.push(line)
   }
