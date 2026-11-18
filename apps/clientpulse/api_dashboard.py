@@ -13,6 +13,17 @@ from apps.clientpulse.services.reminder_windows import local_day_window
 from apps.tenancy.services.access import default_company_for_user
 
 
+# A notification stays in the bell only while its reminder still needs doing; completing or
+# cancelling the reminder settles it, whether or not anyone dismissed the notification.
+CLOSED_REMINDER_STATUSES = ('completed', 'cancelled')
+
+
+def open_notifications(reminders):
+    return ClientReminderNotification.objects.filter(
+        reminder__in=reminders, dismissed_at__isnull=True,
+    ).exclude(reminder__status__in=CLOSED_REMINDER_STATUSES)
+
+
 def _notification_preferences(settings):
     return {
         'reminders_enabled': settings.reminders_enabled,
@@ -41,9 +52,7 @@ def clientpulse_dashboard_view(request):
         | Q(status='snoozed', snoozed_until__gte=today_start, snoozed_until__lt=tomorrow_start)
     ).count()
     profile_ids = scoped_profiles(request).values('pk')
-    unread = ClientReminderNotification.objects.filter(
-        reminder__in=reminders, read_at__isnull=True, dismissed_at__isnull=True,
-    ).count()
+    unread = open_notifications(reminders).filter(read_at__isnull=True).count()
     return Response({
         'active_clients': profile_ids.count(),
         'overdue_reminders': overdue,
@@ -63,9 +72,7 @@ def reminder_notifications_view(request):
     if response := denied(request, 'clientpulse.reminders.view'):
         return response
     reminders = _queryset(request, 'clientpulse.reminders.view')
-    rows = ClientReminderNotification.objects.filter(
-        reminder__in=reminders, dismissed_at__isnull=True,
-    ).select_related('reminder__profile__contact', 'recipient__user').prefetch_related(
+    rows = open_notifications(reminders).select_related('reminder__profile__contact', 'recipient__user').prefetch_related(
         'reminder__profile__contact__whatsapp_contacts__account',
     )[:50]
     visible_account_ids = visible_clientpulse_account_ids(

@@ -218,6 +218,16 @@ class ClientReminderTests(TestCase):
             'session_status': account.session_status,
         }])
 
+    def test_completed_and_cancelled_reminders_leave_the_bell(self):
+        for status in ('completed', 'cancelled', 'due'):
+            ClientReminderNotification.objects.create(
+                company=self.company, reminder=self._reminder(status=status, title=status),
+                recipient=self.membership,
+            )
+        listed = self.client.get('/api/clientpulse/notifications/').data
+        self.assertEqual([item['reminder']['title'] for item in listed], ['due'])
+        self.assertEqual(self.client.get('/api/clientpulse/dashboard/').data['unread_notifications'], 1)
+
     def test_snooze_hides_current_notification_until_next_delivery(self):
         reminder = self._reminder(status='due')
         notification = ClientReminderNotification.objects.create(
