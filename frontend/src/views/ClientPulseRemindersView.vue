@@ -2,6 +2,8 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { clientPulseApi } from '@/api'
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import { faArrowsRotate, faBan, faCalendarPlus, faCheck, faEnvelopeOpen, faGear, faListUl, faPen, faPlus } from '@fortawesome/free-solid-svg-icons'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCard from '@/components/ui/UiCard.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
@@ -146,7 +148,7 @@ onMounted(async () => {
   <main class="cp-page reminder-page"><div class="cp-shell">
     <header class="cp-hero reminder-hero">
       <div><p class="cp-eyebrow">Follow-up control</p><h1 class="cp-title">Reminders</h1><p class="cp-muted">Durable internal follow-ups. No customer message is sent from this workspace.</p></div>
-      <div class="hero-actions"><RouterLink class="ui-button ui-button--outline ui-button--medium" to="/clientpulse-settings">Notification settings</RouterLink><UiButton variant="primary" @click="openCreate">+ New reminder</UiButton></div>
+      <div class="hero-actions"><RouterLink class="ui-button ui-button--outline ui-button--medium" to="/clientpulse-settings"><FontAwesomeIcon :icon="faGear" /> Notification settings</RouterLink><UiButton variant="primary" @click="openCreate"><FontAwesomeIcon :icon="faPlus" /> New reminder</UiButton></div>
     </header>
     <p v-if="error" class="cp-notice error">{{ error }}</p><p v-if="success" class="cp-notice success">{{ success }}</p>
 
@@ -159,11 +161,11 @@ onMounted(async () => {
 
     <UiCard v-if="unreadNotifications.length" title="Notifications" subtitle="Recent reminder alerts requiring attention." class="notification-panel">
       <template #actions><span class="panel-count">{{ unreadNotifications.length }} unread</span></template>
-      <div class="notification-list"><button v-for="item in unreadNotifications" :key="item.id" class="notification" @click="markRead(item)"><span><strong>{{ item.reminder.title }}</strong><small>{{ item.reminder.profile.display_name }}</small></span><b>Mark read</b></button></div>
+      <div class="notification-list"><button v-for="item in unreadNotifications" :key="item.id" class="notification" @click="markRead(item)"><span><strong>{{ item.reminder.title }}</strong><small>{{ item.reminder.profile.display_name }}</small></span><b title="Mark read" aria-label="Mark read"><FontAwesomeIcon :icon="faEnvelopeOpen" /></b></button></div>
     </UiCard>
 
     <UiCard title="Reminder ledger" :subtitle="`${count} reminders in this view`" flush class="ledger-panel">
-      <template #actions><div class="ledger-filters"><div class="filter-tabs"><UiButton v-for="tab in ['overdue','today','upcoming','completed']" :key="tab" size="small" :variant="windowFilter === tab ? 'primary' : 'soft'" @click="windowFilter = tab">{{ tab }}</UiButton></div><UiSelect v-model="assignedTo" :options="ownerFilters" /><UiButton size="small" variant="outline" @click="load">Refresh</UiButton></div></template>
+      <template #actions><div class="ledger-filters"><div class="filter-tabs"><UiButton v-for="tab in ['overdue','today','upcoming','completed']" :key="tab" size="small" :variant="windowFilter === tab ? 'primary' : 'soft'" @click="windowFilter = tab">{{ tab }}</UiButton></div><UiSelect v-model="assignedTo" :options="ownerFilters" /><UiButton size="small" variant="outline" title="Refresh" aria-label="Refresh" @click="load"><FontAwesomeIcon :icon="faArrowsRotate" /></UiButton></div></template>
       <div class="reminder-table-wrap">
         <div v-if="loading" class="cp-empty">Loading reminders...</div>
         <table v-else v-ui-data-table="'clientpulse-reminders'" class="cp-table"><thead><tr><th>Reminder</th><th>Client</th><th>Due</th><th>Assigned</th><th>Priority</th><th>Repeat</th><th>Actions</th></tr></thead><tbody>
@@ -173,15 +175,15 @@ onMounted(async () => {
             <td>{{ new Date(item.snoozed_until || item.due_at).toLocaleString() }}<br><span class="cp-badge">{{ item.status }}</span></td>
             <td>{{ item.assigned_to?.username || 'Unassigned' }}</td><td>{{ item.priority }}</td><td>{{ item.recurrence_type }}</td>
             <td><div class="row-actions">
-              <UiButton size="small" variant="soft" @click="viewThread(item)">Thread</UiButton>
+              <UiButton size="small" variant="soft" title="Thread" aria-label="Thread" @click="viewThread(item)"><FontAwesomeIcon :icon="faListUl" /></UiButton>
               <template v-if="item.status !== 'completed' && item.status !== 'cancelled'">
-                <UiButton size="small" variant="soft" @click="edit(item)">Edit</UiButton>
-                <UiButton size="small" variant="primary" :disabled="busy === `complete-${item.id}`" @click="complete(item)">Complete</UiButton>
-                <UiButton size="small" variant="outline" :disabled="busy === `follow-${item.id}`" @click="openLinkedFollowUp(item, true)">Complete + follow-up</UiButton>
-                <UiButton size="small" @click="snooze(item, 1)">+1h</UiButton><UiButton size="small" @click="snooze(item, 24)">+1d</UiButton>
-                <UiButton size="small" variant="danger" @click="cancel(item)">Cancel</UiButton>
+                <UiButton size="small" variant="soft" title="Edit" aria-label="Edit" @click="edit(item)"><FontAwesomeIcon :icon="faPen" /></UiButton>
+                <UiButton size="small" variant="primary" :disabled="busy === `complete-${item.id}`" title="Complete" aria-label="Complete" @click="complete(item)"><FontAwesomeIcon :icon="faCheck" /></UiButton>
+                <UiButton size="small" variant="outline" :disabled="busy === `follow-${item.id}`" title="Complete + follow-up" aria-label="Complete + follow-up" @click="openLinkedFollowUp(item, true)"><FontAwesomeIcon :icon="faCheck" /><FontAwesomeIcon :icon="faCalendarPlus" /></UiButton>
+                <UiButton size="small" title="Snooze 1 hour" @click="snooze(item, 1)">+1h</UiButton><UiButton size="small" title="Snooze 1 day" @click="snooze(item, 24)">+1d</UiButton>
+                <UiButton size="small" variant="danger" title="Cancel reminder" aria-label="Cancel reminder" @click="cancel(item)"><FontAwesomeIcon :icon="faBan" /></UiButton>
               </template>
-              <UiButton v-else-if="item.status === 'completed'" size="small" variant="outline" @click="openLinkedFollowUp(item)">Add follow-up</UiButton>
+              <UiButton v-else-if="item.status === 'completed'" size="small" variant="outline" title="Add follow-up" aria-label="Add follow-up" @click="openLinkedFollowUp(item)"><FontAwesomeIcon :icon="faCalendarPlus" /></UiButton>
             </div></td>
           </tr>
         </tbody></table>

@@ -1,3 +1,9 @@
+import { icon } from '@fortawesome/fontawesome-svg-core'
+import { faFileCsv, faTableColumns } from '@fortawesome/free-solid-svg-icons'
+
+// The tools are built outside Vue, so icons are rendered to plain DOM nodes.
+function iconNode(definition) { return icon(definition).node[0] }
+
 const cleanText = value => String(value ?? '').replace(/\s+/g, ' ').trim()
 const elementText = element => element?.innerText ?? element?.textContent ?? ''
 
@@ -55,7 +61,9 @@ function createTools(table, binding) {
   tools.className = 'ui-data-table__bridge-tools'
   const columns = document.createElement('details')
   const summary = document.createElement('summary')
-  summary.textContent = 'Columns'
+  summary.append(iconNode(faTableColumns))
+  summary.title = 'Choose columns'
+  summary.setAttribute('aria-label', 'Choose columns')
   columns.append(summary)
   const menu = document.createElement('div')
   menu.className = 'ui-data-table__bridge-menu'
@@ -79,7 +87,9 @@ function createTools(table, binding) {
 
   const exportButton = document.createElement('button')
   exportButton.type = 'button'
-  exportButton.textContent = 'Export CSV'
+  exportButton.append(iconNode(faFileCsv))
+  exportButton.title = 'Export CSV'
+  exportButton.setAttribute('aria-label', 'Export CSV')
   exportButton.addEventListener('click', () => exportCsv(table, binding.value))
   tools.append(columns, exportButton)
   table.parentElement?.insertBefore(tools, table)

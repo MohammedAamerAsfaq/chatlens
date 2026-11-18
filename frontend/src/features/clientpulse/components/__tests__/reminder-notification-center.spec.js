@@ -22,7 +22,7 @@ vi.mock('@/features/clientpulse/composables/useClientInboxNavigation', async () 
   return { useClientInboxNavigation: () => ({ openingContactId: ref(null), openClientInbox: inbox.openClientInbox }) }
 })
 
-const button = (wrapper, text) => wrapper.findAll('button').find(item => item.text().includes(text))
+const button = (wrapper, label) => wrapper.findAll('button').find(item => (item.attributes('aria-label') || '').startsWith(label))
 
 describe('ReminderNotificationCenter', () => {
   beforeEach(() => {

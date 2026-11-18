@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faWhatsapp } from '@fortawesome/free-brands-svg-icons'
+import { faClock, faEnvelopeOpen, faUser, faXmark } from '@fortawesome/free-solid-svg-icons'
 import { clientPulseApi } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { useClientInboxNavigation } from '../composables/useClientInboxNavigation'
@@ -197,23 +198,23 @@ onBeforeUnmount(() => {
         <li v-for="item in ordered" :key="item.id" class="reminder-item" :class="[`priority-${item.reminder.priority}`, { unread: !item.read_at }]">
           <div class="reminder-item__head">
             <strong>{{ item.reminder.title }}</strong>
-            <button type="button" class="reminder-item__close" aria-label="Dismiss reminder" @click="dismiss(item)">×</button>
+            <button type="button" class="reminder-item__close" title="Dismiss" aria-label="Dismiss reminder" @click="dismiss(item)"><FontAwesomeIcon :icon="faXmark" /></button>
           </div>
           <p>{{ item.reminder.profile.display_name }}</p>
           <small>Due {{ reminderTime(item) }}</small>
           <div class="reminder-item__actions">
-            <button type="button" class="primary" @click="openClient(item)">Open client</button>
+            <button type="button" class="primary" title="Open client" aria-label="Open client" @click="openClient(item)"><FontAwesomeIcon :icon="faUser" /></button>
             <button
               v-for="account in whatsappChats(item)" :key="account.id" type="button" class="whatsapp"
               :disabled="openingContactId === account.whatsapp_contact_id"
-              :title="`Open the WhatsApp conversation on ${account.name}`"
+              :title="`Open the WhatsApp conversation on ${account.name}`" :aria-label="`WhatsApp: ${account.name}`"
               @click="openWhatsapp(item, account)"
             >
               <FontAwesomeIcon :icon="faWhatsapp" />
-              {{ whatsappChats(item).length > 1 ? account.name : 'WhatsApp' }}
+              <template v-if="whatsappChats(item).length > 1">{{ account.name }}</template>
             </button>
-            <button v-if="canManage" type="button" @click="snooze(item)">Snooze 1h</button>
-            <button v-if="!item.read_at" type="button" @click="readOnly(item)">Mark read</button>
+            <button v-if="canManage" type="button" title="Snooze 1 hour" aria-label="Snooze 1 hour" @click="snooze(item)"><FontAwesomeIcon :icon="faClock" /> 1h</button>
+            <button v-if="!item.read_at" type="button" title="Mark read" aria-label="Mark read" @click="readOnly(item)"><FontAwesomeIcon :icon="faEnvelopeOpen" /></button>
           </div>
         </li>
       </ul>
@@ -238,7 +239,7 @@ onBeforeUnmount(() => {
 .reminder-item.unread.priority-critical{border-left-color:var(--ui-danger,#dc3545)}
 .reminder-item__head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .reminder-item__head strong{font-size:.9rem}
-.reminder-item__close{border:0;background:transparent;color:var(--ui-text-muted,#6b7280);font-size:1.25rem;line-height:1;cursor:pointer}
+.reminder-item__close{border:0;background:transparent;color:var(--ui-text-muted,#6b7280);font-size:.95rem;line-height:1;cursor:pointer}
 .reminder-item p{margin:3px 0 1px;font-size:.82rem;font-weight:600}
 .reminder-item small{color:var(--ui-text-muted,#6b7280);font-size:.74rem}
 .reminder-item__actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}

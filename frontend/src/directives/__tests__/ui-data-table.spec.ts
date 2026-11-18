@@ -12,7 +12,10 @@ describe('uiDataTable directive', () => {
 
   it('adds controls and persists column visibility without hiding detail rows', async () => {
     const wrapper = mount(TestGrid, { global: { directives: { uiDataTable } } })
-    expect(wrapper.get('.ui-data-table__bridge-tools').text()).toContain('Export CSV')
+    const tools = wrapper.get('.ui-data-table__bridge-tools')
+    expect(tools.get('button').attributes('aria-label')).toBe('Export CSV')
+    expect(tools.get('summary').attributes('aria-label')).toBe('Choose columns')
+    expect(tools.findAll('svg')).toHaveLength(2)
     expect(wrapper.get('table').classes()).toContain('ui-data-table__native--compact')
     expect(wrapper.get('table').attributes('data-ui-grid-key')).toBe('test-legacy-grid')
 
