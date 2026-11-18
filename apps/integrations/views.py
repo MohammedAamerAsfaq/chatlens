@@ -1,5 +1,5 @@
 from django.db import IntegrityError, transaction
-from django.db.models import Prefetch, Q
+from django.db.models import Case, IntegerField, Prefetch, Q, Value, When
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -19,6 +19,7 @@ from .serializers import (
     AdministrativeAreaSerializer, CitySerializer, CountrySerializer,
     IntegrationSyncRunSerializer, LocalitySerializer,
 )
+from .services.geography_sync import normalize_name
 from .services.google_maps import google_maps_connection, source_data as google_maps_source_data
 
 
@@ -170,6 +171,32 @@ def sync_geography(request):
     run.background_task_id = task.pk
     run.save(update_fields=['background_task_id'])
     return Response(IntegrationSyncRunSerializer(run).data, status=status.HTTP_202_ACCEPTED)
+
+
+COUNTRY_LOOKUP_LIMIT = 10
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def countries(request):
+    # Country master list for address fields: public reference data, open to every signed-in user.
+    # Without a search it returns the first 10 by name; with one, names starting with it come first.
+    search = request.query_params.get('search', '').strip()
+    queryset = Country.objects.filter(is_active=True)
+    if search:
+        normalized = normalize_name(search)
+        queryset = queryset.filter(
+            Q(name__icontains=search) | Q(normalized_name__icontains=normalized)
+            | Q(iso2__iexact=search) | Q(iso3__iexact=search) | Q(alternate_names__icontains=search),
+        ).annotate(starts=Case(
+            When(Q(iso2__iexact=search) | Q(iso3__iexact=search), then=Value(0)),
+            When(normalized_name__startswith=normalized, then=Value(1)),
+            default=Value(2), output_field=IntegerField(),
+        )).order_by('starts', 'name')
+    return Response([
+        {'id': item.pk, 'iso2': item.iso2, 'iso3': item.iso3, 'name': item.name}
+        for item in queryset[:COUNTRY_LOOKUP_LIMIT]
+    ])
 
 
 @api_view(['GET'])

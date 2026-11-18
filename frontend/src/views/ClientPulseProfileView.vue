@@ -15,6 +15,7 @@ import UiCard from '@/components/ui/UiCard.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiEmptyState from '@/components/ui/UiEmptyState.vue'
 import UiFormField from '@/components/ui/UiFormField.vue'
+import UiCountrySelect from '@/components/ui/UiCountrySelect.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
 import UiPageHeader from '@/components/ui/UiPageHeader.vue'
@@ -41,7 +42,7 @@ const form = reactive({
   priority: 'normal', source: 'manual', owner_id: '', preferred_channel: '',
   preferred_language: '', timezone: 'Asia/Dubai', company_name: '', job_title: '',
   website: '', address_line1: '', address_line2: '', city: '', state_region: '',
-  postal_code: '', country: '', notes: '', do_not_contact: false,
+  postal_code: '', country: null, notes: '', do_not_contact: false,
   do_not_contact_reason: '', tag_ids: [],
 })
 const identity = reactive({ identity_type: 'phone', value: '', label: '' })
@@ -61,7 +62,7 @@ function syncForm() {
     job_title: value.job_title || '', website: value.website || '',
     address_line1: value.address_line1 || '', address_line2: value.address_line2 || '',
     city: value.city || '', state_region: value.state_region || '',
-    postal_code: value.postal_code || '', country: value.country || '',
+    postal_code: value.postal_code || '', country: value.country || null,
     notes: value.notes || '', do_not_contact: value.do_not_contact,
     do_not_contact_reason: value.do_not_contact_reason || '', tag_ids: value.tags.map(tag => tag.id),
   })
@@ -79,7 +80,8 @@ async function load() {
 async function save() {
   busy.value = 'save'; error.value = ''; success.value = ''
   try {
-    client.value = (await clientPulseApi.updateClient(id, { ...form, owner_id: form.owner_id || null })).data
+    const { country, ...fields } = form
+    client.value = (await clientPulseApi.updateClient(id, { ...fields, owner_id: form.owner_id || null, country_id: country?.id ?? null })).data
     syncForm(); success.value = 'Client profile updated.'; timeline.value = (await clientPulseApi.timeline(id)).data
   } catch (exc) { error.value = apiMessage(exc, 'Unable to update client.') }
   finally { busy.value = '' }
@@ -173,7 +175,7 @@ onMounted(load)
             <UiFormField label="City"><UiInput v-model="form.city" :disabled="!canEdit" /></UiFormField>
             <UiFormField label="State / region"><UiInput v-model="form.state_region" :disabled="!canEdit" /></UiFormField>
             <UiFormField label="Postal code"><UiInput v-model="form.postal_code" :disabled="!canEdit" /></UiFormField>
-            <UiFormField label="Country"><UiInput v-model="form.country" :disabled="!canEdit" /></UiFormField>
+            <UiFormField label="Country"><UiCountrySelect v-model="form.country" :disabled="!canEdit" /></UiFormField>
             <div v-if="canEdit" class="client-profile__wide client-profile__actions"><UiButton type="submit" variant="primary" :disabled="busy === 'save'">{{ busy === 'save' ? 'Saving...' : 'Save address' }}</UiButton></div>
           </form>
         </UiCard>

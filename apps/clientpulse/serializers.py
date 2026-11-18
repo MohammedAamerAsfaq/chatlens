@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from apps.clientpulse.models import ClientProfile, ClientReminder, ContactConsent
+from apps.integrations.models import Country
 from apps.tenancy.models import CompanyContact, CompanyContactIdentity
 
 
@@ -36,7 +37,9 @@ class ClientProfileInputSerializer(serializers.Serializer):
     city = serializers.CharField(max_length=100, required=False, allow_blank=True)
     state_region = serializers.CharField(max_length=100, required=False, allow_blank=True)
     postal_code = serializers.CharField(max_length=30, required=False, allow_blank=True)
-    country = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    country_id = serializers.PrimaryKeyRelatedField(
+        queryset=Country.objects.filter(is_active=True), source='country', required=False, allow_null=True,
+    )
     last_contacted_at = serializers.DateTimeField(required=False, allow_null=True)
     last_inbound_at = serializers.DateTimeField(required=False, allow_null=True)
     next_follow_up_at = serializers.DateTimeField(required=False, allow_null=True)

@@ -12,7 +12,7 @@ describe('ClientEditorModal', () => {
       creation_mode: 'manual', whatsapp_contact_id: '', contact_search: '',
       display_name: '', company_name: '', job_title: '', phone: '', email: '', website: '',
       address_line1: '', address_line2: '', city: '', state_region: '', postal_code: '',
-      country: '', notes: '', lifecycle_stage: 'lead', priority: 'normal', owner_id: '',
+      country: null, notes: '', lifecycle_stage: 'lead', priority: 'normal', owner_id: '',
     }
     const wrapper = mount(ClientEditorModal, {
       attachTo: document.body,

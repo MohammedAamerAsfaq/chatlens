@@ -206,6 +206,7 @@ export const integrationsApi = {
   testGeographySource: () => http.post('/integrations/geography-source/test/'),
   syncGeography: country_code => http.post('/integrations/geography-source/sync/', { country_code }),
   locations: (params = {}) => http.get('/integrations/locations/', { params }),
+  countries: (search = '') => http.get('/integrations/countries/', { params: search ? { search } : {} }),
   // POST avoids IIS/WebDAV intercepting PUT before the request reaches Django.
   saveGoogleMaps: data => http.post('/integrations/google-maps/', data),
   testGoogleMaps: () => http.post('/integrations/google-maps/test/'),

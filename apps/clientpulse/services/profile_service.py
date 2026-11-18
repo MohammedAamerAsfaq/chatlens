@@ -65,8 +65,11 @@ def create_profile(company, actor, contact_data, profile_data, identities, tag_i
 
 @transaction.atomic
 def update_profile(profile, actor, contact_data, profile_data, tag_ids=None):
+    def stored(field):
+        return getattr(profile, profile._meta.get_field(field).attname)
+
     before = {
-        'profile': {field: getattr(profile, f'{field}_id' if field == 'owner' else field) for field in profile_data},
+        'profile': {field: stored(field) for field in profile_data},
         'contact': {field: getattr(profile.contact, field) for field in contact_data},
     }
     for field, value in contact_data.items():
@@ -80,7 +83,7 @@ def update_profile(profile, actor, contact_data, profile_data, tag_ids=None):
     if tag_ids is not None:
         replace_tags(profile, tag_ids, actor)
     after = {
-        'profile': {field: getattr(profile, f'{field}_id' if field == 'owner' else field) for field in profile_data},
+        'profile': {field: stored(field) for field in profile_data},
         'contact': {field: getattr(profile.contact, field) for field in contact_data},
     }
     if before != after or tag_ids is not None:

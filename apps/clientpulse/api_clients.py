@@ -35,7 +35,7 @@ class ClientPagination(PageNumberPagination):
 
 
 def _related(queryset):
-    return queryset.select_related('contact', 'owner__user').prefetch_related(
+    return queryset.select_related('contact', 'owner__user', 'country').prefetch_related(
         'tag_assignments__tag', 'contact__whatsapp_contacts__account',
     )
 

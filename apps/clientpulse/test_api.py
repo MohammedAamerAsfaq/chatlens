@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
 
+from apps.integrations.models import Country
 from apps.clientpulse.models import (
     ClientActivity, ClientProfile, ClientPulseSettings, ClientTag, ContactConsent,
 )
@@ -52,6 +53,8 @@ class ClientPulseApiTests(TestCase):
         self.assertEqual(listed['count'], 1)
 
     def test_business_and_address_fields_persist_and_update(self):
+        uae = Country.objects.get(iso2='AE')
+        oman = Country.objects.get(iso2='OM')
         response = self.client.post('/api/clientpulse/clients/', {
             'display_name': 'Mina Buyer',
             'company_name': 'Mina Trading LLC',
@@ -62,23 +65,29 @@ class ClientPulseApiTests(TestCase):
             'city': 'Dubai',
             'state_region': 'Dubai',
             'postal_code': '00000',
-            'country': 'United Arab Emirates',
+            'country_id': uae.pk,
             'notes': 'Prefers WhatsApp follow-up.',
         }, format='json')
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(response.data['company_name'], 'Mina Trading LLC')
         self.assertEqual(response.data['address_line1'], 'Office 1204, Commerce Tower')
         self.assertEqual(response.data['notes'], 'Prefers WhatsApp follow-up.')
+        self.assertEqual(response.data['country'], {'id': uae.pk, 'iso2': 'AE', 'name': 'United Arab Emirates'})
 
         profile_id = response.data['id']
         updated = self.client.patch(
             f'/api/clientpulse/clients/{profile_id}/',
-            {'job_title': 'Head of Procurement', 'city': 'Abu Dhabi'},
+            {'job_title': 'Head of Procurement', 'city': 'Abu Dhabi', 'country_id': oman.pk},
             format='json',
         )
         self.assertEqual(updated.status_code, 200, updated.data)
         self.assertEqual(updated.data['job_title'], 'Head of Procurement')
         self.assertEqual(updated.data['city'], 'Abu Dhabi')
+        self.assertEqual(updated.data['country']['iso2'], 'OM')
+        cleared = self.client.patch(f'/api/clientpulse/clients/{profile_id}/', {'country_id': None}, format='json')
+        self.assertIsNone(cleared.data['country'])
+        unknown = self.client.patch(f'/api/clientpulse/clients/{profile_id}/', {'country_id': 999999}, format='json')
+        self.assertEqual(unknown.status_code, 400)
 
         search = self.client.get('/api/clientpulse/clients/?search=Mina%20Trading').data
         self.assertEqual(search['count'], 1)

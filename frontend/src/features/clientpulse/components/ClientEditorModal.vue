@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiFormField from '@/components/ui/UiFormField.vue'
+import UiCountrySelect from '@/components/ui/UiCountrySelect.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiModal from '@/components/ui/UiModal.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
@@ -91,7 +92,7 @@ function searchContacts(value) { emit('search-contacts', value) }
       <UiFormField v-if="form.creation_mode === 'manual'" label="City"><UiInput v-model="form.city" /></UiFormField>
       <UiFormField v-if="form.creation_mode === 'manual'" label="State / region"><UiInput v-model="form.state_region" /></UiFormField>
       <UiFormField v-if="form.creation_mode === 'manual'" label="Postal code"><UiInput v-model="form.postal_code" /></UiFormField>
-      <UiFormField v-if="form.creation_mode === 'manual'" label="Country"><UiInput v-model="form.country" /></UiFormField>
+      <UiFormField v-if="form.creation_mode === 'manual'" label="Country"><UiCountrySelect v-model="form.country" /></UiFormField>
       <UiFormField v-if="form.creation_mode === 'manual'" label="Owner">
         <UiSelect v-model="form.owner_id" :options="ownerOptions" searchable />
       </UiFormField>

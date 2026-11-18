@@ -11,6 +11,8 @@ const props = defineProps({
   placeholder: { type: String, default: '' },
   disabled: { type: Boolean, default: false },
   searchable: { type: Boolean, default: false },
+  // The parent fetches matching options on @search, so the typed text must not filter or cap them again here.
+  remote: { type: Boolean, default: false },
 })
 const emit = defineEmits(['update:modelValue', 'search'])
 const select = ref(null)
@@ -55,6 +57,7 @@ onMounted(async () => {
     placeholder: Boolean(props.placeholder),
     placeholderValue: props.placeholder,
     searchEnabled: props.searchable,
+    searchChoices: !props.remote,
     searchPlaceholderValue: 'Type to search...',
     shouldSort: false,
   })

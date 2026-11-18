@@ -83,7 +83,9 @@ def profile_payload(profile, *, detail=False, visible_account_ids=None):
             'city': profile.city,
             'state_region': profile.state_region,
             'postal_code': profile.postal_code,
-            'country': profile.country,
+            'country': None if not profile.country else {
+                'id': profile.country_id, 'iso2': profile.country.iso2, 'name': profile.country.name,
+            },
             'do_not_contact_reason': profile.do_not_contact_reason,
             'created_at': profile.created_at,
             'identities': [{

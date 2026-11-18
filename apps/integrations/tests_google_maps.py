@@ -60,9 +60,7 @@ class GoogleMapsApiTests(TestCase):
         session = self.client.session
         session['active_company_id'] = self.control.pk
         session.save()
-        self.country = Country.objects.create(
-            iso2='AE', name='United Arab Emirates', normalized_name='united arab emirates',
-        )
+        self.country = Country.objects.get(iso2='AE')  # seeded by the country master migration
         self.area = AdministrativeArea.objects.create(
             country=self.country, name='Dubai', normalized_name='dubai', geoname_id=292224,
         )

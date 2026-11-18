@@ -37,7 +37,9 @@ class ClientProfile(models.Model):
     city = models.CharField(max_length=100, blank=True)
     state_region = models.CharField(max_length=100, blank=True)
     postal_code = models.CharField(max_length=30, blank=True)
-    country = models.CharField(max_length=100, blank=True)
+    country = models.ForeignKey(
+        'integrations.Country', on_delete=models.PROTECT, null=True, blank=True, related_name='client_profiles',
+    )
     last_contacted_at = models.DateTimeField(null=True, blank=True)
     last_inbound_at = models.DateTimeField(null=True, blank=True)
     next_follow_up_at = models.DateTimeField(null=True, blank=True)

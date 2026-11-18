@@ -205,9 +205,7 @@ class IntegrationApiTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_locations_endpoint_exposes_locality_hierarchy(self):
-        country = Country.objects.create(
-            iso2='AE', name='United Arab Emirates', normalized_name='united arab emirates',
-        )
+        country = Country.objects.get(iso2='AE')  # seeded by the country master migration
         area = AdministrativeArea.objects.create(
             country=country, name='Dubai', normalized_name='dubai', geoname_id=292224,
         )
@@ -227,3 +225,35 @@ class IntegrationApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['count'], 1)
         self.assertEqual(response.data['results'][0]['city_name'], 'Dubai')
+
+
+class CountryLookupTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(get_user_model().objects.create_user('country-lookup'))
+
+    def test_master_list_holds_every_iso_country(self):
+        self.assertEqual(Country.objects.count(), 249)
+        self.assertEqual(Country.objects.get(iso2='SD').iso3, 'SDN')
+
+    def test_lists_ten_countries_by_default(self):
+        response = self.client.get('/api/integrations/countries/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 10)
+        self.assertEqual(response.data[0]['name'], 'Afghanistan')
+
+    def test_search_puts_codes_and_name_prefixes_first(self):
+        names = [item['name'] for item in self.client.get('/api/integrations/countries/', {'search': 'sud'}).data]
+        self.assertEqual(names, ['Sudan', 'South Sudan'])
+        code = self.client.get('/api/integrations/countries/', {'search': 'om'}).data
+        self.assertEqual(code[0]['iso2'], 'OM')
+        accents = self.client.get('/api/integrations/countries/', {'search': 'cote'}).data
+        self.assertEqual(accents[0]['iso2'], 'CI')
+
+    def test_inactive_countries_are_not_offered(self):
+        Country.objects.filter(iso2='SD').update(is_active=False)
+        names = [item['name'] for item in self.client.get('/api/integrations/countries/', {'search': 'sudan'}).data]
+        self.assertEqual(names, ['South Sudan'])
+
+    def test_requires_sign_in(self):
+        self.assertIn(APIClient().get('/api/integrations/countries/').status_code, (401, 403))

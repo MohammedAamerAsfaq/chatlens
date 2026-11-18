@@ -30,7 +30,7 @@ const emptyClientForm = () => ({
   creation_mode: 'manual', whatsapp_contact_id: '', contact_search: '',
   display_name: '', company_name: '', job_title: '', phone: '', email: '', website: '',
   address_line1: '', address_line2: '', city: '', state_region: '', postal_code: '',
-  country: '', notes: '', lifecycle_stage: 'lead', priority: 'normal', owner_id: '',
+  country: null, notes: '', lifecycle_stage: 'lead', priority: 'normal', owner_id: '',
 })
 const form = reactive(emptyClientForm())
 let contactSearchTimer, contactRequest = 0
@@ -126,7 +126,7 @@ async function createClient() {
     priority: form.priority, owner_id: form.owner_id || null,
     company_name: form.company_name.trim(), job_title: form.job_title.trim(), website: form.website.trim(),
     address_line1: form.address_line1.trim(), address_line2: form.address_line2.trim(), city: form.city.trim(),
-    state_region: form.state_region.trim(), postal_code: form.postal_code.trim(), country: form.country.trim(), notes: form.notes.trim(), identities: [],
+    state_region: form.state_region.trim(), postal_code: form.postal_code.trim(), country_id: form.country?.id ?? null, notes: form.notes.trim(), identities: [],
   }
   if (form.phone.trim()) payload.identities.push({ identity_type: 'phone', value: form.phone.trim(), is_primary: true })
   if (form.email.trim()) payload.identities.push({ identity_type: 'email', value: form.email.trim(), is_primary: !payload.identities.length })
