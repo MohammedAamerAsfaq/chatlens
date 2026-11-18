@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { ref } from 'vue'
 
 const props = defineProps({ log: { type: Object, required: true } })
@@ -32,7 +33,7 @@ async function copyPayload() {
 
 <template>
   <div class="activity-detail">
-    <header><div><strong>{{ log.account_name }}</strong><span>{{ new Date(log.created_at).toLocaleString() }}</span></div><button v-if="log.event_type === 'message_ingest' && log.metadata?.provider_message_id" class="ui-button ui-button--small" @click.stop="emit('open-message', log)">Open Message Logs</button></header>
+    <header><div><strong>{{ log.account_name }}</strong><span>{{ formatDateTime(log.created_at, { seconds: true }) }}</span></div><button v-if="log.event_type === 'message_ingest' && log.metadata?.provider_message_id" class="ui-button ui-button--small" @click.stop="emit('open-message', log)">Open Message Logs</button></header>
     <dl v-if="metadataRows().length"><template v-for="row in metadataRows()" :key="row.key"><dt>{{ row.label }}</dt><dd :class="{ error: row.isError }">{{ row.value }}</dd></template></dl>
     <p v-else class="empty">No metadata recorded.</p>
     <div v-if="log.message" class="message"><strong>Message</strong><p>{{ log.message }}</p></div>

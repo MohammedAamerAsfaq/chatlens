@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { integrationsApi } from '@/api'
 import UiBadge from '@/components/ui/UiBadge.vue'
@@ -123,7 +124,7 @@ function errorMessage(error, fallback) {
   return fallback
 }
 function formatDate(value) {
-  return value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '-'
+  return formatDateTime(value, { empty: '-' })
 }
 function summarizeCounters(counters) {
   if (!counters || !Object.keys(counters).length) return '-'

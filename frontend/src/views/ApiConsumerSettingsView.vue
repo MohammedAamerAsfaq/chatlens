@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { computed, onMounted, ref } from 'vue'
 import { apiConsumerApi } from '@/api'
 import UiBadge from '@/components/ui/UiBadge.vue'
@@ -124,7 +125,7 @@ function errorMessage(error, fallback) {
   return fallback
 }
 function formatDate(value) {
-  return value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '-'
+  return formatDateTime(value, { empty: '-' })
 }
 function showNotice(tone, message) { notice.value = { tone, message } }
 

@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useAccountsStore } from '@/stores/accounts'
 import { useAuthStore } from '@/stores/auth.js'
@@ -66,7 +67,7 @@ const workerStatus = computed(() => {
 
 function formatHeartbeat(dt) {
   if (!dt) return 'Never'
-  return new Date(dt).toLocaleString()
+  return formatDateTime(dt, { seconds: true })
 }
 
 onMounted(() => {

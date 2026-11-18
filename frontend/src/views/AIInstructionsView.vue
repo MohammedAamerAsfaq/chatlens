@@ -351,6 +351,7 @@
 </template>
 
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { computed, ref, onMounted } from 'vue'
 import { realEstateApi, tradingApi } from '../api/index.js'
 import { useAuthStore } from '@/stores/auth.js'
@@ -604,7 +605,7 @@ function purposeLabel(p) {
 // ── Shared ─────────────────────────────────────────────────────────────────
 function formatDate(iso) {
   if (!iso) return ''
-  return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return formatDateTime(iso, { seconds: true })
 }
 
 onMounted(loadPrompts)

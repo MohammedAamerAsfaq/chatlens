@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { realEstateApi } from '@/api'
@@ -104,7 +105,7 @@ onBeforeUnmount(() => clearTimeout(timer))
       <UiDataTable :columns="columns" :rows="rows" row-key="id" :loading="loading" :total="summary.total || 0" :page="page" :page-size="pageSize" :page-sizes="[10,25,50,100]" persist-key="real-estate-mock-inquiries" expandable empty-title="No mock inquiries have been generated." @update:page="changePage" @update:page-size="changePageSize" @refresh="refresh">
         <template #cell-activity_type="{ value }"><UiBadge tone="info">{{ label(value) }}</UiBadge></template><template #cell-classified_activity="{ value }"><UiBadge :tone="value ? 'success' : 'neutral'">{{ label(value) }}</UiBadge></template>
         <template #cell-live_task_status="{ value }"><UiBadge :tone="tone(value)">{{ label(value) }}</UiBadge></template><template #cell-embedding_status="{ value }"><UiBadge :tone="tone(value)">{{ label(value) }}</UiBadge></template><template #cell-parse_status="{ value }"><UiBadge :tone="tone(value)">{{ label(value) }}</UiBadge></template>
-        <template #cell-generated_message="{ value }"><span class="message" :title="value">{{ value }}</span></template><template #cell-created_at="{ value }">{{ new Date(value).toLocaleString() }}</template>
+        <template #cell-generated_message="{ value }"><span class="message" :title="value">{{ value }}</span></template><template #cell-created_at="{ value }">{{ formatDateTime(value, { seconds: true }) }}</template>
         <template #expanded="{ row }"><div class="detail"><p><strong>Contact:</strong> {{ row.contact_name }} - {{ row.contact_number }}</p><p><strong>Source:</strong> {{ row.source_sheet_name }} row {{ row.source_row_number }}</p><p>{{ row.generated_message }}</p><p v-if="row.error" class="error">{{ row.error }}</p></div></template>
       </UiDataTable>
     </UiCard>

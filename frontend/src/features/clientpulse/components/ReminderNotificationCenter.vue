@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
@@ -50,7 +51,7 @@ function persistSeen() {
   sessionStorage.setItem(storageKey(), JSON.stringify([...seen].slice(-200)))
 }
 function reminderTime(item) {
-  return new Date(item.reminder.snoozed_until || item.reminder.due_at).toLocaleString()
+  return formatDateTime(item.reminder.snoozed_until || item.reminder.due_at)
 }
 function whatsappChats(item) {
   if (!canOpenInbox.value) return []

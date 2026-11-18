@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { aiOperationsApi } from '@/api'
 
@@ -40,7 +41,7 @@ async function refresh() {
 }
 function selectSection(key) { activeSection.value = key; page.value = 1; status.value = ''; loadRows() }
 function changePage(next) { if (next >= 1 && next <= totalPages.value) { page.value = next; loadRows() } }
-function formatDate(value) { return value ? new Date(value).toLocaleString() : '-' }
+function formatDate(value) { return value ? formatDateTime(value, { seconds: true }) : '-' }
 function formatMetric(value) { return value === null || value === undefined || value === '' ? '-' : value }
 function label(value) { return String(value).replaceAll('_', ' ') }
 function statusClass(value) { return `state state-${String(value).toLowerCase()}` }

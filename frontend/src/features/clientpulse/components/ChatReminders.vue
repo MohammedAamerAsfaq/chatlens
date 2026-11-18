@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faBell, faCalendarPlus, faCheck, faPlus } from '@fortawesome/free-solid-svg-icons'
 import { clientPulseApi } from '@/api'
+import { formatDateTime } from '@/utils/dateFormat'
 import { useAuthStore } from '@/stores/auth'
 import ReminderEditorModal from './ReminderEditorModal.vue'
 import { normalizeReminderDefaults } from '../reminderDefaults.js'
@@ -131,7 +132,7 @@ onBeforeUnmount(() => {
             <strong>{{ item.title }}</strong>
             <small>
               {{ isOverdue(item) ? 'Overdue' : item.status === 'snoozed' ? 'Snoozed until' : 'Due' }}
-              {{ dueTime(item).toLocaleString() }} · {{ item.assigned_to?.username || 'Unassigned' }}
+              {{ formatDateTime(dueTime(item)) }} · {{ item.assigned_to?.username || 'Unassigned' }}
             </small>
           </div>
           <div v-if="canManage" class="chat-reminders__actions">

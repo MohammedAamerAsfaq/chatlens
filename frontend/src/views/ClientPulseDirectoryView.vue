@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
@@ -61,14 +62,14 @@ const columns = [
   { key: 'owner', label: 'Owner', width: '10rem', exportValue: row => row.owner?.user?.username || 'Unassigned' },
   { key: 'priority', label: 'Priority', width: '7rem' },
   { key: 'tags', label: 'Tags', width: '12rem', exportValue: row => row.tags.map(tag => tag.name).join(', ') },
-  { key: 'last_contacted_at', label: 'Last contact', width: '11rem', sortable: true, exportValue: row => formatDateTime(row.last_contacted_at) },
-  { key: 'last_replied_at', label: 'Last replied', width: '11rem', sortable: true, exportValue: row => formatDateTime(row.last_replied_at) },
-  { key: 'next_follow_up_at', label: 'Next follow-up', width: '11rem', sortable: true, exportValue: row => formatDateTime(row.next_follow_up_at) },
+  { key: 'last_contacted_at', label: 'Last contact', width: '11rem', sortable: true, exportValue: row => displayDateTime(row.last_contacted_at) },
+  { key: 'last_replied_at', label: 'Last replied', width: '11rem', sortable: true, exportValue: row => displayDateTime(row.last_replied_at) },
+  { key: 'next_follow_up_at', label: 'Next follow-up', width: '11rem', sortable: true, exportValue: row => displayDateTime(row.next_follow_up_at) },
 ]
 
 function title(value) { return value.replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase()) }
 function message(exc, fallback) { return exc.response?.data?.detail || fallback }
-function formatDateTime(value) { return value ? new Date(value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '-' }
+function displayDateTime(value) { return formatDateTime(value, { empty: '-' }) }
 function resetForm() { Object.assign(form, emptyClientForm()) }
 function openCreate() { resetForm(); showCreate.value = true }
 function closeCreate() { if (!creating.value) showCreate.value = false }
@@ -199,9 +200,9 @@ onMounted(async () => {
             <div class="cp-tags"><span v-for="tag in row.tags" :key="tag.id" class="cp-tag" :style="{ background: tag.color }">{{ tag.name }}</span><span v-if="!row.tags.length" class="cp-muted">No tags</span></div>
           </UiDataTableInlineEditor>
         </template>
-        <template #cell-last_contacted_at="{ row }">{{ formatDateTime(row.last_contacted_at) }}</template>
-        <template #cell-last_replied_at="{ row }">{{ formatDateTime(row.last_replied_at) }}</template>
-        <template #cell-next_follow_up_at="{ row }">{{ formatDateTime(row.next_follow_up_at) }}</template>
+        <template #cell-last_contacted_at="{ row }">{{ displayDateTime(row.last_contacted_at) }}</template>
+        <template #cell-last_replied_at="{ row }">{{ displayDateTime(row.last_replied_at) }}</template>
+        <template #cell-next_follow_up_at="{ row }">{{ displayDateTime(row.next_follow_up_at) }}</template>
       </UiDataTable>
     </UiCard>
 

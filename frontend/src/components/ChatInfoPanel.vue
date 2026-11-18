@@ -1,4 +1,5 @@
 <script setup>
+import { formatDate } from '@/utils/dateFormat'
 import { ref, watch, computed } from 'vue'
 import { useConversationsStore } from '@/stores/conversations'
 import { chatsApi } from '@/api'
@@ -28,7 +29,7 @@ const isLid   = computed(() => info.value?.wa_chat_id?.endsWith('@lid'))
 
 function fmt(dt) {
   if (!dt) return '—'
-  return new Date(dt).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatDate(dt)
 }
 function fmtNum(n) {
   if (!n) return '0'

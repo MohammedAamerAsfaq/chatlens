@@ -1,3 +1,4 @@
+import { formatDateTime } from '@/utils/dateFormat'
 import { title } from '@/features/realEstate/options'
 
 export const opportunityLanes = [
@@ -70,9 +71,7 @@ export function opportunityFacts(item) {
 
 export function formatDate(value) {
   if (!value) return '-'
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-  }).format(new Date(value))
+  return formatDateTime(value, { empty: '-' })
 }
 
 export function money(currency, value) {

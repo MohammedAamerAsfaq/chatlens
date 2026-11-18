@@ -282,6 +282,7 @@
 </template>
 
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { accountsApi, tradingApi } from '../api/index.js'
@@ -453,7 +454,7 @@ function formatAge(secs) {
 
 function formatDatetime(iso) {
   if (!iso) return ''
-  return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return formatDateTime(iso)
 }
 
 function statusLabel(s) {

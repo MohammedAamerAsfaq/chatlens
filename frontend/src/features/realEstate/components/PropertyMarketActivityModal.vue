@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { computed } from 'vue'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiModal from '@/components/ui/UiModal.vue'
@@ -18,7 +19,7 @@ const lanes = [
 ]
 const subtitle = computed(() => `${props.activity?.total || 0} linked market appearances`)
 function shortDate(value) {
-  return value ? new Date(value).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '-'
+  return value ? formatDateTime(value) : '-'
 }
 </script>
 

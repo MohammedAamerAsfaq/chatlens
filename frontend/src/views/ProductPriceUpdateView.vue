@@ -494,6 +494,7 @@
 </template>
 
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { ref, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { tradingApi, contactsApi, groupsApi, accountsApi } from '../api/index.js'
@@ -526,7 +527,7 @@ const agentPricing = ref({ input_price_per_1m: null })
 
 function formatDate(iso) {
   if (!iso) return ''
-  return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return formatDateTime(iso)
 }
 
 function debounce(fn, delay = 300) {

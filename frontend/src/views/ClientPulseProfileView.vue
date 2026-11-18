@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faWhatsapp } from '@fortawesome/free-brands-svg-icons'
@@ -180,7 +181,7 @@ onMounted(load)
         <UiCard title="Notes" subtitle="Internal relationship context and operator observations.">
           <form class="client-profile__stack" @submit.prevent="save"><UiFormField label="Customer overview"><UiInput v-model="form.notes" multiline :rows="4" placeholder="Persistent background, preferences, and context" :disabled="!canEdit" /></UiFormField><div v-if="canEdit" class="client-profile__actions"><UiButton type="submit" variant="primary" :disabled="busy === 'save'">Save overview</UiButton></div></form>
           <form v-if="canNotes" class="client-profile__stack client-profile__subform" @submit.prevent="addNote"><UiFormField label="New timeline note"><UiInput v-model="noteBody" multiline :rows="4" placeholder="Add a dated relationship note..." required /></UiFormField><div class="client-profile__actions"><UiButton type="submit" variant="primary" :disabled="busy === 'note'">Add note</UiButton></div></form>
-          <div class="client-profile__list"><article v-for="note in notes" :key="note.id" class="client-profile__item client-profile__item--block"><p>{{ note.body }}</p><small>{{ note.created_by?.username }} / {{ new Date(note.created_at).toLocaleString() }}</small></article><UiEmptyState v-if="!notes.length" title="No notes yet" description="Relationship notes will appear here." /></div>
+          <div class="client-profile__list"><article v-for="note in notes" :key="note.id" class="client-profile__item client-profile__item--block"><p>{{ note.body }}</p><small>{{ note.created_by?.username }} / {{ formatDateTime(note.created_at) }}</small></article><UiEmptyState v-if="!notes.length" title="No notes yet" description="Relationship notes will appear here." /></div>
         </UiCard>
 
         <ClientTagManager v-model="form.tag_ids" :tags="tags" :can-edit="canEdit" @tags-changed="loadTags" />
@@ -216,7 +217,7 @@ onMounted(load)
       <ClientConversationHistory :profile-id="id" :can-open-inbox="canOpenInbox" :opening-contact-id="openingContactId" @open-inbox="openInbox" />
       <UiCard title="Activity timeline" subtitle="Relationship, consent, reminder, and outbound activity." class="client-profile__activity" :class="{ 'is-collapsed': !activityExpanded }">
         <template #actions><UiButton variant="outline" :aria-expanded="activityExpanded" @click="activityExpanded = !activityExpanded">{{ activityExpanded ? 'Collapse' : 'Expand' }} <span aria-hidden="true">{{ activityExpanded ? '-' : '+' }}</span></UiButton></template>
-        <div v-if="activityExpanded" class="client-profile__timeline"><article v-for="item in timeline" :key="item.id" class="client-profile__timeline-item"><div><strong>{{ item.title }}</strong><p v-if="item.summary">{{ item.summary }}</p><small>{{ new Date(item.occurred_at).toLocaleString() }} / {{ item.created_by?.username || 'system' }}</small></div><UiBadge v-if="item.outbound" :tone="item.outbound.status === 'sent' ? 'success' : item.outbound.status === 'failed' ? 'danger' : 'info'">{{ item.outbound.status.replaceAll('_', ' ') }}</UiBadge></article><UiEmptyState v-if="!timeline.length" title="No activity recorded" description="Client activity will appear here." /></div>
+        <div v-if="activityExpanded" class="client-profile__timeline"><article v-for="item in timeline" :key="item.id" class="client-profile__timeline-item"><div><strong>{{ item.title }}</strong><p v-if="item.summary">{{ item.summary }}</p><small>{{ formatDateTime(item.occurred_at) }} / {{ item.created_by?.username || 'system' }}</small></div><UiBadge v-if="item.outbound" :tone="item.outbound.status === 'sent' ? 'success' : item.outbound.status === 'failed' ? 'danger' : 'info'">{{ item.outbound.status.replaceAll('_', ' ') }}</UiBadge></article><UiEmptyState v-if="!timeline.length" title="No activity recorded" description="Client activity will appear here." /></div>
       </UiCard>
     </template>
   </div></main>

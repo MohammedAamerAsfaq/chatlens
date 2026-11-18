@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { accountsApi, activityApi } from '@/api'
@@ -26,7 +27,7 @@ const totalCount = ref(0)
 let pollTimer
 
 function formatTime(value) {
-  return value ? new Date(value).toLocaleString() : ''
+  return value ? formatDateTime(value, { seconds: true }) : ''
 }
 
 function relativeTime(value) {

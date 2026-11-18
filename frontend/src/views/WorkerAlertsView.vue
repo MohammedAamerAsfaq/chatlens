@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { workerAlertsApi, accountsApi } from '@/api'
 
@@ -104,7 +105,7 @@ async function acknowledgeAll() {
 
 function formatTime(dt) {
   if (!dt) return ''
-  return new Date(dt).toLocaleString()
+  return formatDateTime(dt, { seconds: true })
 }
 
 function relativeTime(dt) {

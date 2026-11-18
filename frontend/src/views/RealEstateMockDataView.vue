@@ -1,5 +1,6 @@
 <!-- eslint-disable vue/block-lang -->
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { realEstateApi, taskQueueApi } from '@/api'
@@ -220,7 +221,7 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
         <template #cell-processing_status="{ value }"><UiBadge tone="warning">{{ value }}</UiBadge></template>
         <template #cell-raw_values="{ value }"><span class="cell-values" :title="JSON.stringify(value)">{{ value.join(' | ') }}</span></template>
         <template #cell-display_values="{ value }"><span class="cell-values" :title="value.join(' | ')">{{ value.join(' | ') }}</span></template>
-        <template #cell-imported_at="{ value }">{{ value ? new Date(value).toLocaleString() : '-' }}</template>
+        <template #cell-imported_at="{ value }">{{ value ? formatDateTime(value, { seconds: true }) : '-' }}</template>
         <template #expanded="{ row }"><div class="row-detail"><section><h3>Raw values</h3><pre>{{ JSON.stringify(row.raw_values, null, 2) }}</pre></section><section><h3>Display values</h3><pre>{{ JSON.stringify(row.display_values, null, 2) }}</pre></section></div></template>
       </UiDataTable>
     </UiCard>

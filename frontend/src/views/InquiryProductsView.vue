@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { accountsApi, tradingApi } from '@/api'
@@ -150,7 +151,7 @@ function resetFilters() {
 
 function formatTime(value) {
   if (!value) return '-'
-  return new Date(value).toLocaleString()
+  return formatDateTime(value, { seconds: true })
 }
 
 function statusClass(value) {

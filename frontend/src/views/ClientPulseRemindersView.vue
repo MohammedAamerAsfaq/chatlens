@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { clientPulseApi } from '@/api'
@@ -152,7 +153,7 @@ onMounted(async () => {
           <tr v-for="item in reminders" :key="item.id">
             <td><div class="reminder-title"><strong>{{ item.title }}</strong><span v-if="item.linked_from">Linked</span></div><p class="cp-muted">{{ item.description }}</p></td>
             <td><RouterLink class="cp-name" :to="`/clientpulse/${item.profile.id}`">{{ item.profile.display_name }}</RouterLink></td>
-            <td>{{ new Date(item.snoozed_until || item.due_at).toLocaleString() }}<br><span class="cp-badge">{{ item.status }}</span></td>
+            <td>{{ formatDateTime(item.snoozed_until || item.due_at) }}<br><span class="cp-badge">{{ item.status }}</span></td>
             <td>{{ item.assigned_to?.username || 'Unassigned' }}</td><td>{{ item.priority }}</td><td>{{ item.recurrence_type }}</td>
             <td><div class="row-actions">
               <UiButton size="small" variant="soft" title="Thread" aria-label="Thread" @click="viewThread(item)"><FontAwesomeIcon :icon="faListUl" /></UiButton>

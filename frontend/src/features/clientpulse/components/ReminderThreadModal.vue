@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiModal from '@/components/ui/UiModal.vue'
 
@@ -11,7 +12,7 @@ defineProps({
 defineEmits(['close', 'follow-up'])
 
 function dueAt(item) {
-  return new Date(item.snoozed_until || item.due_at).toLocaleString()
+  return formatDateTime(item.snoozed_until || item.due_at)
 }
 </script>
 

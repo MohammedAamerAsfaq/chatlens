@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { ref, watch } from 'vue'
 import UiModal from '@/components/ui/UiModal.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
@@ -30,7 +31,7 @@ watch(() => props.inquiry?.id, async (id) => {
 }, { immediate: true })
 
 function formatTime(iso) {
-  return new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+  return formatDateTime(iso)
 }
 </script>
 

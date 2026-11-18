@@ -1,4 +1,5 @@
 <script setup>
+import { formatDate } from '@/utils/dateFormat'
 import { ref, computed, onMounted, watch } from 'vue'
 import { groupsApi, accountsApi } from '@/api/index.js'
 
@@ -406,7 +407,7 @@ watch(selectedAccId, () => {
 
                 <!-- Updated -->
                 <td class="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
-                  {{ new Date(g.updated_at).toLocaleDateString() }}
+                  {{ formatDate(g.updated_at) }}
                 </td>
               </tr>
             </tbody>

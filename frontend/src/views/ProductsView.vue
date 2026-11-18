@@ -632,6 +632,7 @@
 </template>
 
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { tradingApi } from '../api/index.js'
@@ -726,10 +727,6 @@ const priceList = ref({
   generating: false, error: '',
 })
 
-function formatDateTime(iso) {
-  if (!iso) return ''
-  return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
 
 async function openPriceList() {
   priceList.value.open  = true

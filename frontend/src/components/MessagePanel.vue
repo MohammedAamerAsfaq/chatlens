@@ -1,4 +1,5 @@
 <script setup>
+import { formatDate } from '@/utils/dateFormat'
 import { watch, nextTick, ref, computed, onMounted, onUnmounted } from 'vue'
 import { useConversationsStore } from '@/stores/conversations'
 import { accountsApi, outboundAssetsApi } from '@/api'
@@ -334,7 +335,7 @@ function formatDateLabel(dt) {
   yesterday.setDate(now.getDate() - 1)
   if (d.toDateString() === now.toDateString()) return 'Today'
   if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
-  return d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  return `${d.toLocaleDateString([], { weekday: 'long' })}, ${formatDate(d)}`
 }
 
 function isNewDay(messages, index) {

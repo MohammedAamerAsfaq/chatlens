@@ -1,4 +1,5 @@
 <script setup>
+import { formatDate } from '@/utils/dateFormat'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { clientPulseApi } from '@/api'
 import UiBadge from '@/components/ui/UiBadge.vue'
@@ -62,9 +63,6 @@ function mediaSource(url) { return url ? url.replace(/^\/media\//, '/worker-medi
 function displayText(message) {
   if (message.message_text) return message.message_text
   return message.has_media ? `[${message.message_type || 'media'}]` : '[Empty message]'
-}
-function formatDate(value) {
-  return new Date(value).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
 }
 function formatTime(value) {
   return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })

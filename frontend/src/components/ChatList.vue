@@ -1,4 +1,5 @@
 <script setup>
+import { formatDate } from '@/utils/dateFormat'
 import { ref, computed, watch, nextTick } from 'vue'
 import { useConversationsStore } from '@/stores/conversations'
 import { accountsApi } from '@/api'
@@ -53,7 +54,7 @@ function formatTime(dt) {
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   const diff = (now - d) / 86400000
   if (diff < 7) return d.toLocaleDateString([], { weekday: 'short' })
-  return d.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: '2-digit' })
+  return formatDate(d)
 }
 
 const savingAccountAi = ref(false)

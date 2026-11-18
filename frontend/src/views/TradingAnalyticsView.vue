@@ -135,6 +135,7 @@
 </template>
 
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { accountsApi, tradingApi } from '../api/index.js'
 
@@ -226,7 +227,7 @@ const reportRangeLabel = computed(() => {
   return `${selectedRange.value}: ${params.date_from} to ${params.date_to}`
 })
 
-const printTimestamp = computed(() => new Date().toLocaleString())
+const printTimestamp = computed(() => formatDateTime(new Date(), { seconds: true }))
 
 const maxBar = computed(() => {
   const vals = (stats.value.timeline || []).flatMap(s => [s.wtb, s.wts])

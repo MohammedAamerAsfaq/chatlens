@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { accountsApi, messageLogsApi } from '@/api'
@@ -112,7 +113,7 @@ async function clearLogs() {
 
 function formatTime(ts) {
   if (!ts) return ''
-  return new Date(ts).toLocaleString()
+  return formatDateTime(ts, { seconds: true })
 }
 
 function relativeTime(ts) {

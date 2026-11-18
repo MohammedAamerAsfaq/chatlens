@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { computed, onMounted, ref, watch } from 'vue'
 import { accountsApi, tradingApi } from '@/api'
 
@@ -78,7 +79,7 @@ function toggleRow(id) {
 
 function formatTime(value) {
   if (!value) return ''
-  return new Date(value).toLocaleString()
+  return formatDateTime(value, { seconds: true })
 }
 
 function relativeTime(value) {

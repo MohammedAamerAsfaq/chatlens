@@ -149,6 +149,7 @@
 </template>
 
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { computed, onMounted, ref } from 'vue'
 import { tradingApi } from '@/api'
 
@@ -172,7 +173,7 @@ const filters = ref({
   limit: 250,
 })
 
-const printTimestamp = computed(() => new Date().toLocaleString())
+const printTimestamp = computed(() => formatDateTime(new Date(), { seconds: true }))
 const rangeLabel = computed(() => `${filters.value.date_from || 'Any start'} to ${filters.value.date_to || 'Any end'}`)
 const reportFilterLabel = computed(() => {
   const search = filters.value.search ? `Search: ${filters.value.search}` : 'All selling offers'
@@ -195,7 +196,7 @@ function productName(row) {
 
 function formatTime(value) {
   if (!value) return '-'
-  return new Date(value).toLocaleString()
+  return formatDateTime(value, { seconds: true })
 }
 
 function printReport() {

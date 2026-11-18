@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { taskQueueApi, outboundMessagesApi } from '@/api'
 
@@ -58,7 +59,7 @@ async function stopWorker(worker) {
 }
 function changePage(next) { if (next >= 1 && next <= totalPages.value && next !== page.value) { page.value = next; refresh() } }
 function changePageSize() { page.value = 1; refresh() }
-function formatDate(value) { return value ? new Date(value).toLocaleString() : '-' }
+function formatDate(value) { return value ? formatDateTime(value, { seconds: true }) : '-' }
 function age(value) { if (!value) return '-'; const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000)); if (seconds < 60) return `${seconds}s`; if (seconds < 3600) return `${Math.floor(seconds / 60)}m`; if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`; return `${Math.floor(seconds / 86400)}d` }
 function duration(task) { if (!task.started_at) return '-'; const seconds = Math.max(0, Math.round((new Date(task.finished_at || new Date()) - new Date(task.started_at)) / 1000)); return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s` }
 function statusClass(status) { return `status status-${status}` }

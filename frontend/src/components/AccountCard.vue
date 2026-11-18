@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useAccountsStore } from '@/stores/accounts'
 import { accountsApi } from '@/api'
@@ -69,7 +70,7 @@ function statusFor(s) {
 
 function formatDate(dt) {
   if (!dt) return '—'
-  return new Date(dt).toLocaleString()
+  return formatDateTime(dt, { seconds: true })
 }
 
 const displayedSessionStatus = computed(() => (

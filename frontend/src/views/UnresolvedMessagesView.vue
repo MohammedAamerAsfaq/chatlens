@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { unresolvedMessagesApi, accountsApi, contactsApi } from '@/api'
 
@@ -184,7 +185,7 @@ onUnmounted(() => clearInterval(pollTimer))
 
 function formatTime(dt) {
   if (!dt) return ''
-  return new Date(dt).toLocaleString()
+  return formatDateTime(dt, { seconds: true })
 }
 
 function relativeTime(dt) {

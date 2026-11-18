@@ -1,4 +1,5 @@
 <script setup>
+import { formatDateTime } from '@/utils/dateFormat'
 import { computed, onMounted, ref } from 'vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCard from '@/components/ui/UiCard.vue'
@@ -27,7 +28,7 @@ function apply(data) {
 }
 
 function since(iso) {
-  return iso ? `Sharing since ${new Date(iso).toLocaleString()}` : ''
+  return iso ? `Sharing since ${formatDateTime(iso, { seconds: true })}` : ''
 }
 
 async function load() {

@@ -25,7 +25,7 @@ function modelValueFor(dates, text, instance) {
 onMounted(() => {
   picker = flatpickr(input.value, {
     altInput: true,
-    altFormat: props.mode === 'datetime' ? 'd M Y, h:i K' : 'd M Y',
+    altFormat: props.mode === 'datetime' ? 'd/m/Y, h:i K' : 'd/m/Y',
     appendTo: document.querySelector('#ui-teleport-host') || document.body,
     dateFormat: props.mode === 'datetime' ? 'Y-m-d\\TH:i' : 'Y-m-d',
     defaultDate: props.modelValue || undefined,
