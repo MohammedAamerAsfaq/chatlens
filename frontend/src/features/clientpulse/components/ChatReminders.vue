@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { faBell, faCalendarPlus, faCheck, faPlus } from '@fortawesome/free-solid-svg-icons'
+import { faArrowLeft, faBell, faCalendarPlus, faCheck, faPlus } from '@fortawesome/free-solid-svg-icons'
 import { clientPulseApi } from '@/api'
 import { formatDateTime } from '@/utils/dateFormat'
 import { useAuthStore } from '@/stores/auth'
@@ -117,6 +118,9 @@ onBeforeUnmount(() => {
       <FontAwesomeIcon :icon="faBell" />
       <span>{{ loaded ? reminders.length : '…' }}</span>
     </button>
+    <RouterLink to="/clientpulse-reminders" class="chat-reminders__chip chat-reminders__back" title="Back to the Reminders page">
+      <FontAwesomeIcon :icon="faArrowLeft" /><span>Reminders</span>
+    </RouterLink>
     <section v-if="open" class="chat-reminders__panel" role="dialog" aria-label="Client reminders">
       <header>
         <strong>Open reminders</strong>
@@ -152,7 +156,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.chat-reminders{position:relative;display:flex;align-items:center}
+.chat-reminders{position:relative;display:flex;align-items:center;gap:6px}
+.chat-reminders__back{text-decoration:none}
 .chat-reminders__chip{display:inline-flex;align-items:center;gap:5px;min-height:32px;padding:4px 10px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-pill);background:var(--ui-surface);color:var(--ui-text-muted);font:700 .72rem var(--ui-font-sans);cursor:pointer}
 .chat-reminders__chip:hover,.chat-reminders__chip.active{border-color:var(--ui-primary);color:var(--ui-primary)}
 .chat-reminders__chip.has-overdue{border-color:color-mix(in srgb,var(--ui-danger) 45%,var(--ui-border));background:var(--ui-danger-soft);color:var(--ui-danger)}
@@ -169,6 +174,7 @@ onBeforeUnmount(() => {
 .chat-reminders__copy strong{display:block;overflow:hidden;font-size:.82rem;text-overflow:ellipsis;white-space:nowrap}
 .chat-reminders__copy small{color:var(--ui-text-muted);font-size:.7rem}
 .chat-reminders__panel li.overdue small{color:var(--ui-danger)}
+@media(max-width:760px){.chat-reminders__back span{display:none}}
 .chat-reminders__actions{display:flex;flex:none;gap:5px}
 .chat-reminders__actions button{display:inline-flex;align-items:center;gap:4px;padding:5px 8px;border:1px solid var(--ui-border);border-radius:7px;background:var(--ui-surface);color:inherit;font-size:.72rem;cursor:pointer}
 .chat-reminders__actions button.primary{border-color:var(--ui-primary);color:var(--ui-primary)}

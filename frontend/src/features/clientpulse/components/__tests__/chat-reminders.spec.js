@@ -1,4 +1,4 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ChatReminders from '../ChatReminders.vue'
@@ -36,11 +36,12 @@ describe('ChatReminders', () => {
   })
 
   it("lists the client's open reminders and flags the overdue ones", async () => {
-    const wrapper = mount(ChatReminders, { props: { profile: { id: 6 }, clientName: 'edwin multimedia' } })
+    const wrapper = mount(ChatReminders, { props: { profile: { id: 6 }, clientName: 'edwin multimedia' }, global: { stubs: { RouterLink: RouterLinkStub } } })
     await flushPromises()
     expect(api.reminders).toHaveBeenCalledWith({ window: 'open', profile_id: 6, page_size: 50 })
     expect(byLabel(wrapper, 'Client reminders').text()).toBe('1')
     expect(byLabel(wrapper, 'Client reminders').classes()).toContain('has-overdue')
+    expect(wrapper.getComponent(RouterLinkStub).props('to')).toBe('/clientpulse-reminders')
 
     await byLabel(wrapper, 'Client reminders').trigger('click')
     await flushPromises()
@@ -50,7 +51,7 @@ describe('ChatReminders', () => {
   })
 
   it('completes a reminder and creates its linked follow-up for the same client', async () => {
-    const wrapper = mount(ChatReminders, { props: { profile: { id: 6 }, clientName: 'edwin multimedia' } })
+    const wrapper = mount(ChatReminders, { props: { profile: { id: 6 }, clientName: 'edwin multimedia' }, global: { stubs: { RouterLink: RouterLinkStub } } })
     await flushPromises()
     await byLabel(wrapper, 'Client reminders').trigger('click')
     await flushPromises()
