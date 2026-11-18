@@ -1,5 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import { faWhatsapp } from '@fortawesome/free-brands-svg-icons'
 import { useRoute } from 'vue-router'
 import { clientPulseApi } from '@/api'
 import { useAuthStore } from '@/stores/auth.js'
@@ -31,6 +33,8 @@ const canEdit = computed(() => auth.hasPermission('clientpulse.clients.update'))
 const canNotes = computed(() => auth.hasPermission('clientpulse.notes.manage'))
 const canConsent = computed(() => auth.hasPermission('clientpulse.consent.manage'))
 const canOpenInbox = computed(() => auth.hasPermission('conversations.chats.view'))
+// One header button per linked chat the user may see; named by account when there are several.
+const headerChats = computed(() => canOpenInbox.value ? (client.value?.whatsapp_contacts || []) : [])
 const form = reactive({
   display_name: '', legal_name: '', contact_type: 'person', lifecycle_stage: 'lead',
   priority: 'normal', source: 'manual', owner_id: '', preferred_channel: '',
@@ -125,6 +129,12 @@ onMounted(load)
     <template v-else-if="client">
       <UiPageHeader eyebrow="Client profile" :title="client.display_name || client.legal_name" :description="`#${client.id} / ${client.lifecycle_stage.replaceAll('_', ' ')} / ${client.owner?.user?.username || 'Unassigned'} / ${client.status === 'active' ? 'Active' : 'Inactive'}`">
         <template #actions>
+          <UiButton
+            v-for="chat in headerChats" :key="chat.id" class="client-profile__whatsapp"
+            :disabled="openingContactId === chat.id"
+            :title="`Open the WhatsApp conversation on ${chat.account_name}`"
+            @click="openInbox(chat)"
+          ><FontAwesomeIcon :icon="faWhatsapp" /> {{ openingContactId === chat.id ? 'Opening...' : headerChats.length > 1 ? chat.account_name : 'Open WhatsApp' }}</UiButton>
           <RouterLink v-if="auth.hasPermission('clientpulse.reminders.manage')" class="ui-button ui-button--primary ui-button--medium" :to="`/clientpulse-reminders?profile_id=${id}&create=1`">Create reminder</RouterLink>
           <UiButton v-if="auth.hasPermission('clientpulse.clients.archive') && client.status === 'active'" variant="danger" :disabled="busy === 'deactivate'" @click="setActive(false)">Deactivate</UiButton>
           <UiButton v-else-if="auth.hasPermission('clientpulse.clients.archive')" variant="primary" :disabled="busy === 'reactivate'" @click="setActive(true)">Reactivate</UiButton>
@@ -216,6 +226,8 @@ onMounted(load)
 .client-profile { display: grid; gap: 16px; }
 .client-profile-page { box-sizing: border-box; height: 100%; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 :global(.theme-inspinia.layout-position-scrollable) .client-profile-page { height: auto; min-height: 0; overflow: visible; }
+.client-profile__whatsapp { border-color: #25d366; background: #25d366; color: #fff; }
+.client-profile__whatsapp:hover:not(:disabled) { border-color: #1ebe5a; background: #1ebe5a; color: #fff; }
 .client-profile__back { width: fit-content; color: var(--ui-primary); font-size: .78rem; font-weight: 750; text-decoration: none; }
 .client-profile__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
 .client-profile__grid :deep(.tag-manager__list) { grid-template-columns: 1fr; }
