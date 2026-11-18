@@ -16,6 +16,11 @@ function closeInfo()  { showInfo.value = false }
 import { watch } from 'vue'
 watch(() => store.selectedChatId, () => { showInfo.value = false })
 
+function clientPulseConverted(profile) {
+  store.markClientPulse(store.selectedChatId, profile?.id ?? null)
+  clientPulseRevision.value += 1
+}
+
 onMounted(async () => {
   await store.fetchChatsInitial()
   store.startPolling()
@@ -26,7 +31,7 @@ onUnmounted(() => store.stopPolling())
 <template>
   <div class="conversation-workspace flex h-full overflow-hidden">
     <ChatList class="w-80 shrink-0 h-full" />
-    <MessagePanel class="flex-1 min-w-0 h-full" @toggle-info="toggleInfo" @clientpulse-converted="clientPulseRevision += 1" />
+    <MessagePanel class="flex-1 min-w-0 h-full" @toggle-info="toggleInfo" @clientpulse-converted="clientPulseConverted" />
 
     <!-- Sliding info panel — width transitions from 0 → 320px -->
     <div

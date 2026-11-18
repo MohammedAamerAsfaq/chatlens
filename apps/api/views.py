@@ -1129,6 +1129,17 @@ class ChatViewSet(viewsets.ReadOnlyModelViewSet):
             )
         return qs
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        if self.action == 'list':
+            # Company contact -> ClientPulse profile the user may see (same rule as the chat header),
+            # so the chat rail can filter converted and not-yet-converted contacts.
+            from apps.clientpulse.api_helpers import scoped_profiles
+            context['clientpulse_profiles'] = dict(
+                scoped_profiles(self.request).values_list('contact_id', 'pk'),
+            )
+        return context
+
     @action(detail=False, methods=['post'], url_path='resolve-direct')
     def resolve_direct(self, request):
         account = _visible_account_or_none(request.user, request.data.get('account'))

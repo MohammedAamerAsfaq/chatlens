@@ -40,6 +40,7 @@ function fmtNum(n) {
 
 function clientPulseConverted(profile) {
   if (info.value?.contact) info.value.contact.clientpulse = profile
+  store.markClientPulse(store.selectedChatId, profile?.id ?? null)
 }
 
 watch(() => [props.open, store.selectedChatId], async ([open, chatId]) => {

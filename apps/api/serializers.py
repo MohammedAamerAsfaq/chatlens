@@ -228,6 +228,7 @@ class ChatSerializer(serializers.ModelSerializer):
     last_message_preview = serializers.SerializerMethodField()
     last_message_direction = serializers.SerializerMethodField()
     message_count = serializers.SerializerMethodField()
+    clientpulse_profile_id = serializers.SerializerMethodField()
 
     class Meta:
         model = WhatsAppChat
@@ -235,8 +236,15 @@ class ChatSerializer(serializers.ModelSerializer):
             'id', 'wa_chat_id', 'chat_type', 'name', 'contact',
             'display_name', 'is_announcement', 'last_message_at', 'last_message_preview',
             'last_message_direction', 'message_count', 'unread_count',
-            'ai_parsing',
+            'ai_parsing', 'clientpulse_profile_id',
         ]
+
+    def get_clientpulse_profile_id(self, obj):
+        # Only the chat list supplies the profile map; elsewhere the field is null.
+        profiles = self.context.get('clientpulse_profiles')
+        if profiles is None or not obj.contact or not obj.contact.company_contact_id:
+            return None
+        return profiles.get(obj.contact.company_contact_id)
 
     def get_display_name(self, obj):
         if obj.name:

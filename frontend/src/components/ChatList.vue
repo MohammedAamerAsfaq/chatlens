@@ -3,6 +3,7 @@ import { formatDate } from '@/utils/dateFormat'
 import { ref, computed, watch, nextTick } from 'vue'
 import { useConversationsStore } from '@/stores/conversations'
 import { accountsApi } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 
 const store = useConversationsStore()
 const activeFilter = ref('all')
@@ -10,13 +11,21 @@ const activeFilter = ref('all')
 const totalUnread = computed(() => store.chats.reduce((sum, c) => sum + (c.unread_count || 0), 0))
 const unreadChatCount = computed(() => store.chats.filter(c => c.unread_count > 0).length)
 
-const tabs = [
+const auth = useAuthStore()
+// ClientPulse tabs only for members who can see ClientPulse clients; groups can't be clients,
+// so "Not in ClientPulse" lists direct chats only.
+const canSeeClientPulse = computed(() => auth.hasPermission('clientpulse.clients.view'))
+const tabs = computed(() => [
   { key: 'all',    label: 'All' },
   { key: 'unread', label: 'Unread' },
   { key: 'direct', label: 'Direct' },
   { key: 'groups', label: 'Groups' },
   { key: 'announcements', label: 'Announcements' },
-]
+  ...(canSeeClientPulse.value ? [
+    { key: 'clientpulse', label: 'ClientPulse', title: 'Chats with contacts already in ClientPulse' },
+    { key: 'not_clientpulse', label: 'Not in ClientPulse', title: 'Direct chats with contacts not yet added to ClientPulse' },
+  ] : []),
+])
 
 function chatKind(chat) {
   if (chat?.is_announcement) return 'announcement'
@@ -31,6 +40,8 @@ const displayedChats = computed(() => {
   else if (activeFilter.value === 'groups') list = list.filter(c => chatKind(c) === 'group')
   else if (activeFilter.value === 'announcements') list = list.filter(c => chatKind(c) === 'announcement')
   else if (activeFilter.value === 'direct') list = list.filter(c => chatKind(c) === 'direct')
+  else if (activeFilter.value === 'clientpulse') list = list.filter(c => c.clientpulse_profile_id)
+  else if (activeFilter.value === 'not_clientpulse') list = list.filter(c => chatKind(c) === 'direct' && !c.clientpulse_profile_id)
   return list
 })
 
@@ -153,6 +164,7 @@ watch(() => store.highlightChatId, async (chatId) => {
       <button
         v-for="tab in tabs"
         :key="tab.key"
+        :title="tab.title"
         @click="activeFilter = tab.key"
         :class="[
           'chat-list__tab shrink-0 px-3 text-xs py-2.5 font-medium transition-colors flex items-center justify-center gap-1',

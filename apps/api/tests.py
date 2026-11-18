@@ -297,6 +297,31 @@ class TenantScopedApiTests(TestCase):
         self.assertIs(rows[announcement_chat.id]['is_announcement'], True)
         self.assertIs(rows[regular_chat.id]['is_announcement'], False)
 
+    def test_chat_list_marks_chats_whose_contact_is_in_clientpulse(self):
+        from apps.clientpulse.models import ClientProfile
+        from apps.tenancy.models import CompanyContact
+        company_contact = CompanyContact.objects.create(company=self.company_a, display_name='Converted Buyer')
+        profile = ClientProfile.objects.create(company=self.company_a, contact=company_contact)
+        converted = WhatsAppContact.objects.create(
+            account=self.account_a, wa_contact_id='971500000091@s.whatsapp.net',
+            phone_number='971500000091', company_contact=company_contact,
+        )
+        plain = WhatsAppContact.objects.create(
+            account=self.account_a, wa_contact_id='971500000092@s.whatsapp.net', phone_number='971500000092',
+        )
+        converted_chat = WhatsAppChat.objects.create(
+            account=self.account_a, wa_chat_id=converted.wa_contact_id, chat_type='individual', contact=converted,
+        )
+        plain_chat = WhatsAppChat.objects.create(
+            account=self.account_a, wa_chat_id=plain.wa_contact_id, chat_type='individual', contact=plain,
+        )
+        self.client.force_authenticate(self.user_a)
+
+        rows = {row['id']: row for row in self.client.get(f'/api/chats/?account={self.account_a.id}').json()}
+
+        self.assertEqual(rows[converted_chat.id]['clientpulse_profile_id'], profile.pk)
+        self.assertIsNone(rows[plain_chat.id]['clientpulse_profile_id'])
+
     def test_chat_list_places_empty_chats_after_active_chats(self):
         active_chat = WhatsAppChat.objects.create(
             account=self.account_a,

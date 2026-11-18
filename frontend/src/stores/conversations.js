@@ -190,7 +190,14 @@ export const useConversationsStore = defineStore('conversations', () => {
     clearInterval(messagePollTimer)
   }
 
+  // A contact was just added to ClientPulse: update the chat rail without waiting for the next poll.
+  function markClientPulse(chatId, profileId) {
+    const chat = chats.value.find(item => item.id === chatId)
+    if (chat) chat.clientpulse_profile_id = profileId
+  }
+
   return {
+    markClientPulse,
     chats, accounts, selectedAccountId, selectedAccount,
     selectedChatId, messages, loadingChats, loadingMessages,
     loadingOlderMessages, hasMoreMessages, highlightMessageId, highlightChatId,
