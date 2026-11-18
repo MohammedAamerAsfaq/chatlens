@@ -5,8 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.clientpulse.api_helpers import denied, scoped_profiles
-from apps.clientpulse.api_payloads import _communication_accounts
-from apps.clientpulse.api_reminders import _payload, _queryset
+from apps.clientpulse.api_reminders import _queryset, payload_with_chats
 from apps.clientpulse.models import ClientPulseSettings, ClientReminderNotification
 from apps.clientpulse.services.communication_access import visible_clientpulse_account_ids
 from apps.clientpulse.services.reminder_windows import local_day_window
@@ -82,14 +81,9 @@ def reminder_notifications_view(request):
 
 
 def _notification_payload(item, visible_account_ids):
-    reminder = _payload(item.reminder)
-    # The client's WhatsApp chats this user may open, so a reminder can go straight to the conversation.
-    reminder['profile']['communication_accounts'] = _communication_accounts(
-        item.reminder.profile.contact, visible_account_ids,
-    )
     return {
         'id': item.pk, 'delivered_at': item.delivered_at, 'read_at': item.read_at,
-        'reminder': reminder,
+        'reminder': payload_with_chats(item.reminder, visible_account_ids),
     }
 
 

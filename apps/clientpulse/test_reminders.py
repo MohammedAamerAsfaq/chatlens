@@ -234,6 +234,30 @@ class ClientReminderTests(TestCase):
             'session_status': account.session_status,
         }])
 
+    def test_reminder_list_includes_the_client_whatsapp_chats_to_open(self):
+        provider = ConnectionProvider.objects.create(
+            key='ledger-baileys', name='Ledger Baileys', channel='whatsapp',
+        )
+        communication = CommunicationAccount.objects.create(
+            company=self.company, provider=provider, channel='whatsapp', name='Sales Line',
+        )
+        account = WhatsAppAccount.objects.create(
+            owner=self.user, communication_account=communication,
+            display_name='Sales Line', phone_number='971500000001',
+        )
+        chat_contact = WhatsAppContact.objects.create(
+            account=account, company_contact=self.profile.contact,
+            wa_contact_id='971511111112@s.whatsapp.net', display_name='Buyer',
+        )
+        self._reminder(status='due')
+        response = self.client.get('/api/clientpulse/reminders/', {'window': 'overdue'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['results'][0]['profile']['communication_accounts'], [{
+            'id': account.pk, 'whatsapp_contact_id': chat_contact.pk,
+            'name': 'Sales Line', 'phone_number': '971500000001',
+            'session_status': account.session_status,
+        }])
+
     def test_completed_and_cancelled_reminders_leave_the_bell(self):
         for status in ('completed', 'cancelled', 'due'):
             ClientReminderNotification.objects.create(

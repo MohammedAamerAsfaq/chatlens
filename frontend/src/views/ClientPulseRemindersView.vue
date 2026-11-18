@@ -4,6 +4,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { clientPulseApi } from '@/api'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import { faWhatsapp } from '@fortawesome/free-brands-svg-icons'
 import { faArrowsRotate, faBan, faCalendarPlus, faCheck, faEnvelopeOpen, faGear, faListUl, faPen, faPlus } from '@fortawesome/free-solid-svg-icons'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCard from '@/components/ui/UiCard.vue'
@@ -12,9 +13,14 @@ import ReminderEditorModal from '@/features/clientpulse/components/ReminderEdito
 import ReminderThreadModal from '@/features/clientpulse/components/ReminderThreadModal.vue'
 import { normalizeReminderDefaults } from '@/features/clientpulse/reminderDefaults.js'
 import { blankReminderForm, followUpFields, reminderPayload as buildReminderPayload } from '@/features/clientpulse/reminderForm.js'
+import { useClientInboxNavigation } from '@/features/clientpulse/composables/useClientInboxNavigation'
+import { useAuthStore } from '@/stores/auth'
 import '@/assets/clientpulse.css'
 
 const route = useRoute()
+const auth = useAuthStore()
+const { openingContactId, openClientInbox } = useClientInboxNavigation()
+const canOpenInbox = computed(() => auth.hasPermission('conversations.chats.view'))
 const reminders = ref([]), clients = ref([]), owners = ref([]), phrases = ref([]), notifications = ref([]), metrics = ref({})
 const loading = ref(true), busy = ref(''), error = ref(''), success = ref('')
 const showForm = ref(route.query.create === '1'), editingId = ref(null)
@@ -60,6 +66,15 @@ async function load() {
     notifications.value = notificationData.data
   } catch (exc) { error.value = message(exc, 'Unable to load reminders.') }
   finally { loading.value = false }
+}
+function whatsappChats(item) {
+  if (!canOpenInbox.value) return []
+  return (item.profile.communication_accounts || []).filter(account => account.whatsapp_contact_id)
+}
+async function openChat(account) {
+  error.value = ''
+  try { await openClientInbox(account.id, account.whatsapp_contact_id) }
+  catch (exc) { error.value = message(exc, 'Unable to open this conversation in WhatsApp Inbox.') }
 }
 function openCreate() { resetForm(); showForm.value = true }
 function closeForm() { showForm.value = false; resetForm() }
@@ -156,6 +171,11 @@ onMounted(async () => {
             <td>{{ formatDateTime(item.snoozed_until || item.due_at) }}<br><span class="cp-badge">{{ item.status }}</span></td>
             <td>{{ item.assigned_to?.username || 'Unassigned' }}</td><td>{{ item.priority }}</td><td>{{ item.recurrence_type }}</td>
             <td><div class="row-actions">
+              <UiButton
+                v-for="account in whatsappChats(item)" :key="`wa-${account.id}`" size="small" class="row-whatsapp"
+                :disabled="openingContactId === account.whatsapp_contact_id"
+                :title="`Open the WhatsApp conversation on ${account.name}`" :aria-label="`WhatsApp: ${account.name}`" @click="openChat(account)"
+              ><FontAwesomeIcon :icon="faWhatsapp" /><template v-if="whatsappChats(item).length > 1">{{ account.name }}</template></UiButton>
               <UiButton size="small" variant="soft" title="Thread" aria-label="Thread" @click="viewThread(item)"><FontAwesomeIcon :icon="faListUl" /></UiButton>
               <template v-if="item.status !== 'completed' && item.status !== 'cancelled'">
                 <UiButton size="small" variant="soft" title="Edit" aria-label="Edit" @click="edit(item)"><FontAwesomeIcon :icon="faPen" /></UiButton>
@@ -179,5 +199,5 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.reminder-page{background:var(--ui-bg)}.reminder-hero{align-items:center;padding-bottom:16px;border-bottom:1px solid var(--ui-border)}.hero-actions{display:flex;gap:8px;flex-wrap:wrap}.reminder-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}.reminder-metrics article{padding:14px 16px;border:1px solid var(--ui-border);border-top:3px solid var(--ui-primary);border-radius:var(--ui-radius-md);background:var(--ui-surface)}.reminder-metrics span{display:block;color:var(--ui-text-muted);font-size:.68rem;font-weight:700;text-transform:uppercase}.reminder-metrics strong{color:var(--ui-text-strong);font:700 1.8rem var(--ui-font-display)}.notification-panel{margin-bottom:14px}.panel-count{padding:4px 8px;border-radius:999px;background:var(--ui-primary-soft);color:var(--ui-primary);font-size:.7rem;font-weight:700}.notification-list{display:grid;gap:8px}.notification{display:flex;width:100%;align-items:center;justify-content:space-between;padding:11px 12px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-sm);background:var(--ui-surface-muted);color:var(--ui-text);text-align:left;cursor:pointer}.notification span,.notification small{display:block}.notification small{margin-top:3px;color:var(--ui-text-muted)}.notification b{color:var(--ui-primary);font-size:.72rem}.ledger-panel{margin-top:14px}.ledger-filters,.filter-tabs,.row-actions,.cp-pager>div{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.reminder-title{display:flex;align-items:center;gap:7px}.reminder-title span{padding:2px 6px;border-radius:999px;background:var(--ui-primary-soft);color:var(--ui-primary);font-size:.62rem;font-weight:800;text-transform:uppercase}.ledger-filters :deep(.choices){min-width:180px}.reminder-table-wrap{overflow:auto}.cp-pager{display:flex;align-items:center;justify-content:space-between;padding:12px 15px;border-top:1px solid var(--ui-border)}@media(max-width:900px){.reminder-metrics{grid-template-columns:repeat(2,1fr)}.ledger-filters{align-items:stretch;flex-direction:column}.cp-pager{align-items:flex-start;gap:10px;flex-direction:column}}
+.reminder-page{background:var(--ui-bg)}.reminder-hero{align-items:center;padding-bottom:16px;border-bottom:1px solid var(--ui-border)}.hero-actions{display:flex;gap:8px;flex-wrap:wrap}.reminder-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}.reminder-metrics article{padding:14px 16px;border:1px solid var(--ui-border);border-top:3px solid var(--ui-primary);border-radius:var(--ui-radius-md);background:var(--ui-surface)}.reminder-metrics span{display:block;color:var(--ui-text-muted);font-size:.68rem;font-weight:700;text-transform:uppercase}.reminder-metrics strong{color:var(--ui-text-strong);font:700 1.8rem var(--ui-font-display)}.notification-panel{margin-bottom:14px}.panel-count{padding:4px 8px;border-radius:999px;background:var(--ui-primary-soft);color:var(--ui-primary);font-size:.7rem;font-weight:700}.notification-list{display:grid;gap:8px}.notification{display:flex;width:100%;align-items:center;justify-content:space-between;padding:11px 12px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-sm);background:var(--ui-surface-muted);color:var(--ui-text);text-align:left;cursor:pointer}.notification span,.notification small{display:block}.notification small{margin-top:3px;color:var(--ui-text-muted)}.notification b{color:var(--ui-primary);font-size:.72rem}.ledger-panel{margin-top:14px}.ledger-filters,.filter-tabs,.row-actions,.cp-pager>div{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.row-actions .row-whatsapp{border-color:#25d366;background:#25d366;color:#fff}.reminder-title{display:flex;align-items:center;gap:7px}.reminder-title span{padding:2px 6px;border-radius:999px;background:var(--ui-primary-soft);color:var(--ui-primary);font-size:.62rem;font-weight:800;text-transform:uppercase}.ledger-filters :deep(.choices){min-width:180px}.reminder-table-wrap{overflow:auto}.cp-pager{display:flex;align-items:center;justify-content:space-between;padding:12px 15px;border-top:1px solid var(--ui-border)}@media(max-width:900px){.reminder-metrics{grid-template-columns:repeat(2,1fr)}.ledger-filters{align-items:stretch;flex-direction:column}.cp-pager{align-items:flex-start;gap:10px;flex-direction:column}}
 </style>

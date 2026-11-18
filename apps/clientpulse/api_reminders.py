@@ -8,8 +8,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.clientpulse.api_helpers import denied, profile_or_none
+from apps.clientpulse.api_payloads import _communication_accounts
 from apps.clientpulse.models import ClientReminder, ClientReminderNotification
 from apps.clientpulse.serializers import ClientReminderInputSerializer, SnoozeInputSerializer
+from apps.clientpulse.services.communication_access import visible_clientpulse_account_ids
 from apps.clientpulse.services.profile_service import record_activity
 from apps.clientpulse.services.reminder_service import complete_reminder, snooze_reminder
 from apps.clientpulse.services.reminder_windows import local_day_window
@@ -57,6 +59,15 @@ def _payload(reminder):
             'id': reminder.linked_from_id, 'title': reminder.linked_from.title,
         },
     }
+
+
+def payload_with_chats(reminder, visible_account_ids):
+    # Adds the client's WhatsApp chats this user may open, so a reminder can go straight to the conversation.
+    data = _payload(reminder)
+    data['profile']['communication_accounts'] = _communication_accounts(
+        reminder.profile.contact, visible_account_ids,
+    )
+    return data
 
 
 def _assignee(company, assignee_id):
@@ -157,8 +168,10 @@ def reminders_view(request):
         queryset = queryset.filter(profile_id=profile_id)
     if assigned_to_id := request.query_params.get('assigned_to_id'):
         queryset = queryset.filter(assigned_to_id=assigned_to_id)
+    queryset = queryset.prefetch_related('profile__contact__whatsapp_contacts__account')
     paginator = ReminderPagination(); page = paginator.paginate_queryset(queryset, request)
-    return paginator.get_paginated_response([_payload(item) for item in page])
+    visible_account_ids = visible_clientpulse_account_ids(request.user, company)
+    return paginator.get_paginated_response([payload_with_chats(item, visible_account_ids) for item in page])
 
 
 @api_view(['PATCH'])
