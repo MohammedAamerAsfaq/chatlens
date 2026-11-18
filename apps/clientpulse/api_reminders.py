@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
@@ -59,6 +59,9 @@ def _payload(reminder):
             'id': reminder.linked_from_id, 'title': reminder.linked_from.title,
         },
     }
+
+
+OPEN_REMINDER_STATUSES = ('pending', 'due', 'snoozed')
 
 
 def payload_with_chats(reminder, visible_account_ids):
@@ -159,7 +162,7 @@ def reminders_view(request):
         queryset = queryset.filter(status='completed')
     elif window == 'open':
         # Everything still to do for the client, whatever its date (used beside a chat).
-        queryset = queryset.filter(status__in=['pending', 'due', 'snoozed']).order_by(
+        queryset = queryset.filter(status__in=OPEN_REMINDER_STATUSES).order_by(
             Coalesce('snoozed_until', 'due_at'), 'pk',
         )
     elif status_value := request.query_params.get('status'):
@@ -171,7 +174,16 @@ def reminders_view(request):
     queryset = queryset.prefetch_related('profile__contact__whatsapp_contacts__account')
     paginator = ReminderPagination(); page = paginator.paginate_queryset(queryset, request)
     visible_account_ids = visible_clientpulse_account_ids(request.user, company)
-    return paginator.get_paginated_response([payload_with_chats(item, visible_account_ids) for item in page])
+    # How many unfinished reminders this user can see for each client on the page.
+    open_counts = dict(_queryset(request, permission).filter(
+        profile_id__in={item.profile_id for item in page}, status__in=OPEN_REMINDER_STATUSES,
+    ).values('profile_id').annotate(total=Count('pk')).values_list('profile_id', 'total'))
+    rows = []
+    for item in page:
+        data = payload_with_chats(item, visible_account_ids)
+        data['profile']['open_reminders'] = open_counts.get(item.profile_id, 0)
+        rows.append(data)
+    return paginator.get_paginated_response(rows)
 
 
 @api_view(['PATCH'])

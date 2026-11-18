@@ -108,6 +108,16 @@ class ClientReminderTests(TestCase):
             [item['id'] for item in response.data['results']], [overdue.pk, snoozed.pk, later.pk],
         )
 
+    def test_reminder_list_counts_each_client_open_reminders(self):
+        self._reminder(title='one', status='due')
+        self._reminder(title='two', status='pending', due_at=timezone.now() + timedelta(days=2))
+        self._reminder(title='three', status='snoozed', snoozed_until=timezone.now() + timedelta(hours=2))
+        self._reminder(title='done', status='completed')
+        self._reminder(title='cancelled', status='cancelled')
+        response = self.client.get('/api/clientpulse/reminders/', {'window': 'overdue'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item['profile']['open_reminders'] for item in response.data['results']], [3])
+
     def test_follow_up_requires_a_completed_reminder_for_the_same_client(self):
         active = self._reminder(title='Not complete')
         payload = {

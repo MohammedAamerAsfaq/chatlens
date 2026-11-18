@@ -32,7 +32,7 @@ describe('ClientPulseRemindersView', () => {
     api.reminders.mockResolvedValue({ data: { count: 1, results: [{
       id: 3, title: 'Follow up on New Order', status: 'due', due_at: '2026-11-04T06:00:00Z', priority: 'normal',
       recurrence_type: 'none', profile: {
-        id: 9, display_name: 'Acme Buyer',
+        id: 9, display_name: 'Acme Buyer', open_reminders: 3,
         communication_accounts: [{ id: 4, whatsapp_contact_id: 55, name: 'Sales line' }],
       },
     }] } })
@@ -49,6 +49,14 @@ describe('ClientPulseRemindersView', () => {
     await flushPromises()
     await wrapper.find('button[aria-label="WhatsApp: Sales line"]').trigger('click')
     expect(inbox.openClientInbox).toHaveBeenCalledWith(4, 55)
+  })
+
+  it('shows how many active reminders the client has', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    const chip = wrapper.find('.client-open-reminders')
+    expect(chip.text()).toBe('3')
+    expect(chip.attributes('title')).toBe('3 active reminders for this client')
   })
 
   it('shows no WhatsApp button to members who cannot view chats', async () => {
