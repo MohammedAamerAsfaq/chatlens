@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.clientpulse.api_helpers import denied, scoped_profiles
-from apps.clientpulse.api_reminders import _queryset, payload_with_chats
+from apps.clientpulse.api_reminders import OPEN_REMINDER_STATUSES, _queryset, payload_with_chats
 from apps.clientpulse.models import ClientPulseSettings, ClientReminderNotification
 from apps.clientpulse.services.communication_access import visible_clientpulse_account_ids
 from apps.clientpulse.services.reminder_windows import local_day_window
@@ -41,7 +41,10 @@ def clientpulse_dashboard_view(request):
         return response
     now = timezone.now(); today_start, tomorrow_start = local_day_window(now)
     reminders = _queryset(request, 'clientpulse.reminders.view')
-    active = reminders.filter(status__in=['pending', 'due', 'snoozed'])
+    # Same assignee filter as the Reminders ledger, so the cards and tab counts match its rows.
+    if assigned_to_id := request.query_params.get('assigned_to_id'):
+        reminders = reminders.filter(assigned_to_id=assigned_to_id)
+    active = reminders.filter(status__in=OPEN_REMINDER_STATUSES)
     overdue = active.filter(
         Q(status__in=['pending', 'due'], due_at__lt=now)
         | Q(status='snoozed', snoozed_until__lt=now)
@@ -54,6 +57,9 @@ def clientpulse_dashboard_view(request):
     unread = open_notifications(reminders).filter(read_at__isnull=True).count()
     return Response({
         'active_clients': profile_ids.count(),
+        'active_reminders': active.count(),
+        'clients_with_reminders': active.values('profile_id').distinct().count(),
+        'completed_reminders': reminders.filter(status='completed').count(),
         'overdue_reminders': overdue,
         'due_today': due_today,
         'upcoming': active.filter(

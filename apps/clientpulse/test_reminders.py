@@ -118,6 +118,25 @@ class ClientReminderTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual([item['profile']['open_reminders'] for item in response.data['results']], [3])
 
+    def test_dashboard_counts_clients_and_reminders_per_window(self):
+        other_contact = CompanyContact.objects.create(company=self.company, display_name='Second Client')
+        other = ClientProfile.objects.create(company=self.company, contact=other_contact)
+        self._reminder(title='overdue', status='due')
+        self._reminder(title='later', status='pending', due_at=timezone.now() + timedelta(days=3))
+        self._reminder(profile=other, title='other later', status='pending', due_at=timezone.now() + timedelta(days=3))
+        self._reminder(title='done', status='completed')
+        self._reminder(title='cancelled', status='cancelled')
+        self._reminder(profile=other, title='unassigned', status='pending', assigned_to=None,
+                       due_at=timezone.now() + timedelta(days=3))
+        data = self.client.get('/api/clientpulse/dashboard/').data
+        self.assertEqual(
+            (data['active_reminders'], data['clients_with_reminders'], data['overdue_reminders'],
+             data['upcoming'], data['completed_reminders']),
+            (4, 2, 1, 3, 1),
+        )
+        mine = self.client.get('/api/clientpulse/dashboard/', {'assigned_to_id': self.membership.pk}).data
+        self.assertEqual((mine['active_reminders'], mine['upcoming']), (3, 2))
+
     def test_follow_up_requires_a_completed_reminder_for_the_same_client(self):
         active = self._reminder(title='Not complete')
         payload = {

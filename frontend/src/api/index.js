@@ -84,7 +84,7 @@ export const clientPulseApi = {
   options: () => http.get('/clientpulse/options/'),
   settings: () => http.get('/clientpulse/settings/'),
   updateSettings: (data) => http.patch('/clientpulse/settings/', data),
-  dashboard: () => http.get('/clientpulse/dashboard/'),
+  dashboard: (params = {}) => http.get('/clientpulse/dashboard/', { params }),
   reminderPhrases: () => http.get('/clientpulse/reminder-phrases/'),
   createReminderPhrase: (data) => http.post('/clientpulse/reminder-phrases/', data),
   updateReminderPhrase: (id, data) => http.patch(`/clientpulse/reminder-phrases/${id}/`, data),

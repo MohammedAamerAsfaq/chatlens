@@ -5,7 +5,7 @@ import { useRoute } from 'vue-router'
 import { clientPulseApi } from '@/api'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faWhatsapp } from '@fortawesome/free-brands-svg-icons'
-import { faArrowsRotate, faBan, faBell, faCalendarPlus, faCheck, faEnvelopeOpen, faGear, faListUl, faPen, faPlus } from '@fortawesome/free-solid-svg-icons'
+import { faArrowsRotate, faBan, faBell, faEnvelope, faUsers, faCalendarPlus, faCheck, faEnvelopeOpen, faGear, faListUl, faPen, faPlus } from '@fortawesome/free-solid-svg-icons'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCard from '@/components/ui/UiCard.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
@@ -30,6 +30,13 @@ const windowFilter = ref('overdue'), page = ref(1), pages = ref(1), count = ref(
 const reminderDefaults = ref(normalizeReminderDefaults())
 const form = reactive(blankReminderForm({ defaults: reminderDefaults.value }))
 const unreadNotifications = computed(() => notifications.value.filter(item => !item.read_at))
+// Counts for each ledger tab, from the dashboard (same assignee filter as the ledger).
+const tabs = computed(() => [
+  { key: 'overdue', label: 'Overdue', count: metrics.value.overdue_reminders },
+  { key: 'today', label: 'Today', count: metrics.value.due_today },
+  { key: 'upcoming', label: 'Upcoming', count: metrics.value.upcoming },
+  { key: 'completed', label: 'Completed', count: metrics.value.completed_reminders },
+])
 const ownerFilters = computed(() => [
   { value: '', label: 'All assignees' },
   ...owners.value.map(owner => ({ value: owner.id, label: owner.username })),
@@ -59,7 +66,8 @@ async function load() {
     const params = { window: windowFilter.value, page: page.value, page_size: 25 }
     if (assignedTo.value) params.assigned_to_id = assignedTo.value
     const [reminderData, dashboardData, notificationData] = await Promise.all([
-      clientPulseApi.reminders(params), clientPulseApi.dashboard(), clientPulseApi.notifications(),
+      clientPulseApi.reminders(params), clientPulseApi.dashboard(assignedTo.value ? { assigned_to_id: assignedTo.value } : {}),
+      clientPulseApi.notifications(),
     ])
     reminders.value = reminderData.data.results; count.value = reminderData.data.count
     pages.value = Math.max(1, Math.ceil(count.value / 25)); metrics.value = dashboardData.data
@@ -149,10 +157,13 @@ onMounted(async () => {
     <p v-if="error" class="cp-notice error">{{ error }}</p><p v-if="success" class="cp-notice success">{{ success }}</p>
 
     <section class="reminder-metrics">
-      <article><span>Overdue</span><strong>{{ metrics.overdue_reminders || 0 }}</strong></article>
-      <article><span>Due today</span><strong>{{ metrics.due_today || 0 }}</strong></article>
-      <article><span>Upcoming</span><strong>{{ metrics.upcoming || 0 }}</strong></article>
-      <article><span>Unread</span><strong>{{ metrics.unread_notifications || 0 }}</strong></article>
+      <article title="Distinct clients with at least one active reminder"><span><FontAwesomeIcon :icon="faUsers" /> Clients</span><strong>{{ metrics.clients_with_reminders || 0 }}</strong><small>with active reminders</small></article>
+      <article title="Pending, due or snoozed reminders"><span><FontAwesomeIcon :icon="faBell" /> Active</span><strong>{{ metrics.active_reminders || 0 }}</strong><small>reminders to do</small></article>
+      <button
+        v-for="tab in tabs" :key="tab.key" type="button" class="metric-tab" :class="[`metric-${tab.key}`, { active: windowFilter === tab.key }]"
+        :aria-pressed="windowFilter === tab.key" :title="`Show ${tab.label.toLowerCase()} reminders`" @click="windowFilter = tab.key"
+      ><span>{{ tab.label }}</span><strong>{{ tab.count || 0 }}</strong><small>show in ledger</small></button>
+      <article title="Unread reminder notifications in the bell"><span><FontAwesomeIcon :icon="faEnvelope" /> Unread</span><strong>{{ metrics.unread_notifications || 0 }}</strong><small>notifications</small></article>
     </section>
 
     <UiCard v-if="unreadNotifications.length" title="Notifications" subtitle="Recent reminder alerts requiring attention." class="notification-panel">
@@ -161,7 +172,7 @@ onMounted(async () => {
     </UiCard>
 
     <UiCard title="Reminder ledger" :subtitle="`${count} reminders in this view`" flush class="ledger-panel">
-      <template #actions><div class="ledger-filters"><div class="filter-tabs"><UiButton v-for="tab in ['overdue','today','upcoming','completed']" :key="tab" size="small" :variant="windowFilter === tab ? 'primary' : 'soft'" @click="windowFilter = tab">{{ tab }}</UiButton></div><UiSelect v-model="assignedTo" :options="ownerFilters" /><UiButton size="small" variant="outline" title="Refresh" aria-label="Refresh" @click="load"><FontAwesomeIcon :icon="faArrowsRotate" /></UiButton></div></template>
+      <template #actions><div class="ledger-filters"><div class="filter-tabs"><UiButton v-for="tab in tabs" :key="tab.key" size="small" :variant="windowFilter === tab.key ? 'primary' : 'soft'" @click="windowFilter = tab.key">{{ tab.label }} <b class="tab-count">{{ tab.count || 0 }}</b></UiButton></div><UiSelect v-model="assignedTo" :options="ownerFilters" /><UiButton size="small" variant="outline" title="Refresh" aria-label="Refresh" @click="load"><FontAwesomeIcon :icon="faArrowsRotate" /></UiButton></div></template>
       <div class="reminder-table-wrap">
         <div v-if="loading" class="cp-empty">Loading reminders...</div>
         <table v-else v-ui-data-table="'clientpulse-reminders'" class="cp-table"><thead><tr><th>Reminder</th><th>Client</th><th>Due</th><th>Assigned</th><th>Priority</th><th>Repeat</th><th>Actions</th></tr></thead><tbody>
@@ -203,5 +214,5 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.reminder-page{background:var(--ui-bg)}.reminder-hero{align-items:center;padding-bottom:16px;border-bottom:1px solid var(--ui-border)}.hero-actions{display:flex;gap:8px;flex-wrap:wrap}.reminder-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}.reminder-metrics article{padding:14px 16px;border:1px solid var(--ui-border);border-top:3px solid var(--ui-primary);border-radius:var(--ui-radius-md);background:var(--ui-surface)}.reminder-metrics span{display:block;color:var(--ui-text-muted);font-size:.68rem;font-weight:700;text-transform:uppercase}.reminder-metrics strong{color:var(--ui-text-strong);font:700 1.8rem var(--ui-font-display)}.notification-panel{margin-bottom:14px}.panel-count{padding:4px 8px;border-radius:999px;background:var(--ui-primary-soft);color:var(--ui-primary);font-size:.7rem;font-weight:700}.notification-list{display:grid;gap:8px}.notification{display:flex;width:100%;align-items:center;justify-content:space-between;padding:11px 12px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-sm);background:var(--ui-surface-muted);color:var(--ui-text);text-align:left;cursor:pointer}.notification span,.notification small{display:block}.notification small{margin-top:3px;color:var(--ui-text-muted)}.notification b{color:var(--ui-primary);font-size:.72rem}.ledger-panel{margin-top:14px}.ledger-filters,.filter-tabs,.row-actions,.cp-pager>div{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.row-actions .row-whatsapp{border-color:#25d366;background:#25d366;color:#fff}.reminder-client{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.client-open-reminders{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:999px;background:var(--ui-primary-soft);color:var(--ui-primary);font-size:.68rem;font-weight:800;white-space:nowrap}.client-open-reminders.several{background:var(--ui-warning-soft,#fdf1dc);color:var(--ui-warning,#b7791f)}.reminder-title{display:flex;align-items:center;gap:7px}.reminder-title span{padding:2px 6px;border-radius:999px;background:var(--ui-primary-soft);color:var(--ui-primary);font-size:.62rem;font-weight:800;text-transform:uppercase}.ledger-filters :deep(.choices){min-width:180px}.reminder-table-wrap{overflow:auto}.cp-pager{display:flex;align-items:center;justify-content:space-between;padding:12px 15px;border-top:1px solid var(--ui-border)}@media(max-width:900px){.reminder-metrics{grid-template-columns:repeat(2,1fr)}.ledger-filters{align-items:stretch;flex-direction:column}.cp-pager{align-items:flex-start;gap:10px;flex-direction:column}}
+.reminder-page{background:var(--ui-bg)}.reminder-hero{align-items:center;padding-bottom:16px;border-bottom:1px solid var(--ui-border)}.hero-actions{display:flex;gap:8px;flex-wrap:wrap}.reminder-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:18px 0}.reminder-metrics article,.reminder-metrics .metric-tab{padding:14px 16px;border:1px solid var(--ui-border);border-top:3px solid var(--ui-primary);border-radius:var(--ui-radius-md);background:var(--ui-surface);color:inherit;font:inherit;text-align:left}.reminder-metrics .metric-tab{cursor:pointer}.reminder-metrics .metric-tab:hover{border-color:var(--ui-primary)}.reminder-metrics .metric-tab.active{background:var(--ui-primary-soft);border-color:var(--ui-primary)}.reminder-metrics .metric-overdue{border-top-color:var(--ui-danger)}.reminder-metrics .metric-today{border-top-color:var(--ui-warning,#b7791f)}.reminder-metrics .metric-completed{border-top-color:var(--ui-success,#16a34a)}.reminder-metrics span{display:flex;align-items:center;gap:6px;color:var(--ui-text-muted);font-size:.68rem;font-weight:700;text-transform:uppercase}.reminder-metrics strong{display:block;color:var(--ui-text-strong);font:700 1.8rem var(--ui-font-display)}.reminder-metrics small{color:var(--ui-text-subtle,var(--ui-text-muted));font-size:.68rem}.tab-count{margin-left:4px;padding:0 6px;border-radius:999px;background:rgb(255 255 255 / 35%);font-size:.68rem}.notification-panel{margin-bottom:14px}.panel-count{padding:4px 8px;border-radius:999px;background:var(--ui-primary-soft);color:var(--ui-primary);font-size:.7rem;font-weight:700}.notification-list{display:grid;gap:8px}.notification{display:flex;width:100%;align-items:center;justify-content:space-between;padding:11px 12px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-sm);background:var(--ui-surface-muted);color:var(--ui-text);text-align:left;cursor:pointer}.notification span,.notification small{display:block}.notification small{margin-top:3px;color:var(--ui-text-muted)}.notification b{color:var(--ui-primary);font-size:.72rem}.ledger-panel{margin-top:14px}.ledger-filters,.filter-tabs,.row-actions,.cp-pager>div{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.row-actions .row-whatsapp{border-color:#25d366;background:#25d366;color:#fff}.reminder-client{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.client-open-reminders{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:999px;background:var(--ui-primary-soft);color:var(--ui-primary);font-size:.68rem;font-weight:800;white-space:nowrap}.client-open-reminders.several{background:var(--ui-warning-soft,#fdf1dc);color:var(--ui-warning,#b7791f)}.reminder-title{display:flex;align-items:center;gap:7px}.reminder-title span{padding:2px 6px;border-radius:999px;background:var(--ui-primary-soft);color:var(--ui-primary);font-size:.62rem;font-weight:800;text-transform:uppercase}.ledger-filters :deep(.choices){min-width:180px}.reminder-table-wrap{overflow:auto}.cp-pager{display:flex;align-items:center;justify-content:space-between;padding:12px 15px;border-top:1px solid var(--ui-border)}@media(max-width:900px){.ledger-filters{align-items:stretch;flex-direction:column}.cp-pager{align-items:flex-start;gap:10px;flex-direction:column}}
 </style>

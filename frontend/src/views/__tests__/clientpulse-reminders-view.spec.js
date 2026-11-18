@@ -36,7 +36,10 @@ describe('ClientPulseRemindersView', () => {
         communication_accounts: [{ id: 4, whatsapp_contact_id: 55, name: 'Sales line' }],
       },
     }] } })
-    api.dashboard.mockResolvedValue({ data: {} })
+    api.dashboard.mockResolvedValue({ data: {
+      clients_with_reminders: 12, active_reminders: 17, overdue_reminders: 0, due_today: 2, upcoming: 15,
+      completed_reminders: 30, unread_notifications: 1,
+    } })
     api.notifications.mockResolvedValue({ data: [] })
     api.clients.mockResolvedValue({ data: { results: [] } })
     api.options.mockResolvedValue({ data: { owners: [], reminder_defaults: {} } })
@@ -57,6 +60,19 @@ describe('ClientPulseRemindersView', () => {
     const chip = wrapper.find('.client-open-reminders')
     expect(chip.text()).toBe('3')
     expect(chip.attributes('title')).toBe('3 active reminders for this client')
+  })
+
+  it('shows client and window counts, and a window card switches the ledger tab', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    const metrics = wrapper.find('.reminder-metrics').text()
+    for (const text of ['Clients12', 'Active17', 'Overdue0', 'Today2', 'Upcoming15', 'Completed30', 'Unread1']) {
+      expect(metrics.replace(/\s+/g, '')).toContain(text)
+    }
+    await wrapper.find('.metric-tab.metric-upcoming').trigger('click')
+    await flushPromises()
+    expect(api.reminders).toHaveBeenLastCalledWith(expect.objectContaining({ window: 'upcoming' }))
+    expect(wrapper.find('.metric-tab.metric-upcoming').attributes('aria-pressed')).toBe('true')
   })
 
   it('shows no WhatsApp button to members who cannot view chats', async () => {
