@@ -1,5 +1,6 @@
 from django.db import transaction
 from django.db.models import Q
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.pagination import PageNumberPagination
@@ -145,6 +146,11 @@ def reminders_view(request):
         )
     elif window == 'completed':
         queryset = queryset.filter(status='completed')
+    elif window == 'open':
+        # Everything still to do for the client, whatever its date (used beside a chat).
+        queryset = queryset.filter(status__in=['pending', 'due', 'snoozed']).order_by(
+            Coalesce('snoozed_until', 'due_at'), 'pk',
+        )
     elif status_value := request.query_params.get('status'):
         queryset = queryset.filter(status=status_value)
     if profile_id := request.query_params.get('profile_id'):

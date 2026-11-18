@@ -16,6 +16,7 @@ const props = defineProps({
   owners: { type: Array, default: () => [] },
   linkedFrom: { type: Object, default: null },
   phrases: { type: Array, default: () => [] },
+  error: { type: String, default: '' },
 })
 defineEmits(['close', 'submit'])
 
@@ -55,6 +56,7 @@ const recurrences = ['none', 'daily', 'weekly', 'monthly', 'custom'].map(value =
     @close="$emit('close')"
   >
     <form id="reminder-editor-form" class="reminder-form" @submit.prevent="$emit('submit')">
+      <p v-if="error" class="editor-error wide" role="alert">{{ error }}</p>
       <div v-if="linkedFrom" class="thread-context wide">
         <span>Following completed reminder</span>
         <strong>{{ linkedFrom.title }}</strong>
@@ -97,5 +99,5 @@ const recurrences = ['none', 'daily', 'weekly', 'monthly', 'custom'].map(value =
 </template>
 
 <style scoped>
-.reminder-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.wide{grid-column:1/-1}.span-2{grid-column:span 2}.thread-context{display:flex;flex-direction:column;gap:4px;padding:12px 14px;border-left:4px solid var(--ui-primary);border-radius:var(--ui-radius-sm);background:var(--ui-primary-soft)}.thread-context span{color:var(--ui-text-muted);font-size:.7rem;font-weight:700;text-transform:uppercase}.thread-context strong{color:var(--ui-text-strong)}@media(max-width:760px){.reminder-form{grid-template-columns:1fr}.wide,.span-2{grid-column:auto}}
+.reminder-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.wide{grid-column:1/-1}.editor-error{margin:0;padding:9px 12px;border-radius:var(--ui-radius-sm);background:var(--ui-danger-soft);color:var(--ui-danger);font-size:.8rem;font-weight:600}.span-2{grid-column:span 2}.thread-context{display:flex;flex-direction:column;gap:4px;padding:12px 14px;border-left:4px solid var(--ui-primary);border-radius:var(--ui-radius-sm);background:var(--ui-primary-soft)}.thread-context span{color:var(--ui-text-muted);font-size:.7rem;font-weight:700;text-transform:uppercase}.thread-context strong{color:var(--ui-text-strong)}@media(max-width:760px){.reminder-form{grid-template-columns:1fr}.wide,.span-2{grid-column:auto}}
 </style>

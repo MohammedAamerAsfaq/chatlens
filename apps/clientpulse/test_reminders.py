@@ -92,6 +92,22 @@ class ClientReminderTests(TestCase):
         separate = self._reminder(title='Separate thread')
         self.assertNotEqual(separate.thread_key, first.thread_key)
 
+    def test_open_window_lists_every_unfinished_reminder_soonest_first(self):
+        later = self._reminder(title='later', status='pending', due_at=timezone.now() + timedelta(days=3))
+        overdue = self._reminder(title='overdue', status='due')
+        snoozed = self._reminder(
+            title='snoozed', status='snoozed', snoozed_until=timezone.now() + timedelta(hours=1),
+        )
+        self._reminder(title='done', status='completed')
+        self._reminder(title='cancelled', status='cancelled')
+        response = self.client.get('/api/clientpulse/reminders/', {
+            'window': 'open', 'profile_id': self.profile.pk,
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [item['id'] for item in response.data['results']], [overdue.pk, snoozed.pk, later.pk],
+        )
+
     def test_follow_up_requires_a_completed_reminder_for_the_same_client(self):
         active = self._reminder(title='Not complete')
         payload = {

@@ -9,7 +9,8 @@ import UiCard from '@/components/ui/UiCard.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import ReminderEditorModal from '@/features/clientpulse/components/ReminderEditorModal.vue'
 import ReminderThreadModal from '@/features/clientpulse/components/ReminderThreadModal.vue'
-import { defaultReminderDue, normalizeReminderDefaults } from '@/features/clientpulse/reminderDefaults.js'
+import { normalizeReminderDefaults } from '@/features/clientpulse/reminderDefaults.js'
+import { blankReminderForm, followUpFields, reminderPayload as buildReminderPayload } from '@/features/clientpulse/reminderForm.js'
 import '@/assets/clientpulse.css'
 
 const route = useRoute()
@@ -20,7 +21,7 @@ const linkedFrom = ref(null), threadOpen = ref(false), threadLoading = ref(false
 const thread = ref(null), threadError = ref('')
 const windowFilter = ref('overdue'), page = ref(1), pages = ref(1), count = ref(0), assignedTo = ref('')
 const reminderDefaults = ref(normalizeReminderDefaults())
-const form = reactive({ profile_id: null, assigned_to_id: null, linked_from_id: null, title: '', description: '', due_at: defaultReminderDue(reminderDefaults.value), priority: 'normal', recurrence_type: 'none', interval_days: 1 })
+const form = reactive(blankReminderForm({ defaults: reminderDefaults.value }))
 const unreadNotifications = computed(() => notifications.value.filter(item => !item.read_at))
 const ownerFilters = computed(() => [
   { value: '', label: 'All assignees' },
@@ -32,13 +33,9 @@ function localValue(value) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 }
 function resetForm() {
-  Object.assign(form, {
-    profile_id: Number(route.query.profile_id) || null,
-    assigned_to_id: owners.value.length === 1 ? owners.value[0].id : null,
-    linked_from_id: null,
-    title: '', description: '', due_at: defaultReminderDue(reminderDefaults.value),
-    priority: 'normal', recurrence_type: 'none', interval_days: 1,
-  })
+  Object.assign(form, blankReminderForm({
+    defaults: reminderDefaults.value, owners: owners.value, profileId: Number(route.query.profile_id) || null,
+  }))
   editingId.value = null
   linkedFrom.value = null
 }
@@ -47,19 +44,7 @@ function message(exc, fallback) {
   return data?.detail || (data ? JSON.stringify(data) : fallback)
 }
 function reminderPayload() {
-  const payload = {
-    profile_id: form.profile_id,
-    assigned_to_id: form.assigned_to_id || null,
-    title: form.title,
-    description: form.description,
-    due_at: new Date(form.due_at).toISOString(),
-    timezone: reminderDefaults.value.timezone,
-    priority: form.priority,
-    recurrence_type: form.recurrence_type,
-    recurrence_rule: form.recurrence_type === 'custom' ? { interval_days: Number(form.interval_days) } : {},
-  }
-  if (!editingId.value && form.linked_from_id) payload.linked_from_id = form.linked_from_id
-  return payload
+  return buildReminderPayload(form, { timezone: reminderDefaults.value.timezone, editing: Boolean(editingId.value) })
 }
 async function load() {
   loading.value = true; error.value = ''
@@ -108,12 +93,7 @@ async function openLinkedFollowUp(item, completeFirst = false) {
   try {
     if (completeFirst && item.status !== 'completed') await clientPulseApi.completeReminder(item.id)
     resetForm()
-    Object.assign(form, {
-      profile_id: item.profile.id,
-      assigned_to_id: item.assigned_to?.id || null,
-      linked_from_id: item.id,
-      priority: item.priority || 'normal',
-    })
+    Object.assign(form, followUpFields(item))
     linkedFrom.value = { id: item.id, title: item.title }
     threadOpen.value = false
     showForm.value = true

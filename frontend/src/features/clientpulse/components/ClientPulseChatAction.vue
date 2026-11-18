@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { chatsApi, clientPulseApi } from '@/api'
 import { useAuthStore } from '@/stores/auth'
+import ChatReminders from './ChatReminders.vue'
 
 const props = defineProps({ chatId: { type: Number, required: true } })
 const emit = defineEmits(['converted'])
@@ -13,6 +14,8 @@ const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const canCreate = computed(() => auth.hasPermission('clientpulse.clients.create'))
+const canSeeReminders = computed(() => auth.hasPermission('clientpulse.reminders.view'))
+const contactName = computed(() => contact.value?.display_name || contact.value?.push_name || contact.value?.phone_number || '')
 const lifecycle = computed(() => (
   profile.value?.lifecycle_stage?.replaceAll('_', ' ') || 'client'
 ))
@@ -74,6 +77,7 @@ watch(() => props.chatId, load, { immediate: true })
       :disabled="saving"
       @click="addToClientPulse"
     >{{ saving ? 'Adding...' : 'Add to ClientPulse' }}</button>
+    <ChatReminders v-if="profile && canSeeReminders" :profile="profile" :client-name="contactName" />
     <span v-if="error" class="clientpulse-chat-action__error" :title="error">!</span>
   </div>
 </template>
