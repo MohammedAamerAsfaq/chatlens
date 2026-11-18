@@ -21,6 +21,11 @@ function selectedValue(raw) {
   const match = props.options.find(option => String(optionValue(option)) === raw)
   return match ? optionValue(match) : raw
 }
+// '' is a real choice when an option carries it (e.g. "Unassigned"); otherwise it means no selection.
+function selectable(value) {
+  if (value == null) return false
+  return value !== '' || props.options.some(option => String(optionValue(option)) === '')
+}
 function onChange(event) { emit('update:modelValue', selectedValue(event.target.value)) }
 function onSearch(event) { emit('search', event.detail?.value || '') }
 
@@ -39,7 +44,7 @@ function choices() {
 async function refreshChoices() {
   if (!control) return
   await control.setChoices(choices(), 'value', 'label', true)
-  if (props.modelValue != null && props.modelValue !== '') control.setChoiceByValue(String(props.modelValue))
+  if (selectable(props.modelValue)) control.setChoiceByValue(String(props.modelValue))
 }
 
 onMounted(async () => {
@@ -53,12 +58,12 @@ onMounted(async () => {
     searchPlaceholderValue: 'Type to search...',
     shouldSort: false,
   })
-  if (props.modelValue != null && props.modelValue !== '') control.setChoiceByValue(String(props.modelValue))
+  if (selectable(props.modelValue)) control.setChoiceByValue(String(props.modelValue))
   if (props.disabled) control.disable()
 })
 watch(() => props.options, refreshChoices, { deep: true })
 watch(() => props.modelValue, value => {
-  if (!control || value == null || value === '') return
+  if (!control || !selectable(value)) return
   control.setChoiceByValue(String(value))
 })
 watch(() => props.disabled, value => value ? control?.disable() : control?.enable())

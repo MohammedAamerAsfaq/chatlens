@@ -18,6 +18,9 @@ from .api_reminders import (
     cancel_reminder_view, complete_reminder_view, reminder_detail_view,
     reminders_view, snooze_reminder_view,
 )
+from .api_reminder_phrases import (
+    reminder_phrase_detail_view, reminder_phrases_view, reorder_reminder_phrases_view,
+)
 from .api_reminder_threads import reminder_thread_view
 from .api_reference import (
     client_options_view, client_tag_detail_view, client_tags_view, clientpulse_settings_view,
@@ -54,6 +57,9 @@ urlpatterns = [
     path('clientpulse/options/', client_options_view, name='clientpulse-options'),
     path('clientpulse/settings/', clientpulse_settings_view, name='clientpulse-settings'),
     path('clientpulse/dashboard/', clientpulse_dashboard_view, name='clientpulse-dashboard'),
+    path('clientpulse/reminder-phrases/', reminder_phrases_view, name='clientpulse-reminder-phrases'),
+    path('clientpulse/reminder-phrases/order/', reorder_reminder_phrases_view, name='clientpulse-reminder-phrases-order'),
+    path('clientpulse/reminder-phrases/<int:phrase_id>/', reminder_phrase_detail_view, name='clientpulse-reminder-phrase-detail'),
     path('clientpulse/reminders/', reminders_view, name='clientpulse-reminders'),
     path('clientpulse/reminders/<int:reminder_id>/', reminder_detail_view, name='clientpulse-reminder-detail'),
     path('clientpulse/reminders/<int:reminder_id>/thread/', reminder_thread_view, name='clientpulse-reminder-thread'),

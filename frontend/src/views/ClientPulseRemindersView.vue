@@ -11,7 +11,7 @@ import { defaultReminderDue, normalizeReminderDefaults } from '@/features/client
 import '@/assets/clientpulse.css'
 
 const route = useRoute()
-const reminders = ref([]), clients = ref([]), owners = ref([]), notifications = ref([]), metrics = ref({})
+const reminders = ref([]), clients = ref([]), owners = ref([]), phrases = ref([]), notifications = ref([]), metrics = ref({})
 const loading = ref(true), busy = ref(''), error = ref(''), success = ref('')
 const showForm = ref(route.query.create === '1'), editingId = ref(null)
 const linkedFrom = ref(null), threadOpen = ref(false), threadLoading = ref(false)
@@ -132,8 +132,9 @@ function move(next) { page.value = next; load() }
 watch([windowFilter, assignedTo], () => { page.value = 1; load() })
 onMounted(async () => {
   try {
-    const [clientData, optionsData] = await Promise.all([clientPulseApi.clients({ status: 'active', page_size: 100 }), clientPulseApi.options()])
+    const [clientData, optionsData, phraseData] = await Promise.all([clientPulseApi.clients({ status: 'active', page_size: 100 }), clientPulseApi.options(), clientPulseApi.reminderPhrases()])
     clients.value = clientData.data.results
+    phrases.value = phraseData.data
     owners.value = optionsData.data.owners
     reminderDefaults.value = normalizeReminderDefaults(optionsData.data.reminder_defaults)
     resetForm(); await load()
@@ -189,7 +190,7 @@ onMounted(async () => {
       <footer class="cp-pager"><span>{{ count }} reminders</span><div><UiButton size="small" :disabled="page <= 1" @click="move(page - 1)">Previous</UiButton><span>Page {{ page }} of {{ pages }}</span><UiButton size="small" :disabled="page >= pages" @click="move(page + 1)">Next</UiButton></div></footer>
     </UiCard>
 
-    <ReminderEditorModal :open="showForm" :editing="Boolean(editingId)" :linked-from="linkedFrom" :busy="busy === 'create' || busy === 'edit'" :form="form" :clients="clients" :owners="owners" @close="closeForm" @submit="saveReminder" />
+    <ReminderEditorModal :open="showForm" :editing="Boolean(editingId)" :linked-from="linkedFrom" :busy="busy === 'create' || busy === 'edit'" :form="form" :clients="clients" :owners="owners" :phrases="phrases" @close="closeForm" @submit="saveReminder" />
     <ReminderThreadModal :open="threadOpen" :loading="threadLoading" :error="threadError" :thread="thread" @close="threadOpen = false" @follow-up="openLinkedFollowUp" />
   </div></main>
 </template>

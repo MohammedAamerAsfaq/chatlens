@@ -7,9 +7,12 @@ import UiFormField from '@/components/ui/UiFormField.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiToggle from '@/components/ui/UiToggle.vue'
+import ReminderPhraseManager from '@/features/clientpulse/components/ReminderPhraseManager.vue'
 import { playReminderSound, primeReminderAudio } from '@/features/clientpulse/reminderSound'
+import { useAuthStore } from '@/stores/auth'
 import '@/assets/clientpulse.css'
 
+const auth = useAuthStore()
 const form = reactive({
   consent_mode: 'observational', reminders_enabled: true,
   reminder_sound_enabled: true,
@@ -114,9 +117,11 @@ onMounted(() => {
 
       <div class="save-row"><UiButton type="submit" variant="primary" :disabled="busy">{{ busy ? 'Saving...' : 'Save settings' }}</UiButton></div>
     </form>
+    <!-- Saved per change, so it sits outside the settings form. -->
+    <ReminderPhraseManager v-if="!loading" class="phrase-settings" :can-edit="auth.hasPermission('settings.company.manage')" />
   </div></main>
 </template>
 
 <style scoped>
-.reminder-settings{overflow:auto;background:var(--ui-bg)}.settings-grid{display:grid;gap:16px;margin-top:18px}.toggle-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;padding-bottom:20px;border-bottom:1px solid var(--ui-border)}.notification-controls,.field-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:18px}.volume{width:100%;height:var(--ui-control-height);accent-color:var(--ui-primary)}.test-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px}.test-row span{color:var(--ui-text-muted);font-size:.75rem}.save-row{display:flex;justify-content:flex-end;padding-bottom:24px}@media(max-width:800px){.toggle-list,.notification-controls,.field-grid{grid-template-columns:1fr}}
+.reminder-settings{overflow:auto;background:var(--ui-bg)}.settings-grid{display:grid;gap:16px;margin-top:18px}.toggle-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;padding-bottom:20px;border-bottom:1px solid var(--ui-border)}.notification-controls,.field-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:18px}.volume{width:100%;height:var(--ui-control-height);accent-color:var(--ui-primary)}.test-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px}.test-row span{color:var(--ui-text-muted);font-size:.75rem}.phrase-settings{margin-bottom:24px}.save-row{display:flex;justify-content:flex-end;padding-bottom:24px}@media(max-width:800px){.toggle-list,.notification-controls,.field-grid{grid-template-columns:1fr}}
 </style>
