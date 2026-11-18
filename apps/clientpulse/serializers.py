@@ -69,7 +69,6 @@ class ConsentInputSerializer(serializers.Serializer):
 class ClientPulseSettingsInputSerializer(serializers.Serializer):
     consent_mode = serializers.ChoiceField(choices=('observational', 'enforced'), required=False)
     reminders_enabled = serializers.BooleanField(required=False)
-    reminder_popup_enabled = serializers.BooleanField(required=False)
     reminder_sound_enabled = serializers.BooleanField(required=False)
     reminder_sound = serializers.ChoiceField(
         choices=('chime', 'bell', 'soft'), required=False,

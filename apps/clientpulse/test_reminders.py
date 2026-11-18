@@ -14,9 +14,11 @@ from apps.clientpulse.services.reminder_service import (
 from apps.task_management.models import BackgroundTask, BackgroundTaskSchedule
 from apps.queue_management.services import TaskExecutor, claim_tasks
 from apps.queue_management.models import BackgroundWorker
-from apps.tenancy.models import Company, CompanyContact, CompanyMembership
+from apps.tenancy.models import (
+    CommunicationAccount, Company, CompanyContact, CompanyMembership, ConnectionProvider,
+)
 from apps.tenancy.services.enrollment_service import CompanyEnrollmentService
-from apps.whatsapp_bridge.models import OutboundMessage
+from apps.whatsapp_bridge.models import OutboundMessage, WhatsAppAccount, WhatsAppContact
 from apps.tenancy.testing import create_member
 
 
@@ -189,6 +191,32 @@ class ClientReminderTests(TestCase):
         self.assertIsNotNone(notification.dismissed_at)
         self.assertEqual(reminder.status, 'due')
         self.assertEqual(self.client.get('/api/clientpulse/notifications/').data, [])
+
+    def test_notification_lists_the_client_whatsapp_chats_to_open(self):
+        provider = ConnectionProvider.objects.create(
+            key='reminder-baileys', name='Reminder Baileys', channel='whatsapp',
+        )
+        communication = CommunicationAccount.objects.create(
+            company=self.company, provider=provider, channel='whatsapp', name='Sales Line',
+        )
+        account = WhatsAppAccount.objects.create(
+            owner=self.user, communication_account=communication,
+            display_name='Sales Line', phone_number='971500000001',
+        )
+        chat_contact = WhatsAppContact.objects.create(
+            account=account, company_contact=self.profile.contact,
+            wa_contact_id='971511111111@s.whatsapp.net', display_name='Buyer',
+        )
+        ClientReminderNotification.objects.create(
+            company=self.company, reminder=self._reminder(status='due'), recipient=self.membership,
+        )
+        response = self.client.get('/api/clientpulse/notifications/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data[0]['reminder']['profile']['communication_accounts'], [{
+            'id': account.pk, 'whatsapp_contact_id': chat_contact.pk,
+            'name': 'Sales Line', 'phone_number': '971500000001',
+            'session_status': account.session_status,
+        }])
 
     def test_snooze_hides_current_notification_until_next_delivery(self):
         reminder = self._reminder(status='due')

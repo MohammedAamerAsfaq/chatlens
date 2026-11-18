@@ -148,7 +148,6 @@ def clientpulse_settings_view(request):
         'automated_follow_up_enabled': settings.automated_follow_up_enabled,
         'consent_mode': settings.consent_mode,
         'reminders_enabled': settings.reminders_enabled,
-        'reminder_popup_enabled': settings.reminder_popup_enabled,
         'reminder_sound_enabled': settings.reminder_sound_enabled,
         'reminder_sound': settings.reminder_sound,
         'reminder_sound_volume': settings.reminder_sound_volume,

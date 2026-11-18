@@ -12,6 +12,7 @@ import InspiniaCustomizer from '@/components/navigation/InspiniaCustomizer.vue'
 import NavigationChevron from '@/components/navigation/NavigationChevron.vue'
 import NavigationIcon from '@/components/navigation/NavigationIcon.vue'
 import { DEFAULT_INSPINIA_CONFIG } from '@/themes/inspinia.js'
+import ReminderNotificationCenter from '@/features/clientpulse/components/ReminderNotificationCenter.vue'
 import chatlensIcon from '@/assets/chatlens-icon.png'
 import '@/assets/inspinia-shell.css'
 
@@ -147,6 +148,7 @@ onUnmounted(() => {
     <div class="inspinia-topbar-actions">
       <InspiniaTopbarMenus :sections="topbarSections" :apps="topbarApps" />
       <button class="inspinia-tool" title="Customize interface" aria-label="Customize interface" @click="customizerOpen = true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19 14.5 21 16l-2 3-2.4-1a8 8 0 0 1-2.1 1.2L14 22h-4l-.5-2.8A8 8 0 0 1 7.4 18L5 19l-2-3 2-1.5a8 8 0 0 1 0-5L3 8l2-3 2.4 1a8 8 0 0 1 2.1-1.2L10 2h4l.5 2.8A8 8 0 0 1 16.6 6L19 5l2 3-2 1.5a8 8 0 0 1 0 5Z"/></svg></button>
+      <ReminderNotificationCenter v-if="auth.hasPermission('clientpulse.reminders.view')" button-class="inspinia-alert" />
       <RouterLink to="/task-operations" class="inspinia-alert" title="Operations"><NavigationIcon name="operations"/><b v-if="alertTotal">{{ alertTotal > 99 ? '99+' : alertTotal }}</b></RouterLink>
       <button class="inspinia-tool" title="Toggle fullscreen" aria-label="Toggle fullscreen" @click="toggleFullscreen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg></button>
       <select class="inspinia-company-select" :value="auth.currentCompany?.id" :disabled="switching || !auth.hasMultipleMemberships" @change="switchCompany"><option v-for="membership in auth.memberships" :key="membership.company.id" :value="membership.company.id">{{ membership.company.name }}</option></select>

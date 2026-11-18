@@ -12,7 +12,7 @@ import '@/assets/clientpulse.css'
 
 const form = reactive({
   consent_mode: 'observational', reminders_enabled: true,
-  reminder_popup_enabled: true, reminder_sound_enabled: true,
+  reminder_sound_enabled: true,
   reminder_sound: 'chime', reminder_sound_volume: 70,
   reminder_desktop_notifications_enabled: false,
   reminder_poll_interval_seconds: 30,
@@ -79,10 +79,9 @@ onMounted(() => {
     <p v-if="success" class="cp-notice success">{{ success }}</p>
     <div v-if="loading" class="cp-empty">Loading settings...</div>
     <form v-else class="settings-grid" @submit.prevent="save">
-      <UiCard title="Reminder notifications" subtitle="Controls the global in-app alert shown when a durable reminder becomes due.">
+      <UiCard title="Reminder notifications" subtitle="Due reminders appear under the notification bell in the top bar.">
         <div class="toggle-list">
           <UiToggle v-model="form.reminders_enabled" label="Enable reminders" description="Allow scheduled reminder scans and delivery for this company." />
-          <UiToggle v-model="form.reminder_popup_enabled" :disabled="!form.reminders_enabled" label="In-app alert cards" description="Show a persistent alert on any ChatLens page until it is handled." />
           <UiToggle v-model="form.reminder_sound_enabled" :disabled="!form.reminders_enabled" label="Notification sound" description="Play one alert sound when new due reminders are detected." />
           <UiToggle v-model="form.reminder_desktop_notifications_enabled" :disabled="!form.reminders_enabled" label="Desktop notifications" description="Show an operating-system notification when browser permission is granted." />
         </div>

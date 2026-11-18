@@ -5,6 +5,7 @@ import { workerAlertsApi, stuckReceiptsApi, unresolvedMessagesApi } from '@/api'
 import { useAuthStore } from '@/stores/auth.js'
 import { useConversationsStore } from '@/stores/conversations'
 import { industryHomePath, logsNavigation, moreNavigation, navigationItemVisible, primaryNavigation, settingsNavigation, visibleSettingsNavigation } from '@/navigation/navigation'
+import ReminderNotificationCenter from '@/features/clientpulse/components/ReminderNotificationCenter.vue'
 import chatlensIcon from '@/assets/chatlens-icon.png'
 import '@/assets/app-navigation.css'
 
@@ -168,6 +169,8 @@ onUnmounted(() => {
           </div>
         </div>
       </nav>
+      <!-- Outside the utility bar so it stays visible on narrow screens, where that bar is hidden. -->
+      <ReminderNotificationCenter v-if="auth.hasPermission('clientpulse.reminders.view')" button-class="utility-button" show-label />
     </div>
 
     <div v-if="mobileOpen" class="mobile-navigation">

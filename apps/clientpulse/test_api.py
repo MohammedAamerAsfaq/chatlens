@@ -136,7 +136,6 @@ class ClientPulseApiTests(TestCase):
 
     def test_settings_api_persists_reminder_notification_preferences(self):
         response = self.client.patch('/api/clientpulse/settings/', {
-            'reminder_popup_enabled': False,
             'reminder_sound_enabled': True,
             'reminder_sound': 'soft',
             'reminder_sound_volume': 45,
@@ -152,7 +151,6 @@ class ClientPulseApiTests(TestCase):
         self.assertEqual(response.data['reminder_default_delay_days'], 14)
         self.assertEqual(response.data['reminder_default_time'], '09:30')
         settings = ClientPulseSettings.objects.get(company=self.company)
-        self.assertFalse(settings.reminder_popup_enabled)
         self.assertTrue(settings.reminder_desktop_notifications_enabled)
         self.assertEqual(settings.reminder_default_delay_days, 14)
         self.assertEqual(settings.reminder_default_time.strftime('%H:%M'), '09:30')

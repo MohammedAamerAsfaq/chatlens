@@ -5,8 +5,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.clientpulse.api_helpers import denied, scoped_profiles
+from apps.clientpulse.api_payloads import _communication_accounts
 from apps.clientpulse.api_reminders import _payload, _queryset
 from apps.clientpulse.models import ClientPulseSettings, ClientReminderNotification
+from apps.clientpulse.services.communication_access import visible_clientpulse_account_ids
 from apps.clientpulse.services.reminder_windows import local_day_window
 from apps.tenancy.services.access import default_company_for_user
 
@@ -14,7 +16,6 @@ from apps.tenancy.services.access import default_company_for_user
 def _notification_preferences(settings):
     return {
         'reminders_enabled': settings.reminders_enabled,
-        'reminder_popup_enabled': settings.reminder_popup_enabled,
         'reminder_sound_enabled': settings.reminder_sound_enabled,
         'reminder_sound': settings.reminder_sound,
         'reminder_sound_volume': settings.reminder_sound_volume,
@@ -64,11 +65,25 @@ def reminder_notifications_view(request):
     reminders = _queryset(request, 'clientpulse.reminders.view')
     rows = ClientReminderNotification.objects.filter(
         reminder__in=reminders, dismissed_at__isnull=True,
-    ).select_related('reminder__profile__contact', 'recipient__user')[:50]
-    return Response([{
+    ).select_related('reminder__profile__contact', 'recipient__user').prefetch_related(
+        'reminder__profile__contact__whatsapp_contacts__account',
+    )[:50]
+    visible_account_ids = visible_clientpulse_account_ids(
+        request.user, default_company_for_user(request.user),
+    )
+    return Response([_notification_payload(item, visible_account_ids) for item in rows])
+
+
+def _notification_payload(item, visible_account_ids):
+    reminder = _payload(item.reminder)
+    # The client's WhatsApp chats this user may open, so a reminder can go straight to the conversation.
+    reminder['profile']['communication_accounts'] = _communication_accounts(
+        item.reminder.profile.contact, visible_account_ids,
+    )
+    return {
         'id': item.pk, 'delivered_at': item.delivered_at, 'read_at': item.read_at,
-        'reminder': _payload(item.reminder),
-    } for item in rows])
+        'reminder': reminder,
+    }
 
 
 @api_view(['GET'])

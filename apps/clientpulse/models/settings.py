@@ -16,7 +16,6 @@ class ClientPulseSettings(models.Model):
     automated_follow_up_enabled = models.BooleanField(default=False)
     consent_mode = models.CharField(max_length=20, choices=CONSENT_MODES, default='observational')
     reminders_enabled = models.BooleanField(default=True)
-    reminder_popup_enabled = models.BooleanField(default=True)
     reminder_sound_enabled = models.BooleanField(default=True)
     reminder_sound = models.CharField(max_length=20, choices=REMINDER_SOUNDS, default='chime')
     reminder_sound_volume = models.PositiveSmallIntegerField(default=70)
