@@ -1,6 +1,7 @@
 export { default as CampaignAttachmentPanel } from './components/CampaignAttachmentPanel.vue'
 export { default as CampaignMessagePreview } from './components/CampaignMessagePreview.vue'
 export { default as CampaignModeSelector } from './components/CampaignModeSelector.vue'
+export { default as CampaignListPicker } from './components/CampaignListPicker.vue'
 export { default as CampaignSearchActions } from './components/CampaignSearchActions.vue'
 export { addAllCampaignResults, fetchAllPaginatedResults } from './bulkSelection'
 export { useDirectCampaignSender } from './composables/useDirectCampaignSender'

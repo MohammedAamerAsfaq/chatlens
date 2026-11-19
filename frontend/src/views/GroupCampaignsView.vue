@@ -4,6 +4,7 @@ import { accountsApi, groupsApi, outboundAssetsApi, tradingApi } from '@/api'
 import {
   addAllCampaignResults,
   CampaignAttachmentPanel,
+  CampaignListPicker,
   CampaignMessagePreview,
   CampaignModeSelector,
   CampaignSearchActions,
@@ -56,6 +57,7 @@ function apiFor(action) {
     list: tradingApi.listBuyingInquiries,
     create: tradingApi.createBuyingInquiry,
     addGroup: tradingApi.addBuyingInquiryGroup,
+    addList: tradingApi.addBuyingInquiryList,
     removeGroup: tradingApi.removeBuyingInquiryGroup,
     markChatLensClick: tradingApi.markBuyingInquiryGroupChatLensClick,
     update: tradingApi.updateBuyingInquiry,
@@ -66,6 +68,7 @@ function apiFor(action) {
     list: tradingApi.listSellingOffers,
     create: tradingApi.createSellingOffer,
     addGroup: tradingApi.addSellingOfferGroup,
+    addList: tradingApi.addSellingOfferList,
     removeGroup: tradingApi.removeSellingOfferGroup,
     markChatLensClick: tradingApi.markSellingOfferGroupChatLensClick,
     update: tradingApi.updateSellingOffer,
@@ -473,6 +476,7 @@ onMounted(async () => {
             @remove="removeCampaignImage(campaign)"
           />
           <div class="selector"><div class="selector-head"><div><h3>Available groups</h3><small>Select the WhatsApp accounts whose sendable groups should be listed.</small></div></div>
+            <CampaignListPicker kind="groups" :apply="listId => apiFor('addList')(campaign.id, listId)" @applied="data => replaceCampaign(data.inquiry || data.offer)" />
             <div class="account-filter"><div class="account-filter-head"><strong>Accounts</strong><button @click="selectAllGroupAccounts(campaign)">Select all</button></div><div class="account-options"><label v-for="account in accounts" :key="account.id"><input type="checkbox" :checked="(groupAccountIds[campaign.id] || []).includes(account.id)" @change="toggleGroupAccount(campaign, account.id)" /><span>{{ account.display_name || account.phone_number || `Account ${account.id}` }}</span><small>{{ account.effective_session_status }}</small></label></div><p v-if="!accounts.length" class="empty">No WhatsApp accounts are available.</p></div>
             <div class="inline"><input v-model="groupSearch[campaign.id]" placeholder="Filter available groups..." @keydown.enter.prevent="searchGroups(campaign)" /><button :disabled="loadingGroups[campaign.id]" @click="searchGroups(campaign)">{{ loadingGroups[campaign.id] ? 'Loading...' : 'Refresh' }}</button></div>
             <CampaignSearchActions

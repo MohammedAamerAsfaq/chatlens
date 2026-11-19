@@ -343,6 +343,11 @@
                     {{ busyAction === `auto-all-contacted-${inquiry.id}` ? 'Adding...' : 'Previously Contacted' }}
                   </button>
                 </div>
+                <CampaignListPicker
+                  kind="contacts"
+                  :apply="listId => tradingApi.addBuyingInquiryList(inquiry.id, listId)"
+                  @applied="data => replaceInquiry(data.inquiry)"
+                />
                 <div class="supplier-tools">
                   <input v-model="supplierSearch[inquiry.id]" placeholder="Search supplier name or phone..." @keydown.enter.prevent="searchContacts(inquiry)" />
                   <button class="ghost-btn" @click="searchContacts(inquiry)">Search</button>
@@ -473,6 +478,7 @@ import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons
 import { contactsApi, tradingApi } from '@/api'
 import {
   CampaignAttachmentPanel,
+  CampaignListPicker,
   CampaignMessagePreview,
   CampaignModeSelector,
   CampaignSearchActions,

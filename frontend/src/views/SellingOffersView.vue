@@ -362,6 +362,11 @@
                     {{ busyAction === `auto-all-contacted-${offer.id}` ? 'Adding...' : 'Previously Contacted' }}
                   </button>
                 </div>
+                <CampaignListPicker
+                  kind="contacts"
+                  :apply="listId => tradingApi.addSellingOfferList(offer.id, listId)"
+                  @applied="data => replaceOffer(data.offer)"
+                />
                 <div class="customer-tools">
                   <input v-model="customerSearch[offer.id]" placeholder="Search customer name or phone..." @keydown.enter.prevent="searchContacts(offer)" />
                   <button class="ghost-btn" @click="searchContacts(offer)">Search</button>
@@ -489,6 +494,7 @@ import { contactsApi, tradingApi } from '@/api'
 import { useColorEmoji } from '@/features/trading/composables/useColorEmoji'
 import {
   CampaignAttachmentPanel,
+  CampaignListPicker,
   CampaignMessagePreview,
   CampaignModeSelector,
   CampaignSearchActions,

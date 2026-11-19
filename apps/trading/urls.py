@@ -1,5 +1,6 @@
 from rest_framework.routers import DefaultRouter
 from . import views
+from .api_campaign_lists import CampaignListViewSet
 
 router = DefaultRouter()
 router.register('products',        views.ProductViewSet,               basename='products')
@@ -12,6 +13,7 @@ router.register('agent-logs',     views.AgentCallLogViewSet,          basename='
 router.register('ai-parsing-logs', views.AiParsingLogViewSet,         basename='ai-parsing-logs')
 router.register('ai-parse-v2-logs', views.AiParseV2LogViewSet,        basename='ai-parse-v2-logs')
 router.register('buying-inquiries', views.BuyingInquiryViewSet,       basename='buying-inquiries')
+router.register('campaign-lists',   CampaignListViewSet,             basename='campaign-lists')
 router.register('selling-offers',   views.SellingOfferViewSet,        basename='selling-offers')
 router.register('supplier-quotes',  views.SupplierQuoteViewSet,       basename='supplier-quotes')
 router.register('reports',          views.ReportViewSet,              basename='reports')

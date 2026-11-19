@@ -39,6 +39,7 @@ import InquirySharingView    from '../views/InquirySharingView.vue'
 import BuyingInquiriesView  from '../views/BuyingInquiriesView.vue'
 import GroupBuyingInquiriesView from '../views/GroupBuyingInquiriesView.vue'
 import GroupSellingOffersView from '../views/GroupSellingOffersView.vue'
+import CampaignListsView from '../views/CampaignListsView.vue'
 import TenantAdminView from '../views/TenantAdminView.vue'
 import V2MatchTrainingView from '../views/V2MatchTrainingView.vue'
 import TaskOperationsView from '../views/TaskOperationsView.vue'
@@ -110,6 +111,7 @@ const router = createRouter({
     { path: '/buying-inquiries', name: 'buying-inquiries', component: BuyingInquiriesView, meta: { title: 'Buying Inquiries', industries: ['trading'] } },
     { path: '/group-buying-inquiries', name: 'group-buying-inquiries', component: GroupBuyingInquiriesView, meta: { title: 'Group Buying Inquiries', industries: ['trading'] } },
     { path: '/group-selling-offers', name: 'group-selling-offers', component: GroupSellingOffersView, meta: { title: 'Group Selling Offers', industries: ['trading'] } },
+    { path: '/campaign-lists', name: 'campaign-lists', component: CampaignListsView, meta: { title: 'Saved Lists', industries: ['trading'], permission: 'campaigns.campaigns.view' } },
     { path: '/ai-instructions', name: 'ai-instructions', component: AIInstructionsView, meta: { title: 'AI Instructions', industries: ['trading', 'real_estate'], permission: 'settings.company.manage' } },
     { path: '/v2-settings', name: 'v2-settings', component: V2SettingsView, meta: { title: 'V2 Settings', industries: ['trading'] } },
     { path: '/tenant-admin', name: 'tenant-admin', component: TenantAdminView, meta: { title: 'Tenant Admin' } },

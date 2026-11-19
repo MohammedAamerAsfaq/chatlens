@@ -1,5 +1,6 @@
 from .product import Product
 from .campaign_audience import CampaignAudience, CampaignMessageMode
+from .campaign_list import CampaignList, CampaignListContact, CampaignListGroup
 from .product_alias import ProductAlias
 from .product_attribute import ProductAttribute
 from .message_classification import MessageClassification, MessageTag
@@ -69,6 +70,7 @@ __all__ = [
     'Product',
     'CampaignAudience',
     'CampaignMessageMode',
+    'CampaignList', 'CampaignListContact', 'CampaignListGroup',
     'ProductAlias',
     'ProductAttribute',
     'MessageClassification', 'MessageTag',

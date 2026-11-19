@@ -48,6 +48,7 @@ from .serializers import (
 )
 from .services.inquiry_match_filter import MATCH_FILTER_ALL, MATCH_FILTERS, filter_inquiries_by_match
 from .services import inquiry_sharing, inquiry_status
+from .services.campaign_lists import add_campaign_groups, campaign_list_for, usable_member_ids
 from .services.product_cache import invalidate as invalidate_product_cache
 
 logger = logging.getLogger(__name__)
@@ -3654,13 +3655,13 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
         inquiry = self.get_queryset().get(pk=inquiry.pk)
         return Response({'added': added, 'skipped': skipped, 'inquiry': self.get_serializer(inquiry).data})
 
-    def _bulk_add_suppliers(self, inquiry, contact_ids):
+    def _bulk_add_suppliers(self, inquiry, contact_ids, source=BuyingInquirySupplierSource.AUTO):
         existing_contact_ids = set(inquiry.suppliers.values_list('contact_id', flat=True))
         new_contact_ids = [cid for cid in contact_ids if cid not in existing_contact_ids]
 
         BuyingInquirySupplier.objects.bulk_create(
             [
-                BuyingInquirySupplier(inquiry=inquiry, contact_id=cid, source=BuyingInquirySupplierSource.AUTO)
+                BuyingInquirySupplier(inquiry=inquiry, contact_id=cid, source=source)
                 for cid in new_contact_ids
             ],
             ignore_conflicts=True,
@@ -3668,6 +3669,22 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
         added = len(new_contact_ids)
         skipped = len(contact_ids) - added
         return added, skipped
+
+    @action(detail=True, methods=['post'], url_path='add-list')
+    def add_list(self, request, pk=None):
+        """Copy a saved customer or group list into this inquiry's recipients."""
+        inquiry = self.get_object()
+        campaign_list = campaign_list_for(inquiry, request.data.get('list_id'))
+        ids, unavailable = usable_member_ids(campaign_list, request.user)
+        if inquiry.audience_type == CampaignAudience.GROUPS:
+            added, skipped = add_campaign_groups(BuyingInquiryGroup, 'inquiry', inquiry, ids)
+        else:
+            added, skipped = self._bulk_add_suppliers(inquiry, ids, source=BuyingInquirySupplierSource.MANUAL)
+        inquiry = self.get_queryset().get(pk=inquiry.pk)
+        return Response({
+            'added': added, 'skipped': skipped, 'unavailable': unavailable,
+            'inquiry': self.get_serializer(inquiry).data,
+        })
 
     @action(detail=True, methods=['post'], url_path='remove-all-suppliers')
     def remove_all_suppliers(self, request, pk=None):
@@ -4217,7 +4234,7 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
         offer = self.get_queryset().get(pk=offer.pk)
         return Response({'added': added, 'skipped': skipped, 'offer': self.get_serializer(offer).data})
 
-    def _bulk_add_customers(self, offer, contact_ids, source_rows=None):
+    def _bulk_add_customers(self, offer, contact_ids, source_rows=None, source=SellingOfferCustomerSource.AUTO):
         contact_ids = list(contact_ids)
         existing_ids = set(offer.customers.values_list('contact_id', flat=True))
         new_ids = [contact_id for contact_id in contact_ids if contact_id not in existing_ids]
@@ -4227,7 +4244,7 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
                 SellingOfferCustomer(
                     offer=offer,
                     contact_id=contact_id,
-                    source=SellingOfferCustomerSource.AUTO,
+                    source=source,
                     source_product_id=getattr(source_rows.get(contact_id), 'product_id', None),
                     source_inquiry_product=source_rows.get(contact_id),
                 )
@@ -4236,6 +4253,22 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
             ignore_conflicts=True,
         )
         return len(new_ids), len(contact_ids) - len(new_ids)
+
+    @action(detail=True, methods=['post'], url_path='add-list')
+    def add_list(self, request, pk=None):
+        """Copy a saved customer or group list into this offer's recipients."""
+        offer = self.get_object()
+        campaign_list = campaign_list_for(offer, request.data.get('list_id'))
+        ids, unavailable = usable_member_ids(campaign_list, request.user)
+        if offer.audience_type == CampaignAudience.GROUPS:
+            added, skipped = add_campaign_groups(SellingOfferGroup, 'offer', offer, ids)
+        else:
+            added, skipped = self._bulk_add_customers(offer, ids, source=SellingOfferCustomerSource.MANUAL)
+        offer = self.get_queryset().get(pk=offer.pk)
+        return Response({
+            'added': added, 'skipped': skipped, 'unavailable': unavailable,
+            'offer': self.get_serializer(offer).data,
+        })
 
     @action(detail=True, methods=['post'], url_path='remove-all-customers')
     def remove_all_customers(self, request, pk=None):

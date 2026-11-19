@@ -32,6 +32,7 @@ const pageDescriptions = {
   'buying-inquiries': 'Build and send direct buying campaigns.',
   'group-buying-inquiries': 'Send buying campaigns to eligible groups.',
   'group-selling-offers': 'Send selling campaigns to eligible groups.',
+  'campaign-lists': 'Reusable contact and group lists for campaigns.',
   'ai-instructions': 'Configure company AI instructions and execution targets.',
   'v2-settings': 'Configure V2 classification and GatePass behavior.',
   'tenant-admin': 'Create and manage company workspaces.',
