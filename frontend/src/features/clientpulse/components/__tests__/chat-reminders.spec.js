@@ -50,6 +50,20 @@ describe('ChatReminders', () => {
     wrapper.unmount()
   })
 
+  it('opens the panel leftwards when the chip is near the right edge of the window', async () => {
+    const wrapper = mount(ChatReminders, { props: { profile: { id: 6 }, clientName: 'edwin multimedia' }, global: { stubs: { RouterLink: RouterLinkStub } }, attachTo: document.body })
+    await flushPromises()
+    const rect = left => vi.spyOn(wrapper.element, 'getBoundingClientRect').mockReturnValue({ left, right: left + 200, top: 0, bottom: 32, width: 200, height: 32 })
+    rect(window.innerWidth - 250)
+    await byLabel(wrapper, 'Client reminders').trigger('click')
+    expect(wrapper.find('.chat-reminders__panel').classes()).toContain('align-right')
+    await byLabel(wrapper, 'Client reminders').trigger('click')
+    rect(20)
+    await byLabel(wrapper, 'Client reminders').trigger('click')
+    expect(wrapper.find('.chat-reminders__panel').classes()).not.toContain('align-right')
+    wrapper.unmount()
+  })
+
   it('completes a reminder and creates its linked follow-up for the same client', async () => {
     const wrapper = mount(ChatReminders, { props: { profile: { id: 6 }, clientName: 'edwin multimedia' }, global: { stubs: { RouterLink: RouterLinkStub } } })
     await flushPromises()

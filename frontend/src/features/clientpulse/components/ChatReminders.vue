@@ -22,6 +22,9 @@ const canManage = computed(() => auth.hasPermission('clientpulse.reminders.manag
 const reminders = ref([])
 const loaded = ref(false)
 const open = ref(false)
+// The panel opens rightwards from the chip, or leftwards when that would run past the window edge.
+const alignRight = ref(false)
+const PANEL_WIDTH = 380
 const error = ref('')
 const busy = ref('')
 const root = ref(null)
@@ -95,7 +98,13 @@ async function save() {
   } catch (exc) { editorError.value = message(exc, 'Unable to create the reminder.') }
   finally { busy.value = '' }
 }
-function toggle() { open.value = !open.value; if (open.value) load() }
+function toggle() {
+  open.value = !open.value
+  if (!open.value) return
+  const rect = root.value?.getBoundingClientRect()
+  alignRight.value = Boolean(rect && rect.left + PANEL_WIDTH > window.innerWidth - 12)
+  load()
+}
 function outside(event) { if (open.value && root.value && !root.value.contains(event.target)) open.value = false }
 function escape(event) { if (event.key === 'Escape') open.value = false }
 
@@ -121,7 +130,7 @@ onBeforeUnmount(() => {
     <RouterLink to="/clientpulse-reminders" class="chat-reminders__chip chat-reminders__back" title="Back to the Reminders page">
       <FontAwesomeIcon :icon="faArrowLeft" /><span>Reminders</span>
     </RouterLink>
-    <section v-if="open" class="chat-reminders__panel" role="dialog" aria-label="Client reminders">
+    <section v-if="open" class="chat-reminders__panel" :class="{ 'align-right': alignRight }" role="dialog" aria-label="Client reminders">
       <header>
         <strong>Open reminders</strong>
         <button v-if="canManage" type="button" class="chat-reminders__new" :disabled="busy === 'new'" @click="startEditor()">
@@ -162,6 +171,7 @@ onBeforeUnmount(() => {
 .chat-reminders__chip:hover,.chat-reminders__chip.active{border-color:var(--ui-primary);color:var(--ui-primary)}
 .chat-reminders__chip.has-overdue{border-color:color-mix(in srgb,var(--ui-danger) 45%,var(--ui-border));background:var(--ui-danger-soft);color:var(--ui-danger)}
 .chat-reminders__panel{position:absolute;top:calc(100% + 6px);left:0;z-index:60;width:min(380px,calc(100vw - 24px));max-height:60vh;display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--ui-border);border-radius:12px;background:var(--ui-surface);box-shadow:0 18px 45px rgb(15 23 42 / 22%);color:var(--ui-text);font-family:var(--ui-font-sans)}
+.chat-reminders__panel.align-right{left:auto;right:0}
 .chat-reminders__panel header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 14px;border-bottom:1px solid var(--ui-border);background:var(--ui-surface-muted)}
 .chat-reminders__panel header strong{font-size:.74rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
 .chat-reminders__new{display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border:1px solid var(--ui-primary);border-radius:7px;background:var(--ui-primary);color:var(--ui-on-primary,#fff);font-size:.72rem;font-weight:700;cursor:pointer}

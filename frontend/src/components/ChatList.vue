@@ -160,7 +160,7 @@ watch(() => store.highlightChatId, async (chatId) => {
     </div>
 
     <!-- Filter tabs -->
-    <div class="chat-list__tabs flex overflow-x-auto shrink-0">
+    <div class="chat-list__tabs flex flex-wrap shrink-0">
       <button
         v-for="tab in tabs"
         :key="tab.key"
