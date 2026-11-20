@@ -364,7 +364,7 @@ export const groupsApi = {
   setAiParsing: (id, value) => http.patch(`/groups/${id}/set-ai-parsing/`, { ai_parsing: value }),
 }
 
-// Saved, reusable campaign recipient lists (kind 'contacts' or 'groups').
+// Saved, reusable campaign lists (kind 'contacts', 'groups' or 'products').
 export const campaignListsApi = {
   list:          (params)     => http.get('/campaign-lists/', { params }),
   get:           (id)         => http.get(`/campaign-lists/${id}/`),
@@ -525,6 +525,7 @@ export const tradingApi = {
   markBuyingInquirySupplierChatLensClick: (id, supplier_id) => http.post(`/buying-inquiries/${id}/mark-supplier-chatlens-click/`, { supplier_id }),
   addBuyingInquiryGroup: (id, group_id) => http.post(`/buying-inquiries/${id}/add-group/`, { group_id }),
   addBuyingInquiryList: (id, list_id) => http.post(`/buying-inquiries/${id}/add-list/`, { list_id }),
+  addBuyingInquiryProductList: (id, list_id) => http.post(`/buying-inquiries/${id}/add-product-list/`, { list_id }),
   removeBuyingInquiryGroup: (id, recipient_id) => http.post(`/buying-inquiries/${id}/remove-group/`, { recipient_id }),
   markBuyingInquiryGroupChatLensClick: (id, recipient_id) => http.post(`/buying-inquiries/${id}/mark-group-chatlens-click/`, { recipient_id }),
 
@@ -549,6 +550,7 @@ export const tradingApi = {
   markSellingOfferCustomerChatLensClick: (id, customer_id) => http.post(`/selling-offers/${id}/mark-customer-chatlens-click/`, { customer_id }),
   addSellingOfferGroup: (id, group_id) => http.post(`/selling-offers/${id}/add-group/`, { group_id }),
   addSellingOfferList: (id, list_id) => http.post(`/selling-offers/${id}/add-list/`, { list_id }),
+  addSellingOfferProductList: (id, list_id) => http.post(`/selling-offers/${id}/add-product-list/`, { list_id }),
   removeSellingOfferGroup: (id, recipient_id) => http.post(`/selling-offers/${id}/remove-group/`, { recipient_id }),
   markSellingOfferGroupChatLensClick: (id, recipient_id) => http.post(`/selling-offers/${id}/mark-group-chatlens-click/`, { recipient_id }),
 

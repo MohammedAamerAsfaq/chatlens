@@ -9,13 +9,16 @@ from apps.trading.models import (
     CampaignList,
     CampaignListContact,
     CampaignListGroup,
+    CampaignListProduct,
+    Product,
+    ProductAlias,
     SellingOffer,
     SellingOfferCustomer,
 )
 from apps.whatsapp_bridge.models import WhatsAppAccount, WhatsAppContact, WhatsAppGroup
 
 
-class CampaignListTests(TestCase):
+class ListFixtures:
     def setUp(self):
         self.company = Company.objects.create(name='Lists Co', slug='lists-co')
         self.manager = User.objects.create_user('list-manager', password='pw')
@@ -51,6 +54,14 @@ class CampaignListTests(TestCase):
 
     def _list(self, kind='contacts', name='VIP buyers'):
         return CampaignList.objects.create(company=self.company, kind=kind, name=name, created_by=self.manager)
+
+
+class CampaignListTests(ListFixtures, TestCase):
+    def test_searching_contacts_to_add_does_not_filter_by_list_name(self):
+        contacts = self._list()
+        response = self.client.get(f'/api/campaign-lists/{contacts.pk}/candidates/', {'search': 'bob'})
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual([row['name'] for row in response.data['results']], ['Bob'])
 
     def test_manager_creates_a_customer_list_and_adds_contacts(self):
         response = self.client.post('/api/campaign-lists/', {'kind': 'contacts', 'name': ' VIP buyers '}, format='json')
@@ -164,3 +175,86 @@ class CampaignListTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['removed'], 1)
         self.assertEqual(response.data['list']['member_count'], 0)
+
+
+class CampaignProductListTests(ListFixtures, TestCase):
+    """Product lists stand alone: any campaign, contact or group, can take one."""
+
+    def setUp(self):
+        super().setUp()
+        self.screen = self._product('Samsung A15 Incell LCD', '26.50', qty=4)
+        self.battery = self._product('Samsung A15 Battery', '12.00')
+        ProductAlias.objects.create(product=self.battery, alias='A15 BATT')
+        self.old = self._product('Samsung J2 LCD', '9.00', is_active=False)
+
+    def _product(self, name, price, qty=0, is_active=True):
+        return Product.objects.create(
+            company=self.company, name=name, brand='samsung', category='LCD', qty=qty,
+            cost_price=price, sale_price=price, currency='AED', is_active=is_active,
+        )
+
+    def _product_list(self, *products):
+        product_list = self._list(kind='products', name='A15 parts')
+        for product in products:
+            CampaignListProduct.objects.create(campaign_list=product_list, product=product)
+        return product_list
+
+    def test_manager_builds_a_product_list_from_active_products(self):
+        response = self.client.post('/api/campaign-lists/', {'kind': 'products', 'name': 'A15 parts'}, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        list_id = response.data['id']
+
+        candidates = self.client.get(f'/api/campaign-lists/{list_id}/candidates/', {'search': 'batt'})
+        self.assertEqual(candidates.status_code, 200, candidates.data)
+        self.assertEqual([row['name'] for row in candidates.data['results']], ['Samsung A15 Battery'])
+        everything = self.client.get(f'/api/campaign-lists/{list_id}/candidates/')
+        self.assertNotIn('Samsung J2 LCD', [row['name'] for row in everything.data['results']])
+
+        response = self.client.post(f'/api/campaign-lists/{list_id}/add-members/', {'ids': [self.screen.pk, self.battery.pk]}, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['list']['member_count'], 2)
+        self.assertEqual(response.data['list']['members'][0]['detail'], '26.50 AED · Qty 4')
+
+        response = self.client.post(f'/api/campaign-lists/{list_id}/add-members/', {'ids': [self.old.pk]}, format='json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_product_list_fills_a_contact_campaign_with_catalogue_prices(self):
+        product_list = self._product_list(self.screen, self.battery)
+        offer = SellingOffer.objects.create(company=self.company, name='Stock', created_by=self.manager)
+        response = self.client.post(f'/api/selling-offers/{offer.pk}/add-product-list/', {'list_id': product_list.pk}, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual((response.data['added'], response.data['skipped'], response.data['unavailable']), (2, 0, 0))
+        row = offer.products.get(product=self.screen)
+        self.assertEqual((row.quantity, str(row.price), row.currency), (4, '26.50', 'AED'))
+
+        again = self.client.post(f'/api/selling-offers/{offer.pk}/add-product-list/', {'list_id': product_list.pk}, format='json')
+        self.assertEqual((again.data['added'], again.data['skipped']), (0, 2))
+
+    def test_product_list_fills_a_group_campaign_and_skips_inactive_products(self):
+        product_list = self._product_list(self.screen, self.old)
+        inquiry = BuyingInquiry.objects.create(company=self.company, name='Need', audience_type='groups', created_by=self.manager)
+        response = self.client.post(f'/api/buying-inquiries/{inquiry.pk}/add-product-list/', {'list_id': product_list.pk}, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual((response.data['added'], response.data['unavailable']), (1, 1))
+        self.assertEqual(list(inquiry.products.values_list('product_id', flat=True)), [self.screen.pk])
+
+    def test_product_list_works_on_a_direct_message_campaign(self):
+        product_list = self._product_list(self.screen)
+        offer = SellingOffer.objects.create(company=self.company, name='Hello', message_mode='direct', direct_message='Hi', created_by=self.manager)
+        response = self.client.post(f'/api/selling-offers/{offer.pk}/add-product-list/', {'list_id': product_list.pk}, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(offer.products.count(), 1)
+
+    def test_recipient_and_product_lists_are_not_interchangeable(self):
+        product_list = self._product_list(self.screen)
+        contacts = self._list()
+        offer = SellingOffer.objects.create(company=self.company, name='Stock', created_by=self.manager)
+        self.assertEqual(self.client.post(f'/api/selling-offers/{offer.pk}/add-list/', {'list_id': product_list.pk}, format='json').status_code, 400)
+        self.assertEqual(self.client.post(f'/api/selling-offers/{offer.pk}/add-product-list/', {'list_id': contacts.pk}, format='json').status_code, 400)
+
+    def test_viewer_cannot_add_a_product_list_to_a_campaign(self):
+        product_list = self._product_list(self.screen)
+        offer = SellingOffer.objects.create(company=self.company, name='Stock', created_by=self.manager)
+        self.client.force_authenticate(self.viewer)
+        response = self.client.post(f'/api/selling-offers/{offer.pk}/add-product-list/', {'list_id': product_list.pk}, format='json')
+        self.assertEqual(response.status_code, 403)

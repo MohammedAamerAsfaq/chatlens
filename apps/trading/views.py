@@ -48,7 +48,13 @@ from .serializers import (
 )
 from .services.inquiry_match_filter import MATCH_FILTER_ALL, MATCH_FILTERS, filter_inquiries_by_match
 from .services import inquiry_sharing, inquiry_status
-from .services.campaign_lists import add_campaign_groups, campaign_list_for, usable_member_ids
+from .services.campaign_lists import (
+    add_campaign_groups,
+    add_campaign_products,
+    campaign_list_for,
+    product_list_for,
+    usable_member_ids,
+)
 from .services.product_cache import invalidate as invalidate_product_cache
 
 logger = logging.getLogger(__name__)
@@ -3676,10 +3682,26 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
         inquiry = self.get_object()
         campaign_list = campaign_list_for(inquiry, request.data.get('list_id'))
         ids, unavailable = usable_member_ids(campaign_list, request.user)
+        added, skipped = self._add_recipient_ids(inquiry, ids)
+        inquiry = self.get_queryset().get(pk=inquiry.pk)
+        return Response({
+            'added': added, 'skipped': skipped, 'unavailable': unavailable,
+            'inquiry': self.get_serializer(inquiry).data,
+        })
+
+    def _add_recipient_ids(self, inquiry, ids):
         if inquiry.audience_type == CampaignAudience.GROUPS:
-            added, skipped = add_campaign_groups(BuyingInquiryGroup, 'inquiry', inquiry, ids)
-        else:
-            added, skipped = self._bulk_add_suppliers(inquiry, ids, source=BuyingInquirySupplierSource.MANUAL)
+            return add_campaign_groups(BuyingInquiryGroup, 'inquiry', inquiry, ids)
+        return self._bulk_add_suppliers(inquiry, ids, source=BuyingInquirySupplierSource.MANUAL)
+
+    @action(detail=True, methods=['post'], url_path='add-product-list')
+    def add_product_list(self, request, pk=None):
+        """Add a saved product list's products to this campaign."""
+        inquiry = self.get_object()
+        product_list = product_list_for(inquiry, request.data.get('list_id'))
+        ids, unavailable = usable_member_ids(product_list, request.user)
+        with transaction.atomic():
+            added, skipped = add_campaign_products(inquiry, ids, self._add_product_row)
         inquiry = self.get_queryset().get(pk=inquiry.pk)
         return Response({
             'added': added, 'skipped': skipped, 'unavailable': unavailable,
@@ -4260,10 +4282,26 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
         offer = self.get_object()
         campaign_list = campaign_list_for(offer, request.data.get('list_id'))
         ids, unavailable = usable_member_ids(campaign_list, request.user)
+        added, skipped = self._add_recipient_ids(offer, ids)
+        offer = self.get_queryset().get(pk=offer.pk)
+        return Response({
+            'added': added, 'skipped': skipped, 'unavailable': unavailable,
+            'offer': self.get_serializer(offer).data,
+        })
+
+    def _add_recipient_ids(self, offer, ids):
         if offer.audience_type == CampaignAudience.GROUPS:
-            added, skipped = add_campaign_groups(SellingOfferGroup, 'offer', offer, ids)
-        else:
-            added, skipped = self._bulk_add_customers(offer, ids, source=SellingOfferCustomerSource.MANUAL)
+            return add_campaign_groups(SellingOfferGroup, 'offer', offer, ids)
+        return self._bulk_add_customers(offer, ids, source=SellingOfferCustomerSource.MANUAL)
+
+    @action(detail=True, methods=['post'], url_path='add-product-list')
+    def add_product_list(self, request, pk=None):
+        """Add a saved product list's products to this campaign."""
+        offer = self.get_object()
+        product_list = product_list_for(offer, request.data.get('list_id'))
+        ids, unavailable = usable_member_ids(product_list, request.user)
+        with transaction.atomic():
+            added, skipped = add_campaign_products(offer, ids, self._add_product_row)
         offer = self.get_queryset().get(pk=offer.pk)
         return Response({
             'added': added, 'skipped': skipped, 'unavailable': unavailable,

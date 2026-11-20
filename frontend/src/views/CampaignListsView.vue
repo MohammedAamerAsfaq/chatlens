@@ -15,15 +15,21 @@ import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
 import UiTabs from '@/components/ui/UiTabs.vue'
 
-// Saved, reusable recipient lists for campaigns: contact lists (direct buying and
-// selling) and group lists (group campaigns). Campaigns add a list from their
-// "Add from saved list" picker.
+// Saved, reusable lists for campaigns: contact lists (direct buying and selling),
+// group lists (group campaigns) and product lists (any campaign). Each is used on its
+// own, from a campaign's "Add from saved list" pickers.
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const canManage = computed(() => auth.hasPermission('campaigns.audiences.manage'))
 
-const kind = ref(route.query.kind === 'groups' ? 'groups' : 'contacts')
+const KINDS = {
+  contacts: { noun: 'contact', title: 'Contact lists', subtitle: 'Recipients for direct buying and selling campaigns.', search: 'Search contacts by name or phone...', skipped: 'contact(s) are no longer on your company accounts' },
+  groups: { noun: 'group', title: 'Group lists', subtitle: 'Recipients for group buying and selling campaigns.', search: 'Search sendable groups by name...', skipped: 'group(s) are no longer sendable' },
+  products: { noun: 'product', title: 'Product lists', subtitle: 'Products for any campaign, direct or group.', search: 'Search products by name, brand, SKU or alias...', skipped: 'product(s) are inactive' },
+}
+const kind = ref(KINDS[route.query.kind] ? route.query.kind : 'contacts')
+const kindInfo = computed(() => KINDS[kind.value])
 const lists = ref([])
 const loading = ref(true)
 const selected = ref(null)
@@ -36,10 +42,11 @@ const search = ref('')
 const candidates = reactive({ rows: [], count: 0, page: 1, pageSize: 25, searched: false })
 const confirmDelete = ref(false)
 
-const noun = computed(() => kind.value === 'groups' ? 'group' : 'contact')
+const noun = computed(() => kindInfo.value.noun)
 const tabs = computed(() => [
   { value: 'contacts', label: 'Contact lists' },
   { value: 'groups', label: 'Group lists' },
+  { value: 'products', label: 'Product lists' },
 ])
 const candidatePages = computed(() => Math.max(1, Math.ceil(candidates.count / candidates.pageSize)))
 const unusableCount = computed(() => (selected.value?.members || []).filter(row => !row.usable).length)
@@ -155,14 +162,14 @@ onMounted(loadLists)
     <UiPageHeader
       eyebrow="Campaigns"
       title="Saved lists"
-      description="Reusable contact and group lists. Add one to any campaign from its “Add from saved list” picker."
+      description="Reusable contact, group and product lists. Each is added to a campaign on its own, from that campaign's “Add from saved list” pickers."
     />
     <UiTabs v-model="kind" :tabs="tabs" />
     <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
     <UiNotice v-else-if="notice" tone="success">{{ notice }}</UiNotice>
 
     <div class="lists-layout">
-      <UiCard :title="kind === 'groups' ? 'Group lists' : 'Contact lists'" :subtitle="kind === 'groups' ? 'For group buying and selling campaigns.' : 'For direct buying and selling campaigns.'">
+      <UiCard :title="kindInfo.title" :subtitle="kindInfo.subtitle">
         <form v-if="canManage" class="lists-create" @submit.prevent="createList">
           <UiInput v-model="newName" :placeholder="`New ${noun} list name`" maxlength="120" />
           <UiButton type="submit" variant="primary" :disabled="busy === 'create' || !newName.trim()">{{ busy === 'create' ? 'Creating...' : 'Create' }}</UiButton>
@@ -199,7 +206,7 @@ onMounted(loadLists)
         <section v-if="canManage" class="lists-add">
           <h3>Add {{ noun }}s</h3>
           <form class="lists-search" @submit.prevent="searchCandidates(1)">
-            <UiInput v-model="search" :placeholder="kind === 'groups' ? 'Search sendable groups by name...' : 'Search contacts by name or phone...'" />
+            <UiInput v-model="search" :placeholder="kindInfo.search" />
             <UiButton type="submit" :disabled="busy === 'search'">{{ busy === 'search' ? 'Searching...' : 'Search' }}</UiButton>
           </form>
           <template v-if="candidates.searched">
@@ -222,7 +229,7 @@ onMounted(loadLists)
         <section class="lists-members">
           <h3>On this list <UiBadge>{{ selected.member_count }}</UiBadge></h3>
           <UiNotice v-if="unusableCount" tone="warning">
-            {{ unusableCount }} {{ kind === 'groups' ? 'group(s) are no longer sendable' : 'contact(s) are no longer on your company accounts' }} and will be skipped when this list is added to a campaign.
+            {{ unusableCount }} {{ kindInfo.skipped }} and will be skipped when this list is added to a campaign.
           </UiNotice>
           <p v-if="selected.hidden_member_count" class="lists-hint">{{ selected.hidden_member_count }} more on WhatsApp accounts you can't see.</p>
           <UiEmptyState v-if="!selected.members.length" :title="`No ${noun}s on this list`" :description="canManage ? 'Search above to add some.' : ''" />

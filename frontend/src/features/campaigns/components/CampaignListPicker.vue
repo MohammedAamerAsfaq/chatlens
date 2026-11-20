@@ -4,7 +4,7 @@ import { RouterLink } from 'vue-router'
 import { campaignListsApi } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 
-// Adds a saved customer or group list to a campaign. `apply(listId)` is the campaign's
+// Adds a saved contact, group or product list to a campaign. `apply(listId)` is the campaign's
 // own add-list request; its response data is emitted as `applied`.
 const props = defineProps({
   kind: { type: String, required: true },
@@ -15,7 +15,9 @@ const emit = defineEmits(['applied'])
 const auth = useAuthStore()
 const canManage = computed(() => auth.hasPermission('campaigns.audiences.manage'))
 const canApply = computed(() => auth.hasPermission('campaigns.campaigns.update'))
-const noun = computed(() => props.kind === 'groups' ? 'group' : 'contact')
+const NOUNS = { contacts: 'contact', groups: 'group', products: 'product' }
+const UNAVAILABLE = { contacts: 'not on your accounts', groups: 'no longer sendable', products: 'inactive' }
+const noun = computed(() => NOUNS[props.kind])
 const lists = ref([])
 const selected = ref('')
 const busy = ref(false)
@@ -38,7 +40,7 @@ async function load() {
 function summary(data) {
   const parts = [`${data.added} added`]
   if (data.skipped) parts.push(`${data.skipped} already in this campaign`)
-  if (data.unavailable) parts.push(`${data.unavailable} unavailable (${props.kind === 'groups' ? 'no longer sendable' : 'not on your accounts'})`)
+  if (data.unavailable) parts.push(`${data.unavailable} unavailable (${UNAVAILABLE[props.kind]})`)
   return parts.join(' · ')
 }
 async function add() {

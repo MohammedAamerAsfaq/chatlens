@@ -1,8 +1,8 @@
-"""Saved campaign lists: reusable customer and group recipient lists for campaigns.
+"""Saved campaign lists: reusable contact, group and product lists for campaigns.
 
 Anyone who can view campaigns can see and use the lists; creating, renaming, deleting
 and changing members needs campaigns.audiences.manage. Applying a list to a campaign is
-a campaign change (see the add-list actions on the campaign viewsets).
+a campaign change (see the add-list / add-product-list actions on the campaign viewsets).
 """
 from django.db import transaction
 from django.db.models import Count
@@ -14,17 +14,34 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.tenancy.api_permissions import CompanyPermissionRequired
-from apps.tenancy.services.access import default_company_for_user, visible_accounts_queryset
+from apps.tenancy.services.access import default_company_for_user
 
-from .models import CampaignAudience, CampaignList, CampaignListContact, CampaignListGroup
+from .models import CampaignList, CampaignListContact, CampaignListGroup, CampaignListKind, CampaignListProduct
 from .services.campaign_lists import (
     eligible_for,
     member_field,
     member_rows,
     search_eligible,
+    spec,
+    visible_member_rows,
 )
 
 CANDIDATE_PAGE_SIZE = 25
+ROW_MODELS = {
+    CampaignListKind.CONTACTS: CampaignListContact,
+    CampaignListKind.GROUPS: CampaignListGroup,
+    CampaignListKind.PRODUCTS: CampaignListProduct,
+}
+CANDIDATE_ORDER = {
+    CampaignListKind.CONTACTS: 'display_name',
+    CampaignListKind.GROUPS: 'name',
+    CampaignListKind.PRODUCTS: 'name',
+}
+NOT_ELIGIBLE = {
+    CampaignListKind.CONTACTS: "contacts are not phone-number contacts on this company's accounts you can see",
+    CampaignListKind.GROUPS: "groups are not sendable groups on this company's accounts you can see",
+    CampaignListKind.PRODUCTS: "products are not active products of this company",
+}
 
 
 def _account_name(account):
@@ -49,6 +66,23 @@ def _group_entry(group):
     }
 
 
+def _product_entry(product):
+    price = f'{product.sale_price} {product.currency}'.strip() if product.sale_price is not None else 'No price'
+    return {
+        'id': product.pk,
+        'name': product.name,
+        'detail': f'{price} · Qty {product.qty}',
+        'account_name': product.brand or product.category or '',
+    }
+
+
+ENTRIES = {
+    CampaignListKind.CONTACTS: _contact_entry,
+    CampaignListKind.GROUPS: _group_entry,
+    CampaignListKind.PRODUCTS: _product_entry,
+}
+
+
 class CampaignListSerializer(serializers.ModelSerializer):
     member_count = serializers.SerializerMethodField()
     created_by = serializers.CharField(source='created_by.username', read_only=True, default=None)
@@ -59,7 +93,7 @@ class CampaignListSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'member_count', 'created_by', 'created_at', 'updated_at']
 
     def get_member_count(self, obj):
-        return obj.group_count if obj.kind == CampaignAudience.GROUPS else obj.contact_count
+        return getattr(obj, f"{spec(obj)['rows']}_count")
 
     def validate_name(self, value):
         value = (value or '').strip()
@@ -70,12 +104,12 @@ class CampaignListSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         if self.instance:
             if 'kind' in attrs and attrs['kind'] != self.instance.kind:
-                raise ValidationError({'kind': 'A list cannot change between customers and groups.'})
+                raise ValidationError({'kind': 'A list cannot change its kind.'})
             kind = self.instance.kind
         else:
             kind = attrs.get('kind')
-            if kind not in CampaignAudience.values:
-                raise ValidationError({'kind': 'Choose a customer list or a group list.'})
+            if kind not in CampaignListKind.values:
+                raise ValidationError({'kind': 'Choose a contact, group or product list.'})
         name = attrs.get('name', self.instance.name if self.instance else '')
         clash = CampaignList.objects.filter(company=self.context['company'], kind=kind, name__iexact=name)
         if self.instance:
@@ -103,8 +137,15 @@ class CampaignListViewSet(viewsets.ModelViewSet):
         qs = (
             CampaignList.objects.filter(company=self._company())
             .select_related('created_by', 'company')
-            .annotate(contact_count=Count('contacts', distinct=True), group_count=Count('groups', distinct=True))
+            .annotate(
+                contacts_count=Count('contacts', distinct=True),
+                groups_count=Count('groups', distinct=True),
+                products_count=Count('products', distinct=True),
+            )
         )
+        if self.action != 'list':
+            # ?search= on candidates searches for members, not list names.
+            return qs
         kind = self.request.query_params.get('kind')
         if kind:
             qs = qs.filter(kind=kind)
@@ -135,21 +176,19 @@ class CampaignListViewSet(viewsets.ModelViewSet):
         return Response(self._detail(self.get_queryset().get(pk=serializer.instance.pk)))
 
     def _detail(self, campaign_list):
-        """The list with the members on accounts the user can see; members on other
-        accounts are counted, not shown."""
-        visible_accounts = visible_accounts_queryset(self.request.user).values('pk')
-        is_groups = campaign_list.kind == CampaignAudience.GROUPS
-        related = 'group' if is_groups else 'contact'
-        rows = member_rows(campaign_list).select_related(f'{related}__account')
-        shown = list(rows.filter(**{f'{related}__account__in': visible_accounts}))
+        """The list with the members the user may see; recipients on accounts the user
+        can't see are counted, not shown."""
+        target = spec(campaign_list)['target']
+        related = f'{target}__account' if spec(campaign_list)['account_scoped'] else target
+        shown = list(visible_member_rows(campaign_list, self.request.user).select_related(related))
         usable = set(eligible_for(campaign_list, self.request.user).filter(
-            pk__in=[getattr(row, f'{related}_id') for row in shown],
+            pk__in=[getattr(row, f'{target}_id') for row in shown],
         ).values_list('pk', flat=True))
-        entry = _group_entry if is_groups else _contact_entry
+        entry = ENTRIES[campaign_list.kind]
         members = []
         for row in shown:
-            target = getattr(row, related)
-            members.append({**entry(target), 'id': row.pk, f'{related}_id': target.pk, 'usable': target.pk in usable})
+            item = getattr(row, target)
+            members.append({**entry(item), 'id': row.pk, f'{target}_id': item.pk, 'usable': item.pk in usable})
         data = self.get_serializer(campaign_list).data
         data['members'] = members
         data['hidden_member_count'] = data['member_count'] - len(members)
@@ -157,20 +196,20 @@ class CampaignListViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='candidates')
     def candidates(self, request, pk=None):
-        """Contacts or groups that can be added to the list, excluding current members."""
+        """What can be added to the list, excluding current members."""
         campaign_list = self.get_object()
         qs = eligible_for(campaign_list, request.user).exclude(
             pk__in=member_rows(campaign_list).values(member_field(campaign_list)),
         )
         qs = search_eligible(qs, campaign_list.kind, request.query_params.get('search'))
-        qs = qs.order_by('name' if campaign_list.kind == CampaignAudience.GROUPS else 'display_name', 'pk')
+        qs = qs.order_by(CANDIDATE_ORDER[campaign_list.kind], 'pk')
         try:
             page = max(1, int(request.query_params.get('page') or 1))
         except ValueError:
             page = 1
         total = qs.count()
         start = (page - 1) * CANDIDATE_PAGE_SIZE
-        entry = _group_entry if campaign_list.kind == CampaignAudience.GROUPS else _contact_entry
+        entry = ENTRIES[campaign_list.kind]
         return Response({
             'count': total,
             'page': page,
@@ -180,8 +219,8 @@ class CampaignListViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='add-members')
     def add_members(self, request, pk=None):
-        """Add the given contact or group ids, or with all_matching every eligible one
-        matching search. Fails as a whole if any given id cannot go on the list."""
+        """Add the given ids, or with all_matching every eligible one matching search.
+        Fails as a whole if any given id cannot go on the list."""
         campaign_list = self.get_object()
         eligible = eligible_for(campaign_list, request.user)
         if request.data.get('all_matching'):
@@ -193,12 +232,11 @@ class CampaignListViewSet(viewsets.ModelViewSet):
             found = set(eligible.filter(pk__in=ids).values_list('pk', flat=True))
             missing = [pk for pk in ids if pk not in found]
             if missing:
-                what = 'groups are not sendable groups' if campaign_list.kind == CampaignAudience.GROUPS else 'contacts are not phone-number contacts'
-                raise ValidationError({'ids': f'{len(missing)} of the selected {what} on this company\'s accounts you can see.'})
+                raise ValidationError({'ids': f'{len(missing)} of the selected {NOT_ELIGIBLE[campaign_list.kind]}.'})
         field = member_field(campaign_list)
         existing = set(member_rows(campaign_list).values_list(field, flat=True))
         new_ids = list(dict.fromkeys(pk for pk in ids if pk not in existing))
-        row_model = CampaignListGroup if campaign_list.kind == CampaignAudience.GROUPS else CampaignListContact
+        row_model = ROW_MODELS[campaign_list.kind]
         with transaction.atomic():
             row_model.objects.bulk_create(
                 [row_model(campaign_list=campaign_list, added_by=request.user, **{field: pk}) for pk in new_ids],
@@ -217,11 +255,7 @@ class CampaignListViewSet(viewsets.ModelViewSet):
         ids = request.data.get('ids')
         if not isinstance(ids, list) or not ids:
             raise ValidationError({'ids': 'Choose at least one to remove.'})
-        related = 'group' if campaign_list.kind == CampaignAudience.GROUPS else 'contact'
-        visible_accounts = visible_accounts_queryset(request.user).values('pk')
         with transaction.atomic():
-            removed, _ = member_rows(campaign_list).filter(
-                pk__in=ids, **{f'{related}__account__in': visible_accounts},
-            ).delete()
+            removed, _ = visible_member_rows(campaign_list, request.user).filter(pk__in=ids).delete()
             CampaignList.objects.filter(pk=campaign_list.pk).update(updated_at=now())
         return Response({'removed': removed, 'list': self._detail(self.get_queryset().get(pk=campaign_list.pk))})

@@ -1,16 +1,22 @@
 from django.db import models
 from django.db.models.functions import Lower
 
-from .campaign_audience import CampaignAudience
+
+class CampaignListKind(models.TextChoices):
+    # contacts and groups match CampaignAudience values: a recipient list is used by the
+    # campaigns with that audience. A product list fills any formatted campaign's products.
+    CONTACTS = 'contacts', 'Contacts'
+    GROUPS = 'groups', 'Groups'
+    PRODUCTS = 'products', 'Products'
 
 
 class CampaignList(models.Model):
-    """A saved, reusable set of campaign recipients: customers (kind contacts) or
-    WhatsApp groups (kind groups). Lists belong to a company; applying one to a
-    campaign copies its members into the campaign's recipients."""
+    """A saved, reusable campaign list: recipients (kind contacts or groups) or products
+    (kind products). Lists belong to a company; applying one to a campaign copies its
+    members into the campaign's recipients or product rows."""
 
     company = models.ForeignKey('tenancy.Company', on_delete=models.CASCADE, related_name='campaign_lists')
-    kind = models.CharField(max_length=20, choices=CampaignAudience.choices, db_index=True)
+    kind = models.CharField(max_length=20, choices=CampaignListKind.choices, db_index=True)
     name = models.CharField(max_length=120)
     description = models.TextField(blank=True)
     created_by = models.ForeignKey(
@@ -62,4 +68,18 @@ class CampaignListGroup(models.Model):
         ordering = ['id']
         constraints = [
             models.UniqueConstraint(fields=['campaign_list', 'group'], name='unique_campaign_list_group'),
+        ]
+
+
+class CampaignListProduct(models.Model):
+    campaign_list = models.ForeignKey(CampaignList, on_delete=models.CASCADE, related_name='products')
+    product = models.ForeignKey('trading.Product', on_delete=models.CASCADE, related_name='campaign_list_rows')
+    added_by = models.ForeignKey('auth.User', null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'trading_campaign_list_product'
+        ordering = ['id']
+        constraints = [
+            models.UniqueConstraint(fields=['campaign_list', 'product'], name='unique_campaign_list_product'),
         ]

@@ -74,6 +74,28 @@ describe('CampaignListsView', () => {
     expect(wrapper.find('.lists-members').text()).toContain('will be skipped when this list is added to a campaign')
   })
 
+  it('has a product lists tab that searches the catalogue', async () => {
+    api.list.mockImplementation(({ kind }) => Promise.resolve({ data: kind === 'products' ? [{ id: 8, kind: 'products', name: 'A15 parts', member_count: 0 }] : [] }))
+    api.get.mockResolvedValue({ data: { ...detail(), id: 8, kind: 'products', name: 'A15 parts' } })
+    api.candidates.mockResolvedValue({ data: { count: 1, page: 1, page_size: 25, results: [{ id: 214, name: 'Samsung A15 Incell LCD', detail: '26.50 AED · Qty 4', account_name: 'samsung' }] } })
+    const wrapper = mount(CampaignListsView)
+    await flushPromises()
+
+    await wrapper.findAll('[role="tab"]').find(tab => tab.text().startsWith('Product lists')).trigger('click')
+    await flushPromises()
+    expect(api.list).toHaveBeenLastCalledWith({ kind: 'products' })
+    expect(router.replace).toHaveBeenCalledWith({ query: { kind: 'products' } })
+    expect(wrapper.find('form.lists-create input').attributes('placeholder')).toBe('New product list name')
+
+    await wrapper.find('.lists-index button').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('form.lists-search input').attributes('placeholder')).toContain('Search products')
+    await wrapper.find('form.lists-search').trigger('submit')
+    await flushPromises()
+    expect(wrapper.find('.lists-add').text()).toContain('Samsung A15 Incell LCD')
+    expect(wrapper.find('.lists-add').text()).toContain('26.50 AED · Qty 4')
+  })
+
   it('lets members without list permission look but not change anything', async () => {
     useAuthStore().user.permissions = { 'campaigns.campaigns.view': 'all' }
     api.get.mockResolvedValue({ data: detail([ali]) })

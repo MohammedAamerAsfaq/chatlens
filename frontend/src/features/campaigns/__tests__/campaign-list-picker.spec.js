@@ -54,6 +54,21 @@ describe('CampaignListPicker', () => {
     expect(wrapper.find('[role="alert"]').text()).toBe('This campaign sends to groups; choose a group list.')
   })
 
+  it('adds a saved product list on its own', async () => {
+    api.list.mockResolvedValue({ data: [{ id: 9, name: 'A15 parts', member_count: 3 }] })
+    const apply = vi.fn().mockResolvedValue({ data: { added: 2, skipped: 0, unavailable: 1, offer: { id: 7 } } })
+    const wrapper = mountPicker({ kind: 'products', apply })
+    await flushPromises()
+    expect(api.list).toHaveBeenCalledWith({ kind: 'products' })
+    expect(wrapper.find('select').text()).toContain('Choose a product list...')
+
+    await wrapper.find('select').setValue(9)
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+    expect(apply).toHaveBeenCalledWith(9)
+    expect(wrapper.text()).toContain('2 added · 1 unavailable (inactive)')
+  })
+
   it('is hidden from members who cannot change campaigns', async () => {
     useAuthStore().user.permissions = { 'campaigns.campaigns.view': 'all' }
     const wrapper = mountPicker()

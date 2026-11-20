@@ -246,6 +246,11 @@
                   <h3>Products</h3>
                   <span class="muted">{{ inquiry.products.length }} selected</span>
                 </div>
+                <CampaignListPicker
+                  kind="products"
+                  :apply="listId => tradingApi.addBuyingInquiryProductList(inquiry.id, listId)"
+                  @applied="data => replaceInquiry(data.inquiry)"
+                />
                 <div v-if="editingInquiryId === inquiry.id" class="product-picker inline-picker">
                   <input
                     v-model="editProductSearch[inquiry.id]"

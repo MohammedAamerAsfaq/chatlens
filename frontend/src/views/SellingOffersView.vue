@@ -290,6 +290,11 @@
                   <h3>Products</h3>
                   <span class="muted">{{ offer.products.length }} selected</span>
                 </div>
+                <CampaignListPicker
+                  kind="products"
+                  :apply="listId => tradingApi.addSellingOfferProductList(offer.id, listId)"
+                  @applied="data => replaceOffer(data.offer)"
+                />
                 <div v-if="editingOfferId === offer.id" class="product-picker inline-picker">
                   <input
                     v-model="editProductSearch[offer.id]"
