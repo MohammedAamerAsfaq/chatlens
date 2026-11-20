@@ -282,6 +282,10 @@
                 <span>Direct message</span>
                 <textarea v-model="editDraft.direct_message" rows="7" />
               </label>
+              <label v-if="editDraft.message_mode === 'direct'" class="direct-edit-message">
+                <span>Product line <small class="muted">(for products listed after the message)</small></span>
+                <textarea v-model="editDraft.product_line_template" rows="2" />
+              </label>
             </div>
 
             <div class="detail-grid">
@@ -510,7 +514,7 @@ import {
 } from '@/features/campaigns'
 
 const DEFAULT_HEADER = 'Hello, available stock offer:'
-const DEFAULT_LINE = '- {product_name} - Qty {qty} - {price}'
+const DEFAULT_LINE = '- {product_name} - {price}'
 const DEFAULT_FOOTER = 'Reply with required quantity. Subject to availability.'
 const DEFAULT_SEND_FLAG = false
 const DEFAULT_FLAG_POSITION = 'prefix'

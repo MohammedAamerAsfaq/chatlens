@@ -43,7 +43,7 @@ const GROUP_PAGE_SIZE = 25
 function defaults() {
   return isBuying.value
     ? ['Hello, looking to buy:', '- {product_name} - Qty {qty} - Target {price}', 'Please reply with availability and best price.']
-    : ['Hello, available stock offer:', '- {product_name} - Qty {qty} - {price}', 'Reply with required quantity. Subject to availability.']
+    : ['Hello, available stock offer:', '- {product_name} - {price}', 'Reply with required quantity. Subject to availability.']
 }
 
 function resetDraft() {

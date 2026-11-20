@@ -10,6 +10,19 @@ from .models import (
 )
 
 
+def product_display_name(product):
+    """The product as campaigns and inquiries show it: its name, with the brand in front only
+    when the name doesn't already start with it ("Apple iPhone 11 ..." stays as is; "11 Pro"
+    with brand apple becomes "apple 11 Pro")."""
+    if not product:
+        return ''
+    name = (product.name or '').strip()
+    brand = (product.brand or '').strip()
+    if not brand or name.lower() == brand.lower() or name.lower().startswith(brand.lower() + ' '):
+        return name
+    return f'{brand} {name}'.strip()
+
+
 class ProductSerializer(serializers.ModelSerializer):
     # Read-only convenience list for display/search — managed for real via the
     # dedicated /products/{id}/aliases/ endpoints (ProductAliasSerializer below),
@@ -407,9 +420,7 @@ class InquiryProductSerializer(serializers.ModelSerializer):
         return obj.company_contact.display_name or obj.company_contact.legal_name or ''
 
     def get_product_name(self, obj):
-        if not obj.product:
-            return ''
-        return f'{obj.product.brand} {obj.product.name}'.strip()
+        return product_display_name(obj.product)
 
 
 class NonInventoryProductMentionSerializer(serializers.ModelSerializer):
@@ -519,7 +530,7 @@ class BuyingInquiryProductSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_product_name(self, obj):
-        return f'{obj.product.brand} {obj.product.name}'.strip()
+        return product_display_name(obj.product)
 
 
 class BuyingInquirySupplierSerializer(serializers.ModelSerializer):
@@ -636,7 +647,7 @@ class SellingOfferProductSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_product_name(self, obj):
-        return f'{obj.product.brand} {obj.product.name}'.strip()
+        return product_display_name(obj.product)
 
     def get_attributes(self, obj):
         return ProductAttributeSerializer(obj.product.attribute_set.all(), many=True).data

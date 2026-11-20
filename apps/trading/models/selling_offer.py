@@ -46,7 +46,7 @@ class SellingOffer(models.Model):
         db_index=True,
     )
     header_template = models.TextField(default='Hello, available stock offer:')
-    product_line_template = models.TextField(default='- {product_name} - Qty {qty} - {price}')
+    product_line_template = models.TextField(default='- {product_name} - {price}')
     footer_template = models.TextField(default='Reply with required quantity. Subject to availability.')
     send_flag = models.BooleanField(default=False)
     flag_position = models.CharField(max_length=10, default='prefix')

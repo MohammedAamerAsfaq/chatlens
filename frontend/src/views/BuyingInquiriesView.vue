@@ -238,6 +238,10 @@
                 <span>Direct message</span>
                 <textarea v-model="editDraft.direct_message" rows="7" />
               </label>
+              <label v-if="editDraft.message_mode === 'direct'" class="direct-edit-message">
+                <span>Product line <small class="muted">(for products listed after the message)</small></span>
+                <textarea v-model="editDraft.product_line_template" rows="2" />
+              </label>
             </div>
 
             <div class="detail-grid">
