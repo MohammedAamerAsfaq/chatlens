@@ -42,6 +42,7 @@ import GroupSellingOffersView from '../views/GroupSellingOffersView.vue'
 import CampaignListsView from '../views/CampaignListsView.vue'
 import TenantAdminView from '../views/TenantAdminView.vue'
 import V2MatchTrainingView from '../views/V2MatchTrainingView.vue'
+import TradingAiReviewView from '../views/TradingAiReviewView.vue'
 import TaskOperationsView from '../views/TaskOperationsView.vue'
 import AIOperationsView from '../views/AIOperationsView.vue'
 import TaskQueueSettingsView from '../views/TaskQueueSettingsView.vue'
@@ -115,6 +116,7 @@ const router = createRouter({
     { path: '/ai-instructions', name: 'ai-instructions', component: AIInstructionsView, meta: { title: 'AI Instructions', industries: ['trading', 'real_estate'], permission: 'settings.company.manage' } },
     { path: '/v2-settings', name: 'v2-settings', component: V2SettingsView, meta: { title: 'V2 Settings', industries: ['trading'] } },
     { path: '/tenant-admin', name: 'tenant-admin', component: TenantAdminView, meta: { title: 'Tenant Admin' } },
+    { path: '/trading-ai-review', name: 'trading-ai-review', component: TradingAiReviewView, meta: { title: 'Trading AI Review', industries: ['trading'], permission: 'trading.matches.manage' } },
     { path: '/v2-match-training', name: 'v2-match-training', component: V2MatchTrainingView, meta: { title: 'V2 Match Training', industries: ['trading'] } },
     { path: '/task-operations', name: 'task-operations', component: TaskOperationsView, meta: { title: 'Task Operations' } },
     { path: '/ai-operations', name: 'ai-operations', component: AIOperationsView, meta: { title: 'AI Operations', permission: 'settings.company.manage' } },

@@ -36,6 +36,7 @@ const pageDescriptions = {
   'ai-instructions': 'Configure company AI instructions and execution targets.',
   'v2-settings': 'Configure V2 classification and GatePass behavior.',
   'tenant-admin': 'Create and manage company workspaces.',
+  'trading-ai-review': 'Review message parsing for model training.',
   'v2-match-training': 'Review and correct V2 product matches.',
   'task-operations': 'Monitor queues, workers, schedules, and task execution.',
   'task-queues': 'Configure queue concurrency, modes, and timeouts.',

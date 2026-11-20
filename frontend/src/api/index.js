@@ -597,3 +597,8 @@ export const tenantAdminApi = {
   updateUser: (id, data) => http.patch(`/admin/users/${id}/`, data),
   removeUser: (id) => http.delete(`/admin/users/${id}/`),
 }
+
+export const tradingReviewApi = {
+  next: (pool) => http.get('/trading-ai-review/next/', { params: { pool } }),
+  submit: (data) => http.post('/trading-ai-review/submit/', data),
+}

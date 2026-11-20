@@ -108,3 +108,5 @@ __all__ = [
     'SellingOfferProduct', 'SellingOfferStatus',
     'V2MatchTrainingSample',
 ]
+
+from .trading_message_review import TradingMessageReview

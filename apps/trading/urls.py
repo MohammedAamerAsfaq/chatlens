@@ -1,5 +1,6 @@
 from rest_framework.routers import DefaultRouter
 from . import views
+from .api_trading_review import TradingReviewViewSet
 from .api_campaign_lists import CampaignListViewSet
 
 router = DefaultRouter()
@@ -25,4 +26,7 @@ router.register('inquiry-forwarding-rules', views.InquiryForwardingRuleViewSet, 
 router.register('automated-price-captures', views.AutomatedPriceCaptureViewSet, basename='automated-price-captures')
 router.register('v2-match-training', views.V2MatchTrainingViewSet, basename='v2-match-training')
 
+router.register('trading-ai-review', TradingReviewViewSet, basename='trading-ai-review')
+
 urlpatterns = router.urls
+

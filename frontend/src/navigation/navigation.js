@@ -82,6 +82,7 @@ export const settingsNavigation = [
   { label: 'KiwiRouter', to: '/kiwi-router', route: 'kiwi-router' },
   { label: 'AI Instructions', to: '/ai-instructions', route: 'ai-instructions', industries: ['trading', 'real_estate'], permission: 'settings.company.manage' },
   { label: 'V2 Settings', to: '/v2-settings', route: 'v2-settings', industries: ['trading'] },
+  { label: 'Trading AI Review', to: '/trading-ai-review', route: 'trading-ai-review', industries: ['trading'], permission: 'trading.matches.manage' },
   { label: 'V2 Match Training', to: '/v2-match-training', route: 'v2-match-training', industries: ['trading'] },
   { label: 'Inquiry Forwarding', to: '/inquiry-forwarding', route: 'inquiry-forwarding', industries: ['trading'] },
   { label: 'Inquiry Sharing', to: '/inquiry-sharing', route: 'inquiry-sharing', industries: ['trading'], permission: 'trading.board.view', personal: true },
