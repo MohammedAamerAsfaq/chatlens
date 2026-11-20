@@ -198,7 +198,7 @@
               <span class="row-index"><span>{{ offerRowNumber(index) }}</span></span>
               <div>
                 <strong>{{ offer.name }}</strong>
-                <span>{{ offer.message_mode === 'direct' ? 'Direct message' : `${offer.products.length} products` }} - {{ offer.customer_count }} customers</span>
+                <span>{{ offer.message_mode === 'direct' ? `Direct message${offer.products.length ? ` + ${offer.products.length} products` : ''}` : `${offer.products.length} products` }} - {{ offer.customer_count }} customers</span>
               </div>
             </div>
             <div class="offer-right">
@@ -498,6 +498,7 @@ import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons
 import { contactsApi, tradingApi } from '@/api'
 import { useColorEmoji } from '@/features/trading/composables/useColorEmoji'
 import {
+  directMessageWithProducts,
   CampaignAttachmentPanel,
   CampaignListPicker,
   CampaignMessagePreview,
@@ -1114,7 +1115,6 @@ function affixLine(line, token, position = 'prefix') {
 }
 
 function formatOfferMessage(offer) {
-  if (offer.message_mode === 'direct') return offer.direct_message || ''
   const lines = (offer.products || []).map(row => {
     const lineTemplate = valueOrDefault(offer.product_line_template, DEFAULT_LINE)
     let line = lineTemplate
@@ -1129,6 +1129,9 @@ function formatOfferMessage(offer) {
     }
     return line
   }).filter(line => line.trim())
+  if (offer.message_mode === 'direct') {
+    return directMessageWithProducts(offer.direct_message, lines)
+  }
   const header = valueOrDefault(offer.header_template, DEFAULT_HEADER)
   const footer = valueOrDefault(offer.footer_template, DEFAULT_FOOTER)
   const parts = []

@@ -12,5 +12,6 @@ export {
   MAX_TEXT_LENGTH,
   campaignCharacterCount,
   campaignImageError,
+  directMessageWithProducts,
   campaignMessageLimit,
 } from './constants'

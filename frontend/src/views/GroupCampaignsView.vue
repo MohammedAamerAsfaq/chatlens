@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { accountsApi, groupsApi, outboundAssetsApi, tradingApi } from '@/api'
 import {
+  directMessageWithProducts,
   addAllCampaignResults,
   CampaignAttachmentPanel,
   CampaignListPicker,
@@ -308,23 +309,30 @@ function replaceCampaign(updated) {
   if (index !== -1) campaigns.value[index] = updated
 }
 
-function message(campaign) {
-  if (campaign.message_mode === 'direct') return campaign.direct_message || ''
-  const lines = campaign.products.map(row => campaign.product_line_template
+function composeMessage(campaign, { mode, directText, header, line, footer }) {
+  const lines = campaign.products.map(row => line
     .replaceAll('{product_name}', row.product_name)
     .replaceAll('{qty}', row.quantity ?? '-')
     .replaceAll('{price}', row.target_price ?? row.price ?? '-'))
-  return [campaign.header_template, ...lines, campaign.footer_template].filter(Boolean).join('\n')
+  if (mode === 'direct') {
+    return directMessageWithProducts(directText, lines)
+  }
+  return [header, ...lines, footer].filter(Boolean).join('\n')
+}
+
+function message(campaign) {
+  return composeMessage(campaign, {
+    mode: campaign.message_mode, directText: campaign.direct_message,
+    header: campaign.header_template, line: campaign.product_line_template, footer: campaign.footer_template,
+  })
 }
 
 function attachmentMessage(campaign) {
   if (editingId.value !== campaign.id) return message(campaign)
-  if (editDraft.messageMode === 'direct') return editDraft.directMessage || ''
-  const lines = campaign.products.map(row => editDraft.line
-    .replaceAll('{product_name}', row.product_name)
-    .replaceAll('{qty}', row.quantity ?? '-')
-    .replaceAll('{price}', row.target_price ?? row.price ?? '-'))
-  return [editDraft.header, ...lines, editDraft.footer].filter(Boolean).join('\n')
+  return composeMessage(campaign, {
+    mode: editDraft.messageMode, directText: editDraft.directMessage,
+    header: editDraft.header, line: editDraft.line, footer: editDraft.footer,
+  })
 }
 
 function messageLimit(campaign) {
@@ -455,17 +463,18 @@ onMounted(async () => {
       <div class="section-head"><div><h2>Existing {{ title }}</h2><p>Announcements, communities, non-participant and blocked groups never appear in selection.</p></div><button @click="loadCampaigns">Refresh</button></div>
       <p v-if="!campaigns.length" class="empty">No group campaigns created.</p>
       <article v-for="campaign in campaigns" :key="campaign.id" class="campaign">
-        <button class="summary" @click="toggle(campaign)"><span><strong>{{ campaign.name }}</strong><small>{{ campaign.message_mode === 'direct' ? 'Direct message' : `${campaign.products.length} products` }} · {{ campaign.groups.length }} groups</small></span><b>{{ expanded.has(campaign.id) ? '−' : '+' }}</b></button>
+        <button class="summary" @click="toggle(campaign)"><span><strong>{{ campaign.name }}</strong><small>{{ campaign.message_mode === 'direct' ? `Direct message${campaign.products.length ? ` + ${campaign.products.length} products` : ''}` : `${campaign.products.length} products` }} · {{ campaign.groups.length }} groups</small></span><b>{{ expanded.has(campaign.id) ? '−' : '+' }}</b></button>
         <div v-if="expanded.has(campaign.id)" class="details">
           <div class="edit-toolbar"><button v-if="editingId !== campaign.id" @click="startEdit(campaign)">Edit {{ isBuying ? 'Inquiry' : 'Offer' }}</button><template v-else><button class="primary" :disabled="busy === `save-${campaign.id}`" @click="saveEdit(campaign)">{{ busy === `save-${campaign.id}` ? 'Saving...' : 'Save Changes' }}</button><button @click="cancelEdit">Cancel</button></template></div>
           <div v-if="editingId === campaign.id" class="edit-panel">
             <label>Name<input v-model="editDraft.name" /></label>
             <CampaignModeSelector v-model="editDraft.messageMode" formatted-description="Use products and templates." direct-description="Use one campaign message." />
-            <template v-if="editDraft.messageMode === 'formatted'">
-              <div class="templates"><label>Header<textarea v-model="editDraft.header" rows="2" /></label><label>Product line<textarea v-model="editDraft.line" rows="2" /></label><label>Footer<textarea v-model="editDraft.footer" rows="2" /></label></div>
-              <div class="edit-products"><h3>Products</h3><div class="inline"><input v-model="editDraft.productSearch" placeholder="Search product to add..." @keydown.enter.prevent="searchEditProducts(campaign)" /><button @click="searchEditProducts(campaign)">Search</button></div><div v-if="editProductOptions.length" class="options"><button v-for="product in editProductOptions" :key="product.id" @click="addEditProduct(campaign, product)"><strong>{{ product.brand }} {{ product.name }}</strong><span>Qty {{ product.qty }}</span></button></div><div class="edit-product-list"><div v-for="row in campaign.products" :key="row.id"><span>{{ row.product_name }}</span><button class="danger" :disabled="busy === `remove-product-${campaign.id}-${row.product}`" @click="removeEditProduct(campaign, row)">Remove</button></div></div></div>
+            <div v-if="editDraft.messageMode === 'formatted'" class="templates"><label>Header<textarea v-model="editDraft.header" rows="2" /></label><label>Product line<textarea v-model="editDraft.line" rows="2" /></label><label>Footer<textarea v-model="editDraft.footer" rows="2" /></label></div>
+            <template v-else>
+              <label>Direct message<textarea v-model="editDraft.directMessage" rows="6" /></label>
+              <label>Product line <small>(for products listed after the message)</small><textarea v-model="editDraft.line" rows="2" /></label>
             </template>
-            <label v-else>Direct message<textarea v-model="editDraft.directMessage" rows="6" /></label>
+            <div class="edit-products"><h3>Products</h3><div class="inline"><input v-model="editDraft.productSearch" placeholder="Search product to add..." @keydown.enter.prevent="searchEditProducts(campaign)" /><button @click="searchEditProducts(campaign)">Search</button></div><div v-if="editProductOptions.length" class="options"><button v-for="product in editProductOptions" :key="product.id" @click="addEditProduct(campaign, product)"><strong>{{ product.brand }} {{ product.name }}</strong><span>Qty {{ product.qty }}</span></button></div><div class="edit-product-list"><div v-for="row in campaign.products" :key="row.id"><span>{{ row.product_name }}</span><button class="danger" :disabled="busy === `remove-product-${campaign.id}-${row.product}`" @click="removeEditProduct(campaign, row)">Remove</button></div></div></div>
           </div>
           <CampaignMessagePreview v-else title="Message preview" :message="message(campaign)" />
           <div class="product-list-picker"><h3>Products <small>{{ campaign.products.length }} selected</small></h3><CampaignListPicker kind="products" :apply="listId => apiFor('addProductList')(campaign.id, listId)" @applied="data => replaceCampaign(data.inquiry || data.offer)" /></div>

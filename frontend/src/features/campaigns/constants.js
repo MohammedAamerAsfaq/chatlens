@@ -17,3 +17,10 @@ export function campaignImageError(file) {
   }
   return ''
 }
+
+// A direct-message campaign sends its typed text; when it also has products (e.g. from a
+// saved product list), their formatted lines follow after a blank line.
+export function directMessageWithProducts(text, productLines) {
+  const message = text || ''
+  return productLines.length ? [message, '', ...productLines].join('\n') : message
+}

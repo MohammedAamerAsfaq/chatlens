@@ -170,7 +170,7 @@
               <span class="row-index"><span>{{ inquiryRowNumber(index) }}</span></span>
               <div>
                 <strong>{{ inquiry.name }}</strong>
-                <span>{{ inquiry.message_mode === 'direct' ? 'Direct message' : `${inquiry.products.length} products` }} - {{ inquiry.supplier_count }} suppliers</span>
+                <span>{{ inquiry.message_mode === 'direct' ? `Direct message${inquiry.products.length ? ` + ${inquiry.products.length} products` : ''}` : `${inquiry.products.length} products` }} - {{ inquiry.supplier_count }} suppliers</span>
               </div>
             </div>
             <div class="inquiry-right">
@@ -482,6 +482,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons'
 import { contactsApi, tradingApi } from '@/api'
 import {
+  directMessageWithProducts,
   CampaignAttachmentPanel,
   CampaignListPicker,
   CampaignMessagePreview,
@@ -1107,7 +1108,6 @@ function money(value, currency = '') {
 }
 
 function formatInquiryMessage(inquiry) {
-  if (inquiry.message_mode === 'direct') return inquiry.direct_message || ''
   const lines = (inquiry.products || []).map(row => {
     const line = inquiry.product_line_template || DEFAULT_LINE
     return line
@@ -1115,6 +1115,9 @@ function formatInquiryMessage(inquiry) {
       .replaceAll('{qty}', row.quantity ?? '-')
       .replaceAll('{price}', money(row.target_price, row.currency))
   })
+  if (inquiry.message_mode === 'direct') {
+    return directMessageWithProducts(inquiry.direct_message, lines)
+  }
   return [inquiry.header_template || DEFAULT_HEADER, '', ...lines, '', inquiry.footer_template || DEFAULT_FOOTER].join('\n')
 }
 

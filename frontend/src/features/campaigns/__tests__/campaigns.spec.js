@@ -3,10 +3,16 @@ import { mount } from '@vue/test-utils'
 import CampaignAttachmentPanel from '../components/CampaignAttachmentPanel.vue'
 import CampaignModeSelector from '../components/CampaignModeSelector.vue'
 import CampaignSearchActions from '../components/CampaignSearchActions.vue'
-import { campaignCharacterCount, campaignImageError, campaignMessageLimit } from '../constants'
+import { campaignCharacterCount, campaignImageError, campaignMessageLimit, directMessageWithProducts } from '../constants'
 import { addAllCampaignResults, fetchAllPaginatedResults } from '../bulkSelection'
 
 describe('campaign feature', () => {
+  it('lists a direct message campaign\'s products after its text', () => {
+    expect(directMessageWithProducts('LCDS', [])).toBe('LCDS')
+    expect(directMessageWithProducts('LCDS', ['- iPhone 11 GX OLED - Qty 0 - 27', '- iPhone 11 KD Incell - Qty 0 - 24']))
+      .toBe('LCDS\n\n- iPhone 11 GX OLED - Qty 0 - 27\n- iPhone 11 KD Incell - Qty 0 - 24')
+  })
+
   it('uses shared WhatsApp message and image constraints', () => {
     expect(campaignCharacterCount('A😀')).toBe(2)
     expect(campaignMessageLimit(false)).toBe(10000)
