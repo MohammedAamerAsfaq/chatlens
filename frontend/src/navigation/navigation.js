@@ -44,13 +44,14 @@ export const primaryNavigation = [
   },
   {
     id: 'campaigns', label: 'Campaigns', to: '/buying-inquiries', industries: ['trading'],
-    routes: ['buying-inquiries', 'selling-offers', 'group-buying-inquiries', 'group-selling-offers', 'campaign-lists'],
+    routes: ['buying-inquiries', 'selling-offers', 'group-buying-inquiries', 'group-selling-offers', 'campaign-lists', 'campaign-settings'],
     children: [
       { label: 'Direct Buying', to: '/buying-inquiries', route: 'buying-inquiries' },
       { label: 'Direct Selling', to: '/selling-offers', route: 'selling-offers' },
       { label: 'Group Buying', to: '/group-buying-inquiries', route: 'group-buying-inquiries' },
       { label: 'Group Selling', to: '/group-selling-offers', route: 'group-selling-offers' },
       { label: 'Saved Lists', to: '/campaign-lists', route: 'campaign-lists', permission: 'campaigns.campaigns.view' },
+      { label: 'Settings', to: '/campaign-settings', route: 'campaign-settings', permission: 'campaigns.campaigns.view' },
     ],
   },
   {

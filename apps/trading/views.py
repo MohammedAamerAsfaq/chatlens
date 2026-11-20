@@ -48,6 +48,7 @@ from .serializers import (
 )
 from .services.inquiry_match_filter import MATCH_FILTER_ALL, MATCH_FILTERS, filter_inquiries_by_match
 from .services import inquiry_sharing, inquiry_status
+from .services.campaign_currency import clean_currency_settings, company_currency_settings, save_company_currency_settings
 from .services.campaign_lists import (
     add_campaign_groups,
     add_campaign_products,
@@ -77,6 +78,13 @@ def _sendable_campaign_group(user, company, group_id):
     ):
         raise ValidationError({'group_id': 'Only sendable, participating non-announcement groups can be selected.'})
     return group
+
+
+def _campaign_currency_settings(value, previous):
+    """A campaign's own currency display, or None to use the company's."""
+    if value is None:
+        return None
+    return clean_currency_settings(value, previous=previous)
 
 
 def _campaign_audience(value):
@@ -3376,6 +3384,9 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
         if 'image_asset' in request.data:
             inquiry.image_asset = _campaign_image_asset(request, inquiry.company)
             update_fields.append('image_asset')
+        if 'currency_settings' in request.data:
+            inquiry.currency_settings = _campaign_currency_settings(request.data['currency_settings'], inquiry.currency_settings)
+            update_fields.append('currency_settings')
         if inquiry.message_mode == CampaignMessageMode.DIRECT and not inquiry.direct_message:
             return Response({'direct_message': 'Direct message is required.'}, status=status.HTTP_400_BAD_REQUEST)
         if 'status' in request.data:
@@ -3419,6 +3430,7 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
                 header_template=source.header_template,
                 product_line_template=source.product_line_template,
                 footer_template=source.footer_template,
+                currency_settings=source.currency_settings,
                 created_by=request.user,
             )
             BuyingInquiryProduct.objects.bulk_create([
@@ -4076,6 +4088,9 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
         if 'image_asset' in request.data:
             offer.image_asset = _campaign_image_asset(request, offer.company)
             update_fields.append('image_asset')
+        if 'currency_settings' in request.data:
+            offer.currency_settings = _campaign_currency_settings(request.data['currency_settings'], offer.currency_settings)
+            update_fields.append('currency_settings')
         if offer.message_mode == CampaignMessageMode.DIRECT and not offer.direct_message:
             return Response({'direct_message': 'Direct message is required.'}, status=status.HTTP_400_BAD_REQUEST)
         if 'status' in request.data:
@@ -4848,6 +4863,15 @@ class TradingSettingsViewSet(viewsets.ViewSet):
             },
         )
         return Response(payload)
+
+    @action(detail=False, methods=['get', 'put'], url_path='campaign-currency')
+    def campaign_currency(self, request):
+        """The company's campaign price display: primary currency, label style and
+        converted currencies with hand-entered rates (services.campaign_currency)."""
+        company = default_company_for_user(request.user)
+        if request.method == 'GET':
+            return Response(company_currency_settings(company))
+        return Response(save_company_currency_settings(company, request.data))
 
     CARD_ANIMATION_KEY = 'trading_card_animation_settings'
     CARD_ANIMATION_DEFAULTS = {'slide_direction': 'left'}

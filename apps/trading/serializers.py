@@ -600,7 +600,7 @@ class BuyingInquirySerializer(serializers.ModelSerializer):
         fields = [
             'id', 'company', 'name', 'audience_type', 'message_mode', 'direct_message', 'image_asset',
             'image_filename', 'image_mime_type', 'image_size_bytes', 'image_url', 'status', 'header_template',
-            'product_line_template', 'footer_template', 'products', 'suppliers',
+            'product_line_template', 'footer_template', 'currency_settings', 'products', 'suppliers',
             'groups', 'supplier_count', 'notified_count', 'closed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = [
@@ -703,7 +703,7 @@ class SellingOfferSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'company', 'name', 'audience_type', 'message_mode', 'direct_message', 'image_asset',
             'image_filename', 'image_mime_type', 'image_size_bytes', 'image_url', 'status', 'header_template',
-            'product_line_template', 'footer_template', 'send_flag', 'flag_position',
+            'product_line_template', 'footer_template', 'currency_settings', 'send_flag', 'flag_position',
             'send_color', 'color_position', 'products', 'customers', 'groups',
             'customer_count', 'notified_count', 'closed_at', 'created_at', 'updated_at',
         ]

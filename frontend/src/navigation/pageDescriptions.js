@@ -33,6 +33,7 @@ const pageDescriptions = {
   'group-buying-inquiries': 'Send buying campaigns to eligible groups.',
   'group-selling-offers': 'Send selling campaigns to eligible groups.',
   'campaign-lists': 'Reusable contact, group and product lists for campaigns.',
+  'campaign-settings': 'Company defaults for campaign messages, such as currency display.',
   'ai-instructions': 'Configure company AI instructions and execution targets.',
   'v2-settings': 'Configure V2 classification and GatePass behavior.',
   'tenant-admin': 'Create and manage company workspaces.',

@@ -5,7 +5,11 @@ import {
   directMessageWithProducts,
   addAllCampaignResults,
   CampaignAttachmentPanel,
+  CampaignCurrencyForm,
   CampaignListPicker,
+  blankCurrencySettings,
+  formatCampaignPrice,
+  settingsFor,
   CampaignMessagePreview,
   CampaignModeSelector,
   CampaignSearchActions,
@@ -37,7 +41,7 @@ const error = ref('')
 const draft = reactive({ name: '', messageMode: 'formatted', directMessage: '', productSearch: '', header: '', line: '', footer: '' })
 const editingId = ref(null)
 const editProductOptions = ref([])
-const editDraft = reactive({ name: '', messageMode: 'formatted', directMessage: '', productSearch: '', header: '', line: '', footer: '' })
+const editDraft = reactive({ name: '', messageMode: 'formatted', directMessage: '', productSearch: '', header: '', line: '', footer: '', currency: null })
 const GROUP_PAGE_SIZE = 25
 
 function defaults() {
@@ -134,6 +138,7 @@ function startEdit(campaign) {
     header: campaign.header_template,
     line: campaign.product_line_template,
     footer: campaign.footer_template,
+    currency: campaign.currency_settings ? blankCurrencySettings(campaign.currency_settings) : null,
   })
 }
 
@@ -154,6 +159,7 @@ async function saveEdit(campaign) {
       header_template: editDraft.header,
       product_line_template: editDraft.line,
       footer_template: editDraft.footer,
+      currency_settings: editDraft.currency,
     })
     replaceCampaign(data)
     cancelEdit()
@@ -309,11 +315,11 @@ function replaceCampaign(updated) {
   if (index !== -1) campaigns.value[index] = updated
 }
 
-function composeMessage(campaign, { mode, directText, header, line, footer }) {
+function composeMessage(campaign, { mode, directText, header, line, footer, currency }) {
   const lines = campaign.products.map(row => line
     .replaceAll('{product_name}', row.product_name)
     .replaceAll('{qty}', row.quantity ?? '-')
-    .replaceAll('{price}', row.target_price ?? row.price ?? '-'))
+    .replaceAll('{price}', formatCampaignPrice(row.target_price ?? row.price, row.currency, currency)))
   if (mode === 'direct') {
     return directMessageWithProducts(directText, lines)
   }
@@ -324,6 +330,7 @@ function message(campaign) {
   return composeMessage(campaign, {
     mode: campaign.message_mode, directText: campaign.direct_message,
     header: campaign.header_template, line: campaign.product_line_template, footer: campaign.footer_template,
+    currency: settingsFor(campaign, companyCurrency.value),
   })
 }
 
@@ -332,6 +339,7 @@ function attachmentMessage(campaign) {
   return composeMessage(campaign, {
     mode: editDraft.messageMode, directText: editDraft.directMessage,
     header: editDraft.header, line: editDraft.line, footer: editDraft.footer,
+    currency: settingsFor({ currency_settings: editDraft.currency }, companyCurrency.value),
   })
 }
 
@@ -438,6 +446,20 @@ async function toggle(campaign) {
 }
 
 resetDraft()
+// Company campaign currency settings; a campaign's own currency_settings replaces them.
+const companyCurrency = ref(null)
+async function loadCompanyCurrency() {
+  try {
+    companyCurrency.value = (await tradingApi.getCampaignCurrencySettings()).data
+  } catch {
+    error.value = 'Unable to load the campaign currency settings; prices show in the default format until the page is reloaded.'
+  }
+}
+function toggleCompanyCurrency(useCompany) {
+  editDraft.currency = useCompany ? null : blankCurrencySettings(companyCurrency.value || undefined)
+}
+onMounted(loadCompanyCurrency)
+
 onMounted(async () => {
   await Promise.all([loadAccounts(), loadCampaigns()])
 })
@@ -475,6 +497,7 @@ onMounted(async () => {
               <label>Product line <small>(for products listed after the message)</small><textarea v-model="editDraft.line" rows="2" /></label>
             </template>
             <div class="edit-products"><h3>Products</h3><div class="inline"><input v-model="editDraft.productSearch" placeholder="Search product to add..." @keydown.enter.prevent="searchEditProducts(campaign)" /><button @click="searchEditProducts(campaign)">Search</button></div><div v-if="editProductOptions.length" class="options"><button v-for="product in editProductOptions" :key="product.id" @click="addEditProduct(campaign, product)"><strong>{{ product.brand }} {{ product.name }}</strong><span>Qty {{ product.qty }}</span></button></div><div class="edit-product-list"><div v-for="row in campaign.products" :key="row.id"><span>{{ row.product_name }}</span><button class="danger" :disabled="busy === `remove-product-${campaign.id}-${row.product}`" @click="removeEditProduct(campaign, row)">Remove</button></div></div></div>
+            <div class="currency-override"><label class="check"><input type="checkbox" :checked="!editDraft.currency" @change="toggleCompanyCurrency($event.target.checked)" /> Use company currency settings</label><CampaignCurrencyForm v-if="editDraft.currency" :settings="editDraft.currency" /></div>
           </div>
           <CampaignMessagePreview v-else title="Message preview" :message="message(campaign)" />
           <div class="product-list-picker"><h3>Products <small>{{ campaign.products.length }} selected</small></h3><CampaignListPicker kind="products" :apply="listId => apiFor('addProductList')(campaign.id, listId)" @applied="data => replaceCampaign(data.inquiry || data.offer)" /></div>
@@ -513,7 +536,7 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.campaign-page{height:100%;min-height:0;overflow-y:auto;padding:28px;background:radial-gradient(circle at top right,#dcfce7,transparent 32%),#f8fafc;color:#172033}.campaign-page>header{max-width:1400px;margin:auto}.eyebrow{color:#15803d;text-transform:uppercase;letter-spacing:.16em;font-size:.72rem;font-weight:800}h1{font:700 2rem Georgia,serif;margin:4px 0}header p,.section-head p{color:#64748b}.panel{max-width:1400px;margin:18px auto;background:#fff;border:1px solid #dfe7e2;border-radius:18px;padding:22px;box-shadow:0 16px 40px #0f172a0d}.fields,.templates{display:grid;grid-template-columns:1fr 1fr;gap:14px}.templates{grid-template-columns:repeat(3,1fr);margin-top:16px}label{display:flex;flex-direction:column;gap:6px;font-size:.75rem;font-weight:800;text-transform:uppercase;color:#64748b}input,textarea,button{font:inherit}input,textarea{border:1px solid #d7e2dc;border-radius:10px;padding:10px;background:#fbfdfc}.inline{display:flex;gap:8px}.inline input{flex:1}button{border:1px solid #cedbd4;background:#fff;border-radius:9px;padding:9px 13px;cursor:pointer}.primary,.send{background:#168447;color:#fff;border-color:#168447}.primary{margin-top:16px;font-weight:700}.options{display:grid;gap:6px;margin-top:8px}.options button,.recipient{display:flex;justify-content:space-between;align-items:center;text-align:left}.options span,.recipient span,small{display:block;color:#64748b;font-size:.78rem}.tokens{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.tokens span{background:#edf8f1;border-radius:20px;padding:6px 10px;font-size:.8rem}.tokens button{border:0;background:none;padding:0 0 0 6px}.section-head,.summary,.selector-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.campaign{border:1px solid #e3ebe6;border-radius:13px;margin-top:10px;overflow:hidden}.summary{width:100%;border:0;border-radius:0;padding:14px 16px}.summary strong{display:block}.details{padding:16px;background:#fbfdfc;display:grid;grid-template-columns:1fr 1fr;gap:18px}.edit-toolbar,.edit-panel{grid-column:1/-1}.edit-toolbar{display:flex;gap:8px}.edit-toolbar .primary{margin-top:0}.edit-panel{border:1px solid #dfe7e2;border-radius:12px;padding:16px;background:#fff}.edit-products{margin-top:16px}.edit-product-list{display:grid;gap:6px;margin-top:10px}.edit-product-list>div{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #e3ebe6;padding-top:7px}.preview pre{white-space:pre-wrap;background:#eef5f0;border-radius:12px;padding:14px}.recipients,.product-list-picker{grid-column:1/-1}.product-list-picker h3{margin:0}.product-list-picker h3 small{display:inline;margin-left:6px}.recipient{padding:11px 0;border-top:1px solid #e3ebe6}.recipient>div:last-child{display:flex;gap:7px;flex-wrap:wrap}.press-count{margin-top:3px!important;color:#64748b}.press-count.sent{color:#15803d;font-weight:700}.send-feedback{margin-top:3px!important;font-weight:700}.send-feedback.checking,.send-feedback.queueing{color:#986700}.send-feedback.queued{color:#15803d}.send-feedback.failed{color:#b42318}.danger{color:#b42318;border-color:#f3c7c3}.error{max-width:1400px;margin:14px auto;background:#fff1f0;color:#b42318;padding:12px;border-radius:10px}.empty{color:#94a3b8}@media(max-width:800px){.campaign-page{padding:14px}.fields,.templates,.details{grid-template-columns:1fr}.recipients,.product-list-picker{grid-column:auto}.recipient{align-items:flex-start;gap:10px}}
+.campaign-page{height:100%;min-height:0;overflow-y:auto;padding:28px;background:radial-gradient(circle at top right,#dcfce7,transparent 32%),#f8fafc;color:#172033}.campaign-page>header{max-width:1400px;margin:auto}.eyebrow{color:#15803d;text-transform:uppercase;letter-spacing:.16em;font-size:.72rem;font-weight:800}h1{font:700 2rem Georgia,serif;margin:4px 0}header p,.section-head p{color:#64748b}.panel{max-width:1400px;margin:18px auto;background:#fff;border:1px solid #dfe7e2;border-radius:18px;padding:22px;box-shadow:0 16px 40px #0f172a0d}.fields,.templates{display:grid;grid-template-columns:1fr 1fr;gap:14px}.templates{grid-template-columns:repeat(3,1fr);margin-top:16px}label{display:flex;flex-direction:column;gap:6px;font-size:.75rem;font-weight:800;text-transform:uppercase;color:#64748b}input,textarea,button{font:inherit}input,textarea{border:1px solid #d7e2dc;border-radius:10px;padding:10px;background:#fbfdfc}.inline{display:flex;gap:8px}.inline input{flex:1}button{border:1px solid #cedbd4;background:#fff;border-radius:9px;padding:9px 13px;cursor:pointer}.primary,.send{background:#168447;color:#fff;border-color:#168447}.primary{margin-top:16px;font-weight:700}.options{display:grid;gap:6px;margin-top:8px}.options button,.recipient{display:flex;justify-content:space-between;align-items:center;text-align:left}.options span,.recipient span,small{display:block;color:#64748b;font-size:.78rem}.tokens{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.tokens span{background:#edf8f1;border-radius:20px;padding:6px 10px;font-size:.8rem}.tokens button{border:0;background:none;padding:0 0 0 6px}.section-head,.summary,.selector-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.campaign{border:1px solid #e3ebe6;border-radius:13px;margin-top:10px;overflow:hidden}.summary{width:100%;border:0;border-radius:0;padding:14px 16px}.summary strong{display:block}.details{padding:16px;background:#fbfdfc;display:grid;grid-template-columns:1fr 1fr;gap:18px}.edit-toolbar,.edit-panel{grid-column:1/-1}.edit-toolbar{display:flex;gap:8px}.edit-toolbar .primary{margin-top:0}.edit-panel{border:1px solid #dfe7e2;border-radius:12px;padding:16px;background:#fff}.edit-products{margin-top:16px}.edit-product-list{display:grid;gap:6px;margin-top:10px}.edit-product-list>div{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #e3ebe6;padding-top:7px}.preview pre{white-space:pre-wrap;background:#eef5f0;border-radius:12px;padding:14px}.recipients,.product-list-picker{grid-column:1/-1}.currency-override{display:grid;gap:10px;margin-top:14px}.currency-override .check{flex-direction:row;align-items:center;gap:6px;text-transform:none}.product-list-picker h3{margin:0}.product-list-picker h3 small{display:inline;margin-left:6px}.recipient{padding:11px 0;border-top:1px solid #e3ebe6}.recipient>div:last-child{display:flex;gap:7px;flex-wrap:wrap}.press-count{margin-top:3px!important;color:#64748b}.press-count.sent{color:#15803d;font-weight:700}.send-feedback{margin-top:3px!important;font-weight:700}.send-feedback.checking,.send-feedback.queueing{color:#986700}.send-feedback.queued{color:#15803d}.send-feedback.failed{color:#b42318}.danger{color:#b42318;border-color:#f3c7c3}.error{max-width:1400px;margin:14px auto;background:#fff1f0;color:#b42318;padding:12px;border-radius:10px}.empty{color:#94a3b8}@media(max-width:800px){.campaign-page{padding:14px}.fields,.templates,.details{grid-template-columns:1fr}.recipients,.product-list-picker{grid-column:auto}.recipient{align-items:flex-start;gap:10px}}
 .mode-picker{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:16px 0}.mode-picker button{padding:14px;text-align:left}.mode-picker button.active{border-color:#168447;background:#edf8f1;box-shadow:inset 0 0 0 1px #168447}.mode-picker strong,.mode-picker span{display:block}.mode-picker span{margin-top:4px;color:#64748b;font-size:.78rem}@media(max-width:800px){.mode-picker{grid-template-columns:1fr}}
 .account-filter{margin:12px 0;padding:12px;border:1px solid #dfe7e2;border-radius:12px;background:#fff}.account-filter-head{display:flex;align-items:center;justify-content:space-between}.account-filter-head button{padding:5px 9px}.account-options{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}.account-options label{display:grid;grid-template-columns:auto 1fr;column-gap:7px;align-items:center;padding:8px 10px;border:1px solid #dfe7e2;border-radius:9px;text-transform:none;cursor:pointer}.account-options label:has(input:checked){border-color:#168447;background:#edf8f1}.account-options input{grid-row:1/3;margin:0}.account-options small{font-weight:400}
 .attachment{grid-column:1/-1}

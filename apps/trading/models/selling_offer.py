@@ -48,6 +48,10 @@ class SellingOffer(models.Model):
     header_template = models.TextField(default='Hello, available stock offer:')
     product_line_template = models.TextField(default='- {product_name} - {price}')
     footer_template = models.TextField(default='Reply with required quantity. Subject to availability.')
+    currency_settings = models.JSONField(
+        null=True, blank=True,
+        help_text="This campaign's own price display (see services.campaign_currency); empty uses the company's.",
+    )
     send_flag = models.BooleanField(default=False)
     flag_position = models.CharField(max_length=10, default='prefix')
     send_color = models.BooleanField(default=False)

@@ -15,3 +15,10 @@ export {
   directMessageWithProducts,
   campaignMessageLimit,
 } from './constants'
+export { default as CampaignCurrencyForm } from './components/CampaignCurrencyForm.vue'
+export {
+  DEFAULT_CURRENCY_SETTINGS,
+  blankCurrencySettings,
+  formatCampaignPrice,
+  settingsFor,
+} from './currency'

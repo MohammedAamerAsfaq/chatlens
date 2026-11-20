@@ -492,6 +492,8 @@ export const tradingApi = {
   // Trading settings (hot-settable plain UI values, not AI prompts)
   getWtsReplySettings: () => http.get('/trading-settings/wts-reply/'),
   setWtsReplySettings: (data) => http.put('/trading-settings/wts-reply/', data),
+  getCampaignCurrencySettings: () => http.get('/trading-settings/campaign-currency/'),
+  setCampaignCurrencySettings: (data) => http.put('/trading-settings/campaign-currency/', data),
   getColorEmojiSettings: () => http.get('/trading-settings/color-emoji/'),
   setColorEmojiSettings: (emoji) => http.put('/trading-settings/color-emoji/', { emoji }),
   getCardAnimationSettings: () => http.get('/trading-settings/card-animation/'),

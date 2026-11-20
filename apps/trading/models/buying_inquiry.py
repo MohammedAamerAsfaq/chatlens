@@ -71,6 +71,10 @@ class BuyingInquiry(models.Model):
     header_template = models.TextField(default='Hello, looking to buy:')
     product_line_template = models.TextField(default='- {product_name} - Qty {qty} - Target {price}')
     footer_template = models.TextField(default='Please reply with availability and best price.')
+    currency_settings = models.JSONField(
+        null=True, blank=True,
+        help_text="This campaign's own price display (see services.campaign_currency); empty uses the company's.",
+    )
     created_by = models.ForeignKey(
         'auth.User',
         null=True,
