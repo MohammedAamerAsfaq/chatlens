@@ -9,6 +9,7 @@ export {
   CAMPAIGN_IMAGE_TYPES,
   MAX_CAMPAIGN_IMAGE_BYTES,
   MAX_CAPTION_LENGTH,
+  MAX_OVERRIDE_LENGTH,
   MAX_TEXT_LENGTH,
   campaignCharacterCount,
   campaignImageError,

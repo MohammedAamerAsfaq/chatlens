@@ -1,6 +1,7 @@
 import json
 import logging
 import threading
+from django.http import FileResponse
 from django.db import connection as _db_conn, transaction
 from django.db.models import Count, F, Max, Min, OuterRef, Prefetch, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
@@ -9,7 +10,7 @@ from django.utils.timezone import now, make_aware, is_naive
 from datetime import timedelta, date as _date, datetime as _datetime, time as _time
 from rest_framework import viewsets, mixins, permissions, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -100,6 +101,21 @@ def _campaign_message_mode(value):
     if mode not in CampaignMessageMode.values:
         raise ValidationError({'message_mode': 'Message mode must be formatted or direct.'})
     return mode
+
+
+def _campaign_image_response(campaign):
+    """Stream a campaign's image to a signed-in member of its company."""
+    asset = campaign.image_asset
+    if not asset or not asset.file:
+        raise NotFound('This campaign has no image.')
+    try:
+        handle = asset.file.open('rb')
+    except FileNotFoundError:
+        logger.error('Campaign image file missing | asset=%s path=%s', asset.pk, asset.file.name)
+        raise NotFound('The image file is missing from the server.')
+    response = FileResponse(handle, content_type=asset.mime_type)
+    response['Cache-Control'] = 'private, max-age=86400'
+    return response
 
 
 def _campaign_image_asset(request, company):
@@ -3707,6 +3723,11 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
             return add_campaign_groups(BuyingInquiryGroup, 'inquiry', inquiry, ids)
         return self._bulk_add_suppliers(inquiry, ids, source=BuyingInquirySupplierSource.MANUAL)
 
+    @action(detail=True, methods=['get'], url_path='image')
+    def image(self, request, pk=None):
+        """The campaign's image file, for previews; same company scoping as the campaign."""
+        return _campaign_image_response(self.get_object())
+
     @action(detail=True, methods=['post'], url_path='add-product-list')
     def add_product_list(self, request, pk=None):
         """Add a saved product list's products to this campaign; with `replace` true the
@@ -4318,6 +4339,11 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
         if offer.audience_type == CampaignAudience.GROUPS:
             return add_campaign_groups(SellingOfferGroup, 'offer', offer, ids)
         return self._bulk_add_customers(offer, ids, source=SellingOfferCustomerSource.MANUAL)
+
+    @action(detail=True, methods=['get'], url_path='image')
+    def image(self, request, pk=None):
+        """The campaign's image file, for previews; same company scoping as the campaign."""
+        return _campaign_image_response(self.get_object())
 
     @action(detail=True, methods=['post'], url_path='add-product-list')
     def add_product_list(self, request, pk=None):

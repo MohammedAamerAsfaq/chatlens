@@ -14,6 +14,7 @@ import {
   CampaignModeSelector,
   CampaignSearchActions,
   MAX_CAPTION_LENGTH,
+  MAX_OVERRIDE_LENGTH,
   MAX_TEXT_LENGTH,
   campaignCharacterCount,
   campaignImageError,
@@ -345,7 +346,11 @@ function attachmentMessage(campaign) {
   })
 }
 
+// Campaign ids whose sender chose "Send anyway" past the ChatLens length limit (this page visit only).
+const ignoreLimit = reactive({})
+
 function messageLimit(campaign) {
+  if (ignoreLimit[campaign.id]) return MAX_OVERRIDE_LENGTH
   return campaignMessageLimit(Boolean(campaignImages[campaign.id] || campaign.image_asset))
 }
 
@@ -398,7 +403,9 @@ async function sendGroup(campaign, recipient) {
   sendFeedback[recipient.id] = { state: 'checking', message: 'Checking group permission...' }
   try {
     if (messageTooLong(campaign)) {
-      throw new Error(campaignImages[campaign.id] || campaign.image_asset
+      throw new Error(ignoreLimit[campaign.id]
+        ? `Messages cannot exceed ${MAX_OVERRIDE_LENGTH} characters.`
+        : campaignImages[campaign.id] || campaign.image_asset
         ? `Image captions cannot exceed ${MAX_CAPTION_LENGTH} characters.`
         : `Text messages cannot exceed ${MAX_TEXT_LENGTH} characters.`)
     }
@@ -424,6 +431,7 @@ async function sendGroup(campaign, recipient) {
       destination_jid: recipient.wa_group_id,
       text: message(campaign),
       asset_id: campaignAssetIds[campaign.id] || campaign.image_asset || null,
+      ignore_length_limit: Boolean(ignoreLimit[campaign.id]),
       idempotency_key: `${props.kind}-group-${campaign.id}-${recipient.id}-${Date.now()}`,
     })
     if (['blocked', 'preflight_blocked', 'failed'].includes(data.status)) {
@@ -507,6 +515,7 @@ onMounted(async () => {
             class="attachment"
             :file="campaignImages[campaign.id]"
             :asset="campaign"
+            v-model:ignore-limit="ignoreLimit[campaign.id]"
             :message="attachmentMessage(campaign)"
             description="The same image and message will be queued for each group you send to."
             @select="selectCampaignImage(campaign, $event)"

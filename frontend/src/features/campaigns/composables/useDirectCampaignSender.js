@@ -1,6 +1,6 @@
 import { reactive } from 'vue'
 import { accountsApi, outboundAssetsApi } from '@/api'
-import { MAX_CAPTION_LENGTH, MAX_TEXT_LENGTH, campaignCharacterCount, campaignImageError, campaignMessageLimit } from '../constants'
+import { MAX_CAPTION_LENGTH, MAX_OVERRIDE_LENGTH, MAX_TEXT_LENGTH, campaignCharacterCount, campaignImageError, campaignMessageLimit } from '../constants'
 
 const PREFLIGHT_REASONS = {
   direct_sending_disabled: 'Direct-message sending is disabled for this account.',
@@ -25,9 +25,11 @@ export function useDirectCampaignSender({ kind, markClick, persistAsset, updateR
   const assetIds = reactive({})
   const feedback = reactive({})
   const busy = reactive({})
+  // Campaign ids whose sender chose "Send anyway" past the ChatLens length limit (this page visit only).
+  const ignoreLimit = reactive({})
   const rowKey = (campaignId, recipientId) => `${campaignId}:${recipientId}`
   const hasImage = campaign => Boolean(images[campaign.id] || campaign.image_asset)
-  const messageLimit = campaign => campaignMessageLimit(hasImage(campaign))
+  const messageLimit = campaign => (ignoreLimit[campaign.id] ? MAX_OVERRIDE_LENGTH : campaignMessageLimit(hasImage(campaign)))
   const messageTooLong = (campaign, text) => campaignCharacterCount(text) > messageLimit(campaign)
 
   async function selectImage(campaignId, event) {
@@ -59,7 +61,7 @@ export function useDirectCampaignSender({ kind, markClick, persistAsset, updateR
   }
 
   async function queue(campaign, recipient, text, confirmNewChat, idempotencyKey) {
-    const payload = { destination_jid: recipient.destination_jid, text, asset_id: assetIds[campaign.id] || campaign.image_asset || null, idempotency_key: idempotencyKey, confirm_new_chat: confirmNewChat }
+    const payload = { destination_jid: recipient.destination_jid, text, asset_id: assetIds[campaign.id] || campaign.image_asset || null, ignore_length_limit: Boolean(ignoreLimit[campaign.id]), idempotency_key: idempotencyKey, confirm_new_chat: confirmNewChat }
     try {
       return await accountsApi.sendMessage(recipient.account_id, payload)
     } catch (exc) {
@@ -75,7 +77,7 @@ export function useDirectCampaignSender({ kind, markClick, persistAsset, updateR
     feedback[key] = { state: 'checking', message: 'Checking recipient...' }
     try {
       if (!recipient.account_id || !recipient.destination_jid) throw new Error('This contact has no sendable WhatsApp destination.')
-      if (messageTooLong(campaign, text)) throw new Error(hasImage(campaign) ? `Image captions cannot exceed ${MAX_CAPTION_LENGTH} characters.` : `Text messages cannot exceed ${MAX_TEXT_LENGTH} characters.`)
+      if (messageTooLong(campaign, text)) throw new Error(ignoreLimit[campaign.id] ? `Messages cannot exceed ${MAX_OVERRIDE_LENGTH} characters.` : hasImage(campaign) ? `Image captions cannot exceed ${MAX_CAPTION_LENGTH} characters.` : `Text messages cannot exceed ${MAX_TEXT_LENGTH} characters.`)
       const clickResponse = await markClick(campaign.id, recipient.id)
       updateRecipient(campaign.id, clickResponse.data)
       const preflight = await accountsApi.preflightMessage(recipient.account_id, recipient.destination_jid)
@@ -91,5 +93,5 @@ export function useDirectCampaignSender({ kind, markClick, persistAsset, updateR
     }
   }
 
-  return { assetIds, busy, feedback, images, messageLimit, messageTooLong, removeImage, rowKey, selectImage, send }
+  return { assetIds, busy, feedback, ignoreLimit, images, messageLimit, messageTooLong, removeImage, rowKey, selectImage, send }
 }

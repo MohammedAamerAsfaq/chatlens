@@ -420,6 +420,7 @@
               class="campaign-attachment"
               :file="directSender.images[offer.id]"
               :asset="offer"
+              v-model:ignore-limit="directSender.ignoreLimit[offer.id]"
               :message="offerAttachmentMessage(offer)"
               description="The image and customer message will be queued only when you use ChatLens Send."
               @select="selectCampaignImage(offer.id, $event)"

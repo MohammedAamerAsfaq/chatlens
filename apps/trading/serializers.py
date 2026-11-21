@@ -1,3 +1,4 @@
+from django.urls import reverse
 from rest_framework import serializers
 from .models import (
     Product, ProductAlias, ProductAttribute, MessageClassification, Inquiry, InquiryMessage,
@@ -21,6 +22,15 @@ def product_display_name(product):
     if not brand or name.lower() == brand.lower() or name.lower().startswith(brand.lower() + ' '):
         return name
     return f'{brand} {name}'.strip()
+
+
+def campaign_image_url(campaign, route):
+    """Where the browser loads a campaign's image: the campaign's own login-checked image action
+    (uploaded files are not served from /media/). `v` changes with the image, so a replaced
+    image is fetched afresh rather than shown from the browser cache."""
+    if not campaign.image_asset_id:
+        return ''
+    return f"{reverse(f'{route}-image', args=[campaign.pk])}?v={campaign.image_asset_id}"
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -625,10 +635,7 @@ class BuyingInquirySerializer(serializers.ModelSerializer):
         return GroupCampaignRecipientSerializer(obj.groups.all(), many=True).data
 
     def get_image_url(self, obj):
-        if not obj.image_asset_id or not obj.image_asset.file:
-            return ''
-        request = self.context.get('request')
-        return request.build_absolute_uri(obj.image_asset.file.url) if request else obj.image_asset.file.url
+        return campaign_image_url(obj, 'buying-inquiries')
 
 
 class SellingOfferProductSerializer(serializers.ModelSerializer):
@@ -729,10 +736,7 @@ class SellingOfferSerializer(serializers.ModelSerializer):
         return GroupCampaignRecipientSerializer(obj.groups.all(), many=True).data
 
     def get_image_url(self, obj):
-        if not obj.image_asset_id or not obj.image_asset.file:
-            return ''
-        request = self.context.get('request')
-        return request.build_absolute_uri(obj.image_asset.file.url) if request else obj.image_asset.file.url
+        return campaign_image_url(obj, 'selling-offers')
 
 
 def _contact_label(contact) -> str:

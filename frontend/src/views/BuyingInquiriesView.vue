@@ -401,6 +401,7 @@
               class="campaign-attachment"
               :file="directSender.images[inquiry.id]"
               :asset="inquiry"
+              v-model:ignore-limit="directSender.ignoreLimit[inquiry.id]"
               :message="inquiryAttachmentMessage(inquiry)"
               description="The image and supplier message will be queued only when you use ChatLens Send."
               @select="selectCampaignImage(inquiry.id, $event)"

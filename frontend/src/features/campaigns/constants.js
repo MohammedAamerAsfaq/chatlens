@@ -2,6 +2,8 @@ export const CAMPAIGN_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 export const MAX_CAMPAIGN_IMAGE_BYTES = 10 * 1024 * 1024
 export const MAX_CAPTION_LENGTH = 1024
 export const MAX_TEXT_LENGTH = 10000
+// "Send anyway" lifts the limits above, but never past the longest message WhatsApp carries.
+export const MAX_OVERRIDE_LENGTH = 65536
 
 export function campaignCharacterCount(message) {
   return [...String(message || '')].length

@@ -100,6 +100,9 @@ class OutboundMessagePagination(PageNumberPagination):
     max_page_size = 100
 
 
+WHATSAPP_MAX_MESSAGE_LENGTH = 65536
+
+
 class OutboundAssetViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = OutboundAssetSerializer
     permission_classes = [IsAuthenticated, CompanyPermissionRequired]
@@ -497,8 +500,13 @@ class WhatsAppAccountViewSet(viewsets.ModelViewSet):
             return Response({'destination_jid': ['A valid WhatsApp JID is required.']}, status=status.HTTP_400_BAD_REQUEST)
         if not text and not asset:
             return Response({'text': ['Enter text or select an image.']}, status=status.HTTP_400_BAD_REQUEST)
-        if len(text) > (1024 if asset else 10000):
-            limit = 1024 if asset else 10000
+        ignore_limit = request.data.get('ignore_length_limit', False)
+        if not isinstance(ignore_limit, bool):
+            return Response({'ignore_length_limit': ['Must be true or false.']}, status=400)
+        # ChatLens keeps captions to 1,024 and texts to 10,000 characters; the sender may opt out
+        # of that per message, but never past the longest message WhatsApp carries.
+        limit = WHATSAPP_MAX_MESSAGE_LENGTH if ignore_limit else (1024 if asset else 10000)
+        if len(text) > limit:
             return Response({'text': [f'Text must not exceed {limit} characters.']}, status=400)
         try:
             outbound, created = create_outbound_message(

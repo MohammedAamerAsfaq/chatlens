@@ -36,6 +36,32 @@ describe('campaign feature', () => {
     expect(wrapper.text()).toContain('retained after refresh')
   })
 
+  it('offers to send an over-limit message anyway', async () => {
+    const wrapper = mount(CampaignAttachmentPanel, {
+      props: { message: 'x'.repeat(1100), asset: { image_asset: 7, image_url: '/image.jpg' } },
+    })
+    expect(wrapper.text()).toContain('Reduce the message by 76 characters')
+    await wrapper.find('.ignore-limit input').setValue(true)
+    expect(wrapper.emitted('update:ignoreLimit')[0]).toEqual([true])
+    await wrapper.setProps({ ignoreLimit: true })
+    expect(wrapper.text()).toContain('Sending 76 characters over the limit')
+  })
+
+  it('never offers to send past the WhatsApp maximum', () => {
+    const wrapper = mount(CampaignAttachmentPanel, { props: { message: 'x'.repeat(65537) } })
+    expect(wrapper.text()).toContain('longer than WhatsApp allows')
+    expect(wrapper.find('.ignore-limit').exists()).toBe(false)
+  })
+
+  it('says so when the saved image cannot be loaded', async () => {
+    const wrapper = mount(CampaignAttachmentPanel, {
+      props: { message: 'Offer', asset: { image_asset: 7, image_url: '/api/selling-offers/1/image/?v=7', image_filename: 'a.jpg' } },
+    })
+    await wrapper.find('img').trigger('error')
+    expect(wrapper.find('img').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Preview unavailable')
+  })
+
   it('tracks successful and failed bulk recipient additions', async () => {
     const rows = [{ id: 1 }, { id: 2 }, { id: 3 }]
     const result = await addAllCampaignResults(rows, row => (

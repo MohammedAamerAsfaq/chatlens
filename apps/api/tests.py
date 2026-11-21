@@ -546,8 +546,17 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(offer_update.status_code, 200)
         self.assertEqual(inquiry_update.json()['image_asset'], asset.pk)
         self.assertEqual(inquiry_update.json()['image_filename'], 'campaign.png')
-        self.assertIn('/media/', inquiry_update.json()['image_url'])
+        self.assertEqual(inquiry_update.json()['image_url'], f'/api/buying-inquiries/{inquiry.pk}/image/?v={asset.pk}')
         self.assertEqual(offer_update.json()['image_asset'], asset.pk)
+
+        # The preview loads through the campaign, for signed-in members of its company only.
+        image = self.client.get(offer_update.json()['image_url'])
+        self.assertEqual(image.status_code, 200)
+        self.assertEqual(image['Content-Type'], 'image/png')
+        self.assertEqual(b''.join(image.streaming_content), b'campaign-image')
+        self.client.force_authenticate(self.user_b)
+        self.assertEqual(self.client.get(f'/api/selling-offers/{offer.pk}/image/').status_code, 404)
+        self.client.force_authenticate(self.user_a)
 
         persisted = self.client.get(f'/api/buying-inquiries/{inquiry.pk}/')
         self.assertEqual(persisted.json()['image_asset'], asset.pk)
@@ -1180,6 +1189,29 @@ class TenantScopedApiTests(TestCase):
         self.assertIn(active.pk, ids)
         self.assertNotIn(departed.pk, ids)
         self.assertEqual(self.client.get(f'/api/groups/{departed.pk}/').status_code, 200)
+
+    def test_send_anyway_lifts_the_caption_limit_but_not_whatsapps(self):
+        group = WhatsAppGroup.objects.create(
+            account=self.account_a, wa_group_id='120363000000000094@g.us', name='Long caption',
+            account_is_participant=True, can_send=True, metadata_refreshed_at=now(),
+        )
+        self.account_a.outbound_sending_enabled = True
+        self.account_a.group_sending_enabled = True
+        self.account_a.save(update_fields=['outbound_sending_enabled', 'group_sending_enabled'])
+        self.client.force_authenticate(self.user_a)
+        url = f'/api/accounts/{self.account_a.pk}/messages/'
+        payload = {'destination_jid': group.wa_group_id, 'text': 'x' * 10001, 'idempotency_key': 'long-1'}
+
+        self.assertEqual(self.client.post(url, payload, format='json').status_code, 400)
+        refused = self.client.post(url, {**payload, 'ignore_length_limit': 'yes'}, format='json')
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn('ignore_length_limit', refused.json())
+        sent = self.client.post(url, {**payload, 'ignore_length_limit': True}, format='json')
+        self.assertEqual(sent.status_code, 201, sent.json())
+        too_long = self.client.post(
+            url, {**payload, 'text': 'x' * 65537, 'ignore_length_limit': True, 'idempotency_key': 'long-2'}, format='json',
+        )
+        self.assertEqual(too_long.status_code, 400)
 
     def test_direct_send_without_local_history_still_requires_confirmation(self):
         self.account_a.outbound_sending_enabled = True
