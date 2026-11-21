@@ -1,7 +1,8 @@
 // How a campaign message shows a price: the primary currency, then each enabled other
 // currency converted with its hand-entered rate (1 primary = rate x other). Settings come
 // from the campaign's own currency_settings, else the company's (trading-settings/
-// campaign-currency); see apps/trading/services/campaign_currency.py.
+// campaign-currency); see apps/trading/services/campaign_currency.py. The same settings say
+// whether product lines show the brand in front of the product name (show_brand).
 
 export const DEFAULT_CURRENCY_SETTINGS = Object.freeze({
   primary: { code: 'AED', symbol: 'AED' },
@@ -11,10 +12,23 @@ export const DEFAULT_CURRENCY_SETTINGS = Object.freeze({
   trim_zeros: true,
   separator: ' / ',
   others: [],
+  show_brand: true,
 })
 
+// An editable copy; settings saved before a key existed take that key's default.
 export function blankCurrencySettings(source = DEFAULT_CURRENCY_SETTINGS) {
-  return JSON.parse(JSON.stringify(source))
+  return JSON.parse(JSON.stringify({ ...DEFAULT_CURRENCY_SETTINGS, ...source }))
+}
+
+export const brandShown = settings => settings?.show_brand !== false
+
+// {product_name} in a product line. row.product_name is the product as campaigns show it
+// (brand in front, see serializers.product_display_name); hiding the brand drops that prefix.
+export function campaignProductName(row, settings = DEFAULT_CURRENCY_SETTINGS) {
+  const name = String(row?.product_name || '')
+  const brand = String(row?.brand || '').trim()
+  if (brandShown(settings) || !brand || !name.toLowerCase().startsWith(`${brand.toLowerCase()} `)) return name
+  return name.slice(brand.length + 1).trim()
 }
 
 export function settingsFor(campaign, companySettings) {

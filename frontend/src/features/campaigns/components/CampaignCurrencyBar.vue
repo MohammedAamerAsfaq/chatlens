@@ -2,9 +2,10 @@
 import { computed, ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import CampaignCurrencyForm from './CampaignCurrencyForm.vue'
-import { DEFAULT_CURRENCY_SETTINGS, blankCurrencySettings, formatCampaignPrice, settingsFor } from '../currency'
+import { DEFAULT_CURRENCY_SETTINGS, blankCurrencySettings, brandShown, formatCampaignPrice, settingsFor } from '../currency'
 
-// How this campaign shows prices. The company settings (Campaigns > Settings) are the default;
+// How this campaign shows prices and product names (brand shown or not). The company settings
+// (Campaigns > Settings) are the default;
 // any choice made here gives the campaign its own copy, which "Use company default" discards.
 // `save(currencySettings | null)` is the campaign's update request; its data is emitted as `saved`.
 const props = defineProps({
@@ -63,6 +64,11 @@ function setCurrencies(value) {
   settings.others.forEach(row => { row.enabled = value === 'multiple' })
   persist(settings)
 }
+function setBrand(value) {
+  const settings = startingPoint()
+  settings.show_brand = value === 'show'
+  persist(settings)
+}
 function setLabel(value) {
   const settings = startingPoint()
   settings.label = value
@@ -80,8 +86,8 @@ async function saveDraft() {
 <template>
   <section class="currency-bar" aria-label="Campaign currency">
     <div class="currency-bar__row">
-      <strong class="currency-bar__title">Currency</strong>
-      <div class="currency-bar__switch" role="group" aria-label="Currency settings source">
+      <strong class="currency-bar__title">Message settings</strong>
+      <div class="currency-bar__switch" role="group" aria-label="Message settings source">
         <button type="button" :class="{ active: !own }" :disabled="!canEdit || busy" @click="useCompany">Company default</button>
         <button type="button" :class="{ active: own }" :disabled="!canEdit || busy" @click="useOwn">This campaign</button>
       </div>
@@ -100,11 +106,17 @@ async function saveDraft() {
           <option value="none">Hidden (amount only)</option>
         </select>
       </label>
+      <label>Brand
+        <select :value="brandShown(effective) ? 'show' : 'hide'" :disabled="!canEdit || busy" aria-label="Brand in product names" @change="setBrand($event.target.value)">
+          <option value="show">Show (Apple iPhone 11)</option>
+          <option value="hide">Hide (iPhone 11)</option>
+        </select>
+      </label>
       <button v-if="canEdit" type="button" class="currency-bar__more" :disabled="busy" @click="toggleMore">{{ draft ? 'Close options' : 'More options' }}</button>
       <span class="currency-bar__sample">e.g. <code>{{ sample }}</code></span>
     </div>
     <p class="currency-bar__hint">
-      <template v-if="own">This campaign uses its own currency settings.</template>
+      <template v-if="own">This campaign uses its own currency and brand settings.</template>
       <template v-else>Following the company settings; changing an option here gives this campaign its own.</template>
       <template v-if="!others.length"> Add other currencies and their rates in Campaigns &rsaquo; Settings, or under More options.</template>
     </p>

@@ -501,6 +501,7 @@ import {
   CampaignCurrencyBar,
   CampaignListPicker,
   formatCampaignPrice,
+  campaignProductName,
   settingsFor,
   CampaignMessagePreview,
   CampaignModeSelector,
@@ -572,6 +573,7 @@ const draftPreview = computed(() => formatInquiryMessage({
   footer_template: draft.footer_template,
   products: draft.products.map(product => ({
     product_name: productLabel(product),
+    brand: product.brand || '',
     quantity: product.qty,
     target_price: product.sale_price,
     currency: product.currency,
@@ -1139,7 +1141,7 @@ function formatInquiryMessage(inquiry) {
   const lines = (inquiry.products || []).map(row => {
     const line = inquiry.product_line_template || DEFAULT_LINE
     return line
-      .replaceAll('{product_name}', row.product_name || '')
+      .replaceAll('{product_name}', campaignProductName(row, settingsFor(inquiry, companyCurrency.value)))
       .replaceAll('{qty}', row.quantity ?? '-')
       .replaceAll('{price}', formatCampaignPrice(row.target_price, row.currency, settingsFor(inquiry, companyCurrency.value)))
   })

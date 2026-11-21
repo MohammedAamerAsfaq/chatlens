@@ -49,10 +49,24 @@ describe('CampaignCurrencyBar', () => {
     const own = { ...company(), label: 'symbol', others: [] }
     const { wrapper, save } = mountBar({ campaign: { id: 5, currency_settings: own } })
     expect(wrapper.text()).toContain('AED 27')
-    expect(wrapper.text()).toContain('uses its own currency settings')
+    expect(wrapper.text()).toContain('uses its own currency and brand settings')
     await wrapper.findAll('button').find(b => b.text() === 'Company default').trigger('click')
     await flushPromises()
     expect(save).toHaveBeenCalledWith(null)
+  })
+
+  it('shows the brand by default and can hide it for this campaign', async () => {
+    const { wrapper, save } = mountBar()
+    const select = wrapper.find('select[aria-label="Brand in product names"]')
+    expect(select.element.value).toBe('show')
+    await select.setValue('hide')
+    await flushPromises()
+    expect(save.mock.calls[0][0]).toMatchObject({ show_brand: false, label: 'code' })
+  })
+
+  it('follows a company default that hides the brand', () => {
+    const { wrapper } = mountBar({ company: { ...company(), show_brand: false } })
+    expect(wrapper.find('select[aria-label="Brand in product names"]').element.value).toBe('hide')
   })
 
   it('cannot pick multiple currencies when none are set up', () => {

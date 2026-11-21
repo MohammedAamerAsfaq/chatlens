@@ -4,7 +4,9 @@ A company keeps one set of campaign currency settings (SystemSettings key below)
 campaign may carry its own copy in currency_settings, which then replaces the company's
 for that campaign. Rates are entered by hand: each other currency's rate says how much
 of it one unit of the primary currency buys (1 AED = 0.2723 USD). The message itself is
-composed in the browser (features/campaigns/currency.js) from these settings.
+composed in the browser (features/campaigns/currency.js) from these settings. The same
+settings also say whether product lines put the brand in front of the product name
+(show_brand), so a campaign's override covers both.
 """
 import json
 import re
@@ -27,6 +29,7 @@ DEFAULTS = {
     'trim_zeros': True,
     'separator': ' / ',
     'others': [],
+    'show_brand': True,
 }
 
 
@@ -66,6 +69,9 @@ def clean_currency_settings(data, previous=None):
     separator = data.get('separator', DEFAULTS['separator'])
     if not isinstance(separator, str) or not separator or len(separator) > 10:
         raise ValidationError({'separator': 'Use a short separator between currencies, e.g. " / ".'})
+    show_brand = data.get('show_brand', DEFAULTS['show_brand'])
+    if not isinstance(show_brand, bool):
+        raise ValidationError({'show_brand': 'Choose whether product names show the brand (true or false).'})
 
     previous_rates = {
         row.get('code'): row for row in ((previous or {}).get('others') or []) if isinstance(row, dict)
@@ -104,6 +110,7 @@ def clean_currency_settings(data, previous=None):
         'trim_zeros': bool(data.get('trim_zeros', DEFAULTS['trim_zeros'])),
         'separator': separator,
         'others': others,
+        'show_brand': show_brand,
     }
 
 
@@ -111,9 +118,11 @@ def company_currency_settings(company):
     from apps.chatlens_core.models import SystemSettings
 
     row = SystemSettings.objects.filter(company=company, key=SETTINGS_KEY).first()
+    defaults = json.loads(json.dumps(DEFAULTS))
     if not row or not row.value:
-        return json.loads(json.dumps(DEFAULTS))
-    return json.loads(row.value)
+        return defaults
+    # Settings saved before a key existed take that key's default.
+    return {**defaults, **json.loads(row.value)}
 
 
 def save_company_currency_settings(company, data):

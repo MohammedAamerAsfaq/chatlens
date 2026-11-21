@@ -517,6 +517,7 @@ import {
   CampaignCurrencyBar,
   CampaignListPicker,
   formatCampaignPrice,
+  campaignProductName,
   settingsFor,
   CampaignMessagePreview,
   CampaignModeSelector,
@@ -607,6 +608,7 @@ const draftPreview = computed(() => formatOfferMessage({
   color_position: draft.color_position,
   products: draft.products.map(product => ({
     product_name: productLabel(product),
+    brand: product.brand || '',
     quantity: product.qty,
     price: product.sale_price,
     currency: product.currency,
@@ -1146,7 +1148,7 @@ function formatOfferMessage(offer) {
   const lines = (offer.products || []).map(row => {
     const lineTemplate = valueOrDefault(offer.product_line_template, DEFAULT_LINE)
     let line = lineTemplate
-      .replaceAll('{product_name}', row.product_name || '')
+      .replaceAll('{product_name}', campaignProductName(row, settingsFor(offer, companyCurrency.value)))
       .replaceAll('{qty}', row.quantity ?? '-')
       .replaceAll('{price}', formatCampaignPrice(row.price, row.currency, settingsFor(offer, companyCurrency.value)))
     if (offer.send_flag) {

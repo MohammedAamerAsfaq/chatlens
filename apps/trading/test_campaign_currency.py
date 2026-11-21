@@ -76,6 +76,29 @@ class CampaignCurrencySettingsTests(TestCase):
             self.assertIn(field, response.data)
         self.assertEqual(self.client.get(SETTINGS_URL).data['others'], [])
 
+    def test_brand_is_shown_unless_the_settings_hide_it(self):
+        self.assertIs(self.client.get(SETTINGS_URL).data['show_brand'], True)
+        response = self.client.put(SETTINGS_URL, settings_payload(show_brand=False), format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertIs(self.client.get(SETTINGS_URL).data['show_brand'], False)
+        response = self.client.put(SETTINGS_URL, settings_payload(show_brand='no'), format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('show_brand', response.data)
+
+    def test_settings_saved_before_the_brand_option_show_the_brand(self):
+        import json
+        from apps.chatlens_core.models import SystemSettings
+        from apps.trading.services.campaign_currency import SETTINGS_KEY
+        old = {key: value for key, value in settings_payload().items()}
+        SystemSettings.objects.create(company=self.company, key=SETTINGS_KEY, value=json.dumps(old))
+        self.assertIs(self.client.get(SETTINGS_URL).data['show_brand'], True)
+
+    def test_campaign_can_hide_the_brand_for_itself(self):
+        offer = SellingOffer.objects.create(company=self.company, name='Export', created_by=self.operator)
+        response = self.client.patch(f'/api/selling-offers/{offer.pk}/', {'currency_settings': settings_payload(show_brand=False)}, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertIs(response.data['currency_settings']['show_brand'], False)
+
     def test_only_company_admins_change_the_company_settings(self):
         self.client.force_authenticate(self.operator)
         self.assertEqual(self.client.get(SETTINGS_URL).status_code, 200)

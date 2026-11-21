@@ -22,5 +22,6 @@ export {
   DEFAULT_CURRENCY_SETTINGS,
   blankCurrencySettings,
   formatCampaignPrice,
+  campaignProductName,
   settingsFor,
 } from './currency'

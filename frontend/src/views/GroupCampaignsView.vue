@@ -8,6 +8,7 @@ import {
   CampaignCurrencyBar,
   CampaignListPicker,
   formatCampaignPrice,
+  campaignProductName,
   settingsFor,
   CampaignMessagePreview,
   CampaignModeSelector,
@@ -317,7 +318,7 @@ function replaceCampaign(updated) {
 
 function composeMessage(campaign, { mode, directText, header, line, footer, currency }) {
   const lines = campaign.products.map(row => line
-    .replaceAll('{product_name}', row.product_name)
+    .replaceAll('{product_name}', campaignProductName(row, currency))
     .replaceAll('{qty}', row.quantity ?? '-')
     .replaceAll('{price}', formatCampaignPrice(row.target_price ?? row.price, row.currency, currency)))
   if (mode === 'direct') {

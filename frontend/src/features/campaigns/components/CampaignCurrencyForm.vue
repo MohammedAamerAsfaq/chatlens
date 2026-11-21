@@ -64,6 +64,9 @@ const error = key => {
       <label>Between currencies
         <input v-model="settings.separator" maxlength="10" aria-label="Separator between currencies" />
       </label>
+      <label class="currency-form__check">
+        <input v-model="settings.show_brand" type="checkbox" aria-label="Show brand in product names" /> Show brand in product names
+      </label>
     </div>
 
     <div class="currency-form__others">

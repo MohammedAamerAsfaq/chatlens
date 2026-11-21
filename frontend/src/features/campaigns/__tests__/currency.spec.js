@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_CURRENCY_SETTINGS, formatCampaignPrice, settingsFor, suggestSymbol } from '../currency'
+import { DEFAULT_CURRENCY_SETTINGS, blankCurrencySettings, campaignProductName, formatCampaignPrice, settingsFor, suggestSymbol } from '../currency'
 
 const settings = (changes = {}) => ({
   ...DEFAULT_CURRENCY_SETTINGS,
@@ -50,5 +50,23 @@ describe('campaign price display', () => {
     expect(suggestSymbol('usd')).toBe('$')
     expect(suggestSymbol('XYZ')).toBe('')
     expect(suggestSymbol('dollar')).toBe('')
+  })
+})
+
+describe('campaignProductName', () => {
+  const row = { product_name: 'Apple iPhone 11 GX OLED LCD', brand: 'Apple' }
+  it('shows the brand unless the settings hide it', () => {
+    expect(campaignProductName(row)).toBe('Apple iPhone 11 GX OLED LCD')
+    expect(campaignProductName(row, { ...DEFAULT_CURRENCY_SETTINGS, show_brand: false })).toBe('iPhone 11 GX OLED LCD')
+  })
+  it('treats settings saved before the option as showing the brand', () => {
+    const { show_brand, ...old } = DEFAULT_CURRENCY_SETTINGS
+    expect(campaignProductName(row, old)).toBe('Apple iPhone 11 GX OLED LCD')
+    expect(blankCurrencySettings(old).show_brand).toBe(true)
+  })
+  it('leaves a name that does not start with the brand alone', () => {
+    const hidden = { ...DEFAULT_CURRENCY_SETTINGS, show_brand: false }
+    expect(campaignProductName({ product_name: 'Apple', brand: 'Apple' }, hidden)).toBe('Apple')
+    expect(campaignProductName({ product_name: 'A15 LCD', brand: '' }, hidden)).toBe('A15 LCD')
   })
 })
