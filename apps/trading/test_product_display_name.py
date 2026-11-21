@@ -1,8 +1,9 @@
 from types import SimpleNamespace
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
-from apps.trading.models import SellingOffer
+from apps.trading.models import Product, SellingOffer
+from apps.trading.models.product import name_without_brand, normalize_brand
 from apps.trading.serializers import product_display_name
 
 
@@ -27,3 +28,23 @@ class ProductDisplayNameTests(SimpleTestCase):
 
     def test_selling_campaigns_list_products_without_quantity_by_default(self):
         self.assertEqual(SellingOffer._meta.get_field('product_line_template').default, '- {product_name} - {price}')
+
+
+class ProductNamingTests(TestCase):
+    def test_brand_gets_a_capital_first_letter_and_keeps_the_rest(self):
+        self.assertEqual(normalize_brand(' samsung '), 'Samsung')
+        self.assertEqual(normalize_brand('OnePlus'), 'OnePlus')
+        self.assertEqual(normalize_brand(''), '')
+
+    def test_name_drops_a_leading_brand(self):
+        self.assertEqual(name_without_brand('Samsung A15 LCD', 'samsung'), 'A15 LCD')
+        self.assertEqual(name_without_brand('APPLE iPhone 11 GX OLED LCD', 'Apple'), 'iPhone 11 GX OLED LCD')
+        self.assertEqual(name_without_brand('LGX Charger', 'LG'), 'LGX Charger')
+        self.assertEqual(name_without_brand('Whoop', 'Whoop'), 'Whoop')
+        self.assertEqual(name_without_brand('Cable', ''), 'Cable')
+
+    def test_saving_a_product_applies_both_rules(self):
+        saved = Product.objects.create(name='tecno Spark 10 LCD', brand='tecno')
+        saved.refresh_from_db()
+        self.assertEqual((saved.brand, saved.name), ('Tecno', 'Spark 10 LCD'))
+        self.assertEqual(product_display_name(saved), 'Tecno Spark 10 LCD')

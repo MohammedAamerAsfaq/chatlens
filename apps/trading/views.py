@@ -59,6 +59,7 @@ from .services.campaign_lists import (
     usable_member_ids,
 )
 from .services.product_cache import invalidate as invalidate_product_cache
+from .services.product_search import search_products
 
 logger = logging.getLogger(__name__)
 
@@ -360,15 +361,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             qs = qs.filter(is_active=True)
         elif active == 'false':
             qs = qs.filter(is_active=False)
-        search = (self.request.query_params.get('search') or '').strip()
-        if search:
-            qs = qs.filter(
-                Q(name__icontains=search)
-                | Q(brand__icontains=search)
-                | Q(sku__icontains=search)
-                | Q(alias_set__alias__icontains=search)
-            ).distinct()
-        return qs
+        return search_products(qs, self.request.query_params.get('search'))
 
     def perform_create(self, serializer):
         company = default_company_for_user(self.request.user)

@@ -79,12 +79,8 @@ def search_eligible(qs, kind, search):
     if kind == CampaignListKind.GROUPS:
         return qs.filter(Q(name__icontains=search) | Q(wa_group_id__icontains=search))
     if kind == CampaignListKind.PRODUCTS:
-        return qs.filter(
-            Q(name__icontains=search)
-            | Q(brand__icontains=search)
-            | Q(sku__icontains=search)
-            | Q(alias_set__alias__icontains=search)
-        ).distinct()
+        from .product_search import search_products
+        return search_products(qs, search)
     return qs.filter(
         Q(display_name__icontains=search)
         | Q(push_name__icontains=search)

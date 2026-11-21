@@ -206,9 +206,11 @@ class CampaignProductListTests(ListFixtures, TestCase):
 
         candidates = self.client.get(f'/api/campaign-lists/{list_id}/candidates/', {'search': 'batt'})
         self.assertEqual(candidates.status_code, 200, candidates.data)
-        self.assertEqual([row['name'] for row in candidates.data['results']], ['Samsung A15 Battery'])
+        self.assertEqual([row['name'] for row in candidates.data['results']], ['A15 Battery'])
+        combined = self.client.get(f'/api/campaign-lists/{list_id}/candidates/', {'search': 'samsung a15 inc'})
+        self.assertEqual([row['name'] for row in combined.data['results']], ['A15 Incell LCD'])
         everything = self.client.get(f'/api/campaign-lists/{list_id}/candidates/')
-        self.assertNotIn('Samsung J2 LCD', [row['name'] for row in everything.data['results']])
+        self.assertNotIn('J2 LCD', [row['name'] for row in everything.data['results']])
 
         response = self.client.post(f'/api/campaign-lists/{list_id}/add-members/', {'ids': [self.screen.pk, self.battery.pk]}, format='json')
         self.assertEqual(response.status_code, 200, response.data)

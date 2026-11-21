@@ -286,14 +286,14 @@
                 <span>Product line <small class="muted">(for products listed after the message)</small></span>
                 <textarea v-model="editDraft.product_line_template" rows="2" />
               </label>
-              <div class="currency-override">
-                <label class="checkbox-label">
-                  <input type="checkbox" :checked="!editDraft.currency_settings" @change="toggleCompanyCurrency($event.target.checked)" />
-                  <span>Use company currency settings</span>
-                </label>
-                <CampaignCurrencyForm v-if="editDraft.currency_settings" :settings="editDraft.currency_settings" />
-              </div>
             </div>
+
+            <CampaignCurrencyBar
+              :campaign="offer"
+              :company="companyCurrency"
+              :save="settings => tradingApi.updateSellingOffer(offer.id, { currency_settings: settings })"
+              @saved="replaceOffer"
+            />
 
             <div class="detail-grid">
               <div>
@@ -514,9 +514,8 @@ import { useColorEmoji } from '@/features/trading/composables/useColorEmoji'
 import {
   directMessageWithProducts,
   CampaignAttachmentPanel,
-  CampaignCurrencyForm,
+  CampaignCurrencyBar,
   CampaignListPicker,
-  blankCurrencySettings,
   formatCampaignPrice,
   settingsFor,
   CampaignMessagePreview,
@@ -558,7 +557,6 @@ const busyAction = ref('')
 const error = ref('')
 const editingOfferId = ref(null)
 const editDraft = reactive({
-  currency_settings: null,
   name: '',
   status: 'open',
   message_mode: 'formatted',
@@ -632,9 +630,6 @@ async function loadCompanyCurrency() {
   } catch {
     error.value = 'Unable to load the campaign currency settings; prices show in the default format until the page is reloaded.'
   }
-}
-function toggleCompanyCurrency(useCompany) {
-  editDraft.currency_settings = useCompany ? null : blankCurrencySettings(companyCurrency.value || undefined)
 }
 onMounted(loadCompanyCurrency)
 
@@ -889,7 +884,6 @@ function startEditOffer(offer) {
   editDraft.status = offer.status
   editDraft.message_mode = offer.message_mode || 'formatted'
   editDraft.direct_message = offer.direct_message || ''
-  editDraft.currency_settings = offer.currency_settings ? blankCurrencySettings(offer.currency_settings) : null
   editDraft.header_template = valueOrDefault(offer.header_template, DEFAULT_HEADER)
   editDraft.product_line_template = valueOrDefault(offer.product_line_template, DEFAULT_LINE)
   editDraft.footer_template = valueOrDefault(offer.footer_template, DEFAULT_FOOTER)
@@ -924,7 +918,6 @@ async function saveEditOffer(offer) {
       header_template: editDraft.header_template,
       product_line_template: editDraft.product_line_template,
       footer_template: editDraft.footer_template,
-      currency_settings: editDraft.currency_settings,
       send_flag: editDraft.send_flag,
       flag_position: editDraft.flag_position,
       send_color: editDraft.send_color,
@@ -1195,7 +1188,6 @@ function offerAttachmentMessage(offer) {
     header_template: editDraft.header_template,
     product_line_template: editDraft.product_line_template,
     footer_template: editDraft.footer_template,
-    currency_settings: editDraft.currency_settings,
     send_flag: editDraft.send_flag,
     flag_position: editDraft.flag_position,
     send_color: editDraft.send_color,
@@ -1855,5 +1847,5 @@ input:focus, select:focus, textarea:focus { border-color: var(--ui-primary); out
 .send-feedback.queued { color: var(--ui-success); }
 .send-feedback.failed { color: var(--ui-danger); }
 .empty-note { color: var(--ui-text-subtle); }
-.currency-override{display:grid;gap:10px;margin-top:12px}
+
 </style>

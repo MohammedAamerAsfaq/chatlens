@@ -17,6 +17,7 @@ export {
   campaignMessageLimit,
 } from './constants'
 export { default as CampaignCurrencyForm } from './components/CampaignCurrencyForm.vue'
+export { default as CampaignCurrencyBar } from './components/CampaignCurrencyBar.vue'
 export {
   DEFAULT_CURRENCY_SETTINGS,
   blankCurrencySettings,
