@@ -303,7 +303,9 @@
                 </div>
                 <CampaignListPicker
                   kind="products"
-                  :apply="listId => tradingApi.addSellingOfferProductList(offer.id, listId)"
+                  :apply="(listId, options) => tradingApi.addSellingOfferProductList(offer.id, listId, options)"
+                  :clear="() => tradingApi.removeAllSellingOfferProducts(offer.id)"
+                  :count="offer.products.length"
                   @applied="data => replaceOffer(data.offer)"
                 />
                 <div v-if="editingOfferId === offer.id" class="product-picker inline-picker">

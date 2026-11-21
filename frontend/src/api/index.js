@@ -527,7 +527,8 @@ export const tradingApi = {
   markBuyingInquirySupplierChatLensClick: (id, supplier_id) => http.post(`/buying-inquiries/${id}/mark-supplier-chatlens-click/`, { supplier_id }),
   addBuyingInquiryGroup: (id, group_id) => http.post(`/buying-inquiries/${id}/add-group/`, { group_id }),
   addBuyingInquiryList: (id, list_id) => http.post(`/buying-inquiries/${id}/add-list/`, { list_id }),
-  addBuyingInquiryProductList: (id, list_id) => http.post(`/buying-inquiries/${id}/add-product-list/`, { list_id }),
+  addBuyingInquiryProductList: (id, list_id, { replace = false } = {}) => http.post(`/buying-inquiries/${id}/add-product-list/`, { list_id, replace }),
+  removeAllBuyingInquiryProducts: (id) => http.post(`/buying-inquiries/${id}/remove-all-products/`),
   removeBuyingInquiryGroup: (id, recipient_id) => http.post(`/buying-inquiries/${id}/remove-group/`, { recipient_id }),
   markBuyingInquiryGroupChatLensClick: (id, recipient_id) => http.post(`/buying-inquiries/${id}/mark-group-chatlens-click/`, { recipient_id }),
 
@@ -552,7 +553,8 @@ export const tradingApi = {
   markSellingOfferCustomerChatLensClick: (id, customer_id) => http.post(`/selling-offers/${id}/mark-customer-chatlens-click/`, { customer_id }),
   addSellingOfferGroup: (id, group_id) => http.post(`/selling-offers/${id}/add-group/`, { group_id }),
   addSellingOfferList: (id, list_id) => http.post(`/selling-offers/${id}/add-list/`, { list_id }),
-  addSellingOfferProductList: (id, list_id) => http.post(`/selling-offers/${id}/add-product-list/`, { list_id }),
+  addSellingOfferProductList: (id, list_id, { replace = false } = {}) => http.post(`/selling-offers/${id}/add-product-list/`, { list_id, replace }),
+  removeAllSellingOfferProducts: (id) => http.post(`/selling-offers/${id}/remove-all-products/`),
   removeSellingOfferGroup: (id, recipient_id) => http.post(`/selling-offers/${id}/remove-group/`, { recipient_id }),
   markSellingOfferGroupChatLensClick: (id, recipient_id) => http.post(`/selling-offers/${id}/mark-group-chatlens-click/`, { recipient_id }),
 

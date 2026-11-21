@@ -64,6 +64,7 @@ function apiFor(action) {
     addGroup: tradingApi.addBuyingInquiryGroup,
     addList: tradingApi.addBuyingInquiryList,
     addProductList: tradingApi.addBuyingInquiryProductList,
+    removeAllProducts: tradingApi.removeAllBuyingInquiryProducts,
     removeGroup: tradingApi.removeBuyingInquiryGroup,
     markChatLensClick: tradingApi.markBuyingInquiryGroupChatLensClick,
     update: tradingApi.updateBuyingInquiry,
@@ -76,6 +77,7 @@ function apiFor(action) {
     addGroup: tradingApi.addSellingOfferGroup,
     addList: tradingApi.addSellingOfferList,
     addProductList: tradingApi.addSellingOfferProductList,
+    removeAllProducts: tradingApi.removeAllSellingOfferProducts,
     removeGroup: tradingApi.removeSellingOfferGroup,
     markChatLensClick: tradingApi.markSellingOfferGroupChatLensClick,
     update: tradingApi.updateSellingOffer,
@@ -500,7 +502,7 @@ onMounted(async () => {
             <div class="currency-override"><label class="check"><input type="checkbox" :checked="!editDraft.currency" @change="toggleCompanyCurrency($event.target.checked)" /> Use company currency settings</label><CampaignCurrencyForm v-if="editDraft.currency" :settings="editDraft.currency" /></div>
           </div>
           <CampaignMessagePreview v-else title="Message preview" :message="message(campaign)" />
-          <div class="product-list-picker"><h3>Products <small>{{ campaign.products.length }} selected</small></h3><CampaignListPicker kind="products" :apply="listId => apiFor('addProductList')(campaign.id, listId)" @applied="data => replaceCampaign(data.inquiry || data.offer)" /></div>
+          <div class="product-list-picker"><h3>Products <small>{{ campaign.products.length }} selected</small></h3><CampaignListPicker kind="products" :apply="(listId, options) => apiFor('addProductList')(campaign.id, listId, options)" :clear="() => apiFor('removeAllProducts')(campaign.id)" :count="campaign.products.length" @applied="data => replaceCampaign(data.inquiry || data.offer)" /></div>
           <CampaignAttachmentPanel
             class="attachment"
             :file="campaignImages[campaign.id]"

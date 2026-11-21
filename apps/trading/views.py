@@ -51,9 +51,10 @@ from .services import inquiry_sharing, inquiry_status
 from .services.campaign_currency import clean_currency_settings, company_currency_settings, save_company_currency_settings
 from .services.campaign_lists import (
     add_campaign_groups,
-    add_campaign_products,
+    apply_product_list,
     campaign_list_for,
     product_list_for,
+    replace_flag,
     usable_member_ids,
 )
 from .services.product_cache import invalidate as invalidate_product_cache
@@ -3708,17 +3709,26 @@ class BuyingInquiryViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='add-product-list')
     def add_product_list(self, request, pk=None):
-        """Add a saved product list's products to this campaign."""
+        """Add a saved product list's products to this campaign; with `replace` true the
+        campaign's current products are removed first, so it holds exactly the list."""
         inquiry = self.get_object()
         product_list = product_list_for(inquiry, request.data.get('list_id'))
+        replace = replace_flag(request.data)
         ids, unavailable = usable_member_ids(product_list, request.user)
         with transaction.atomic():
-            added, skipped = add_campaign_products(inquiry, ids, self._add_product_row)
+            removed, added, skipped = apply_product_list(inquiry, ids, self._add_product_row, replace)
         inquiry = self.get_queryset().get(pk=inquiry.pk)
         return Response({
-            'added': added, 'skipped': skipped, 'unavailable': unavailable,
+            'removed': removed, 'added': added, 'skipped': skipped, 'unavailable': unavailable,
             'inquiry': self.get_serializer(inquiry).data,
         })
+
+    @action(detail=True, methods=['post'], url_path='remove-all-products')
+    def remove_all_products(self, request, pk=None):
+        inquiry = self.get_object()
+        removed, _ = inquiry.products.all().delete()
+        inquiry = self.get_queryset().get(pk=inquiry.pk)
+        return Response({'removed': removed, 'inquiry': self.get_serializer(inquiry).data})
 
     @action(detail=True, methods=['post'], url_path='remove-all-suppliers')
     def remove_all_suppliers(self, request, pk=None):
@@ -4311,17 +4321,26 @@ class SellingOfferViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='add-product-list')
     def add_product_list(self, request, pk=None):
-        """Add a saved product list's products to this campaign."""
+        """Add a saved product list's products to this campaign; with `replace` true the
+        campaign's current products are removed first, so it holds exactly the list."""
         offer = self.get_object()
         product_list = product_list_for(offer, request.data.get('list_id'))
+        replace = replace_flag(request.data)
         ids, unavailable = usable_member_ids(product_list, request.user)
         with transaction.atomic():
-            added, skipped = add_campaign_products(offer, ids, self._add_product_row)
+            removed, added, skipped = apply_product_list(offer, ids, self._add_product_row, replace)
         offer = self.get_queryset().get(pk=offer.pk)
         return Response({
-            'added': added, 'skipped': skipped, 'unavailable': unavailable,
+            'removed': removed, 'added': added, 'skipped': skipped, 'unavailable': unavailable,
             'offer': self.get_serializer(offer).data,
         })
+
+    @action(detail=True, methods=['post'], url_path='remove-all-products')
+    def remove_all_products(self, request, pk=None):
+        offer = self.get_object()
+        removed, _ = offer.products.all().delete()
+        offer = self.get_queryset().get(pk=offer.pk)
+        return Response({'removed': removed, 'offer': self.get_serializer(offer).data})
 
     @action(detail=True, methods=['post'], url_path='remove-all-customers')
     def remove_all_customers(self, request, pk=None):

@@ -259,7 +259,9 @@
                 </div>
                 <CampaignListPicker
                   kind="products"
-                  :apply="listId => tradingApi.addBuyingInquiryProductList(inquiry.id, listId)"
+                  :apply="(listId, options) => tradingApi.addBuyingInquiryProductList(inquiry.id, listId, options)"
+                  :clear="() => tradingApi.removeAllBuyingInquiryProducts(inquiry.id)"
+                  :count="inquiry.products.length"
                   @applied="data => replaceInquiry(data.inquiry)"
                 />
                 <div v-if="editingInquiryId === inquiry.id" class="product-picker inline-picker">

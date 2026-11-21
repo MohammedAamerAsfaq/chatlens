@@ -69,6 +69,63 @@ describe('CampaignListPicker', () => {
     expect(wrapper.text()).toContain('2 added · 1 unavailable (inactive)')
   })
 
+  it('offers replace and clear only when the campaign can clear its items', async () => {
+    const wrapper = mountPicker({ kind: 'products' })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Replace with list')
+    expect(wrapper.text()).not.toContain('Clear products')
+  })
+
+  it('replaces the campaign products with the list after confirming', async () => {
+    api.list.mockResolvedValue({ data: [{ id: 9, name: 'GX', member_count: 26 }] })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const apply = vi.fn().mockResolvedValue({ data: { removed: 5, added: 26, skipped: 0, unavailable: 0, offer: { id: 7 } } })
+    const wrapper = mountPicker({ kind: 'products', apply, clear: vi.fn(), count: 5 })
+    await flushPromises()
+    await wrapper.find('select').setValue(9)
+    await wrapper.findAll('button').find(b => b.text() === 'Replace with list').trigger('click')
+    await flushPromises()
+    expect(confirm).toHaveBeenCalledWith('Remove this campaign\'s 5 products and use only "GX"?')
+    expect(apply).toHaveBeenCalledWith(9, { replace: true })
+    expect(wrapper.text()).toContain('5 removed · 26 added')
+    expect(wrapper.emitted('applied')[0][0].offer).toEqual({ id: 7 })
+    confirm.mockRestore()
+  })
+
+  it('does nothing when replacing or clearing is cancelled', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const apply = vi.fn()
+    const clear = vi.fn()
+    const wrapper = mountPicker({ kind: 'products', apply, clear, count: 3 })
+    await flushPromises()
+    await wrapper.find('select').setValue(4)
+    await wrapper.findAll('button').find(b => b.text() === 'Replace with list').trigger('click')
+    await wrapper.findAll('button').find(b => b.text() === 'Clear products').trigger('click')
+    expect(apply).not.toHaveBeenCalled()
+    expect(clear).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+
+  it('clears all products from the campaign', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const clear = vi.fn().mockResolvedValue({ data: { removed: 3, inquiry: { id: 2, products: [] } } })
+    const wrapper = mountPicker({ kind: 'products', clear, count: 3 })
+    await flushPromises()
+    await wrapper.findAll('button').find(b => b.text() === 'Clear products').trigger('click')
+    await flushPromises()
+    expect(confirm).toHaveBeenCalledWith('Remove all 3 products from this campaign?')
+    expect(clear).toHaveBeenCalled()
+    expect(wrapper.text()).toContain('3 removed')
+    expect(wrapper.emitted('applied')[0][0].inquiry.products).toEqual([])
+    confirm.mockRestore()
+  })
+
+  it('cannot clear a campaign with no products', async () => {
+    const wrapper = mountPicker({ kind: 'products', clear: vi.fn(), count: 0 })
+    await flushPromises()
+    expect(wrapper.findAll('button').find(b => b.text() === 'Clear products').attributes('disabled')).toBeDefined()
+  })
+
   it('is hidden from members who cannot change campaigns', async () => {
     useAuthStore().user.permissions = { 'campaigns.campaigns.view': 'all' }
     const wrapper = mountPicker()

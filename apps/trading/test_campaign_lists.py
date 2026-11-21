@@ -230,6 +230,44 @@ class CampaignProductListTests(ListFixtures, TestCase):
         again = self.client.post(f'/api/selling-offers/{offer.pk}/add-product-list/', {'list_id': product_list.pk}, format='json')
         self.assertEqual((again.data['added'], again.data['skipped']), (0, 2))
 
+    def test_replacing_with_a_product_list_leaves_exactly_the_list(self):
+        offer = SellingOffer.objects.create(company=self.company, name='Stock', created_by=self.manager)
+        self.client.post(f'/api/selling-offers/{offer.pk}/add-product/', {'product_id': self.battery.pk}, format='json')
+        self.client.post(f'/api/selling-offers/{offer.pk}/add-product/', {'product_id': self.screen.pk}, format='json')
+        product_list = self._product_list(self.screen)
+        response = self.client.post(
+            f'/api/selling-offers/{offer.pk}/add-product-list/', {'list_id': product_list.pk, 'replace': True}, format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual((response.data['removed'], response.data['added'], response.data['skipped']), (2, 1, 0))
+        self.assertEqual(list(offer.products.values_list('product_id', flat=True)), [self.screen.pk])
+        self.assertEqual(len(response.data['offer']['products']), 1)
+
+    def test_replace_must_be_a_boolean_and_a_refused_replace_keeps_products(self):
+        offer = SellingOffer.objects.create(company=self.company, name='Stock', created_by=self.manager)
+        self.client.post(f'/api/selling-offers/{offer.pk}/add-product/', {'product_id': self.battery.pk}, format='json')
+        product_list = self._product_list(self.screen)
+        response = self.client.post(
+            f'/api/selling-offers/{offer.pk}/add-product-list/', {'list_id': product_list.pk, 'replace': 'yes'}, format='json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('replace', response.data)
+        response = self.client.post(
+            f'/api/selling-offers/{offer.pk}/add-product-list/', {'list_id': self._list().pk, 'replace': True}, format='json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(offer.products.count(), 1)
+
+    def test_remove_all_products_clears_a_campaign(self):
+        inquiry = BuyingInquiry.objects.create(company=self.company, name='Need', audience_type='groups', created_by=self.manager)
+        self.client.post(f'/api/buying-inquiries/{inquiry.pk}/add-product-list/', {'list_id': self._product_list(self.screen, self.battery).pk}, format='json')
+        response = self.client.post(f'/api/buying-inquiries/{inquiry.pk}/remove-all-products/', format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['removed'], 2)
+        self.assertEqual(response.data['inquiry']['products'], [])
+        self.client.force_authenticate(self.viewer)
+        self.assertEqual(self.client.post(f'/api/buying-inquiries/{inquiry.pk}/remove-all-products/').status_code, 403)
+
     def test_product_list_fills_a_group_campaign_and_skips_inactive_products(self):
         product_list = self._product_list(self.screen, self.old)
         inquiry = BuyingInquiry.objects.create(company=self.company, name='Need', audience_type='groups', created_by=self.manager)

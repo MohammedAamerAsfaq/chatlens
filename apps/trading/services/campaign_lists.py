@@ -170,3 +170,20 @@ def add_campaign_products(campaign, product_ids, add_row):
     for pk in new_ids:
         add_row(campaign, products[pk])
     return len(new_ids), len(product_ids) - len(new_ids)
+
+
+def apply_product_list(campaign, product_ids, add_row, replace):
+    """Add a product list's products to a campaign, first removing every product it has when
+    `replace`; returns (removed, added, already there). Call inside a transaction so a failed
+    add leaves the campaign's products as they were."""
+    removed = campaign.products.all().delete()[0] if replace else 0
+    added, skipped = add_campaign_products(campaign, product_ids, add_row)
+    return removed, added, skipped
+
+
+def replace_flag(data, field='replace'):
+    """The request's `replace` choice: absent means add; anything but a JSON boolean is refused."""
+    value = data.get(field, False)
+    if not isinstance(value, bool):
+        raise ValidationError({field: 'Must be true or false.'})
+    return value
