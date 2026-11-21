@@ -20,7 +20,8 @@ class ProductLabel(serializers.Serializer):
 class ReviewLabel(serializers.Serializer):
     is_inquiry = serializers.BooleanField()
     direction = serializers.ChoiceField(choices=['buy', 'sell', 'both', 'unknown', ''], allow_blank=True)
-    products = ProductLabel(many=True, max_length=100)
+    # Long stock lists commonly exceed 100 product lines.
+    products = ProductLabel(many=True, max_length=1000)
     notes = serializers.CharField(required=False, allow_blank=True, max_length=2000)
 
     def validate(self, attrs):

@@ -124,3 +124,22 @@ class TradingReviewTests(TestCase):
         with patch('apps.trading.management.commands.export_trading_reviews.group_split', return_value='test'):
             self.assertEqual(self.client.get('/api/trading-ai-review/review-next/', {'origin': 'ai', 'sample': 'evaluation'}).json()['review_id'], review.id)
         self.assertEqual(self.client.get('/api/trading-ai-review/review-next/', {'origin': 'human', 'sample': 'evaluation'}).status_code, 400)
+    def test_long_stock_list_can_be_reviewed_and_corrected(self):
+        products = [{'name': f'Product {index}', 'quantity': '1'} for index in range(146)]
+        label = {'is_inquiry': True, 'direction': 'sell', 'products': products}
+        response = self.client.post('/api/trading-ai-review/submit/', {'message_id': self.message.id, 'label': label}, format='json')
+        self.assertEqual(response.status_code, 201, response.content)
+        review = TradingMessageReview.objects.get(message=self.message)
+        self.assertEqual(len(review.label['products']), 146)
+        updated = {**label, 'products': products + [{'name': 'Another product'}]}
+        response = self.client.post('/api/trading-ai-review/correct/', {'review_id': review.id, 'expected_label': review.label, 'label': updated}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        review.refresh_from_db()
+        self.assertEqual(len(review.label['products']), 147)
+
+    def test_excessive_product_list_is_rejected(self):
+        products = [{'name': 'Product'}] * 1001
+        label = {'is_inquiry': True, 'direction': 'sell', 'products': products}
+        response = self.client.post('/api/trading-ai-review/submit/', {'message_id': self.message.id, 'label': label}, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(TradingMessageReview.objects.filter(message=self.message).exists())
