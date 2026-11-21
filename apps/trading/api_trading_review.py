@@ -120,7 +120,20 @@ class TradingReviewViewSet(viewsets.ViewSet):
         origin = request.query_params.get('origin', 'ai')
         if origin not in ('ai', 'human'):
             return Response({'detail': 'Invalid review origin.'}, status=400)
+        sample = request.query_params.get('sample', 'all')
+        if sample not in ('all', 'evaluation') or (sample == 'evaluation' and origin != 'ai'):
+            return Response({'detail': 'Invalid review sample.'}, status=400)
         qs = scope_queryset_to_visible_accounts(TradingMessageReview.objects.filter(company=company, pk__gt=after), request.user, account_field='message__account')
+        if sample == 'evaluation':
+            from apps.trading.services.trading_review_sampling import ReviewGroups
+            from apps.trading.management.commands.export_trading_reviews import group_split
+            groups = ReviewGroups()
+            eligible = []
+            for existing in TradingMessageReview.objects.filter(company=company).order_by('pk').only('pk', 'source_text').iterator():
+                index = groups.add(existing.source_text, existing.pk)
+                if index is not None and group_split(groups.groups[index]['id']) in ('validation', 'test'):
+                    eligible.append(existing.pk)
+            qs = qs.filter(pk__in=eligible)
         if origin == 'ai':
             qs = qs.filter(label__notes__startswith='AI review by OpenAI Codex;')
         else:

@@ -606,7 +606,7 @@ export const tenantAdminApi = {
 
 export const tradingReviewApi = {
   batchNext: (after = 0) => http.get('/trading-ai-review/batch-next/', { params: { after } }),
-  reviewNext: (origin, after = 0) => http.get('/trading-ai-review/review-next/', { params: { origin, after } }),
+  reviewNext: (origin, after = 0, sample = 'all') => http.get('/trading-ai-review/review-next/', { params: { origin, after, sample } }),
   correct: (data) => http.post('/trading-ai-review/correct/', data),
   next: (pool, after = 0) => http.get('/trading-ai-review/next/', { params: { pool, after } }),
   submit: (data) => http.post('/trading-ai-review/submit/', data),

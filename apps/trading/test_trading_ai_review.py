@@ -115,3 +115,12 @@ class TradingReviewTests(TestCase):
             path.write_text(json.dumps(entries[0]) + '\n', encoding='utf-8')
             call_command('import_trading_review_batch', company_id=self.company.id, name='Good batch', file=str(path))
             self.assertEqual(TradingReviewBatch.objects.get().items.count(), 1)
+    def test_evaluation_queue_only_returns_held_out_ai_reviews(self):
+        from unittest.mock import patch
+        label = {'is_inquiry': False, 'direction': '', 'products': [], 'notes': 'AI review by OpenAI Codex; not human-verified.'}
+        review = TradingMessageReview.objects.create(company=self.company, message=self.message, source_text='source', ai_snapshot={}, label=label)
+        with patch('apps.trading.management.commands.export_trading_reviews.group_split', return_value='train'):
+            self.assertTrue(self.client.get('/api/trading-ai-review/review-next/', {'origin': 'ai', 'sample': 'evaluation'}).json()['done'])
+        with patch('apps.trading.management.commands.export_trading_reviews.group_split', return_value='test'):
+            self.assertEqual(self.client.get('/api/trading-ai-review/review-next/', {'origin': 'ai', 'sample': 'evaluation'}).json()['review_id'], review.id)
+        self.assertEqual(self.client.get('/api/trading-ai-review/review-next/', {'origin': 'human', 'sample': 'evaluation'}).status_code, 400)
