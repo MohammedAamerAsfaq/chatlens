@@ -1,9 +1,10 @@
-﻿<script setup>
+<script setup>
 import { ref, onMounted } from 'vue'
 import { tradingReviewApi } from '@/api'
 
 const pool = ref('all')
 const sample = ref(null)
+const after = ref(0)
 const label = ref(null)
 const loading = ref(false)
 const saving = ref(false)
@@ -16,7 +17,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const { data } = await tradingReviewApi.next(pool.value)
+    const { data } = await tradingReviewApi.next(pool.value, after.value)
     done.value = !!data.done
     sample.value = data.done ? null : data
     if (!data.done) {
@@ -41,6 +42,8 @@ function changeDecision() {
   if (!label.value.is_inquiry) { label.value.direction = ''; label.value.products = [] }
   else if (!label.value.direction) label.value.direction = 'unknown'
 }
+function changePool() { after.value = 0; load() }
+function skip() { after.value = sample.value.message_id; load() }
 async function save() {
   saving.value = true
   error.value = ''
@@ -56,7 +59,7 @@ onMounted(load)
 <template>
   <main class="review-page">
     <header><div><h1>Trading AI Review</h1><p>Verify complete messages to build a human-reviewed parsing dataset. Saving a review does not change live inquiries.</p></div>
-      <label>Message pool <select v-model="pool" @change="load"><option value="all">All classifications</option><option value="inquiry">AI: inquiry</option><option value="non_inquiry">AI: not an inquiry</option></select></label>
+      <label>Message pool <select v-model="pool" @change="changePool"><option value="all">All classifications</option><option value="buy">AI: buy</option><option value="sell">AI: sell</option><option value="non_inquiry">AI: not an inquiry</option><option value="uncertain">AI: mixed or unknown</option></select></label>
     </header>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="loading">Loading message…</p>
@@ -77,6 +80,7 @@ onMounted(load)
           </div><button type="button" @click="label.products.push(blankProduct())">Add product</button>
         </template>
         <label>Review notes <textarea v-model="label.notes" maxlength="2000" rows="2" /></label>
+        <button type="button" @click="skip" :disabled="saving">Skip</button>
         <button class="primary" type="submit" :disabled="saving">{{ saving ? 'Saving…' : 'Save verified review' }}</button>
       </section></form>
     </template>

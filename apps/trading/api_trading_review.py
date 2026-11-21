@@ -45,11 +45,25 @@ class TradingReviewViewSet(viewsets.ViewSet):
         if not company:
             return Response({'detail': 'No active company selected.'}, status=400)
         pool = request.query_params.get('pool', 'all')
-        if pool not in ('all', 'inquiry', 'non_inquiry'):
+        if pool not in ('all', 'inquiry', 'non_inquiry', 'buy', 'sell', 'uncertain'):
             return Response({'detail': 'Invalid review pool.'}, status=400)
         qs = self._classifications(request, company).filter(message__trading_review__isnull=True).exclude(message__message_text='')
-        if pool != 'all':
-            qs = qs.filter(is_inquiry=(pool == 'inquiry'))
+        if pool == 'non_inquiry':
+            qs = qs.filter(is_inquiry=False)
+        elif pool in ('buy', 'sell'):
+            qs = qs.filter(is_inquiry=True, inquiry_type=pool)
+        elif pool == 'inquiry':
+            qs = qs.filter(is_inquiry=True)
+        elif pool == 'uncertain':
+            qs = qs.filter(is_inquiry=True).exclude(inquiry_type__in=('buy', 'sell'))
+        try:
+            after = int(request.query_params.get('after', 0))
+            if after < 0:
+                raise ValueError
+        except ValueError:
+            return Response({'detail': 'Invalid cursor.'}, status=400)
+        if after:
+            qs = qs.filter(message_id__gt=after)
         classification = qs.select_related('message').order_by('message_id').first()
         if not classification:
             return Response({'done': True})

@@ -51,3 +51,26 @@ class TradingReviewTests(TestCase):
         self.assertEqual(self.client.post(url, {'message_id': self.message.id, 'label': label}, format='json').status_code, 400)
         self.assertFalse(TradingMessageReview.objects.exists())
 
+    def test_pool_and_skip_select_expected_messages(self):
+        url = '/api/trading-ai-review/next/'
+        self.assertEqual(self.client.get(url, {'pool': 'sell'}).json(), {'done': True})
+        self.assertEqual(self.client.get(url, {'pool': 'buy'}).json()['message_id'], self.message.pk)
+        self.assertEqual(self.client.get(url, {'pool': 'buy', 'after': self.message.pk}).json(), {'done': True})
+        self.assertEqual(self.client.get(url, {'after': 'bad'}).status_code, 400)
+
+    def test_export_excludes_ai_from_human_and_evaluation(self):
+        import io
+        import json
+        from django.core.management import call_command
+        label = {'is_inquiry': False, 'direction': '', 'products': [], 'notes': 'AI review by OpenAI Codex; not human-verified.'}
+        review = TradingMessageReview.objects.create(company=self.company, message=self.message, source_text=self.message.message_text, ai_snapshot={}, label=label)
+        output = io.StringIO()
+        call_command('export_trading_reviews', company_id=self.company.pk, stdout=output)
+        self.assertEqual(output.getvalue(), '')
+        output = io.StringIO()
+        call_command('export_trading_reviews', company_id=self.company.pk, origin='ai', stdout=output)
+        row = json.loads(output.getvalue())
+        self.assertEqual(row['review_origin'], 'ai')
+        output = io.StringIO()
+        call_command('export_trading_reviews', company_id=self.company.pk, origin='all', split=row['split'] if row['split'] != 'train' else 'test', stdout=output)
+        self.assertEqual(output.getvalue(), '')

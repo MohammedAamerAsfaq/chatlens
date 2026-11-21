@@ -605,6 +605,6 @@ export const tenantAdminApi = {
 }
 
 export const tradingReviewApi = {
-  next: (pool) => http.get('/trading-ai-review/next/', { params: { pool } }),
+  next: (pool, after = 0) => http.get('/trading-ai-review/next/', { params: { pool, after } }),
   submit: (data) => http.post('/trading-ai-review/submit/', data),
 }
