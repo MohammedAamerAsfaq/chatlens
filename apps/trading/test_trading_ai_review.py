@@ -74,3 +74,44 @@ class TradingReviewTests(TestCase):
         output = io.StringIO()
         call_command('export_trading_reviews', company_id=self.company.pk, origin='all', split=row['split'] if row['split'] != 'train' else 'test', stdout=output)
         self.assertEqual(output.getvalue(), '')
+    def test_batch_progress_and_human_correction_keep_ai_history(self):
+        from apps.trading.models import TradingReviewBatch, TradingReviewBatchItem, TradingReviewRevision
+        batch = TradingReviewBatch.objects.create(company=self.company, name='Batch 1')
+        TradingReviewBatchItem.objects.create(batch=batch, message=self.message, position=1, group_id='a' * 64, sampling_pool='buy')
+        response = self.client.get('/api/trading-ai-review/batch-next/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual((response.json()['completed'], response.json()['total']), (0, 1))
+        ai_label = {'is_inquiry': True, 'direction': 'sell', 'products': [], 'notes': 'AI review by OpenAI Codex; not human-verified.'}
+        review = TradingMessageReview.objects.create(company=self.company, message=self.message, source_text=self.message.message_text, ai_snapshot={}, label=ai_label)
+        self.assertEqual(self.client.get('/api/trading-ai-review/batch-next/').json()['completed'], 1)
+        self.assertEqual(self.client.get('/api/trading-ai-review/review-next/', {'origin': 'ai'}).json()['review_id'], review.id)
+        label = {'is_inquiry': True, 'direction': 'buy', 'products': [{'name': 'phones', 'quantity': '2'}], 'notes': ''}
+        response = self.client.post('/api/trading-ai-review/correct/', {'review_id': review.pk, 'label': label, 'expected_label': ai_label}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        review.refresh_from_db()
+        self.assertEqual(review.reviewed_by, self.user)
+        self.assertEqual(review.label['direction'], 'buy')
+        self.assertEqual(TradingReviewRevision.objects.get(review=review).previous_label, ai_label)
+        self.assertTrue(self.client.get('/api/trading-ai-review/review-next/', {'origin': 'ai'}).json()['done'])
+
+    def test_cannot_correct_other_company_review(self):
+        review = TradingMessageReview.objects.create(company=self.foreign.account.communication_account.company, message=self.foreign, source_text='other', ai_snapshot={}, label={'is_inquiry': False})
+        response = self.client.post('/api/trading-ai-review/correct/', {'review_id': review.pk, 'label': {'is_inquiry': False, 'direction': '', 'products': []}}, format='json')
+        self.assertEqual(response.status_code, 404)
+    def test_batch_import_is_company_scoped_and_atomic(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from django.core.management import call_command, CommandError
+        from apps.trading.models import TradingReviewBatch
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'batch.jsonl'
+            entries = [{'message_id': self.message.id, 'group_id': 'a' * 64, 'sampling_pool': 'buy', 'duplicate_message_ids': []},
+                       {'message_id': self.foreign.id, 'group_id': 'b' * 64, 'sampling_pool': 'buy', 'duplicate_message_ids': []}]
+            path.write_text(''.join(json.dumps(row) + '\n' for row in entries), encoding='utf-8')
+            with self.assertRaises(CommandError):
+                call_command('import_trading_review_batch', company_id=self.company.id, name='Bad batch', file=str(path))
+            self.assertFalse(TradingReviewBatch.objects.exists())
+            path.write_text(json.dumps(entries[0]) + '\n', encoding='utf-8')
+            call_command('import_trading_review_batch', company_id=self.company.id, name='Good batch', file=str(path))
+            self.assertEqual(TradingReviewBatch.objects.get().items.count(), 1)
