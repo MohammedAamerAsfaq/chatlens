@@ -18,6 +18,8 @@ class AnthropicChatProvider(ChatProvider):
 
     def chat(self, messages: list, **kwargs) -> str:
         request_timeout = kwargs.pop('request_timeout', 60)
+        if kwargs.pop('web_search', None):
+            raise ValueError(f'Web search is only available on OpenRouter models; {self.model} cannot search the web.')
         # Anthropic separates system from conversation messages
         system = None
         conv = []

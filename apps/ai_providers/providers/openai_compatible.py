@@ -37,6 +37,14 @@ class OpenRouterChatProvider(OpenAIChatProvider):
     def __init__(self, api_key, model='openrouter/auto', base_url=''):
         super().__init__(api_key, model, base_url or 'https://openrouter.ai/api/v1')
 
+    def chat(self, messages: list, **kwargs) -> str:
+        # web_search={'max_results': n}: OpenRouter's web plugin fetches results for the
+        # request and adds them to the model's context (charged per request).
+        web_search = kwargs.pop('web_search', None)
+        if web_search:
+            kwargs['plugins'] = [{'id': 'web', 'max_results': int(web_search.get('max_results', 3))}]
+        return super().chat(messages, **kwargs)
+
     def list_models_with_metadata(self) -> list:
         """Return model IDs with the pricing published by OpenRouter."""
         response = self.session.get(f'{self.base_url}/models', timeout=10)

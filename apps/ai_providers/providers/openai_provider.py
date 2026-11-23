@@ -56,6 +56,11 @@ class OpenAIChatProvider(ChatProvider):
 
     def chat(self, messages: list, **kwargs) -> str:
         request_timeout = kwargs.pop('request_timeout', 60)
+        if kwargs.pop('web_search', None):
+            raise ValueError(
+                f'Web search is only available on OpenRouter models; {self.model} ({type(self).__name__}) '
+                'cannot search the web.'
+            )
         resp = self.session.post(
             f'{self.base_url}/chat/completions',
             json={'model': self.model, 'messages': messages, **kwargs},

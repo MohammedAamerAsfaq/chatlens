@@ -184,6 +184,7 @@
         </div>
       </div>
 
+      <PriceCheckSettings v-if="isRealEstate" />
       <div v-if="promptsLoading" class="loading">Loading…</div>
       <div v-if="!promptsLoading" class="prompt-toolbar">
         <button class="btn-ghost btn-sm" @click="expandAllPrompts">Expand All</button>
@@ -355,6 +356,7 @@ import { formatDateTime } from '@/utils/dateFormat'
 import { computed, ref, onMounted } from 'vue'
 import { realEstateApi, tradingApi } from '../api/index.js'
 import { useAuthStore } from '@/stores/auth.js'
+import PriceCheckSettings from '@/features/realEstate/components/PriceCheckSettings.vue'
 
 const auth = useAuthStore()
 const isRealEstate = computed(() => auth.currentCompany?.industry_type === 'real_estate')

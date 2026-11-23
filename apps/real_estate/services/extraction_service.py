@@ -7,18 +7,22 @@ from apps.real_estate.models import RealEstateAgentCallLog, RealEstatePromptConf
 from apps.real_estate.services.agent_call import call_real_estate_agent
 from apps.real_estate.services.opportunity_service import persist_opportunity
 from apps.real_estate.services.extraction_projection import project_extraction
+from apps.real_estate.services.price_check import price_check_for
 from apps.real_estate.services.prompts import configured_prompt, message_prompt
 from apps.real_estate.services.response_parser import parse_extraction_response
 
 
 def run_extraction(message, parse_log, company):
     system_prompt, prompt_config = configured_prompt(company, RealEstatePromptConfig.KEY_EXTRACTION)
+    price_rule, call_options = price_check_for(company)
+    if price_rule:
+        system_prompt = f'{system_prompt}\n\n{price_rule}'
     messages = [
         {'role': 'system', 'content': system_prompt},
         {'role': 'user', 'content': message_prompt(message)},
     ]
     parse_log.status = parse_log.STATUS_EXTRACT_RUNNING
-    parse_log.extraction_request = {'messages': messages, 'temperature': 0}
+    parse_log.extraction_request = {'messages': messages, 'temperature': 0, **call_options}
     parse_log.error = ''
     parse_log.save(update_fields=['status', 'extraction_request', 'error', 'updated_at'])
     started = time.monotonic()
@@ -30,6 +34,7 @@ def run_extraction(message, parse_log, company):
             prompt_config=prompt_config,
             wa_message_id=message.pk,
             temperature=0,
+            **call_options,
         )
         parsed = parse_extraction_response(response)
         with transaction.atomic():

@@ -25,6 +25,13 @@ buying. "Available for rent" is leasing_offer. "Looking to rent" is leasing_inqu
 name, address, greeting, advertisement fragment, or generic discussion alone is not enough to
 invent an activity. Use needs_review rather than guessing when the direction is ambiguous.
 
+Rent paid by cheques: in this market annual rent is paid in post-dated cheques, so a stated
+number of cheques or rent payments ("1 cheque", "4 chqs", "2 chq", "6 cheques", "12 payments",
+"cheques: 4") means the message is about a rental, even when it says "price" and never says
+"rent". Classify an offered property as leasing_offer and a wanted property as leasing_inquiry,
+not selling or buying. This does not apply to a sale payment plan (percentages or instalments
+to a developer, such as "60/40", "1% monthly", "post-handover"), which stays a sale.
+
 Return one valid JSON object only. Do not use Markdown, comments, or explanatory text:
 {
   "decision": "...",

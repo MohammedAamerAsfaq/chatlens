@@ -6,8 +6,10 @@ from rest_framework.response import Response
 
 from apps.ai_providers.models import AIProviderConfig, KiwiRouter
 from apps.real_estate.models import (
-    RealEstateAgentCallLog, RealEstateOpportunity, RealEstatePromptConfig, RealEstateSettings,
+    MarketPriceReference, RealEstateAgentCallLog, RealEstateOpportunity, RealEstatePromptConfig,
+    RealEstateSettings,
 )
+from apps.real_estate.services.price_check import web_search_blockers
 from apps.real_estate.services.prompts import DEFAULT_PROMPTS
 from apps.tenancy.models import Company
 from apps.tenancy.services.access import default_company_for_user
@@ -154,6 +156,37 @@ class RealEstatePromptViewSet(viewsets.GenericViewSet):
             'success': row.success, 'error': row.error, 'wa_message_id': row.wa_message_id,
             'created_at': row.created_at.isoformat(), 'input_cost': None, 'output_cost': None,
         } for row in rows[:200]])
+
+    @action(detail=False, methods=['get', 'put'], url_path='price-check')
+    def price_check(self, request):
+        """How extraction tells a sale price from a year's rent when the message does not say
+        (see services/price_check.py)."""
+        company = self.company()
+        if not company:
+            return Response({'detail': 'A Real Estate company is required.'}, status=403)
+        settings_row, _ = RealEstateSettings.objects.get_or_create(company=company)
+        if request.method == 'PUT':
+            mode = request.data.get('mode')
+            valid = {value for value, _label in RealEstateSettings.PRICE_CHECK_CHOICES}
+            if mode not in valid:
+                return Response({'mode': ['Choose one of: ' + ', '.join(sorted(valid)) + '.']}, status=400)
+            if mode == RealEstateSettings.PRICE_CHECK_WEB:
+                blockers = web_search_blockers(company)
+                if blockers:
+                    return Response({'mode': [
+                        'Web search needs OpenRouter models, but the extraction AI uses: '
+                        + ', '.join(blockers) + '. Choose OpenRouter models for the extraction prompt first.'
+                    ]}, status=400)
+            if mode == RealEstateSettings.PRICE_CHECK_TABLE and not MarketPriceReference.objects.filter(company=company).exists():
+                return Response({'mode': ['Add at least one price to the company price table first.']}, status=400)
+            settings_row.price_check_mode = mode
+            settings_row.save(update_fields=['price_check_mode', 'updated_at'])
+        return Response({
+            'mode': settings_row.price_check_mode,
+            'choices': [{'value': value, 'label': label} for value, label in RealEstateSettings.PRICE_CHECK_CHOICES],
+            'web_search_blockers': web_search_blockers(company),
+            'table_rows': MarketPriceReference.objects.filter(company=company).count(),
+        })
 
     @action(detail=False, methods=['get', 'put'], url_path='card-field-config')
     def card_field_config(self, request):

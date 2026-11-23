@@ -36,7 +36,7 @@ from .property_media import PropertyMedia
 from .requirement import PropertyRequirement
 from .parse_log import RealEstateParseLog
 from .prompt_config import RealEstatePromptConfig
-from .settings import RealEstateSettings
+from .settings import MarketPriceReference, RealEstateSettings
 
 __all__ = [
     'ActivityType',
@@ -76,4 +76,5 @@ __all__ = [
     'RealEstateParseLog',
     'RealEstatePromptConfig',
     'RealEstateSettings',
+    'MarketPriceReference',
 ]

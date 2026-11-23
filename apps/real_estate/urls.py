@@ -12,6 +12,7 @@ from .views_opportunities import (
 from .views_mock_source import MockSourceRecordViewSet
 from .views_mock_inquiry import MockInquiryViewSet
 from .views_prompts import RealEstatePromptViewSet
+from .views_market_prices import MarketPriceReferenceViewSet
 from .views_parties import PartyViewSet, PropertyPartyAssociationViewSet
 from .views_attributes import PropertyAttributeDefinitionViewSet
 
@@ -34,6 +35,7 @@ router.register('real-estate/candidates', CandidateViewSet, basename='real-estat
 router.register('real-estate/mock-source-records', MockSourceRecordViewSet, basename='real-estate-mock-source-records')
 router.register('real-estate/mock-inquiries', MockInquiryViewSet, basename='real-estate-mock-inquiries')
 router.register('real-estate/prompts', RealEstatePromptViewSet, basename='real-estate-prompts')
+router.register('real-estate/market-prices', MarketPriceReferenceViewSet, basename='real-estate-market-prices')
 router.register('real-estate/parties', PartyViewSet, basename='real-estate-parties')
 router.register(
     'real-estate/property-party-associations', PropertyPartyAssociationViewSet,

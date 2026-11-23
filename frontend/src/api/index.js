@@ -112,6 +112,13 @@ export const realEstateApi = {
     `/real-estate/prompts/${key}/`, { agent_config, kiwi_router },
   ),
   resetPrompt: key => http.delete(`/real-estate/prompts/${key}/`),
+  // How extraction tells a sale price from a year's rent (off / AI knowledge / web search / price table).
+  getPriceCheck: () => http.get('/real-estate/prompts/price-check/'),
+  setPriceCheck: mode => http.put('/real-estate/prompts/price-check/', { mode }),
+  marketPrices: () => http.get('/real-estate/market-prices/'),
+  createMarketPrice: data => http.post('/real-estate/market-prices/', data),
+  updateMarketPrice: (id, data) => http.patch(`/real-estate/market-prices/${id}/`, data),
+  deleteMarketPrice: id => http.delete(`/real-estate/market-prices/${id}/`),
   listPromptAgentOptions: () => http.get('/real-estate/prompts/agent-options/'),
   listPromptKiwiRouterOptions: () => http.get('/real-estate/prompts/kiwi-router-options/'),
   listAgentLogs: (params = {}) => http.get('/real-estate/prompts/agent-logs/', { params }),
