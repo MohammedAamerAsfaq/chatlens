@@ -1708,6 +1708,36 @@ class TenantScopedApiTests(TestCase):
         self.assertEqual(counts['quoted_waiting'], 1)
         self.assertEqual(sum(counts.values()), resp.json()['total_inquiries_created'])
 
+    def test_report_summary_counts_own_stock_and_near_matches(self):
+        seen = now()
+        rows = [
+            ('buy', [{'product_id': 1, 'match_type': 'exact'}]),
+            ('buy', [{'product_id': None, 'match_type': 'near'}, {'name': 'no match'}]),
+            ('sell', [{'product_id': 2, 'match_type': 'near'}]),
+            ('sell', [{'name': 'unmatched'}]),
+            ('buy', []),
+        ]
+        for n, (inquiry_type, products) in enumerate(rows):
+            Inquiry.objects.create(
+                company=self.company_a, account=self.account_a, inquiry_type=inquiry_type,
+                products=products, summary=f'match {n}', dedup_key=f'{inquiry_type}:report-match:{n}',
+                source_type='direct', first_seen_at=seen - timedelta(minutes=n),
+            )
+        self.client.force_authenticate(self.user_a)
+        data = self.client.get('/api/reports/summary/', {
+            'date_from': (seen - timedelta(days=1)).date().isoformat(), 'date_to': seen.date().isoformat(),
+        }).json()
+        self.assertEqual(
+            {key: data[key] for key in (
+                'total_wtb', 'total_wts', 'total_own_stock_matches', 'total_near_matches',
+                'total_wtb_own_stock', 'total_wts_own_stock', 'total_wtb_near_match', 'total_wts_near_match',
+            )},
+            {
+                'total_wtb': 3, 'total_wts': 2, 'total_own_stock_matches': 2, 'total_near_matches': 2,
+                'total_wtb_own_stock': 1, 'total_wts_own_stock': 1, 'total_wtb_near_match': 1, 'total_wts_near_match': 1,
+            },
+        )
+
     def test_open_feed_rejects_unknown_match_filter(self):
         self.client.force_authenticate(self.user_a)
         resp = self.client.get('/api/inquiries/open-feed/', {'type': 'buy', 'match': 'similar'})

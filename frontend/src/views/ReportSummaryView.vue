@@ -3,7 +3,7 @@
     <div class="report-header">
       <div class="header-left">
         <h2>Report Summary</h2>
-        <span class="last-update">Updated {{ lastUpdateLabel }}</span>
+        <span class="last-update" role="status">{{ statusLabel }}</span>
       </div>
       <div class="header-right">
         <select v-model="selectedRange" @change="refresh" class="account-select">
@@ -29,7 +29,10 @@
       </div>
     </div>
 
-    <div class="page-body">
+    <div class="page-body" :class="{ stale }" :aria-busy="loading">
+      <div v-if="error" class="report-error" role="alert">
+        {{ error }}<template v-if="stale && dataKey"> The numbers below are for the previous selection.</template>
+      </div>
       <div class="tile-grid">
         <div v-for="m in METRIC_TILES" :key="m.key" class="tile" :title="m.hint">
           <div class="tile-value">{{ summary[m.key] ?? '—' }}</div>
@@ -192,7 +195,20 @@ const compareMode     = ref('none') // 'none' | 'day' | 'month' | 'year'
 const summary         = ref({})
 const compareSummary  = ref(null)
 const lastUpdate      = ref(null)
+const loading         = ref(false)
+const error           = ref('')
+// What the shown numbers were loaded for; while it differs from the current selection
+// the tiles are dimmed, so old numbers never pass for the new selection.
+const dataKey         = ref('')
+const nowTick         = ref(Date.now())
 let   pollTimer       = null
+let   clockTimer      = null
+let   requestSeq      = 0
+
+const selectionKey = computed(() => JSON.stringify([
+  selectedRange.value, customFrom.value, customTo.value, selectedAccount.value, compareMode.value,
+]))
+const stale = computed(() => dataKey.value !== selectionKey.value)
 
 const compareStatusMap = computed(() => {
   const map = {}
@@ -200,14 +216,44 @@ const compareStatusMap = computed(() => {
   return map
 })
 
-const lastUpdateLabel = computed(() => {
-  if (!lastUpdate.value) return '—'
-  const secs = Math.floor((Date.now() - lastUpdate.value) / 1000)
-  if (secs < 10) return 'just now'
-  return `${secs}s ago`
+const statusLabel = computed(() => {
+  if (loading.value && stale.value) return 'Loading…'
+  if (!lastUpdate.value) return loading.value ? 'Loading…' : ''
+  const secs = Math.max(0, Math.floor((nowTick.value - lastUpdate.value) / 1000))
+  const age = secs < 10 ? 'just now' : secs < 60 ? `${secs}s ago` : `${Math.floor(secs / 60)} min ago`
+  return `Updated ${age}${loading.value ? ' · refreshing…' : ''}`
 })
 
+function errorText(exc) {
+  const detail = exc?.response?.data?.detail
+  if (detail) return `Couldn't load the report: ${detail}`
+  if (exc?.response?.status) return `Couldn't load the report (server error ${exc.response.status}).`
+  return "Couldn't load the report: the server did not respond."
+}
+
+// Only the newest request may change the page: a slower, older one (an earlier
+// selection, or the 30s auto-refresh) is dropped when it finally answers.
 async function refresh() {
+  const seq = ++requestSeq
+  const key = selectionKey.value
+  loading.value = true
+  try {
+    const result = await loadSummary()
+    if (seq !== requestSeq) return
+    summary.value = result.current
+    compareSummary.value = result.previous
+    dataKey.value = key
+    lastUpdate.value = Date.now()
+    nowTick.value = lastUpdate.value
+    error.value = ''
+  } catch (exc) {
+    if (seq === requestSeq) error.value = errorText(exc)
+  } finally {
+    if (seq === requestSeq) loading.value = false
+  }
+}
+
+async function loadSummary() {
   const accountParam = selectedAccount.value || undefined
   const dateParams = resolveDateParams()
   const params = { ...dateParams, ...(accountParam ? { account: accountParam } : {}) }
@@ -222,18 +268,18 @@ async function refresh() {
   }
 
   const [current, previous] = await Promise.all(calls)
-  summary.value = current.data
-  compareSummary.value = previous ? previous.data : null
-  lastUpdate.value = Date.now()
+  return { current: current.data, previous: previous ? previous.data : null }
 }
 
 onMounted(async () => {
   const { data } = await accountsApi.list()
   accounts.value = data
   await refresh()
-  pollTimer = setInterval(refresh, 30000)
+  // Auto-refresh skips a beat while a request is still running, so slow ranges don't pile up.
+  pollTimer = setInterval(() => { if (!loading.value) refresh() }, 30000)
+  clockTimer = setInterval(() => { nowTick.value = Date.now() }, 5000)
 })
-onUnmounted(() => clearInterval(pollTimer))
+onUnmounted(() => { clearInterval(pollTimer); clearInterval(clockTimer) })
 </script>
 
 <style scoped>
@@ -265,6 +311,8 @@ onUnmounted(() => clearInterval(pollTimer))
 .tile-delta.delta-down { color: #dc2626; }
 .tile-delta.delta-flat { color: #9ca3af; }
 .range-note { margin-top: 16px; font-size: 0.8rem; color: #9ca3af; }
+.page-body.stale .tile-grid, .page-body.stale .range-note { opacity: .45; transition: opacity .15s; }
+.report-error { margin-bottom: 14px; padding: 10px 12px; border: 1px solid var(--ui-danger, #dc2626); border-radius: 8px; color: var(--ui-danger, #dc2626); font-size: 0.85rem; font-weight: 600; }
 
 /* Semantic theme bridge. */
 .report-view { background: var(--ui-bg); color: var(--ui-text); font-family: var(--ui-font-sans); }

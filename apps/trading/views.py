@@ -223,6 +223,16 @@ def _parse_date_or_datetime_param(value, *, date_end_exclusive=False):
     return parsed_start + timedelta(days=1) if date_end_exclusive else parsed_start
 
 
+def _json_path_exists(field, path):
+    """Postgres jsonb_path_exists(field, path) as a boolean expression (NULL counts as no)."""
+    from django.db.models import BooleanField, Func, Value
+    from django.db.models.functions import Coalesce
+    return Coalesce(
+        Func(F(field), Value(path), template='jsonb_path_exists(%(expressions)s::jsonpath)', output_field=BooleanField()),
+        Value(False),
+    )
+
+
 def _resolve_date_range(request):
     """(start, end) timezone-aware datetimes for the requested date_from/date_to query
     params. Date-only values are inclusive on both ends. Defaults to "today" when
@@ -4506,39 +4516,25 @@ class ReportViewSet(viewsets.ViewSet):
                 messages_qs = messages_qs.none()
                 inquiries_qs = inquiries_qs.none()
 
-        totals = inquiries_qs.aggregate(
-            wtb_total=Count('id', filter=Q(inquiry_type='buy')),
-            wts_total=Count('id', filter=Q(inquiry_type='sell')),
+        # 'Own stock': some line item in `products` resolved to a product_id (not JSON null);
+        # 'near': some line item has match_type 'near'. Tested inside Postgres with a JSON
+        # path, so a long range is one aggregate query instead of loading every inquiry.
+        has_stock = Q(_has_stock=True)
+        has_near = Q(_has_near=True)
+        buy, sell = Q(inquiry_type='buy'), Q(inquiry_type='sell')
+        totals = inquiries_qs.annotate(
+            _has_stock=_json_path_exists('products', '$[*] ? (@.product_id != null)'),
+            _has_near=_json_path_exists('products', '$[*] ? (@.match_type == "near")'),
+        ).aggregate(
+            wtb_total=Count('id', filter=buy),
+            wts_total=Count('id', filter=sell),
+            own_stock=Count('id', filter=has_stock),
+            own_stock_wtb=Count('id', filter=has_stock & buy),
+            own_stock_wts=Count('id', filter=has_stock & sell),
+            near=Count('id', filter=has_near),
+            near_wtb=Count('id', filter=has_near & buy),
+            near_wts=Count('id', filter=has_near & sell),
         )
-
-        # Both remaining counts (and their WTB/WTS breakdowns) depend on inspecting
-        # each inquiry's `products` JSON list (no per-item rows to aggregate over in
-        # SQL) — one pass over the already date/account-filtered set, not the whole
-        # table.
-        own_stock_count = 0
-        near_match_count = 0
-        own_stock_wtb = own_stock_wts = 0
-        near_match_wtb = near_match_wts = 0
-        for inquiry_type, products in inquiries_qs.values_list('inquiry_type', 'products'):
-            has_stock_match = False
-            has_near_match = False
-            for item in (products or []):
-                if item.get('product_id') is not None:
-                    has_stock_match = True
-                if item.get('match_type') == 'near':
-                    has_near_match = True
-            if has_stock_match:
-                own_stock_count += 1
-                if inquiry_type == 'buy':
-                    own_stock_wtb += 1
-                elif inquiry_type == 'sell':
-                    own_stock_wts += 1
-            if has_near_match:
-                near_match_count += 1
-                if inquiry_type == 'buy':
-                    near_match_wtb += 1
-                elif inquiry_type == 'sell':
-                    near_match_wts += 1
 
         status_counts = {
             row['status']: row['c']
@@ -4554,12 +4550,12 @@ class ReportViewSet(viewsets.ViewSet):
             'total_inquiries_created':  inquiries_qs.count(),
             'total_wtb':                totals['wtb_total'],
             'total_wts':                totals['wts_total'],
-            'total_own_stock_matches':  own_stock_count,
-            'total_near_matches':       near_match_count,
-            'total_wtb_own_stock':      own_stock_wtb,
-            'total_wts_own_stock':      own_stock_wts,
-            'total_wtb_near_match':     near_match_wtb,
-            'total_wts_near_match':     near_match_wts,
+            'total_own_stock_matches':  totals['own_stock'],
+            'total_near_matches':       totals['near'],
+            'total_wtb_own_stock':      totals['own_stock_wtb'],
+            'total_wts_own_stock':      totals['own_stock_wts'],
+            'total_wtb_near_match':     totals['near_wtb'],
+            'total_wts_near_match':     totals['near_wts'],
             'status_breakdown':         status_breakdown,
             'range': {
                 'date_from': start.date().isoformat(),
