@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OpportunityCard from '../components/OpportunityCard.vue'
 
 const route = vi.hoisted(() => ({ query: {} }))
-const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }))
+const router = vi.hoisted(() => ({
+  push: vi.fn(), replace: vi.fn(), back: vi.fn(),
+  resolve: ({ name }) => ({ path: name === 'real-estate-board' ? '/real-estate' : '/real-estate/search' }),
+}))
 const api = vi.hoisted(() => ({ searchOpportunities: vi.fn(), opportunityCounterparts: vi.fn(), getOpportunity: vi.fn() }))
 vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => router }))
 vi.mock('@/api', () => ({ realEstateApi: api }))
@@ -62,8 +65,26 @@ describe('Opportunity Search counterpart mode', () => {
     expect(wrapper.text()).toContain('Marina 2 bed for sale')
     expect(wrapper.text()).toContain('80% strong')
 
-    await wrapper.findAll('button').find(b => b.text() === 'Back to search').trigger('click')
-    expect(router.replace).toHaveBeenCalledWith({ name: 'real-estate-search' })
+  })
+
+  it('goes back to the board card it came from', async () => {
+    window.history.replaceState({ back: '/real-estate?lane=buying&page=2&focus=12' }, '')
+    const { default: View } = await import('@/views/RealEstateOpportunitySearchView.vue')
+    const wrapper = mount(View, { global: { stubs: { TradingConversationDialog: true } } })
+    await flushPromises()
+    await wrapper.findAll('button').find(b => b.text() === 'Back to board').trigger('click')
+    expect(router.back).toHaveBeenCalled()
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('opens the card on the board when it did not come from there', async () => {
+    window.history.replaceState({ back: null }, '')
+    const { default: View } = await import('@/views/RealEstateOpportunitySearchView.vue')
+    const wrapper = mount(View, { global: { stubs: { TradingConversationDialog: true } } })
+    await flushPromises()
+    await wrapper.findAll('button').find(b => b.text() === 'Back to board').trigger('click')
+    expect(router.back).not.toHaveBeenCalled()
+    expect(router.push).toHaveBeenCalledWith({ name: 'real-estate-board', query: { lane: 'buying', focus: '12' } })
   })
 
   it('shows why a match could not be searched', async () => {

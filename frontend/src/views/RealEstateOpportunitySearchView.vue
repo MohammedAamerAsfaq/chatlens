@@ -96,8 +96,20 @@ async function loadSource() {
   }
 }
 
-function leaveCounterparts() {
-  router.replace({ name: 'real-estate-search' })
+// Back to the board card these matches were opened from: the board saved its lane, page,
+// filters and that card in its URL before coming here, so a history step restores it.
+// Opened some other way (a link, a reload of a fresh tab), go to the card's lane instead.
+function backToBoard() {
+  const board = router.resolve({ name: 'real-estate-board' }).path
+  const back = window.history.state?.back
+  if (typeof back === 'string' && back.split('?')[0] === board) {
+    router.back()
+    return
+  }
+  router.push({
+    name: 'real-estate-board',
+    query: { lane: source.value?.activity_type, focus: String(counterpartId.value) },
+  })
 }
 
 let loadSeq = 0
@@ -171,7 +183,7 @@ onMounted(() => { loadSource(); load() })
           <p v-if="interpretation?.canonical_query">Matching on: {{ interpretation.canonical_query }}</p>
           <p v-if="source?.summary" class="opportunity-search__counterpart-summary">{{ source.summary }}</p>
         </div>
-        <UiButton variant="outline" @click="leaveCounterparts">Back to search</UiButton>
+        <UiButton variant="outline" @click="backToBoard">Back to board</UiButton>
       </div>
       <div class="opportunity-search__counterpart-controls">
         <UiSelect v-model="status" :options="statusFilters" />

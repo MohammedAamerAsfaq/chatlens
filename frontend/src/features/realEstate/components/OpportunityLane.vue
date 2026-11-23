@@ -12,6 +12,7 @@ const props = defineProps({
   pageSize: { type: Number, default: 20 },
   fieldIds: { type: Array, default: undefined },
   actionConfig: { type: Object, default: undefined },
+  focusedId: { type: Number, default: null },
 })
 defineEmits(['change-page', 'open', 'set-status', 'view-source', 'open-inbox', 'message-contact', 'find-counterparts'])
 
@@ -35,6 +36,7 @@ const totalPages = computed(() => Math.max(1, Math.ceil(props.state.total / prop
         :lane="lane"
         :field-ids="fieldIds"
         :action-config="actionConfig"
+        :focused="row.id === focusedId"
         @open="$emit('open', $event)"
         @set-status="(opportunity, status) => $emit('set-status', opportunity, status)"
         @view-source="$emit('view-source', $event)"

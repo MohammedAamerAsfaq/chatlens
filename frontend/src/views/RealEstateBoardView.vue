@@ -2,7 +2,7 @@
 <script setup>
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faMagnifyingGlass, faPlus, faRotate } from '@fortawesome/free-solid-svg-icons'
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { realEstateApi } from '@/api'
 import UiButton from '@/components/ui/UiButton.vue'
@@ -57,8 +57,12 @@ const {
   close: closeWaDialog,
 } = waDialog
 
-const search = ref('')
-const status = ref('')
+// The board's lane, page, filters and a card to bring into view can come from the URL, so
+// leaving for a card's matches and coming back restores the same spot (see findCounterparts).
+const search = ref(String(route.query.search || ''))
+const status = ref(String(route.query.status || ''))
+const focusedId = ref(Number(route.query.focus) || null)
+let focusTimer
 const requestedLane = opportunityLanes.some(lane => lane.key === route.query.lane)
   ? route.query.lane
   : opportunityLanes[0].key
@@ -132,6 +136,30 @@ async function loadLane(lane, { resetPage = true } = {}) {
 async function loadAll() {
   globalError.value = ''
   await Promise.all(opportunityLanes.map(lane => loadLane(lane)))
+}
+
+// First load keeps the active lane on the page named in the URL, then scrolls to the card.
+async function loadInitial() {
+  laneStates[activeLaneKey.value].page = Math.max(1, Number(route.query.page) || 1)
+  await Promise.all(opportunityLanes.map(lane => loadLane(lane, { resetPage: lane.key !== activeLaneKey.value })))
+  if (!focusedId.value) return
+  await nextTick()
+  document.querySelector(`[data-opportunity-id="${focusedId.value}"]`)?.scrollIntoView({ block: 'center' })
+  focusTimer = setTimeout(() => { focusedId.value = null }, 4000)
+}
+
+async function findCounterparts(opportunity) {
+  await router.replace({
+    name: 'real-estate-board',
+    query: {
+      lane: activeLaneKey.value,
+      page: String(laneStates[activeLaneKey.value].page),
+      status: status.value || undefined,
+      search: search.value.trim() || undefined,
+      focus: String(opportunity.id),
+    },
+  })
+  router.push({ name: 'real-estate-search', query: { counterparts: opportunity.id } })
 }
 
 function goToPage(lane, page) {
@@ -218,8 +246,8 @@ watch(search, () => {
 watch(() => route.query.lane, value => {
   if (opportunityLanes.some(lane => lane.key === value)) activeLaneKey.value = value
 })
-onMounted(() => Promise.all([loadAll(), loadCardConfig()]))
-onBeforeUnmount(() => clearTimeout(searchTimer))
+onMounted(() => Promise.all([loadInitial(), loadCardConfig()]))
+onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(focusTimer) })
 </script>
 
 <template>
@@ -310,6 +338,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
         :page-size="pageSize"
         :field-ids="cardFieldIds"
         :action-config="cardActionConfig"
+        :focused-id="focusedId"
         expanded
         @change-page="goToPage"
         @open="opportunity => router.push({ name: 'real-estate-opportunity-detail', params: { id: opportunity.id } })"
@@ -317,7 +346,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
         @view-source="viewSource"
         @open-inbox="openInInbox"
         @message-contact="messageContact"
-        @find-counterparts="opportunity => router.push({ name: 'real-estate-search', query: { counterparts: opportunity.id } })"
+        @find-counterparts="findCounterparts"
       />
     </div>
 
