@@ -13,7 +13,7 @@ const props = defineProps({
   fieldIds: { type: Array, default: undefined },
   actionConfig: { type: Object, default: undefined },
 })
-defineEmits(['change-page', 'open', 'set-status', 'view-source', 'open-inbox', 'message-contact'])
+defineEmits(['change-page', 'open', 'set-status', 'view-source', 'open-inbox', 'message-contact', 'find-counterparts'])
 
 const totalPages = computed(() => Math.max(1, Math.ceil(props.state.total / props.pageSize)))
 </script>
@@ -40,6 +40,7 @@ const totalPages = computed(() => Math.max(1, Math.ceil(props.state.total / prop
         @view-source="$emit('view-source', $event)"
         @open-inbox="$emit('open-inbox', $event)"
         @message-contact="$emit('message-contact', $event)"
+        @find-counterparts="$emit('find-counterparts', $event)"
       />
     </div>
 

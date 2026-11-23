@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faWhatsapp } from '@fortawesome/free-brands-svg-icons'
 import { faInbox, faMessage } from '@fortawesome/free-solid-svg-icons'
@@ -19,8 +19,9 @@ import UiTabs from '@/components/ui/UiTabs.vue'
 import TradingConversationDialog from '@/features/trading/components/TradingConversationDialog.vue'
 import { useOpportunityWhatsApp } from '@/features/realEstate/composables/useOpportunityWhatsApp'
 import { apiError } from '@/features/realEstate/apiErrors'
-import { formatDate, moneyRange, opportunityLanes, opportunityParty, statusFilters } from '@/features/realEstate/boardOptions'
+import { counterparts, formatDate, moneyRange, opportunityLanes, opportunityParty, statusFilters } from '@/features/realEstate/boardOptions'
 
+const route = useRoute()
 const router = useRouter()
 const { dialog: waDialog, viewSource, openInInbox, messageContact } = useOpportunityWhatsApp()
 const {
@@ -49,6 +50,11 @@ const pageSize = ref(20)
 const loading = ref(false)
 const error = ref('')
 const pages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
+// Counterpart mode (?counterparts=<id>, from a board card's "Find sellers/buyers/...") ranks
+// the other side of that opportunity with the same hybrid search, using its own details.
+const counterpartId = computed(() => Number(route.query.counterparts) || null)
+const source = ref(null)
+const counterpart = computed(() => counterparts[source.value?.activity_type] || null)
 // "all" searches every activity type at once (requirements and offers ranked together).
 const tabs = [{ value: 'all', label: 'All' }, ...opportunityLanes.map(lane => ({ value: lane.key, label: lane.label }))]
 const laneLabels = Object.fromEntries(opportunityLanes.map(lane => [lane.key, lane.label]))
@@ -63,32 +69,58 @@ const searchModeOptions = [
   { value: 'structured', label: 'Structured Search' },
 ]
 
+function search() {
+  const common = {
+    status: status.value || undefined,
+    relevance: relevance.value,
+    group_duplicates: groupDuplicates.value,
+    page: page.value,
+    page_size: pageSize.value,
+  }
+  if (counterpartId.value) return realEstateApi.opportunityCounterparts(counterpartId.value, common)
+  return realEstateApi.searchOpportunities({
+    ...common,
+    activity_type: activeActivity.value,
+    q: submittedQuery.value || undefined,
+    search_mode: submittedSearchMode.value,
+  })
+}
+
+async function loadSource() {
+  source.value = null
+  if (!counterpartId.value) return
+  try {
+    source.value = (await realEstateApi.getOpportunity(counterpartId.value)).data
+  } catch (exc) {
+    error.value = apiError(exc, 'Unable to load the opportunity to match.')
+  }
+}
+
+function leaveCounterparts() {
+  router.replace({ name: 'real-estate-search' })
+}
+
+let loadSeq = 0
 async function load() {
+  const seq = ++loadSeq
   loading.value = true
   error.value = ''
   try {
-    const { data } = await realEstateApi.searchOpportunities({
-      activity_type: activeActivity.value,
-      q: submittedQuery.value || undefined,
-      search_mode: submittedSearchMode.value,
-      status: status.value || undefined,
-      relevance: relevance.value,
-      group_duplicates: groupDuplicates.value,
-      page: page.value,
-      page_size: pageSize.value,
-    })
+    const { data } = await search()
+    if (seq !== loadSeq) return
     rows.value = data.results || data
     total.value = data.count ?? rows.value.length
     interpretation.value = data.search_interpretation || null
     corrections.value = data.search_corrections || []
   } catch (exc) {
+    if (seq !== loadSeq) return
     error.value = apiError(exc, 'Unable to search Real Estate opportunities.')
     rows.value = []
     total.value = 0
     interpretation.value = null
     corrections.value = []
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
@@ -125,13 +157,31 @@ watch(status, () => { page.value = 1; load() })
 watch(relevance, () => { page.value = 1; load() })
 watch(groupDuplicates, () => { page.value = 1; load() })
 watch(pageSize, () => { page.value = 1; load() })
-onMounted(load)
+watch(counterpartId, () => { page.value = 1; loadSource(); load() })
+onMounted(() => { loadSource(); load() })
 </script>
 
 <template>
   <UiPage width="wide">
     <UiPageHeader eyebrow="Real Estate Intelligence" title="Opportunity Search" description="Search embedded buyer, seller, tenant, and landlord opportunities by meaning." />
-    <UiCard class="opportunity-search">
+    <UiCard v-if="counterpartId" class="opportunity-search opportunity-search__counterpart">
+      <div class="opportunity-search__counterpart-head">
+        <div>
+          <strong>{{ counterpart ? counterpart.noun : 'Matches' }} for #{{ counterpartId }}<template v-if="source"> &middot; {{ opportunityParty(source) }}</template></strong>
+          <p v-if="interpretation?.canonical_query">Matching on: {{ interpretation.canonical_query }}</p>
+          <p v-if="source?.summary" class="opportunity-search__counterpart-summary">{{ source.summary }}</p>
+        </div>
+        <UiButton variant="outline" @click="leaveCounterparts">Back to search</UiButton>
+      </div>
+      <div class="opportunity-search__counterpart-controls">
+        <UiSelect v-model="status" :options="statusFilters" />
+        <UiSelect v-model="relevance" :options="relevanceOptions" />
+        <UiSelect v-model="pageSize" :options="pageSizes" />
+        <UiCheckbox v-model="groupDuplicates" label="Group similar" />
+      </div>
+      <p class="opportunity-search__hint">Ranked by the same Hybrid Search: meaning plus this opportunity's property type, bedrooms, price or budget, location and details.</p>
+    </UiCard>
+    <UiCard v-else class="opportunity-search">
       <UiTabs v-model="activeActivity" :tabs="tabs" />
       <form class="opportunity-search__controls" @submit.prevent="submitSearch">
         <UiInput v-model="query" placeholder="Describe a property, location, budget, or requirement...">
@@ -154,7 +204,7 @@ onMounted(load)
     </UiCard>
 
     <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
-    <UiNotice v-if="interpretation" tone="info" class="opportunity-search__interpretation">
+    <UiNotice v-if="interpretation && !counterpartId" tone="info" class="opportunity-search__interpretation">
       <strong>AI interpretation</strong>
       <span>{{ interpretation.canonical_query }}</span>
     </UiNotice>
@@ -166,7 +216,8 @@ onMounted(load)
     </UiNotice>
     <div class="opportunity-search__summary">
       <strong>{{ total.toLocaleString() }} opportunities</strong>
-      <span v-if="submittedQuery">ranked for "{{ submittedQuery }}"</span>
+      <span v-if="counterpartId && counterpart">{{ counterpart.noun.toLowerCase() }} ranked for #{{ counterpartId }}</span>
+      <span v-else-if="submittedQuery">ranked for "{{ submittedQuery }}"</span>
     </div>
 
     <section v-if="rows.length" class="opportunity-search__results">
@@ -225,6 +276,10 @@ onMounted(load)
 
 <style scoped>
 .opportunity-search { margin-bottom: 1rem; }
+.opportunity-search__counterpart-head { display:flex; justify-content:space-between; gap:1rem; align-items:flex-start; }
+.opportunity-search__counterpart-head p { margin:.3rem 0 0; color:var(--ui-text-muted); font-size:.86rem; }
+.opportunity-search__counterpart-summary { font-style:italic; }
+.opportunity-search__counterpart-controls { display:grid; grid-template-columns:12rem 13rem 10rem auto; gap:.75rem; align-items:center; margin-top:1rem; }
 .opportunity-search__controls { display:grid; grid-template-columns:minmax(18rem,1fr) 11rem 12rem 13rem 10rem auto auto; gap:.75rem; align-items:center; margin-top:1rem; }
 .opportunity-search__hint,.opportunity-search__summary span,.opportunity-search__result header p,.opportunity-search__item span,.opportunity-search__empty { color:var(--ui-text-muted); }
 .opportunity-search__hint { margin:.65rem 0 0; font-size:.86rem; }
@@ -244,5 +299,5 @@ onMounted(load)
 .opportunity-search__reasons { margin:-.35rem 0 .8rem; color:var(--ui-text-muted); font-size:.82rem; }
 .opportunity-search__items { display:grid; grid-template-columns:repeat(auto-fit,minmax(16rem,1fr)); gap:.5rem; }
 .opportunity-search__item { display:flex; flex-direction:column; gap:.15rem; padding:.65rem; background:var(--ui-surface-muted); border-radius:calc(var(--ui-radius) - 2px); }
-@media (max-width:900px) { .opportunity-search__controls { grid-template-columns:1fr; } .opportunity-search__result header { flex-direction:column; } }
+@media (max-width:900px) { .opportunity-search__controls,.opportunity-search__counterpart-controls { grid-template-columns:1fr; } .opportunity-search__counterpart-head { flex-direction:column; } .opportunity-search__result header { flex-direction:column; } }
 </style>

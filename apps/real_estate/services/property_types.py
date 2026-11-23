@@ -7,6 +7,11 @@ from apps.real_estate.services.property_type_schema import TYPE_DEFINITIONS
 DEFAULT_PROPERTY_TYPES = tuple(item[:4] for item in TYPE_DEFINITIONS)
 
 
+# The type given to a property whose extraction named no recognisable type: it means
+# 'type unknown', not a kind of property.
+FALLBACK_TYPE_CODE = 'other'
+
+
 def seed_default_property_types(company):
     existing = list(PropertyType.objects.filter(
         company=company,
@@ -63,7 +68,7 @@ def resolve_property_type(company, value, *, active_only=True, fallback=False):
     if match or not fallback:
         return match
     seed_default_property_types(company)
-    return PropertyType.objects.filter(company=company, code='other').first()
+    return PropertyType.objects.filter(company=company, code=FALLBACK_TYPE_CODE).first()
 
 
 def _seed_field_definitions(property_type, definitions):

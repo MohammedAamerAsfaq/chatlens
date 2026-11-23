@@ -83,7 +83,7 @@ def _score_bedrooms(items, constraints, reasons, adjustments, penalty):
 def _score_amount(items, constraints, reasons, adjustments, bonus, penalty):
     if constraints.amount_min is None and constraints.amount_max is None:
         return bonus, penalty
-    ranges = _ranges(items, 'amount')
+    ranges = amount_ranges(items)
     matched = any(_amount_overlap(
         constraints.amount_min, constraints.amount_max, low, high,
     ) for low, high in ranges)
@@ -117,6 +117,21 @@ def _ranges(items, prefix):
     ]
 
 
+def amount_ranges(items):
+    """Each item's price range. A budget given only as a maximum ("up to 2M") covers every
+    price below it; one given only as a minimum ("from 2M") every price above it."""
+    ranges = []
+    for item in items:
+        low, high = item.amount_min, item.amount_max
+        if low is None and high is None:
+            continue
+        if getattr(item, 'amount_role', '') == 'budget':
+            low = Decimal('0') if low is None else low
+            high = Decimal('Infinity') if high is None else high
+        ranges.append((low, high))
+    return ranges
+
+
 def _penalize(total, adjustments, amount, reason):
     adjustments.append({'reason': reason, 'penalty': amount})
     return total + amount
@@ -143,7 +158,9 @@ def _amount_overlap(left_min, left_max, right_min, right_max):
     right_min, right_max = _bounds(right_min, right_max)
     if left_min is None or right_min is None:
         return False
-    tolerance = max(left_max, right_max) * Decimal('0.02')
+    # 2% of the larger finite bound; an open-ended budget (Infinity) must not widen it.
+    finite = [Decimal(value) for value in (left_max, right_max) if Decimal(value).is_finite()]
+    tolerance = max(finite, default=Decimal('0')) * Decimal('0.02')
     return left_min - tolerance <= right_max and right_min - tolerance <= left_max
 
 

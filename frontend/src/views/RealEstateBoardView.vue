@@ -315,6 +315,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
         @view-source="viewSource"
         @open-inbox="openInInbox"
         @message-contact="messageContact"
+        @find-counterparts="opportunity => router.push({ name: 'real-estate-search', query: { counterparts: opportunity.id } })"
       />
     </div>
 

@@ -36,6 +36,14 @@ export const opportunityLanes = [
   },
 ]
 
+// Who an opportunity is looking for: the counterpart lane and the card action that finds it.
+export const counterparts = {
+  buying: { lane: 'selling', action: 'Find sellers', noun: 'Sellers' },
+  selling: { lane: 'buying', action: 'Find buyers', noun: 'Buyers' },
+  leasing_inquiry: { lane: 'leasing_offer', action: 'Find landlords', noun: 'Landlords' },
+  leasing_offer: { lane: 'leasing_inquiry', action: 'Find tenants', noun: 'Tenants' },
+}
+
 export const opportunityStatuses = [
   'new', 'qualified', 'matched', 'contacted', 'viewing',
   'negotiation', 'won', 'lost', 'irrelevant',

@@ -7,7 +7,7 @@ import { faInbox, faMessage } from '@fortawesome/free-solid-svg-icons'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiDropdown from '@/components/ui/UiDropdown.vue'
-import { statusTone } from '@/features/realEstate/boardOptions'
+import { counterparts, statusTone } from '@/features/realEstate/boardOptions'
 import { cardFieldsById, defaultCardFieldIds } from '@/features/realEstate/cardFields'
 import { title } from '@/features/realEstate/options'
 
@@ -17,7 +17,9 @@ const props = defineProps({
   fieldIds: { type: Array, default: () => defaultCardFieldIds },
   actionConfig: { type: Object, default: () => ({ statuses: [], max_inline: 2 }) },
 })
-defineEmits(['open', 'set-status', 'view-source', 'open-inbox', 'message-contact'])
+defineEmits(['open', 'set-status', 'view-source', 'open-inbox', 'message-contact', 'find-counterparts'])
+
+const counterpart = computed(() => counterparts[props.opportunity.activity_type] || null)
 
 function fieldValue(id) {
   const field = cardFieldsById[id]
@@ -99,6 +101,13 @@ const overflowStatuses = computed(() => (props.actionConfig.statuses || []).slic
           @click="$emit('message-contact', opportunity)"
         >
           <FontAwesomeIcon :icon="faMessage" />
+        </UiButton>
+        <UiButton
+          v-if="counterpart"
+          size="small" variant="outline" :title="`${counterpart.action} that match this opportunity`"
+          @click="$emit('find-counterparts', opportunity)"
+        >
+          {{ counterpart.action }}
         </UiButton>
         <UiButton size="small" variant="outline" @click="$emit('open', opportunity)">
           Details

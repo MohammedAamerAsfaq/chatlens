@@ -180,6 +180,8 @@ export const realEstateApi = {
   archiveListing: id => http.delete(`/real-estate/listings/${id}/`),
   opportunities: (params = {}) => http.get('/real-estate/opportunities/', { params }),
   searchOpportunities: (params = {}) => http.get('/real-estate/opportunities/search/', { params }),
+  // The other side of an opportunity (sellers for a buyer, tenants for a leasing offer...).
+  opportunityCounterparts: (id, params = {}) => http.get(`/real-estate/opportunities/${id}/counterparts/`, { params }),
   createManualOpportunity: data => http.post('/real-estate/opportunities/manual/', data),
   getOpportunity: (id) => http.get(`/real-estate/opportunities/${id}/`),
   updateOpportunity: (id, data) => http.patch(`/real-estate/opportunities/${id}/`, data),

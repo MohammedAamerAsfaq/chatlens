@@ -23,6 +23,7 @@ from apps.real_estate.services.inquiry_media import seed_default_inquiry_media
 from apps.real_estate.services.manual_opportunities import create_manual_opportunity
 from apps.real_estate.services.opportunity_search import ALL_ACTIVITY_TYPES, search_opportunities
 from apps.real_estate.services.opportunity_search_input import prepare_opportunity_search
+from apps.real_estate.services.opportunity_counterparts import counterpart_activity, counterpart_search_plan
 
 
 class OpportunityViewSet(CompanyOwnedViewSet):
@@ -106,7 +107,35 @@ class OpportunityViewSet(CompanyOwnedViewSet):
             raise ValidationError({field: str(exc)}) from exc
         except Exception as exc:
             raise ValidationError({'q': f'Unable to run semantic search: {exc}'}) from exc
+        return self._search_response(queryset, search_plan)
 
+    @action(detail=True, methods=['get'], url_path='counterparts')
+    def counterparts(self, request, pk=None):
+        """The other side of this opportunity (sellers for a buyer, buyers for a seller,
+        landlords for a leasing inquiry, tenants for a leasing offer), ranked by the same
+        hybrid search as Opportunity Search using this opportunity's property details."""
+        opportunity = self.get_object()
+        company = self.active_company()
+        try:
+            activity_type = counterpart_activity(opportunity)
+            search_plan = counterpart_search_plan(opportunity)
+            queryset = search_opportunities(
+                self.get_queryset().exclude(pk=opportunity.pk),
+                company=company,
+                activity_type=activity_type,
+                query=search_plan.embedding_query,
+                relevance=request.query_params.get('relevance', 'possible'),
+                group_duplicates=request.query_params.get('group_duplicates', '').lower() == 'true',
+                search_plan=search_plan,
+            )
+        except ValueError as exc:
+            field = 'relevance' if 'relevance' in str(exc).lower() else 'non_field_errors'
+            raise ValidationError({field: str(exc)}) from exc
+        except Exception as exc:
+            raise ValidationError({'non_field_errors': f'Unable to run semantic search: {exc}'}) from exc
+        return self._search_response(queryset, search_plan)
+
+    def _search_response(self, queryset, search_plan):
         page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page, many=True)
         response = self.get_paginated_response(serializer.data)
