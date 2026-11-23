@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faWhatsapp } from '@fortawesome/free-brands-svg-icons'
-import { faInbox, faMessage } from '@fortawesome/free-solid-svg-icons'
+import { faInbox, faMagnifyingGlass, faMessage, faWandMagicSparkles } from '@fortawesome/free-solid-svg-icons'
 import { realEstateApi } from '@/api'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
@@ -185,7 +185,7 @@ onMounted(() => { loadSource(); load() })
       <UiTabs v-model="activeActivity" :tabs="tabs" />
       <form class="opportunity-search__controls" @submit.prevent="submitSearch">
         <UiInput v-model="query" placeholder="Describe a property, location, budget, or requirement...">
-          <template #prefix><i class="fa-solid fa-magnifying-glass"></i></template>
+          <template #prefix><FontAwesomeIcon :icon="faMagnifyingGlass" /></template>
         </UiInput>
         <UiSelect v-model="searchMode" :options="searchModeOptions" />
         <UiSelect v-model="status" :options="statusFilters" />
@@ -193,7 +193,7 @@ onMounted(() => { loadSource(); load() })
         <UiSelect v-model="pageSize" :options="pageSizes" />
         <UiCheckbox v-model="groupDuplicates" label="Group similar" />
         <UiButton variant="primary" type="submit" :disabled="loading">
-          <i class="fa-solid fa-wand-magic-sparkles"></i> {{ loading ? 'Searching...' : 'Search' }}
+          <FontAwesomeIcon :icon="faWandMagicSparkles" /> {{ loading ? 'Searching...' : 'Search' }}
         </UiButton>
       </form>
       <p class="opportunity-search__hint">

@@ -1,4 +1,6 @@
 <script setup>
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import { faPlus } from '@fortawesome/free-solid-svg-icons'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { realEstateApi } from '@/api'
@@ -109,7 +111,7 @@ onMounted(loadOptions)
       <UiCard title="Property details" subtitle="These are the same structured fields produced by AI extraction. Add multiple properties when one inquiry covers several units.">
         <div class="items">
           <ManualInquiryItem v-for="(item, index) in form.items" :key="index" :model-value="item" :index="index" :property-types="propertyTypeOptions" :property-type-records="propertyTypeRecords" :demand="demand" :removable="form.items.length > 1" @update:model-value="updateItem(index, $event)" @remove="removeItem(index)" />
-          <UiButton @click="addItem"><i class="fa-solid fa-plus"></i> Add another property</UiButton>
+          <UiButton @click="addItem"><FontAwesomeIcon :icon="faPlus" /> Add another property</UiButton>
         </div>
       </UiCard>
       <div class="footer-actions"><UiButton @click="router.push({ name: 'real-estate-board' })">Cancel</UiButton><UiButton variant="primary" type="submit" :disabled="saving || loading">{{ saving ? 'Saving...' : 'Create inquiry' }}</UiButton></div>

@@ -1,4 +1,6 @@
 <script setup>
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import { faTrash } from '@fortawesome/free-solid-svg-icons'
 import { computed } from 'vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiDatePicker from '@/components/ui/UiDatePicker.vue'
@@ -37,7 +39,7 @@ function updateCsv(field, value) {
     <header>
       <div><h3>Property {{ index + 1 }}</h3><p>Add one property requirement or offer per section.</p></div>
       <UiButton v-if="removable" size="small" variant="danger" @click="emit('remove')">
-        <i class="fa-solid fa-trash"></i> Remove
+        <FontAwesomeIcon :icon="faTrash" /> Remove
       </UiButton>
     </header>
     <div class="item-grid">

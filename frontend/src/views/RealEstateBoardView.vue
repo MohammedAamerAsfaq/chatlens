@@ -1,5 +1,7 @@
 <!-- eslint-disable vue/block-lang -->
 <script setup>
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import { faMagnifyingGlass, faPlus, faRotate } from '@fortawesome/free-solid-svg-icons'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { realEstateApi } from '@/api'
@@ -226,7 +228,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
     <UiCard class="board-toolbar">
       <div class="board-toolbar__controls">
         <UiInput v-model="search" placeholder="Search party, phone, location, summary, or message...">
-          <template #prefix><i class="fa-solid fa-magnifying-glass"></i></template>
+          <template #prefix><FontAwesomeIcon :icon="faMagnifyingGlass" /></template>
         </UiInput>
         <UiSelect v-model="status" :options="statusFilters" />
       </div>
@@ -236,7 +238,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
           variant="primary"
           @click="router.push({ name: 'real-estate-opportunity-create' })"
         >
-          <i class="fa-solid fa-plus"></i> New inquiry
+          <FontAwesomeIcon :icon="faPlus" /> New inquiry
         </UiButton>
         <div class="board-field board-field--columns">
           <span class="board-field__label">Columns</span>
@@ -255,7 +257,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
         <UiButton v-if="auth.hasPermission('settings.company.manage')" size="small" @click="cardConfigOpen = !cardConfigOpen">
           Card Display{{ cardConfigOpen ? ' ▴' : ' ▾' }}
         </UiButton>
-        <UiButton @click="loadAll"><i class="fa-solid fa-rotate"></i> Refresh board</UiButton>
+        <UiButton @click="loadAll"><FontAwesomeIcon :icon="faRotate" /> Refresh board</UiButton>
       </div>
     </UiCard>
 
