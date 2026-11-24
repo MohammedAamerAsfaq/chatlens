@@ -6,11 +6,13 @@ class RealEstateAgentCallLog(models.Model):
     PURPOSE_EXTRACTION = 'extraction'
     PURPOSE_MATCH_RERANK = 'match_rerank'
     PURPOSE_SEARCH_STRUCTURING = 'search_structuring'
+    PURPOSE_LOCATION = 'location'
     PURPOSE_CHOICES = [
         (PURPOSE_GATE, 'Real Estate GatePass'),
         (PURPOSE_EXTRACTION, 'Real Estate Extraction'),
         (PURPOSE_MATCH_RERANK, 'Real Estate Match Reranking'),
         (PURPOSE_SEARCH_STRUCTURING, 'Opportunity Search Structuring'),
+        (PURPOSE_LOCATION, 'Real Estate Location'),
     ]
 
     company = models.ForeignKey(

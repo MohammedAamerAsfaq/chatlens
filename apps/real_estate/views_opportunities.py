@@ -16,7 +16,8 @@ from apps.real_estate.serializers import (
     OpportunityItemSerializer, OpportunitySerializer,
     PropertyCandidateSerializer, PropertyRequirementSerializer,
 )
-from apps.real_estate.services.area_map import area_counts, area_map_report, place_from_directory, place_with_google
+from apps.real_estate.services.area_map import area_map_report, place_waiting_areas
+from apps.real_estate.services.location_service import BACKFILL_PRIORITY, enqueue_location
 from apps.real_estate.services.candidate_service import merge_candidate, promote_candidate, reject_candidate
 from apps.real_estate.services.opportunity_item_service import (
     create_property_from_item, link_item, unlink_item,
@@ -79,6 +80,7 @@ class OpportunityViewSet(CompanyOwnedViewSet):
         opportunity = create_manual_opportunity(
             company=company, user=request.user, validated_data=serializer.validated_data,
         )
+        enqueue_location(opportunity)
         return Response(
             OpportunitySerializer(opportunity, context={'request': request}).data,
             status=status.HTTP_201_CREATED,
@@ -139,7 +141,7 @@ class OpportunityViewSet(CompanyOwnedViewSet):
 
     @action(detail=False, methods=['get'], url_path='area-map')
     def area_map(self, request):
-        """Inquiries per area for the map report, with each area's map position."""
+        """Inquiries per area (from the Location AI step) with each area's map position."""
         try:
             return Response(area_map_report(self.active_company(), self._area_map_queryset()))
         except ValueError as exc:
@@ -147,17 +149,38 @@ class OpportunityViewSet(CompanyOwnedViewSet):
 
     @action(detail=False, methods=['post'], url_path='area-map/place')
     def area_map_place(self, request):
-        """Look up the areas the directory could not place on Google Maps (paid, capped)."""
+        """Place the areas still waiting for a map position on Google Maps (paid, capped)."""
         company = self.active_company()
         opportunities = self._area_map_queryset()
         try:
-            areas, _total, _without = area_counts(opportunities)
-            place_from_directory(company, areas)
-            notice = place_with_google(company, areas)
+            notice = place_waiting_areas(company, opportunities)
             report = area_map_report(company, opportunities)
         except ValueError as exc:
             raise ValidationError({'non_field_errors': str(exc)}) from exc
         report['notice'] = notice
+        return Response(report)
+
+    @action(detail=False, methods=['post'], url_path='area-map/locate')
+    def area_map_locate(self, request):
+        """Backfill: queue the Location AI step for these inquiries. scope=unlocated (not
+        located yet or failed) or all (also re-check located ones, e.g. after changing the
+        Real Estate Location instructions)."""
+        scope = request.data.get('scope', 'unlocated')
+        if scope not in ('unlocated', 'all'):
+            raise ValidationError({'scope': 'Use unlocated or all.'})
+        items = OpportunityItem.objects.filter(opportunity__in=self._area_map_queryset())
+        if scope == 'unlocated':
+            items = items.filter(geo_status__in=[OpportunityItem.GEO_PENDING, OpportunityItem.GEO_ERROR])
+        ids = items.values_list('opportunity_id', flat=True).distinct()
+        queued = 0
+        for opportunity in RealEstateOpportunity.objects.filter(pk__in=ids).select_related('company').iterator():
+            if enqueue_location(opportunity, priority=BACKFILL_PRIORITY):
+                queued += 1
+        try:
+            report = area_map_report(self.active_company(), self._area_map_queryset())
+        except ValueError as exc:
+            raise ValidationError({'non_field_errors': str(exc)}) from exc
+        report['queued'] = queued
         return Response(report)
 
     def _area_map_queryset(self):

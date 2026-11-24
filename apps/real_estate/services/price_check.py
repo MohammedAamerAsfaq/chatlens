@@ -62,14 +62,15 @@ def price_check_for(company):
     raise ValueError(f'Unknown price check mode: {mode!r}.')
 
 
-def web_search_blockers(company):
-    """The extraction AI targets that cannot search the web (not OpenRouter), as labels."""
+def web_search_blockers(company, key=None):
+    """The AI targets of a prompt (extraction by default) that cannot search the web (not
+    OpenRouter), as labels."""
     from apps.ai_providers.manager import ai_manager
     from apps.ai_providers.models import AIProviderConfig
     from apps.real_estate.models import RealEstatePromptConfig
     from apps.real_estate.services.prompts import configured_prompt
 
-    _prompt, prompt_config = configured_prompt(company, RealEstatePromptConfig.KEY_EXTRACTION)
+    _prompt, prompt_config = configured_prompt(company, key or RealEstatePromptConfig.KEY_EXTRACTION)
     if prompt_config and prompt_config.kiwi_router_id:
         configs = [
             member.provider_config

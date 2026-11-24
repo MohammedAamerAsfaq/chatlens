@@ -88,7 +88,7 @@ class RealEstateApiTests(TestCase):
         self.assertEqual(response.status_code, 200, response.json())
         self.assertEqual(
             {row['key'] for row in response.json()},
-            {'gate', 'extraction', 'match_rerank', 'search_structuring'},
+            {'gate', 'extraction', 'match_rerank', 'search_structuring', 'location'},
         )
         self.assertTrue(all(row['is_default'] for row in response.json()))
 

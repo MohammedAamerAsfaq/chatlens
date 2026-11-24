@@ -12,6 +12,14 @@ def validate_message_payload(payload):
             raise UnsupportedTaskPayload(f'{key} must be a positive integer.')
 
 
+def validate_opportunity_payload(payload):
+    if not isinstance(payload, dict) or payload.get('version') != 1:
+        raise UnsupportedTaskPayload('Payload version 1 is required.')
+    for key in ('company_id', 'opportunity_id'):
+        if not isinstance(payload.get(key), int) or payload[key] <= 0:
+            raise UnsupportedTaskPayload(f'{key} must be a positive integer.')
+
+
 def validate_embedding_payload(payload):
     if not isinstance(payload, dict) or payload.get('version') != 1:
         raise UnsupportedTaskPayload('Payload version 1 is required.')
@@ -108,17 +116,41 @@ def gate_message(payload, context):
 )
 def extract_message(payload, context):
     from apps.real_estate.services.extraction_service import run_extraction
+    from apps.real_estate.services.location_service import enqueue_location
 
     company, message, parse_log = _load_context(payload, context)
     reason = _current_skip_reason(message, parse_log)
     if reason:
         return {'message_id': message.pk, 'extraction_complete': False, 'skip_reason': reason}
     opportunity, parsed = run_extraction(message, parse_log, company)
+    location_task = enqueue_location(opportunity)
     return {
         'message_id': message.pk,
         'opportunity_id': opportunity.pk,
         'decision': parsed['decision'],
         'extraction_complete': True,
+        'location_task_id': location_task.pk if location_task else None,
+    }
+
+
+@task_handler(
+    key='real_estate.locate_opportunity', default_queue='real_estate_maintenance',
+    payload_validator=validate_opportunity_payload, retry_safe=True,
+)
+def locate_opportunity(payload, context):
+    from apps.real_estate.models import RealEstateOpportunity
+    from apps.real_estate.services.location_service import locate_opportunity as run_location
+
+    task_company_id = BackgroundTask.objects.values_list('company_id', flat=True).get(pk=context.task_id)
+    if task_company_id != payload['company_id']:
+        raise ValueError('Task company does not match payload company.')
+    opportunity = RealEstateOpportunity.objects.select_related(
+        'company', 'source_chat', 'contact',
+    ).get(pk=payload['opportunity_id'], company_id=payload['company_id'])
+    items = run_location(opportunity)
+    return {
+        'opportunity_id': opportunity.pk,
+        'items': [{'sequence': item.sequence, 'status': item.geo_status, 'area': item.geo_area} for item in items],
     }
 
 

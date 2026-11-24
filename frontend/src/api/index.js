@@ -114,6 +114,8 @@ export const realEstateApi = {
   resetPrompt: key => http.delete(`/real-estate/prompts/${key}/`),
   // How extraction tells a sale price from a year's rent (off / AI knowledge / web search / price table).
   getPriceCheck: () => http.get('/real-estate/prompts/price-check/'),
+  getLocationSearch: () => http.get('/real-estate/prompts/location-search/'),
+  setLocationSearch: mode => http.put('/real-estate/prompts/location-search/', { mode }),
   setPriceCheck: mode => http.put('/real-estate/prompts/price-check/', { mode }),
   marketPrices: () => http.get('/real-estate/market-prices/'),
   createMarketPrice: data => http.post('/real-estate/market-prices/', data),
@@ -191,6 +193,7 @@ export const realEstateApi = {
   opportunityCounterparts: (id, params = {}) => http.get(`/real-estate/opportunities/${id}/counterparts/`, { params }),
   areaMap: (params = {}) => http.get('/real-estate/opportunities/area-map/', { params }),
   placeAreas: (params = {}) => http.post('/real-estate/opportunities/area-map/place/', null, { params }),
+  locateAreas: (scope, params = {}) => http.post('/real-estate/opportunities/area-map/locate/', { scope }, { params }),
   createManualOpportunity: data => http.post('/real-estate/opportunities/manual/', data),
   getOpportunity: (id) => http.get(`/real-estate/opportunities/${id}/`),
   updateOpportunity: (id, data) => http.patch(`/real-estate/opportunities/${id}/`, data),

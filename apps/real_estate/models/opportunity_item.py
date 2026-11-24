@@ -95,6 +95,33 @@ class OpportunityItem(models.Model):
         'real_estate.PropertyCandidate', null=True, blank=True, on_delete=models.SET_NULL,
         related_name='opportunity_item',
     )
+    # Where the property is, identified by the Real Estate Location AI step from the whole
+    # inquiry (services/location_service.py). geo_area_location holds the area's map position.
+    GEO_PENDING = 'pending'
+    GEO_LOCATED = 'located'
+    GEO_UNKNOWN = 'unknown'
+    GEO_ERROR = 'error'
+    GEO_CHOICES = [
+        (GEO_PENDING, 'Not located yet'),
+        (GEO_LOCATED, 'Located'),
+        (GEO_UNKNOWN, 'Location unknown'),
+        (GEO_ERROR, 'Location step failed'),
+    ]
+    geo_status = models.CharField(max_length=10, choices=GEO_CHOICES, default=GEO_PENDING)
+    geo_area = models.CharField(max_length=200, blank=True, help_text='Community or district.')
+    geo_sub_area = models.CharField(max_length=200, blank=True, help_text='Building, cluster or project.')
+    geo_city = models.CharField(max_length=100, blank=True)
+    geo_confidence = models.DecimalField(
+        max_digits=5, decimal_places=4, null=True, blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(1)],
+    )
+    geo_basis = models.TextField(blank=True)
+    geo_error = models.TextField(blank=True)
+    geo_located_at = models.DateTimeField(null=True, blank=True)
+    geo_area_location = models.ForeignKey(
+        'real_estate.AreaLocation', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='opportunity_items',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -107,6 +134,7 @@ class OpportunityItem(models.Model):
         indexes = [
             models.Index(fields=['company', 'match_status'], name='re_item_match_status_idx'),
             models.Index(fields=['company', 'property'], name='re_item_property_idx'),
+            models.Index(fields=['company', 'geo_status'], name='re_item_geo_status_idx'),
         ]
 
     def clean(self):

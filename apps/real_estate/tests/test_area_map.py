@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -5,14 +6,28 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from apps.ai_providers.models import AIProviderConfig
 from apps.integrations.connectors import GoogleMapsError
 from apps.integrations.models import City, Country, IntegrationConnection, Locality
-from apps.real_estate.models import AreaLocation, OpportunityItem, RealEstateOpportunity
+from apps.real_estate.models import (
+    AreaLocation, OpportunityItem, RealEstateOpportunity, RealEstatePromptConfig, RealEstateSettings,
+)
+from apps.real_estate.services.location_service import TASK_KEY, enqueue_location, locate_opportunity
+from apps.real_estate.services.prompts import DEFAULT_PROMPTS
+from apps.task_management.models import BackgroundTask
 from apps.tenancy.models import Company
 from apps.tenancy.testing import create_member
 
 URL = '/api/real-estate/opportunities/area-map/'
+AGENT = 'apps.real_estate.services.location_service.call_real_estate_agent'
 CLIENT = 'apps.real_estate.services.area_map.client_for'
+
+
+def reply(*entries):
+    return json.dumps({'items': [
+        {'sequence': seq, 'area': area, 'sub_area': sub, 'city': city, 'confidence': 0.9, 'basis': 'because'}
+        for seq, area, sub, city in entries
+    ]})
 
 
 def google_place(name, lat, lng, country='AE'):
@@ -28,135 +43,208 @@ class FakeClient:
         self.results, self.queries = results, []
 
     def search_text(self, query, *, region_code):
-        self.queries.append((query, region_code))
+        self.queries.append(query)
         result = self.results.get(query.split(',')[0])
         if isinstance(result, Exception):
             raise result
         return result
 
 
-class AreaMapTests(TestCase):
+class LocationTestCase(TestCase):
     def setUp(self):
         self.company = Company.objects.create(name='Map Estate', slug='map-estate', industry_type='real_estate')
         self.user = get_user_model().objects.create_user('map-owner')
         create_member(company=self.company, user=self.user, role='super_user')
         self.client = APIClient()
         self.client.force_authenticate(self.user)
-        self.country = Country.objects.get(iso2='AE')
+        country = Country.objects.get(iso2='AE')
+        dubai = City.objects.create(country=country, name='Dubai', normalized_name='dubai', geoname_id=9100004, latitude=25.2, longitude=55.27)
+        sharjah = City.objects.create(country=country, name='Sharjah', normalized_name='sharjah', geoname_id=9100005, latitude=25.34, longitude=55.41)
         Locality.objects.create(
-            country=self.country, name='Jumeirah Village Circle', normalized_name='jumeirah village circle',
+            country=country, city=dubai, name='Jumeirah Village Circle', normalized_name='jumeirah village circle',
             alternate_names=['JVC'], geoname_id=9100001, latitude=25.06, longitude=55.21,
         )
-        # Two different places called "Al Barsha": the directory cannot choose, Google decides.
-        for geoname_id, lat in ((9100002, 25.11), (9100003, 25.40)):
-            Locality.objects.create(
-                country=self.country, name='Al Barsha', normalized_name='al barsha',
-                geoname_id=geoname_id, latitude=lat, longitude=55.20,
-            )
-        City.objects.create(country=self.country, name='Dubai', normalized_name='dubai', geoname_id=9100004, latitude=25.2, longitude=55.27)
+        # Two places called "Al Barsha": the city decides.
+        Locality.objects.create(country=country, city=dubai, name='Al Barsha', normalized_name='al barsha', geoname_id=9100002, latitude=25.11, longitude=55.20)
+        Locality.objects.create(country=country, city=sharjah, name='Al Barsha', normalized_name='al barsha', geoname_id=9100003, latitude=25.40, longitude=55.50)
         IntegrationConnection.objects.create(
             scope=IntegrationConnection.SCOPE_PLATFORM, provider=IntegrationConnection.PROVIDER_GOOGLE_MAPS,
             display_name='Google Maps', secret_value='server-key', is_enabled=True,
             configuration={'browser_api_key': 'browser-key', 'monthly_request_limit': 100},
         )
 
-    def opportunity(self, activity, *locations, raw=''):
+    def opportunity(self, activity, *item_locations, message='x'):
         opportunity = RealEstateOpportunity.objects.create(
-            company=self.company, activity_type=activity, summary='x', original_message='x', classification_status='classified',
-            first_seen_at=timezone.now(),
+            company=self.company, activity_type=activity, summary='summary', original_message=message,
+            classification_status='classified', first_seen_at=timezone.now(),
         )
-        OpportunityItem.objects.create(
-            company=self.company, opportunity=opportunity, item_kind='demand' if activity in ('buying', 'leasing_inquiry') else 'supply',
-            locations=list(locations), location_raw=raw or ', '.join(locations), amount_role='budget',
-        )
+        for sequence, locations in enumerate(item_locations or [[]], 1):
+            OpportunityItem.objects.create(
+                company=self.company, opportunity=opportunity, sequence=sequence,
+                item_kind='demand' if activity in ('buying', 'leasing_inquiry') else 'supply',
+                locations=list(locations), location_raw=', '.join(locations), amount_role='budget',
+            )
         return opportunity
 
-    def test_counts_inquiries_per_area_and_places_them_from_the_directory(self):
-        self.opportunity('buying', 'JVC')
-        self.opportunity('leasing_inquiry', 'jvc')
-        self.opportunity('selling', 'Jumeirah Village Circle', 'Dubai')
-        self.opportunity('buying')  # no location at all
+
+class LocateOpportunityTests(LocationTestCase):
+    def test_stock_instructions_are_in_ai_instructions(self):
+        prompt, label = DEFAULT_PROMPTS[RealEstatePromptConfig.KEY_LOCATION]
+        self.assertEqual(label, 'Real Estate Location')
+        self.assertIn('give the community it belongs to', prompt)
+        self.assertIn('"sub_area"', prompt)
+
+    @patch(AGENT, return_value=reply((1, 'Jumeirah Village Circle', 'Bloom Towers', 'Dubai')))
+    def test_whole_inquiry_goes_to_the_ai_and_the_area_is_placed_from_the_directory(self, agent):
+        opportunity = self.opportunity('buying', ['Bloom Towers'], message='Need 1BR in Bloom Towers')
+        [item] = locate_opportunity(opportunity)
+
+        kwargs = agent.call_args.kwargs
+        self.assertEqual(kwargs['purpose'], 'location')
+        self.assertIn('your own knowledge', kwargs['messages'][0]['content'])
+        self.assertNotIn('web_search', kwargs)
+        context = kwargs['messages'][1]['content']
+        self.assertIn('Need 1BR in Bloom Towers', context)
+        self.assertIn('location words: Bloom Towers', context)
+        item.refresh_from_db()
+        self.assertEqual((item.geo_status, item.geo_area, item.geo_sub_area, item.geo_city), ('located', 'Jumeirah Village Circle', 'Bloom Towers', 'Dubai'))
+        self.assertEqual(item.geo_area_location.status, 'placed')
+        self.assertEqual(item.geo_area_location.source, 'directory')
+
+    @patch(AGENT, return_value=reply((1, 'Al Barsha', '', 'Sharjah')))
+    def test_city_picks_between_places_with_the_same_name(self, agent):
+        [item] = locate_opportunity(self.opportunity('buying', ['Al Barsha']))
+        item.refresh_from_db()
+        self.assertEqual(float(item.geo_area_location.latitude), 25.40)
+
+    @patch(AGENT)
+    def test_unknown_area_goes_to_google_with_its_city_once(self, agent):
+        agent.return_value = reply((1, 'DAMAC Hills 2', 'Verona', 'Dubai'))
+        fake = FakeClient({'DAMAC Hills 2': google_place('DAMAC Hills 2', 24.98, 55.39)})
+        with patch(CLIENT, return_value=fake):
+            locate_opportunity(self.opportunity('selling', ['Verona']))
+            agent.return_value = reply((1, 'DAMAC Hills 2', 'Camelia', 'Dubai'))
+            locate_opportunity(self.opportunity('buying', ['Camelia']))
+        self.assertEqual(fake.queries, ['DAMAC Hills 2, Dubai, United Arab Emirates'])
+        self.assertEqual(AreaLocation.objects.get().source, 'google')
+
+    @patch(AGENT, return_value=reply((1, '', '', '')))
+    def test_nothing_to_go_on_is_unknown(self, agent):
+        [item] = locate_opportunity(self.opportunity('buying', []))
+        item.refresh_from_db()
+        self.assertEqual(item.geo_status, 'unknown')
+        self.assertIsNone(item.geo_area_location)
+
+    @patch(AGENT, return_value=reply((1, 'Jumeirah Village Circle', '', 'Dubai')))
+    def test_a_property_the_ai_skipped_is_an_error(self, agent):
+        opportunity = self.opportunity('buying', ['JVC'], ['Marina'])
+        locate_opportunity(opportunity)
+        statuses = dict(opportunity.items.values_list('sequence', 'geo_status'))
+        self.assertEqual(statuses, {1: 'located', 2: 'error'})
+
+    @patch(AGENT, side_effect=RuntimeError('provider down'))
+    def test_ai_failure_marks_the_items_and_raises_for_a_retry(self, agent):
+        opportunity = self.opportunity('buying', ['JVC'])
+        with self.assertRaisesMessage(RuntimeError, 'provider down'):
+            locate_opportunity(opportunity)
+        item = opportunity.items.get()
+        self.assertEqual((item.geo_status, item.geo_error), ('error', 'provider down'))
+
+    @patch(AGENT, return_value='{"items": [{"sequence": 1, "area": "JVC", "confidence": 7}]}')
+    def test_bad_confidence_is_refused(self, agent):
+        with self.assertRaisesMessage(ValueError, 'between 0 and 1'):
+            locate_opportunity(self.opportunity('buying', ['JVC']))
+
+    @patch(AGENT, return_value=reply((1, 'Jumeirah Village Circle', '', 'Dubai')))
+    def test_web_search_mode_asks_for_search_results(self, agent):
+        RealEstateSettings.objects.update_or_create(company=self.company, defaults={'location_search_mode': 'web_search'})
+        locate_opportunity(self.opportunity('buying', ['JVC']))
+        self.assertEqual(agent.call_args.kwargs['web_search'], {'max_results': 3})
+        self.assertIn('Web search results are provided', agent.call_args.kwargs['messages'][0]['content'])
+
+    def test_enqueue_runs_on_the_maintenance_queue_once_per_opportunity(self):
+        opportunity = self.opportunity('buying', ['JVC'])
+        task = enqueue_location(opportunity)
+        self.assertEqual((task.task_key, task.queue_name, task.priority), (TASK_KEY, 'real_estate_maintenance', 50))
+        self.assertEqual(enqueue_location(opportunity).pk, task.pk)
+        bare = RealEstateOpportunity.objects.create(
+            company=self.company, activity_type='buying', summary='x', original_message='x',
+            classification_status='classified', first_seen_at=timezone.now(),
+        )
+        self.assertIsNone(enqueue_location(bare))
+
+
+class AreaMapApiTests(LocationTestCase):
+    def locate(self, opportunity, *entries):
+        with patch(AGENT, return_value=reply(*entries)):
+            locate_opportunity(opportunity)
+
+    def test_counts_inquiries_per_area_with_their_buildings(self):
+        self.locate(self.opportunity('buying', ['Bloom Towers']), (1, 'Jumeirah Village Circle', 'Bloom Towers', 'Dubai'))
+        self.locate(self.opportunity('selling', ['JVC']), (1, 'Jumeirah Village Circle', '', 'Dubai'))
+        self.locate(self.opportunity('buying', ['?']), (1, '', '', ''))
+        self.opportunity('buying', ['JLT'])  # not located yet
         data = self.client.get(URL).json()
 
-        self.assertEqual((data['total_opportunities'], data['without_location']), (4, 1))
-        self.assertEqual(data['browser_api_key'], 'browser-key')
-        top = data['areas'][0]
-        self.assertEqual((top['key'], top['count']), ('jvc', 2))
-        self.assertEqual(top['by_activity'], {'buying': 1, 'leasing_inquiry': 1})
-        self.assertEqual((top['status'], top['source'], top['latitude']), ('placed', 'directory', 25.06))
-        dubai = next(area for area in data['areas'] if area['key'] == 'dubai')
-        self.assertEqual(dubai['status'], 'placed')
+        self.assertEqual(data['totals'], {'opportunities': 4, 'no_properties': 0, 'located': 2, 'unknown': 1, 'pending': 1, 'error': 0})
+        [area] = data['areas']
+        self.assertEqual((area['name'], area['city'], area['count'], area['status']), ('Jumeirah Village Circle', 'Dubai', 2, 'placed'))
+        self.assertEqual(area['by_activity'], {'buying': 1, 'selling': 1})
+        self.assertEqual(area['sub_areas'], [{'name': 'Bloom Towers', 'count': 1}])
 
-    def test_filters_by_activity(self):
-        self.opportunity('buying', 'JVC')
-        self.opportunity('selling', 'JVC')
-        data = self.client.get(URL, {'activity_type': 'selling'}).json()
-        self.assertEqual(data['areas'][0]['by_activity'], {'selling': 1})
+    def test_backfill_queues_only_inquiries_not_located_yet(self):
+        located = self.opportunity('buying', ['JVC'])
+        self.locate(located, (1, 'Jumeirah Village Circle', '', 'Dubai'))
+        waiting = self.opportunity('buying', ['JLT'])
+        data = self.client.post(URL + 'locate/', {'scope': 'unlocated'}, format='json').json()
+        self.assertEqual(data['queued'], 1)
+        self.assertEqual(data['locating'], 1)
+        task = BackgroundTask.objects.get(task_key=TASK_KEY)
+        self.assertEqual((task.payload['opportunity_id'], task.priority), (waiting.pk, 200))
 
-    def test_names_the_directory_cannot_place_wait_for_google_and_cost_nothing(self):
-        self.opportunity('buying', 'Al Barsha')
-        self.opportunity('buying', 'The One Hotel')
-        with patch(CLIENT) as client_for:
-            data = self.client.get(URL).json()
-        client_for.assert_not_called()
-        self.assertEqual({area['status'] for area in data['areas']}, {'pending'})
-        self.assertEqual(data['google']['waiting'], 2)
+        data = self.client.post(URL + 'locate/', {'scope': 'all'}, format='json').json()
+        self.assertEqual(data['queued'], 2)
+        self.assertEqual(BackgroundTask.objects.filter(task_key=TASK_KEY).count(), 2)
 
-    def test_google_places_waiting_names_inside_the_country_only(self):
-        self.opportunity('buying', 'Al Barsha')
-        self.opportunity('buying', 'The One Hotel')
-        self.opportunity('buying', 'Unit 219')
-        fake = FakeClient({
-            'Al Barsha': google_place('Al Barsha', 25.11, 55.2),
-            'The One Hotel': google_place('The One Hotel', 1.3, 103.8, country='SG'),
-            'Unit 219': None,
-        })
-        with patch(CLIENT, return_value=fake):
-            data = self.client.post(URL + 'place/').json()
-        by_key = {area['key']: area for area in data['areas']}
-        self.assertEqual((by_key['al barsha']['status'], by_key['al barsha']['source']), ('placed', 'google'))
-        self.assertEqual(by_key['the one hotel']['status'], 'not_found')
-        self.assertIn('outside United Arab Emirates', by_key['the one hotel']['error'])
-        self.assertEqual(by_key['unit 219']['status'], 'not_found')
-        self.assertIn(('Al Barsha, United Arab Emirates', 'AE'), fake.queries)
-        self.assertEqual(data['google']['usage']['request_count'], 3)
-        self.assertEqual(data['notice'], '')
-
-        # Placed once: the next report does not ask Google again.
-        with patch(CLIENT) as client_for:
-            self.client.post(URL + 'place/')
-        client_for.return_value.search_text.assert_not_called()
-
-    def test_google_failure_is_reported_and_retried_later(self):
-        self.opportunity('buying', 'Al Barsha')
-        with patch(CLIENT, return_value=FakeClient({'Al Barsha': GoogleMapsError('API key not valid')})):
-            data = self.client.post(URL + 'place/').json()
-        self.assertIn('API key not valid', data['notice'])
-        self.assertEqual(data['areas'][0]['status'], 'error')
-        with patch(CLIENT, return_value=FakeClient({'Al Barsha': google_place('Al Barsha', 25.11, 55.2)})):
-            data = self.client.post(URL + 'place/').json()
-        self.assertEqual(data['areas'][0]['status'], 'placed')
-
-    def test_monthly_cap_stops_lookups_with_a_notice(self):
+    def test_google_button_places_waiting_areas_and_reports_the_cap(self):
         IntegrationConnection.objects.update(configuration={'browser_api_key': 'browser-key', 'monthly_request_limit': 1})
-        self.opportunity('buying', 'Al Barsha')
-        self.opportunity('buying', 'Al Barsha')
-        self.opportunity('buying', 'The One Hotel')
-        fake = FakeClient({'Al Barsha': google_place('Al Barsha', 25.11, 55.2)})
-        with patch(CLIENT, return_value=fake):
-            data = self.client.post(URL + 'place/').json()
-        # The name with the most inquiries goes first.
-        self.assertEqual(fake.queries, [('Al Barsha, United Arab Emirates', 'AE')])
+        with patch(CLIENT, return_value=FakeClient({'DAMAC Hills 2': GoogleMapsError('API key not valid')})):
+            self.locate(self.opportunity('buying', ['Verona']), (1, 'DAMAC Hills 2', 'Verona', 'Dubai'))
+        area = AreaLocation.objects.get()
+        self.assertEqual((area.status, area.error), ('error', 'API key not valid'))
+
+        data = self.client.post(URL + 'place/').json()
         self.assertIn('monthly request cap', data['notice'])
-        self.assertEqual(AreaLocation.objects.get(normalized_name='the one hotel').status, 'pending')
+        self.assertEqual(data['areas'][0]['status'], 'error')
 
     def test_other_companies_inquiries_are_not_counted(self):
         other = Company.objects.create(name='Other', slug='other-map', industry_type='real_estate')
         opportunity = RealEstateOpportunity.objects.create(
-            company=other, activity_type='buying', summary='x', original_message='x', classification_status='classified', first_seen_at=timezone.now(),
+            company=other, activity_type='buying', summary='x', original_message='x',
+            classification_status='classified', first_seen_at=timezone.now(),
         )
         OpportunityItem.objects.create(company=other, opportunity=opportunity, item_kind='demand', locations=['JVC'], amount_role='budget')
-        self.assertEqual(self.client.get(URL).json()['areas'], [])
+        data = self.client.get(URL).json()
+        self.assertEqual((data['areas'], data['totals']['opportunities']), ([], 0))
+        self.assertEqual(self.client.post(URL + 'locate/', {}, format='json').json()['queued'], 0)
 
-    def test_bad_date_is_refused(self):
+    def test_bad_input_is_refused(self):
         self.assertEqual(self.client.get(URL, {'date_from': 'yesterday'}).status_code, 400)
+        self.assertEqual(self.client.post(URL + 'locate/', {'scope': 'some'}, format='json').status_code, 400)
+
+
+class LocationSearchSettingsTests(LocationTestCase):
+    SETTINGS_URL = '/api/real-estate/prompts/location-search/'
+
+    def test_web_search_needs_openrouter_for_the_location_prompt(self):
+        self.assertEqual(self.client.get(self.SETTINGS_URL).json()['mode'], 'model_knowledge')
+        AIProviderConfig.objects.create(
+            company=self.company, display_name='DeepSeek', provider='deepseek', capability='agent',
+            model='deepseek-chat', api_key='k', is_active=True,
+        )
+        response = self.client.put(self.SETTINGS_URL, {'mode': 'web_search'}, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Real Estate Location prompt', response.json()['mode'][0])
+        AIProviderConfig.objects.filter(company=self.company).update(provider='openrouter')
+        self.assertEqual(self.client.put(self.SETTINGS_URL, {'mode': 'web_search'}, format='json').status_code, 200)
+        self.assertEqual(RealEstateSettings.objects.get(company=self.company).location_search_mode, 'web_search')

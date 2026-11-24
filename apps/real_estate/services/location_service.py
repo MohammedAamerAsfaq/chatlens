@@ -1,0 +1,232 @@
+"""Real Estate Location: where an inquiry's property is.
+
+After extraction (and for older inquiries through the Area Map backfill), an AI agent reads
+the whole inquiry - group or chat name, sender, summary, original message and the extracted
+properties - and names each property's area (community or district), sub-area (building,
+cluster or project) and city. Its instructions are the company's "Real Estate Location"
+prompt in AI Instructions; it may use live web search when the company turns that on.
+
+Each area is then placed on the map once per company (AreaLocation): from the geography
+directory when it has exactly one match, otherwise with Google Maps text search for
+"area, city, country" inside the Google Maps monthly request cap.
+"""
+
+from django.db import transaction
+from django.utils import timezone
+
+from apps.integrations.services.geography_sync import normalize_name
+from apps.real_estate.models import (
+    AreaLocation, OpportunityItem, RealEstateAgentCallLog, RealEstatePromptConfig, RealEstateSettings,
+)
+from apps.real_estate.services.agent_call import call_real_estate_agent
+from apps.real_estate.services.prompts import configured_prompt
+from apps.real_estate.services.response_parser import parse_json_object
+
+TASK_KEY = 'real_estate.locate_opportunity'
+LIVE_PRIORITY = 50
+BACKFILL_PRIORITY = 200
+WEB_SEARCH_RESULTS = 3
+
+_SEARCH_RULES = {
+    RealEstateSettings.LOCATION_SEARCH_MODEL: (
+        'Use your own knowledge of this market\'s communities, projects, clusters and buildings.'
+    ),
+    RealEstateSettings.LOCATION_SEARCH_WEB: (
+        'Web search results are provided with this request. Use them to check which community a '
+        'building, cluster or project belongs to, especially for names you are not sure of.'
+    ),
+}
+
+
+def enqueue_location(opportunity, *, priority=LIVE_PRIORITY):
+    """Queue the Location step for an opportunity that has property items."""
+    from apps.queue_management.services import enqueue_task
+
+    if not opportunity.items.exists():
+        return None
+    return enqueue_task(
+        task_key=TASK_KEY,
+        payload={'version': 1, 'company_id': opportunity.company_id, 'opportunity_id': opportunity.pk},
+        priority=priority,
+        idempotency_key=f'real-estate-locate:{opportunity.pk}',
+        correlation_id=f'real-estate-opportunity:{opportunity.pk}',
+        company=opportunity.company,
+    )
+
+
+def location_call(company):
+    """(system prompt, prompt config, extra agent-call options) for the Location step."""
+    system_prompt, prompt_config = configured_prompt(company, RealEstatePromptConfig.KEY_LOCATION)
+    settings_row, _ = RealEstateSettings.objects.get_or_create(company=company)
+    mode = settings_row.location_search_mode
+    if mode not in _SEARCH_RULES:
+        raise ValueError(f'Unknown location search mode: {mode!r}.')
+    options = {'web_search': {'max_results': WEB_SEARCH_RESULTS}} if mode == RealEstateSettings.LOCATION_SEARCH_WEB else {}
+    return f'{system_prompt}\n\n{_SEARCH_RULES[mode]}', prompt_config, options
+
+
+def inquiry_context(opportunity, items):
+    chat = opportunity.source_chat
+    contact = opportunity.contact
+    lines = [
+        f'Chat: {chat.name or "unnamed"} ({chat.chat_type})' if chat else 'Chat: none (entered by hand)',
+        f'Sender: {_sender(opportunity, contact)}',
+        f'Activity: {opportunity.activity_type or "unknown"}',
+        f'Summary: {opportunity.summary or "none"}',
+        'Original message:',
+        opportunity.original_message or '(none)',
+        '',
+        'Properties:',
+    ]
+    for item in items:
+        parts = [f'{item.sequence}.']
+        if item.title:
+            parts.append(f'title: {item.title}')
+        if item.property_type_label:
+            parts.append(f'type: {item.property_type_label}')
+        parts.append(f'location words: {", ".join(item.locations) if item.locations else "none"}')
+        if item.location_raw:
+            parts.append(f'location text: {item.location_raw}')
+        address = _linked_address(item)
+        if address:
+            parts.append(f'linked property address: {address}')
+        lines.append(' | '.join(parts))
+    return '\n'.join(lines)
+
+
+def locate_opportunity(opportunity):
+    """Run the Location AI step for every item of the opportunity and place their areas."""
+    items = list(opportunity.items.select_related('property__address').order_by('sequence'))
+    if not items:
+        return []
+    company = opportunity.company
+    try:
+        system_prompt, prompt_config, options = location_call(company)
+        messages = [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': inquiry_context(opportunity, items)},
+        ]
+        response = call_real_estate_agent(
+            purpose=RealEstateAgentCallLog.PURPOSE_LOCATION,
+            messages=messages,
+            company=company,
+            prompt_config=prompt_config,
+            wa_message_id=opportunity.source_message_id,
+            correlation_id=f'real-estate-opportunity:{opportunity.pk}',
+            temperature=0,
+            **options,
+        )
+        answers = parse_location_response(response)
+    except Exception as exc:
+        OpportunityItem.objects.filter(pk__in=[item.pk for item in items]).update(
+            geo_status=OpportunityItem.GEO_ERROR, geo_error=str(exc)[:2000], updated_at=timezone.now(),
+        )
+        raise
+    now = timezone.now()
+    for item in items:
+        answer = answers.get(item.sequence)
+        if answer is None:
+            item.geo_status, item.geo_error = OpportunityItem.GEO_ERROR, 'The AI returned no location for this property.'
+            item.geo_area = item.geo_sub_area = item.geo_city = item.geo_basis = ''
+            item.geo_confidence, item.geo_area_location = None, None
+        else:
+            item.geo_area, item.geo_sub_area, item.geo_city = answer['area'], answer['sub_area'], answer['city']
+            item.geo_confidence, item.geo_basis, item.geo_error = answer['confidence'], answer['basis'], ''
+            if answer['area']:
+                item.geo_status = OpportunityItem.GEO_LOCATED
+                item.geo_area_location = area_location_for(company, answer['area'], answer['city'])
+            else:
+                item.geo_status, item.geo_area_location = OpportunityItem.GEO_UNKNOWN, None
+        item.geo_located_at = now
+        item.save(update_fields=[
+            'geo_status', 'geo_area', 'geo_sub_area', 'geo_city', 'geo_confidence', 'geo_basis',
+            'geo_error', 'geo_area_location', 'geo_located_at', 'updated_at',
+        ])
+    return items
+
+
+def parse_location_response(raw_response):
+    """{sequence: {'area', 'sub_area', 'city', 'confidence', 'basis'}} from the AI's JSON."""
+    parsed = parse_json_object(raw_response)
+    entries = parsed.get('items')
+    if not isinstance(entries, list):
+        raise ValueError('The location AI response has no "items" list.')
+    answers = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError('Each location entry must be a JSON object.')
+        try:
+            sequence = int(entry.get('sequence'))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f'Location entry has no valid sequence: {entry!r}') from exc
+        confidence = entry.get('confidence')
+        confidence = 0 if confidence in (None, '') else float(confidence)
+        if not 0 <= confidence <= 1:
+            raise ValueError('Location confidence must be between 0 and 1.')
+        answers[sequence] = {
+            'area': _text(entry.get('area'), 200),
+            'sub_area': _text(entry.get('sub_area'), 200),
+            'city': _text(entry.get('city'), 100),
+            'confidence': round(confidence, 4),
+            'basis': _text(entry.get('basis'), 2000),
+        }
+    return answers
+
+
+def area_location_for(company, area, city):
+    """The company's AreaLocation for this area and city, placed on the map if it is new."""
+    key = normalize_name(f'{area} {city}')[:200]
+    row, created = AreaLocation.objects.get_or_create(
+        company=company, normalized_name=key, defaults={'name': area[:200], 'city': city[:100]},
+    )
+    if created or row.status == AreaLocation.STATUS_PENDING:
+        place_area(row)
+        row.refresh_from_db()
+    return row
+
+
+def place_area(row, *, use_google=True):
+    """Place one area: directory first, then Google. Returns a notice for the user ('' if none).
+    Quota or configuration problems leave the area waiting; Google errors are recorded."""
+    from apps.real_estate.services.area_map import (
+        company_country, directory_index, directory_match, google_place,
+    )
+
+    with transaction.atomic():
+        row = AreaLocation.objects.select_for_update().get(pk=row.pk)
+        if row.status != AreaLocation.STATUS_PENDING and row.status != AreaLocation.STATUS_ERROR:
+            return ''
+        country = company_country(row.company)
+        match = directory_match(directory_index(country), normalize_name(row.name), normalize_name(row.city))
+        if match:
+            row.status, row.source, row.error = AreaLocation.STATUS_PLACED, AreaLocation.SOURCE_DIRECTORY, ''
+            row.latitude, row.longitude, row.matched_label = match.latitude, match.longitude, str(match)
+            row.resolved_at = timezone.now()
+            row.save()
+            return ''
+        if not use_google:
+            return ''
+        return google_place(row, country)
+
+
+def _sender(opportunity, contact):
+    names = [
+        opportunity.source_party_name,
+        getattr(contact, 'display_name', '') or getattr(contact, 'push_name', ''),
+        opportunity.source_contact_detail,
+    ]
+    return ' / '.join(dict.fromkeys(name for name in names if name)) or 'unknown'
+
+
+def _linked_address(item):
+    if not item.property_id:
+        return ''
+    address = getattr(item.property, 'address', None)
+    if not address:
+        return ''
+    parts = [address.project_building, address.community, address.city, address.country]
+    return ', '.join(part for part in parts if part)
+
+
+def _text(value, limit):
+    return str(value or '').strip()[:limit]

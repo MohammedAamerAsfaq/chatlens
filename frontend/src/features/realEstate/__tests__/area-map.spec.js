@@ -1,7 +1,9 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const api = vi.hoisted(() => ({ areaMap: vi.fn(), placeAreas: vi.fn() }))
+const api = vi.hoisted(() => ({
+  areaMap: vi.fn(), placeAreas: vi.fn(), locateAreas: vi.fn(), getLocationSearch: vi.fn(), setLocationSearch: vi.fn(),
+}))
 const maps = vi.hoisted(() => ({ markers: [], fitBounds: vi.fn() }))
 vi.mock('@/api', () => ({ realEstateApi: api }))
 vi.mock('@/components/ui/UiDatePicker.vue', () => ({ default: { props: ['modelValue'], template: '<input />' } }))
@@ -18,10 +20,12 @@ vi.mock('@/features/realEstate/googleMapsLoader', () => ({
 const report = (overrides = {}) => ({
   country: { name: 'United Arab Emirates', iso2: 'AE', latitude: 24, longitude: 54 },
   browser_api_key: 'browser-key', map_error: '',
-  total_opportunities: 6, without_location: 1,
+  totals: { opportunities: 10, no_properties: 1, located: 5, unknown: 1, pending: 2, error: 1 },
+  locating: 0,
+  location_search_mode: 'model_knowledge',
   areas: [
-    { key: 'dubai marina', name: 'Dubai Marina', count: 4, by_activity: { buying: 3, selling: 1 }, status: 'placed', source: 'directory', latitude: 25.08, longitude: 55.14, matched_label: 'Dubai Marina, AE', error: '' },
-    { key: 'jvc', name: 'JVC', count: 1, by_activity: { leasing_inquiry: 1 }, status: 'pending', source: '', latitude: null, longitude: null, matched_label: '', error: '' },
+    { id: 1, name: 'DAMAC Hills 2', city: 'Dubai', count: 4, by_activity: { buying: 3, selling: 1 }, sub_areas: [{ name: 'Verona', count: 3 }, { name: 'Camelia', count: 1 }], status: 'placed', source: 'google', latitude: 24.98, longitude: 55.39, matched_label: 'DAMAC Hills 2, Dubai', error: '' },
+    { id: 2, name: 'Al Reem Island', city: 'Abu Dhabi', count: 1, by_activity: { leasing_inquiry: 1 }, sub_areas: [], status: 'pending', source: '', latitude: null, longitude: null, matched_label: '', error: '' },
   ],
   google: { available: true, waiting: 1, batch: 20, usage: { remaining: 99, monthly_request_limit: 100 } },
   ...overrides,
@@ -34,6 +38,8 @@ async function mountView() {
   return wrapper
 }
 
+const button = (wrapper, text) => wrapper.findAll('button').find(b => b.text().includes(text))
+
 describe('Area Map', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -41,28 +47,49 @@ describe('Area Map', () => {
     api.areaMap.mockResolvedValue({ data: report() })
   })
 
-  it('ranks areas and draws a circle for each placed area, the busiest the biggest', async () => {
+  it('ranks areas with their buildings and draws a circle per placed area', async () => {
     const wrapper = await mountView()
     expect(api.areaMap).toHaveBeenCalledWith({ activity_type: 'all' })
     const ranking = wrapper.findAll('.area-map__ranking li')
-    expect(ranking[0].text()).toContain('Dubai Marina')
-    expect(ranking[0].text()).toContain('Buying: 3 · Selling: 1')
+    expect(ranking[0].text()).toContain('DAMAC Hills 2, Dubai')
+    expect(ranking[0].text()).toContain('Verona 3 · Camelia 1')
     expect(ranking[0].text()).toContain('80%')
-    expect(ranking[1].text()).toContain('Not on the map: Not looked up on Google yet')
+    expect(ranking[1].text()).toContain('Not on the map: Waiting for a Google Maps lookup')
     expect(maps.markers).toHaveLength(1)
     expect(maps.markers[0].options.label.text).toBe('4')
     expect(maps.markers[0].options.icon.fillColor).toBe('#238b75')
-    expect(wrapper.text()).toContain('1 without any location')
+    expect(wrapper.text()).toContain('5 located in 2 areas')
+    expect(wrapper.text()).toContain('2 not located yet')
   })
 
-  it('looks up the remaining areas on Google only when asked', async () => {
+  it('queues the location AI for inquiries without an area', async () => {
+    api.locateAreas.mockResolvedValue({ data: { ...report({ locating: 3, totals: { opportunities: 10, no_properties: 1, located: 5, unknown: 1, pending: 2, error: 1 } }), queued: 3 } })
+    const wrapper = await mountView()
+    expect(wrapper.text()).toContain('3 inquiries have no area yet')
+    await button(wrapper, 'Find locations for 3').trigger('click')
+    await flushPromises()
+    expect(api.locateAreas).toHaveBeenCalledWith('unlocated', { activity_type: 'all' })
+    expect(wrapper.text()).toContain('3 inquiries queued')
+    expect(wrapper.text()).toContain('Locating 3 inquiries...')
+  })
+
+  it('asks before re-checking every inquiry', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const wrapper = await mountView()
+    await button(wrapper, 'Re-check all').trigger('click')
+    expect(confirm.mock.calls[0][0]).toContain('all 10 inquiries')
+    expect(api.locateAreas).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+
+  it('looks up waiting areas on Google only when asked', async () => {
     api.placeAreas.mockResolvedValue({ data: { ...report({ google: { available: true, waiting: 0, batch: 20, usage: null } }), notice: '' } })
     const wrapper = await mountView()
     expect(wrapper.text()).toContain('99 of 100 left this month')
-    await wrapper.findAll('button').find(b => b.text() === 'Find on Google Maps').trigger('click')
+    await button(wrapper, 'Find on Google Maps').trigger('click')
     await flushPromises()
     expect(api.placeAreas).toHaveBeenCalledWith({ activity_type: 'all' })
-    expect(wrapper.text()).not.toContain('Find on Google Maps')
+    expect(button(wrapper, 'Find on Google Maps')).toBeUndefined()
   })
 
   it('reloads for another inquiry type', async () => {
@@ -77,5 +104,22 @@ describe('Area Map', () => {
     const wrapper = await mountView()
     expect(wrapper.text()).toContain('Configure and enable Google Maps')
     expect(wrapper.findAll('.area-map__ranking li')).toHaveLength(2)
+  })
+})
+
+describe('Location finding settings', () => {
+  it('saves the chosen mode and shows why web search is not available', async () => {
+    const choices = [{ value: 'model_knowledge', label: "AI's own market knowledge" }, { value: 'web_search', label: 'AI with live web search (OpenRouter)' }]
+    api.getLocationSearch.mockResolvedValue({ data: { mode: 'model_knowledge', choices, web_search_blockers: ['DeepSeek (deepseek)'] } })
+    api.setLocationSearch.mockRejectedValue({ response: { status: 400, data: { mode: ['Web search needs OpenRouter models'] } } })
+    const { default: Settings } = await import('../components/LocationSearchSettings.vue')
+    const wrapper = mount(Settings)
+    await flushPromises()
+    expect(wrapper.text()).toContain('Not available yet: the location AI uses DeepSeek (deepseek).')
+    await wrapper.find('input[value="web_search"]').setValue(true)
+    await button(wrapper, 'Save location finding').trigger('click')
+    await flushPromises()
+    expect(api.setLocationSearch).toHaveBeenCalledWith('web_search')
+    expect(wrapper.find('[role="alert"]').text()).toContain('Web search needs OpenRouter models')
   })
 })

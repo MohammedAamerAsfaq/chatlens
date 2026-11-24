@@ -188,6 +188,32 @@ class RealEstatePromptViewSet(viewsets.GenericViewSet):
             'table_rows': MarketPriceReference.objects.filter(company=company).count(),
         })
 
+    @action(detail=False, methods=['get', 'put'], url_path='location-search')
+    def location_search(self, request):
+        """What the Real Estate Location AI step may use (see services/location_service.py)."""
+        company = self.company()
+        if not company:
+            return Response({'detail': 'A Real Estate company is required.'}, status=403)
+        settings_row, _ = RealEstateSettings.objects.get_or_create(company=company)
+        blockers = web_search_blockers(company, RealEstatePromptConfig.KEY_LOCATION)
+        if request.method == 'PUT':
+            mode = request.data.get('mode')
+            valid = {value for value, _label in RealEstateSettings.LOCATION_SEARCH_CHOICES}
+            if mode not in valid:
+                return Response({'mode': ['Choose one of: ' + ', '.join(sorted(valid)) + '.']}, status=400)
+            if mode == RealEstateSettings.LOCATION_SEARCH_WEB and blockers:
+                return Response({'mode': [
+                    'Web search needs OpenRouter models, but the location AI uses: '
+                    + ', '.join(blockers) + '. Choose OpenRouter models for the Real Estate Location prompt first.'
+                ]}, status=400)
+            settings_row.location_search_mode = mode
+            settings_row.save(update_fields=['location_search_mode', 'updated_at'])
+        return Response({
+            'mode': settings_row.location_search_mode,
+            'choices': [{'value': value, 'label': label} for value, label in RealEstateSettings.LOCATION_SEARCH_CHOICES],
+            'web_search_blockers': blockers,
+        })
+
     @action(detail=False, methods=['get', 'put'], url_path='card-field-config')
     def card_field_config(self, request):
         """Ordered list of field ids (see frontend cardFields.js registry) to show on

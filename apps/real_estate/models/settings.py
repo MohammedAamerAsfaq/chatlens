@@ -27,6 +27,15 @@ class RealEstateSettings(models.Model):
         (PRICE_CHECK_TABLE, 'Company price table'),
     ]
 
+    # What the Real Estate Location AI step may use to tell where an inquiry's property is
+    # (see services/location_service.py).
+    LOCATION_SEARCH_MODEL = 'model_knowledge'
+    LOCATION_SEARCH_WEB = 'web_search'
+    LOCATION_SEARCH_CHOICES = [
+        (LOCATION_SEARCH_MODEL, "AI's own market knowledge"),
+        (LOCATION_SEARCH_WEB, 'AI with live web search (OpenRouter)'),
+    ]
+
     AREA_SQFT = AreaUnit.SQUARE_FEET
     AREA_SQM = AreaUnit.SQUARE_METRES
     AREA_UNIT_CHOICES = AreaUnit.choices
@@ -48,6 +57,9 @@ class RealEstateSettings(models.Model):
         default=AREA_SQFT,
     )
     default_country = models.CharField(max_length=100, default='United Arab Emirates')
+    location_search_mode = models.CharField(
+        max_length=20, choices=LOCATION_SEARCH_CHOICES, default=LOCATION_SEARCH_MODEL,
+    )
     minimum_match_score = models.DecimalField(
         max_digits=5,
         decimal_places=4,

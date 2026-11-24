@@ -126,6 +126,39 @@ such as furnishing, tenure, bathrooms, view, floor, parking, or ownership eligib
 attributes using concise property-field names."""
 
 
+DEFAULT_LOCATION_PROMPT = """You identify where the property in a real estate inquiry is, so inquiries can be
+counted by area on a map of the market.
+
+You receive one inquiry: where it came from (the chat or group name and the sender), its
+activity, its summary, the original message, and each property extracted from it with the
+location words the broker used.
+
+For each property, work out:
+- area: the community or district the property is in, using the name the market commonly
+  uses for it, for example "Dubai Marina", "Jumeirah Village Circle" or "DAMAC Hills 2".
+  A building, tower, cluster or project is not an area: give the community it belongs to.
+- sub_area: the building, tower, cluster or project the inquiry names, if any, for example
+  "Verona" for the Verona cluster in DAMAC Hills 2. Leave it empty when none is named.
+- city: the city or emirate, for example "Dubai", "Sharjah" or "Abu Dhabi".
+
+Use all of the context, not only the location words: building, project and developer names,
+the group or chat name, and the rest of the message. Expand the short forms brokers use, such
+as JVC, JLT or DH2, to the full area name. When a name could be more than one place, choose
+the one the rest of the inquiry supports and say so in basis.
+
+confidence is between 0 and 1 and reflects how sure you are of the area. basis is one short
+sentence saying what the answer rests on, for example "Verona is a cluster in DAMAC Hills 2"
+or "Only the group name Damac Hills 2 Owners points to the area".
+
+If nothing in the inquiry points to a place, return an empty area, sub_area and city with
+confidence 0. Never guess an area from the price, size or property type alone.
+
+Return valid JSON only, without Markdown or explanation, with one entry for every property
+sequence you were given:
+{"items": [{"sequence": 1, "area": "", "sub_area": "", "city": "", "confidence": 0.0, "basis": ""}]}
+"""
+
+
 DEFAULT_PROMPTS = {
     RealEstatePromptConfig.KEY_GATE: (
         DEFAULT_GATE_PROMPT,
@@ -142,6 +175,10 @@ DEFAULT_PROMPTS = {
     RealEstatePromptConfig.KEY_SEARCH_STRUCTURING: (
         DEFAULT_SEARCH_STRUCTURING_PROMPT,
         'Opportunity Search Structuring',
+    ),
+    RealEstatePromptConfig.KEY_LOCATION: (
+        DEFAULT_LOCATION_PROMPT,
+        'Real Estate Location',
     ),
 }
 

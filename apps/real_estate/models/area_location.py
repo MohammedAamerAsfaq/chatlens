@@ -2,10 +2,11 @@ from django.db import models
 
 
 class AreaLocation(models.Model):
-    """Where an inquiry location name (as brokers write it) sits on the map.
+    """Where an area (community or district, with its city) sits on the map.
 
-    Each distinct normalized name is placed once per company and remembered, first from
-    the geography directory (free) and otherwise through Google Maps (one paid request).
+    Areas come from the Real Estate Location AI step. Each distinct area is placed once per
+    company and remembered, first from the geography directory (free) and otherwise through
+    Google Maps (one paid request).
     """
 
     SOURCE_DIRECTORY = 'directory'
@@ -26,6 +27,7 @@ class AreaLocation(models.Model):
     company = models.ForeignKey('tenancy.Company', on_delete=models.CASCADE, related_name='real_estate_area_locations')
     normalized_name = models.CharField(max_length=200)
     name = models.CharField(max_length=200)
+    city = models.CharField(max_length=100, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, blank=True)
     latitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True)
