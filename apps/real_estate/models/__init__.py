@@ -1,4 +1,5 @@
 from .agent_call_log import RealEstateAgentCallLog
+from .area_location import AreaLocation
 from .contracts import (
     ActivityType,
     AreaUnit,
@@ -77,4 +78,5 @@ __all__ = [
     'RealEstatePromptConfig',
     'RealEstateSettings',
     'MarketPriceReference',
+    'AreaLocation',
 ]

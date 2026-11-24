@@ -52,6 +52,7 @@ const pageDescriptions = {
   'clientpulse-reminders': 'Plan and track customer follow-up reminders.',
   'real-estate-properties': 'Maintain verified company-owned property inventory and media.',
   'real-estate-search': 'Search embedded property opportunities across four business activities.',
+  'real-estate-area-map': 'See on a map which areas inquiries mention most.',
   'real-estate-property-create': 'Create a property and map its trusted geography and source address.',
   'real-estate-listings': 'Manage sale and lease listings without duplicating physical properties.',
   'real-estate-candidates': 'Review AI-extracted property offers before they enter trusted inventory.',

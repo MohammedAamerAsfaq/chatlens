@@ -189,6 +189,8 @@ export const realEstateApi = {
   searchOpportunities: (params = {}) => http.get('/real-estate/opportunities/search/', { params }),
   // The other side of an opportunity (sellers for a buyer, tenants for a leasing offer...).
   opportunityCounterparts: (id, params = {}) => http.get(`/real-estate/opportunities/${id}/counterparts/`, { params }),
+  areaMap: (params = {}) => http.get('/real-estate/opportunities/area-map/', { params }),
+  placeAreas: (params = {}) => http.post('/real-estate/opportunities/area-map/place/', null, { params }),
   createManualOpportunity: data => http.post('/real-estate/opportunities/manual/', data),
   getOpportunity: (id) => http.get(`/real-estate/opportunities/${id}/`),
   updateOpportunity: (id, data) => http.patch(`/real-estate/opportunities/${id}/`, data),

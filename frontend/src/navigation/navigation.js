@@ -20,10 +20,11 @@ export const primaryNavigation = [
   },
   {
     id: 'real-estate', label: 'Real Estate', to: '/real-estate', industries: ['real_estate'],
-    routes: ['real-estate-board', 'real-estate-search', 'real-estate-properties', 'real-estate-property-create', 'real-estate-listings', 'real-estate-candidates'],
+    routes: ['real-estate-board', 'real-estate-search', 'real-estate-area-map', 'real-estate-properties', 'real-estate-property-create', 'real-estate-listings', 'real-estate-candidates'],
     children: [
       { label: 'Opportunity Board', to: '/real-estate', route: 'real-estate-board' },
       { label: 'Opportunity Search', to: '/real-estate/search', route: 'real-estate-search' },
+      { label: 'Area Map', to: '/real-estate/area-map', route: 'real-estate-area-map' },
       { label: 'Properties', to: '/real-estate/properties', route: 'real-estate-properties' },
     ],
   },

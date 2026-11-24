@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q
+from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -15,6 +16,7 @@ from apps.real_estate.serializers import (
     OpportunityItemSerializer, OpportunitySerializer,
     PropertyCandidateSerializer, PropertyRequirementSerializer,
 )
+from apps.real_estate.services.area_map import area_counts, area_map_report, place_from_directory, place_with_google
 from apps.real_estate.services.candidate_service import merge_candidate, promote_candidate, reject_candidate
 from apps.real_estate.services.opportunity_item_service import (
     create_property_from_item, link_item, unlink_item,
@@ -134,6 +136,40 @@ class OpportunityViewSet(CompanyOwnedViewSet):
         except Exception as exc:
             raise ValidationError({'non_field_errors': f'Unable to run semantic search: {exc}'}) from exc
         return self._search_response(queryset, search_plan)
+
+    @action(detail=False, methods=['get'], url_path='area-map')
+    def area_map(self, request):
+        """Inquiries per area for the map report, with each area's map position."""
+        try:
+            return Response(area_map_report(self.active_company(), self._area_map_queryset()))
+        except ValueError as exc:
+            raise ValidationError({'non_field_errors': str(exc)}) from exc
+
+    @action(detail=False, methods=['post'], url_path='area-map/place')
+    def area_map_place(self, request):
+        """Look up the areas the directory could not place on Google Maps (paid, capped)."""
+        company = self.active_company()
+        opportunities = self._area_map_queryset()
+        try:
+            areas, _total, _without = area_counts(opportunities)
+            place_from_directory(company, areas)
+            notice = place_with_google(company, areas)
+            report = area_map_report(company, opportunities)
+        except ValueError as exc:
+            raise ValidationError({'non_field_errors': str(exc)}) from exc
+        report['notice'] = notice
+        return Response(report)
+
+    def _area_map_queryset(self):
+        qs = self.get_queryset()
+        params = self.request.query_params
+        for name, lookup in (('date_from', 'first_seen_at__date__gte'), ('date_to', 'first_seen_at__date__lte')):
+            if value := params.get(name):
+                parsed = parse_date(value)
+                if not parsed:
+                    raise ValidationError({name: 'Use a date like 2026-11-24.'})
+                qs = qs.filter(**{lookup: parsed})
+        return qs
 
     def _search_response(self, queryset, search_plan):
         page = self.paginate_queryset(queryset)

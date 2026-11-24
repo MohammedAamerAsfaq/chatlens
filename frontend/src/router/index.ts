@@ -60,6 +60,7 @@ import RealEstatePropertiesView from '../views/RealEstatePropertiesView.vue'
 import RealEstatePropertyAttributesView from '../views/RealEstatePropertyAttributesView.vue'
 import RealEstateBoardView from '../views/RealEstateBoardView.vue'
 import RealEstateOpportunitySearchView from '../views/RealEstateOpportunitySearchView.vue'
+import RealEstateAreaMapView from '../views/RealEstateAreaMapView.vue'
 import RealEstateManualOpportunityView from '../views/RealEstateManualOpportunityView.vue'
 import RealEstateOpportunityDetailView from '../views/RealEstateOpportunityDetailView.vue'
 import RealEstatePropertyCreateView from '../views/RealEstatePropertyCreateView.vue'
@@ -135,6 +136,7 @@ const router = createRouter({
     { path: '/clientpulse-reminders', name: 'clientpulse-reminders', component: ClientPulseRemindersView, meta: { title: 'ClientPulse Reminders', permission: 'clientpulse.reminders.view' } },
     { path: '/real-estate', name: 'real-estate-board', component: RealEstateBoardView, meta: { title: 'Opportunity Board', permission: 'real_estate.opportunities.view', industries: ['real_estate'] } },
     { path: '/real-estate/search', name: 'real-estate-search', component: RealEstateOpportunitySearchView, meta: { title: 'Opportunity Search', permission: 'real_estate.opportunities.view', industries: ['real_estate'] } },
+    { path: '/real-estate/area-map', name: 'real-estate-area-map', component: RealEstateAreaMapView, meta: { title: 'Area Map', permission: 'real_estate.opportunities.view', industries: ['real_estate'] } },
     { path: '/real-estate/opportunities/new', name: 'real-estate-opportunity-create', component: RealEstateManualOpportunityView, meta: { title: 'Create Inquiry', permission: 'real_estate.opportunities.update', industries: ['real_estate'] } },
     { path: '/real-estate/opportunities/:id', name: 'real-estate-opportunity-detail', component: RealEstateOpportunityDetailView, meta: { title: 'Opportunity', permission: 'real_estate.opportunities.view', industries: ['real_estate'] } },
     { path: '/real-estate/properties', name: 'real-estate-properties', component: RealEstatePropertiesView, meta: { title: 'Properties', permission: 'real_estate.properties.view', industries: ['real_estate'] } },

@@ -58,6 +58,16 @@ class GoogleMapsClient:
             params={'sessionToken': session_token},
         )
 
+    def search_text(self, query, *, region_code='AE'):
+        """The best Places Text Search match for a free-text place name, or None."""
+        field_mask = 'places.id,places.displayName,places.formattedAddress,places.location,places.addressComponents'
+        response = self._request(
+            'post', 'places:searchText', field_mask=field_mask,
+            json={'textQuery': query, 'regionCode': region_code.lower(), 'languageCode': 'en', 'pageSize': 1},
+        )
+        places = response.get('places') or []
+        return places[0] if places else None
+
     def reverse_geocode(self, latitude, longitude):
         try:
             response = self.session.get(
