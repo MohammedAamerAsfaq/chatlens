@@ -181,7 +181,7 @@ onMounted(() => { loadSource(); load() })
 </script>
 
 <template>
-  <UiPage width="wide">
+  <UiPage width="wide" class="opportunity-search-page">
     <UiPageHeader eyebrow="Real Estate Intelligence" title="Opportunity Search" description="Search embedded buyer, seller, tenant, and landlord opportunities by meaning." />
     <UiCard v-if="counterpartId" class="opportunity-search opportunity-search__counterpart">
       <div class="opportunity-search__counterpart-head">
@@ -300,18 +300,32 @@ onMounted(() => { loadSource(); load() })
 </template>
 
 <style scoped>
+/* Every font on this page is 2px larger than the app default (body text is 15px). */
+.opportunity-search-page { font-size:17px; }
+.opportunity-search-page :deep(.ui-eyebrow) { font-size:calc(.67rem + 2px); }
+.opportunity-search-page :deep(.ui-page-header h1) { font-size:calc(1.6rem + 2px); }
+.opportunity-search-page :deep(.ui-page-header__description) { font-size:calc(.88rem + 2px); }
+.opportunity-search-page :deep(.ui-tabs>button) { font-size:calc(.78rem + 2px); }
+.opportunity-search-page :deep(.ui-control) { font-size:calc(.82rem + 2px); }
+.opportunity-search-page :deep(.ui-button) { font-size:calc(.82rem + 2px); }
+.opportunity-search-page :deep(.ui-button--small) { font-size:calc(.75rem + 2px); }
+.opportunity-search-page :deep(.ui-badge) { font-size:calc(.68rem + 2px); }
+.opportunity-search-page :deep(.ui-notice) { font-size:calc(.82rem + 2px); }
+.opportunity-search-page :deep(.ui-empty strong) { font-size:calc(.95rem + 2px); }
+.opportunity-search-page :deep(.ui-pagination span),.opportunity-search-page :deep(.ui-pagination button) { font-size:calc(.74rem + 2px); }
+.opportunity-search__result h2 { font-size:24.5px; }
 .opportunity-search { margin-bottom: 1rem; }
 .opportunity-search__counterpart-head { display:flex; justify-content:space-between; gap:1rem; align-items:flex-start; }
-.opportunity-search__counterpart-head p { margin:.3rem 0 0; color:var(--ui-text-muted); font-size:.86rem; }
+.opportunity-search__counterpart-head p { margin:.3rem 0 0; color:var(--ui-text-muted); font-size:calc(.86rem + 2px); }
 .opportunity-search__counterpart-summary { font-style:italic; }
 .opportunity-search__counterpart-controls { display:grid; grid-template-columns:12rem 13rem 10rem auto; gap:.75rem; align-items:center; margin-top:1rem; }
 .opportunity-search__controls { display:grid; grid-template-columns:minmax(18rem,1fr) 11rem 12rem 13rem 10rem auto auto; gap:.75rem; align-items:center; margin-top:1rem; }
 .opportunity-search__hint,.opportunity-search__summary span,.opportunity-search__result header p,.opportunity-search__item span,.opportunity-search__empty { color:var(--ui-text-muted); }
-.opportunity-search__hint { margin:.65rem 0 0; font-size:.86rem; }
+.opportunity-search__hint { margin:.65rem 0 0; font-size:calc(.86rem + 2px); }
 .opportunity-search__interpretation { display:flex; gap:.55rem; margin-bottom:1rem; }
 .opportunity-search__corrections,.opportunity-search__adjustments { display:flex; flex-wrap:wrap; gap:.55rem; }
 .opportunity-search__corrections { margin-bottom:1rem; }
-.opportunity-search__adjustments { margin:-.35rem 0 .8rem; color:var(--ui-warning); font-size:.82rem; }
+.opportunity-search__adjustments { margin:-.35rem 0 .8rem; color:var(--ui-warning); font-size:calc(.82rem + 2px); }
 .opportunity-search__summary { display:flex; gap:.5rem; margin:.75rem 0; }
 .opportunity-search__progress { align-items:center; color:var(--ui-primary); }
 .opportunity-search__spinner { display:inline-block; width:14px; height:14px; margin:0; border-width:2px; vertical-align:-2px; }
@@ -324,8 +338,13 @@ onMounted(() => { loadSource(); load() })
 .opportunity-search__result h2,.opportunity-search__result header p { margin:0; }
 .opportunity-search__badges { display:flex; gap:.4rem; align-items:flex-start; }
 .opportunity-search__message { margin:.8rem 0; }
-.opportunity-search__reasons { margin:-.35rem 0 .8rem; color:var(--ui-text-muted); font-size:.82rem; }
+.opportunity-search__reasons { margin:-.35rem 0 .8rem; color:var(--ui-text-muted); font-size:calc(.82rem + 2px); }
 .opportunity-search__items { display:grid; grid-template-columns:repeat(auto-fit,minmax(16rem,1fr)); gap:.5rem; }
 .opportunity-search__item { display:flex; flex-direction:column; gap:.15rem; padding:.65rem; background:var(--ui-surface-muted); border-radius:calc(var(--ui-radius) - 2px); }
 @media (max-width:900px) { .opportunity-search__controls,.opportunity-search__counterpart-controls { grid-template-columns:1fr; } .opportunity-search__counterpart-head { flex-direction:column; } .opportunity-search__result header { flex-direction:column; } }
+</style>
+
+<style>
+/* Unscoped: Vue compiles a scoped ":global(.theme-inspinia) ..." to a bare .theme-inspinia rule. */
+.theme-inspinia .opportunity-search-page.ui-page .ui-page-header h1 { font-size:calc(1.35rem + 2px); }
 </style>
