@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const api = vi.hoisted(() => ({
-  areaMap: vi.fn(), placeAreas: vi.fn(), locateAreas: vi.fn(), getLocationSearch: vi.fn(), setLocationSearch: vi.fn(),
+  areaMap: vi.fn(), placeAreas: vi.fn(), locateAreas: vi.fn(), mergeAreas: vi.fn(), getLocationSearch: vi.fn(), setLocationSearch: vi.fn(),
 }))
 const maps = vi.hoisted(() => ({ markers: [], fitBounds: vi.fn() }))
 vi.mock('@/api', () => ({ realEstateApi: api }))
@@ -97,6 +97,28 @@ describe('Area Map', () => {
     await wrapper.findAll('[role="tab"]').find(b => b.text() === 'Selling').trigger('click')
     await flushPromises()
     expect(api.areaMap).toHaveBeenLastCalledWith({ activity_type: 'selling' })
+  })
+
+  it('shows why the location step failed', async () => {
+    api.areaMap.mockResolvedValue({ data: report({ error_reasons: [{ error: 'No active agent provider configured.', count: 508 }] }) })
+    const wrapper = await mountView()
+    expect(wrapper.text()).toContain('Why the location step failed')
+    expect(wrapper.text()).toContain('508 × No active agent provider configured.')
+  })
+
+  it('merges an area written another way into the right one', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    api.mergeAreas.mockResolvedValue({ data: { ...report(), merged: 1 } })
+    const wrapper = await mountView()
+    const second = wrapper.findAll('.area-map__ranking li')[1]
+    await second.find('.area-map__merge-start').trigger('click')
+    await second.find('select').setValue(1)
+    await second.findAll('button').find(b => b.text() === 'Merge').trigger('click')
+    await flushPromises()
+    expect(confirm.mock.calls[0][0]).toContain('Merge "Al Reem Island, Abu Dhabi" into "DAMAC Hills 2, Dubai"')
+    expect(api.mergeAreas).toHaveBeenCalledWith(2, 1, { activity_type: 'all' })
+    expect(wrapper.text()).toContain('Merged "Al Reem Island" into "DAMAC Hills 2".')
+    confirm.mockRestore()
   })
 
   it('says why the map is missing instead of showing a blank box', async () => {

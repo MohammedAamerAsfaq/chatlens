@@ -41,6 +41,9 @@ const notice = ref('')
 const mapError = ref('')
 const mapElement = ref(null)
 const selectedId = ref(null)
+const mergingId = ref(null)
+const mergeTarget = ref(null)
+const merging = ref(false)
 
 let map = null
 let infoWindow = null
@@ -106,6 +109,30 @@ async function locate(scope) {
     error.value = apiError(exc, 'Unable to queue the location AI.')
   } finally {
     locating.value = false
+  }
+}
+
+function startMerge(area) {
+  mergingId.value = area.id
+  mergeTarget.value = null
+}
+
+const mergeOptions = computed(() => areas.value.filter(area => area.id !== mergingId.value))
+
+async function mergeInto(area) {
+  const target = areas.value.find(item => item.id === mergeTarget.value)
+  if (!target) return
+  if (!window.confirm(`Merge "${areaLabel(area)}" into "${areaLabel(target)}"? Its ${area.count} inquir${area.count === 1 ? 'y moves' : 'ies move'} there, and later inquiries the AI places in "${area.name}" go there too.`)) return
+  merging.value = true; error.value = ''; notice.value = ''
+  try {
+    const { data } = await realEstateApi.mergeAreas(area.id, target.id, params())
+    notice.value = `Merged "${area.name}" into "${target.name}".`
+    mergingId.value = null
+    await show(data)
+  } catch (exc) {
+    error.value = apiError(exc, 'Unable to merge the areas.')
+  } finally {
+    merging.value = false
   }
 }
 
@@ -249,6 +276,10 @@ onBeforeUnmount(() => {
       <span v-if="totals.no_properties">{{ totals.no_properties.toLocaleString() }} without property details</span>
       <span v-if="loading" class="area-map__progress" role="status"><span class="ui-spinner area-map__spinner" aria-hidden="true"></span> Updating...</span>
     </div>
+    <UiNotice v-if="report?.error_reasons?.length" tone="danger" class="area-map__errors">
+      <strong>Why the location step failed</strong>
+      <span v-for="reason in report.error_reasons" :key="reason.error">{{ reason.count.toLocaleString() }} × {{ reason.error }}</span>
+    </UiNotice>
 
     <UiCard v-if="report && (unlocated || report.locating)" class="area-map__locate">
       <div>
@@ -300,6 +331,15 @@ onBeforeUnmount(() => {
               </span>
               <span class="area-map__count">{{ area.count }}<small>{{ share(area) }}%</small></span>
             </button>
+            <div v-if="mergingId === area.id" class="area-map__merge">
+              <select v-model="mergeTarget" :aria-label="`Merge ${area.name} into`">
+                <option :value="null" disabled>Merge into...</option>
+                <option v-for="option in mergeOptions" :key="option.id" :value="option.id">{{ areaLabel(option) }} ({{ option.count }})</option>
+              </select>
+              <button type="button" class="area-map__link" :disabled="!mergeTarget || merging" @click="mergeInto(area)">{{ merging ? 'Merging...' : 'Merge' }}</button>
+              <button type="button" class="area-map__link" :disabled="merging" @click="mergingId = null">Cancel</button>
+            </div>
+            <button v-else-if="areas.length > 1" type="button" class="area-map__link area-map__merge-start" title="Same place written another way? Merge it into the right area." @click="startMerge(area)">Merge...</button>
             <span class="area-map__bar" :style="{ width: `${(area.count / maxCount) * 100}%`, background: colorFor(area) }"></span>
           </li>
         </ol>
@@ -360,6 +400,12 @@ onBeforeUnmount(() => {
 .area-map__off { color:var(--ui-warning) !important; }
 .area-map__count { display:flex; flex-direction:column; align-items:flex-end; font-weight:800; font-size:1.05rem; }
 .area-map__count small { color:var(--ui-text-muted); font-size:.72rem; font-weight:600; }
+.area-map__errors { display:flex; flex-direction:column; gap:.2rem; }
+.area-map__merge { position:relative; z-index:1; display:flex; align-items:center; gap:.4rem; padding:0 .65rem .55rem 2.85rem; }
+.area-map__merge select { flex:1; min-width:0; padding:.25rem .4rem; border:1px solid var(--ui-border-strong); border-radius:var(--ui-radius-sm); background:var(--ui-surface); color:var(--ui-text); font:inherit; font-size:.8rem; }
+.area-map__ranking .area-map__link { width:auto; padding:0; border:0; background:none; color:var(--ui-primary); font-size:.78rem; font-weight:700; cursor:pointer; }
+.area-map__ranking .area-map__link:disabled { opacity:.5; cursor:default; }
+.area-map__ranking .area-map__merge-start { position:relative; z-index:1; display:block; margin:-.35rem .65rem .45rem auto; }
 :deep(.area-map__info) { display:grid; gap:.2rem; font-size:.86rem; }
 @media (max-width:1000px) { .area-map__layout { grid-template-columns:1fr; } .area-map__map { height:420px; } .area-map__controls { grid-template-columns:1fr 1fr; } .area-map__locate, .area-map__google { flex-direction:column; align-items:flex-start; } }
 </style>

@@ -18,7 +18,7 @@ from apps.real_estate.serializers import (
 )
 from apps.real_estate.services.area_map import area_map_report, place_waiting_areas
 from apps.real_estate.services.location_service import (
-    BACKFILL_PRIORITY, clear_location, enqueue_location, locate_opportunity, set_manual_location,
+    BACKFILL_PRIORITY, clear_location, enqueue_location, locate_opportunity, merge_areas, set_manual_location,
 )
 from apps.real_estate.services.candidate_service import merge_candidate, promote_candidate, reject_candidate
 from apps.real_estate.services.opportunity_item_service import (
@@ -160,6 +160,22 @@ class OpportunityViewSet(CompanyOwnedViewSet):
         except ValueError as exc:
             raise ValidationError({'non_field_errors': str(exc)}) from exc
         report['notice'] = notice
+        return Response(report)
+
+    @action(detail=False, methods=['post'], url_path='area-map/merge')
+    def area_map_merge(self, request):
+        """Merge one area into another (e.g. "Creek Harbour" into "Dubai Creek Harbour")."""
+        company = self.active_company()
+        try:
+            source, target = int(request.data.get('source')), int(request.data.get('target'))
+        except (TypeError, ValueError) as exc:
+            raise ValidationError({'non_field_errors': 'Choose the area to merge and the area to merge it into.'}) from exc
+        try:
+            moved = merge_areas(company, source, target)
+            report = area_map_report(company, self._area_map_queryset())
+        except ValueError as exc:
+            raise ValidationError({'non_field_errors': str(exc)}) from exc
+        report['merged'] = moved
         return Response(report)
 
     @action(detail=False, methods=['post'], url_path='area-map/locate')

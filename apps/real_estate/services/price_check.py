@@ -68,9 +68,9 @@ def web_search_blockers(company, key=None):
     from apps.ai_providers.manager import ai_manager
     from apps.ai_providers.models import AIProviderConfig
     from apps.real_estate.models import RealEstatePromptConfig
-    from apps.real_estate.services.prompts import configured_prompt
+    from apps.real_estate.services.prompts import target_prompt_config
 
-    _prompt, prompt_config = configured_prompt(company, key or RealEstatePromptConfig.KEY_EXTRACTION)
+    prompt_config = target_prompt_config(company, key or RealEstatePromptConfig.KEY_EXTRACTION)
     if prompt_config and prompt_config.kiwi_router_id:
         configs = [
             member.provider_config

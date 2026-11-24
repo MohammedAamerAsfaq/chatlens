@@ -10,7 +10,7 @@ from apps.real_estate.models import (
     RealEstateSettings,
 )
 from apps.real_estate.services.price_check import web_search_blockers
-from apps.real_estate.services.prompts import DEFAULT_PROMPTS
+from apps.real_estate.services.prompts import DEFAULT_PROMPTS, INHERITS_TARGET
 from apps.tenancy.models import Company
 from apps.tenancy.services.access import default_company_for_user
 
@@ -49,6 +49,10 @@ class RealEstatePromptViewSet(viewsets.GenericViewSet):
             'agent_config': obj.agent_config_id if obj else None,
             'kiwi_router': obj.kiwi_router_id if obj else None,
             'uses_kiwi_router': bool(obj and obj.kiwi_router_id),
+            # What "no model chosen" means for this prompt.
+            'default_target_label': (
+                f'Same as {DEFAULT_PROMPTS[INHERITS_TARGET[key]][1]}' if key in INHERITS_TARGET else ''
+            ),
         }
 
     def list(self, request):

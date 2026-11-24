@@ -35,6 +35,9 @@ class AreaLocation(models.Model):
     matched_label = models.CharField(max_length=300, blank=True, help_text='What the name was matched to.')
     error = models.TextField(blank=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
+    # Set when this name was merged into another area on the Area Map: later results with
+    # this name go to that area.
+    merged_into = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='merged_names')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

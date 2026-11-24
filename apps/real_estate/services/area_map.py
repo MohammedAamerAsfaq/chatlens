@@ -22,6 +22,7 @@ from apps.real_estate.models import AreaLocation, OpportunityItem, RealEstateSet
 
 GOOGLE_BATCH = 20
 TOP_SUB_AREAS = 8
+TOP_ERRORS = 3
 WAITING = (AreaLocation.STATUS_PENDING, AreaLocation.STATUS_ERROR)
 
 
@@ -41,12 +42,16 @@ def area_map_report(company, opportunities):
     from apps.task_management.models import BackgroundTask
 
     per_opportunity = defaultdict(set)
+    errors = Counter()
     areas = defaultdict(lambda: {'opportunities': set(), 'by_activity': Counter(), 'sub_areas': defaultdict(set)})
     rows = OpportunityItem.objects.filter(opportunity__in=opportunities).values_list(
         'opportunity_id', 'opportunity__activity_type', 'geo_status', 'geo_area_location_id', 'geo_sub_area',
+        'geo_error',
     )
-    for opportunity_id, activity, geo_status, area_id, sub_area in rows.iterator():
+    for opportunity_id, activity, geo_status, area_id, sub_area, geo_error in rows.iterator():
         per_opportunity[opportunity_id].add(geo_status)
+        if geo_status == OpportunityItem.GEO_ERROR:
+            errors[(geo_error or 'No reason recorded.')[:500]] += 1
         if geo_status != OpportunityItem.GEO_LOCATED or not area_id:
             continue
         area = areas[area_id]
@@ -100,6 +105,8 @@ def area_map_report(company, opportunities):
             'pending': totals[OpportunityItem.GEO_PENDING],
             'error': totals[OpportunityItem.GEO_ERROR],
         },
+        # Why the location step failed, most common first (counted per property).
+        'error_reasons': [{'error': text, 'count': count} for text, count in errors.most_common(TOP_ERRORS)],
         'locating': BackgroundTask.objects.filter(
             company=company, task_key=TASK_KEY, status__in=BackgroundTask.ACTIVE_STATUSES,
         ).count(),

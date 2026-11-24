@@ -216,7 +216,7 @@
                 :disabled="savingAgent[p.key]"
                 @change="savePromptAgent(p)"
               >
-                <option :value="null">Active agent (default){{ agent.display_name ? ` · ${agent.display_name}` : '' }}</option>
+                <option :value="null">{{ p.default_target_label || `Active agent (default)${agent.display_name ? ` · ${agent.display_name}` : ''}` }}</option>
                 <option v-for="option in agentOptions" :key="option.id" :value="option.id">
                   {{ option.display_name }} · {{ option.model }}{{ option.is_active ? ' · active' : '' }}
                 </option>

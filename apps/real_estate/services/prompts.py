@@ -183,6 +183,26 @@ DEFAULT_PROMPTS = {
 }
 
 
+# Prompts that, with no AI model or router chosen for them, use another prompt's choice
+# instead of the company's default agent (which a company may not have).
+INHERITS_TARGET = {
+    RealEstatePromptConfig.KEY_LOCATION: RealEstatePromptConfig.KEY_EXTRACTION,
+}
+
+
+def target_prompt_config(company, key):
+    """The prompt config whose AI model or router a call for `key` should use."""
+    config = RealEstatePromptConfig.get_for_company(company, key)
+    if _has_target(config) or key not in INHERITS_TARGET:
+        return config
+    fallback = RealEstatePromptConfig.get_for_company(company, INHERITS_TARGET[key])
+    return fallback if _has_target(fallback) else config
+
+
+def _has_target(config):
+    return bool(config and (config.agent_config_id or config.kiwi_router_id))
+
+
 def configured_prompt(company, key):
     config = RealEstatePromptConfig.get_for_company(company, key)
     if config and config.body.strip():

@@ -12,7 +12,7 @@ from apps.integrations.models import City, Country, IntegrationConnection, Local
 from apps.real_estate.models import (
     AreaLocation, OpportunityItem, RealEstateOpportunity, RealEstatePromptConfig, RealEstateSettings,
 )
-from apps.real_estate.services.location_service import TASK_KEY, enqueue_location, locate_opportunity
+from apps.real_estate.services.location_service import TASK_KEY, enqueue_location, known_areas, locate_opportunity
 from apps.real_estate.services.prompts import DEFAULT_PROMPTS
 from apps.task_management.models import BackgroundTask
 from apps.tenancy.models import Company
@@ -307,3 +307,82 @@ class InquiryCardLocationTests(LocationTestCase):
         self.client.patch(f'/api/real-estate/opportunity-items/{item.pk}/', {'geo_area': 'Hacked', 'geo_status': 'located'}, format='json')
         item.refresh_from_db()
         self.assertEqual((item.geo_area, item.geo_status), ('', 'pending'))
+
+
+class LocationFollowUpTests(LocationTestCase):
+    def locate(self, opportunity, *entries):
+        with patch(AGENT, return_value=reply(*entries)):
+            locate_opportunity(opportunity)
+
+    def agent_config(self, name):
+        return AIProviderConfig.objects.create(
+            company=self.company, display_name=name, provider='openrouter', capability='agent',
+            model=f'{name}-model', api_key='k', is_active=False,
+        )
+
+    @patch(AGENT, return_value=reply((1, 'Jumeirah Village Circle', '', 'Dubai')))
+    def test_location_prompt_without_a_model_uses_the_extraction_prompts_model(self, agent):
+        extraction_agent = self.agent_config('extract')
+        RealEstatePromptConfig.objects.create(
+            company=self.company, key=RealEstatePromptConfig.KEY_EXTRACTION, label='x', body='x', agent_config=extraction_agent,
+        )
+        RealEstatePromptConfig.objects.create(company=self.company, key=RealEstatePromptConfig.KEY_LOCATION, label='x', body='Custom location rules.')
+        locate_opportunity(self.opportunity('buying', ['JVC']))
+        self.assertEqual(agent.call_args.kwargs['prompt_config'].agent_config, extraction_agent)
+        self.assertTrue(agent.call_args.kwargs['messages'][0]['content'].startswith('Custom location rules.'))
+
+        own = self.agent_config('own')
+        RealEstatePromptConfig.objects.filter(key=RealEstatePromptConfig.KEY_LOCATION).update(agent_config=own)
+        locate_opportunity(self.opportunity('buying', ['JVC']))
+        self.assertEqual(agent.call_args.kwargs['prompt_config'].agent_config, own)
+
+    def test_ai_instructions_say_what_no_model_means(self):
+        rows = {row['key']: row for row in self.client.get('/api/real-estate/prompts/').json()}
+        self.assertEqual(rows['location']['default_target_label'], 'Same as Real Estate V1 Classification and Extraction')
+        self.assertEqual(rows['extraction']['default_target_label'], '')
+
+    def test_naming_rule_and_known_areas_are_given_to_the_ai(self):
+        self.locate(self.opportunity('buying', ['JVC']), (1, 'Jumeirah Village Circle', '', 'Dubai'))
+        with patch(AGENT, return_value=reply((1, 'Jumeirah Village Circle', '', 'Dubai'))) as agent:
+            locate_opportunity(self.opportunity('buying', ['JVC']))
+        system = agent.call_args.kwargs['messages'][0]['content']
+        self.assertIn("full official name and write it the same way every time", system)
+        self.assertIn('- Jumeirah Village Circle, Dubai', system)
+
+    def test_failure_reasons_are_shown_on_the_area_map(self):
+        for _ in range(2):
+            with patch(AGENT, side_effect=RuntimeError('No active agent provider configured.')):
+                with self.assertRaises(RuntimeError):
+                    locate_opportunity(self.opportunity('buying', ['JVC']))
+        data = self.client.get(URL).json()
+        self.assertEqual(data['error_reasons'], [{'error': 'No active agent provider configured.', 'count': 2}])
+
+    def test_merging_moves_inquiries_and_sends_later_results_to_the_merged_area(self):
+        fake = FakeClient({
+            'Creek Harbour': google_place('Creek Harbour', 25.2, 55.35),
+            'Dubai Creek Harbour': google_place('Dubai Creek Harbour', 25.2, 55.35),
+        })
+        with patch(CLIENT, return_value=fake):
+            self.locate(self.opportunity('buying', ['Creek Horizon']), (1, 'Creek Harbour', 'Creek Horizon', 'Dubai'))
+            self.locate(self.opportunity('selling', ['Rosewater']), (1, 'Dubai Creek Harbour', 'Rosewater', 'Dubai'))
+        short, full = AreaLocation.objects.get(name='Creek Harbour'), AreaLocation.objects.get(name='Dubai Creek Harbour')
+
+        data = self.client.post(URL + 'merge/', {'source': short.pk, 'target': full.pk}, format='json').json()
+        self.assertEqual(data['merged'], 1)
+        [area] = data['areas']
+        self.assertEqual((area['name'], area['count']), ('Dubai Creek Harbour', 2))
+
+        later = self.opportunity('buying', ['Creek Horizon'])
+        self.locate(later, (1, 'Creek Harbour', 'Creek Horizon', 'Dubai'))
+        item = later.items.get()
+        self.assertEqual((item.geo_area_location_id, item.geo_area), (full.pk, 'Dubai Creek Harbour'))
+        self.assertNotIn('- Creek Harbour, Dubai', known_areas(self.company))
+
+    def test_merge_refuses_bad_choices(self):
+        self.locate(self.opportunity('buying', ['JVC']), (1, 'Jumeirah Village Circle', '', 'Dubai'))
+        area = AreaLocation.objects.get()
+        self.assertEqual(self.client.post(URL + 'merge/', {'source': area.pk, 'target': area.pk}, format='json').status_code, 400)
+        self.assertEqual(self.client.post(URL + 'merge/', {'source': area.pk}, format='json').status_code, 400)
+        other = Company.objects.create(name='Other', slug='other-merge', industry_type='real_estate')
+        foreign = AreaLocation.objects.create(company=other, normalized_name='x', name='X')
+        self.assertEqual(self.client.post(URL + 'merge/', {'source': foreign.pk, 'target': area.pk}, format='json').status_code, 400)

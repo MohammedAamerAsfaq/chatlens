@@ -12,6 +12,7 @@ directory when it has exactly one match, otherwise with Google Maps text search 
 """
 
 from django.db import transaction
+from django.db.models import Count
 from django.utils import timezone
 
 from apps.integrations.services.geography_sync import normalize_name
@@ -19,13 +20,22 @@ from apps.real_estate.models import (
     AreaLocation, OpportunityItem, RealEstateAgentCallLog, RealEstatePromptConfig, RealEstateSettings,
 )
 from apps.real_estate.services.agent_call import call_real_estate_agent
-from apps.real_estate.services.prompts import configured_prompt
+from apps.real_estate.services.prompts import configured_prompt, target_prompt_config
 from apps.real_estate.services.response_parser import parse_json_object
 
 TASK_KEY = 'real_estate.locate_opportunity'
 LIVE_PRIORITY = 50
 BACKFILL_PRIORITY = 200
 WEB_SEARCH_RESULTS = 3
+KNOWN_AREAS_LIMIT = 200
+
+# Added to the company's Location instructions (stock or edited) on every call, so the same
+# area is always written the same way and counts as one area on the map.
+_NAMING_RULE = """Area names: use the community's full official name and write it the same way every time.
+Give sub_area as the building, cluster or project's own name, without adding words such as
+"cluster" or "tower" that are not part of that name."""
+_KNOWN_AREAS_RULE = """Areas this company already has, with their city. When the property is in one of these,
+use that area and city exactly as written here:"""
 
 _SEARCH_RULES = {
     RealEstateSettings.LOCATION_SEARCH_MODEL: (
@@ -55,14 +65,31 @@ def enqueue_location(opportunity, *, priority=LIVE_PRIORITY):
 
 
 def location_call(company):
-    """(system prompt, prompt config, extra agent-call options) for the Location step."""
-    system_prompt, prompt_config = configured_prompt(company, RealEstatePromptConfig.KEY_LOCATION)
+    """(system prompt, prompt config whose AI target to use, extra agent-call options) for the
+    Location step. With no model chosen for the Location prompt, the extraction prompt's
+    model is used."""
+    system_prompt, _config = configured_prompt(company, RealEstatePromptConfig.KEY_LOCATION)
     settings_row, _ = RealEstateSettings.objects.get_or_create(company=company)
     mode = settings_row.location_search_mode
     if mode not in _SEARCH_RULES:
         raise ValueError(f'Unknown location search mode: {mode!r}.')
     options = {'web_search': {'max_results': WEB_SEARCH_RESULTS}} if mode == RealEstateSettings.LOCATION_SEARCH_WEB else {}
-    return f'{system_prompt}\n\n{_SEARCH_RULES[mode]}', prompt_config, options
+    parts = [system_prompt, _SEARCH_RULES[mode], _NAMING_RULE]
+    known = known_areas(company)
+    if known:
+        parts.append(_KNOWN_AREAS_RULE + '\n' + '\n'.join(known))
+    return '\n\n'.join(parts), target_prompt_config(company, RealEstatePromptConfig.KEY_LOCATION), options
+
+
+def known_areas(company):
+    """The company's areas with the most inquiries, as "- name, city" lines."""
+    rows = (
+        AreaLocation.objects.filter(company=company, merged_into__isnull=True)
+        .annotate(uses=Count('opportunity_items'))
+        .filter(uses__gt=0)
+        .order_by('-uses', 'name')[:KNOWN_AREAS_LIMIT]
+    )
+    return [f'- {row.name}, {row.city}' if row.city else f'- {row.name}' for row in rows]
 
 
 def inquiry_context(opportunity, items):
@@ -140,6 +167,7 @@ def locate_opportunity(opportunity, *, include_manual=False):
             if answer['area']:
                 item.geo_status = OpportunityItem.GEO_LOCATED
                 item.geo_area_location = area_location_for(company, answer['area'], answer['city'])
+                item.geo_area, item.geo_city = item.geo_area_location.name, item.geo_area_location.city
             else:
                 item.geo_status, item.geo_area_location = OpportunityItem.GEO_UNKNOWN, None
         item.geo_located_at, item.geo_source = now, OpportunityItem.GEO_SOURCE_AI
@@ -158,8 +186,8 @@ def set_manual_location(item, *, area, sub_area='', city='', user=None):
     area, sub_area, city = _text(area, 200), _text(sub_area, 200), _text(city, 100)
     if not area:
         raise ValueError('Enter the area (community or district).')
-    item.geo_area, item.geo_sub_area, item.geo_city = area, sub_area, city
     item.geo_area_location = area_location_for(item.company, area, city)
+    item.geo_area, item.geo_sub_area, item.geo_city = item.geo_area_location.name, sub_area, item.geo_area_location.city
     item.geo_status, item.geo_source = OpportunityItem.GEO_LOCATED, OpportunityItem.GEO_SOURCE_MANUAL
     item.geo_confidence, item.geo_error = None, ''
     item.geo_basis = f'Set by {_user_name(user)}.'
@@ -214,15 +242,41 @@ def parse_location_response(raw_response):
 
 
 def area_location_for(company, area, city):
-    """The company's AreaLocation for this area and city, placed on the map if it is new."""
+    """The company's AreaLocation for this area and city (following merges), placed on the
+    map if it is new."""
     key = normalize_name(f'{area} {city}')[:200]
     row, created = AreaLocation.objects.get_or_create(
         company=company, normalized_name=key, defaults={'name': area[:200], 'city': city[:100]},
     )
+    seen = set()
+    while row.merged_into_id and row.pk not in seen:
+        seen.add(row.pk)
+        row = row.merged_into
     if created or row.status == AreaLocation.STATUS_PENDING:
         place_area(row)
         row.refresh_from_db()
     return row
+
+
+@transaction.atomic
+def merge_areas(company, source_id, target_id):
+    """Merge one area into another: its inquiries move to the target, and later results
+    with the source's name go to the target too."""
+    rows = AreaLocation.objects.select_for_update().in_bulk([source_id, target_id])
+    source, target = rows.get(source_id), rows.get(target_id)
+    if not source or not target or source.company_id != company.pk or target.company_id != company.pk:
+        raise ValueError('Choose two areas of this company.')
+    if source.pk == target.pk:
+        raise ValueError('Choose a different area to merge into.')
+    if target.merged_into_id:
+        raise ValueError(f'"{target.name}" was itself merged into another area; merge into that one.')
+    moved = OpportunityItem.objects.filter(geo_area_location=source).update(
+        geo_area_location=target, geo_area=target.name, geo_city=target.city, updated_at=timezone.now(),
+    )
+    AreaLocation.objects.filter(merged_into=source).update(merged_into=target)
+    source.merged_into = target
+    source.save(update_fields=['merged_into', 'updated_at'])
+    return moved
 
 
 def place_area(row, *, use_google=True):
