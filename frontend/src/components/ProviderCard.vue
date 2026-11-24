@@ -5,6 +5,24 @@ defineProps({
   deleting:   { type: Boolean, default: false },
 })
 defineEmits(['edit', 'toggle-active', 'test', 'delete'])
+
+function tokens(value) {
+  if (value == null) return ''
+  return value >= 1_000_000 ? `${+(value / 1_000_000).toFixed(2)}M` : value >= 1000 ? `${+(value / 1000).toFixed(1)}K` : String(value)
+}
+
+function modelFacts(provider) {
+  const info = provider.extra_config?.model_info
+  if (!info) return ''
+  const extra = provider.extra_config
+  const facts = []
+  if (info.context_length != null) facts.push(`${tokens(info.context_length)} context`)
+  if (info.max_output_tokens != null) facts.push(`replies up to ${tokens(info.max_output_tokens)}`)
+  const input = extra.input_price_per_1m ?? info.input_cost_per_million
+  const output = extra.output_price_per_1m ?? info.output_cost_per_million
+  if (input != null && output != null) facts.push(`$${input} in / $${output} out per 1M tokens`)
+  return facts.join(' · ')
+}
 </script>
 
 <template>
@@ -38,6 +56,7 @@ defineEmits(['edit', 'toggle-active', 'test', 'delete'])
         <span>·</span>
         <span class="font-mono">{{ provider.api_key_masked }}</span>
       </div>
+      <div v-if="modelFacts(provider)" class="provider-card__facts text-xs text-gray-500 mt-1">{{ modelFacts(provider) }}</div>
       <!-- Test result -->
       <div v-if="testResult && testResult !== 'running'" class="mt-2 text-xs">
         <span v-if="testResult.ok" class="text-green-600">

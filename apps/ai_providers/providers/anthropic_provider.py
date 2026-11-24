@@ -58,7 +58,7 @@ class AnthropicChatProvider(ChatProvider):
 
     def list_models(self) -> list:
         try:
-            resp = self.session.get(f'{self.base_url}/models', timeout=10)
+            resp = self.session.get(f'{self.base_url}/models', params={'limit': 1000}, timeout=10)
             resp.raise_for_status()
             return [m['id'] for m in resp.json().get('data', [])]
         except Exception:

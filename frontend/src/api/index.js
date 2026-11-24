@@ -591,6 +591,7 @@ export const aiProvidersApi = {
   test:        (id)            => http.post(`/ai-providers/${id}/test/`),
   meta:        ()              => http.get('/ai-providers/meta/'),
   fetchModels: (data)          => http.post('/ai-providers/fetch-models/', data),
+  lookupModel: (data)          => http.post('/ai-providers/lookup-model/', data),
   fetchMetadata: (id)          => http.post(`/ai-providers/${id}/fetch-metadata/`),
   agentTarget: ()              => http.get('/ai-providers/agent-target/'),
   setAgentTarget: (data)       => http.patch('/ai-providers/agent-target/', data),

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { aiProvidersApi, kiwiRoutersApi } from '@/api/index.js'
 import ProviderCard from '@/components/ProviderCard.vue'
 
@@ -27,6 +27,12 @@ const liveModelSource = ref('')    // 'api' | 'fallback' | ''
 const fetchModelError = ref('')
 const fetchingModels  = ref(false)
 
+const modelEntry  = ref('list')    // 'list' | 'typed'
+const lookup      = ref(null)      // result of Verify for form.model
+const lookingUp   = ref(false)
+const lookupError = ref('')
+const saveRates   = ref(true)
+
 const form = ref(emptyForm())
 
 function emptyForm() {
@@ -41,6 +47,7 @@ function emptyForm() {
     rate_limit_rpm: '',
     rate_limit_tpm: '',
     _editId: null,
+    _originalModel: '',
     _existingExtraConfig: {},
   }
 }
@@ -113,6 +120,9 @@ function openCreate() {
   liveModelMetadata.value = {}
   liveModelSource.value = ''
   fetchModelError.value = ''
+  modelEntry.value = 'list'
+  saveRates.value = true
+  resetLookup()
   modalMode.value = 'create'
   saveError.value = ''
   showModal.value = true
@@ -131,12 +141,16 @@ function openEdit(p) {
     rate_limit_rpm: extra.rate_limit_rpm ?? '',
     rate_limit_tpm: extra.rate_limit_tpm ?? '',
     _editId:      p.id,
+    _originalModel: p.model,
     _existingExtraConfig: extra,
   }
   liveModels.value = []
   liveModelMetadata.value = {}
   liveModelSource.value = ''
   fetchModelError.value = ''
+  modelEntry.value = 'list'
+  saveRates.value = true
+  resetLookup()
   modalMode.value = 'edit'
   saveError.value = ''
   showModal.value = true
@@ -154,6 +168,7 @@ function onProviderChange() {
   liveModelMetadata.value = {}
   liveModelSource.value = ''
   fetchModelError.value = ''
+  resetLookup()
   if (form.value.provider === 'lm_studio' && !form.value.base_url) {
     form.value.base_url = 'http://localhost:1234/v1'
   }
@@ -162,6 +177,59 @@ function onProviderChange() {
     form.value.model = models[0]
   }
 }
+
+function credentialsPayload() {
+  const apiKey = form.value.api_key
+  const editId = form.value._editId
+  return {
+    provider:   form.value.provider,
+    capability: form.value.capability,
+    base_url:   form.value.base_url || '',
+    ...(apiKey ? { api_key: apiKey } : editId ? { config_id: editId } : { api_key: '' }),
+  }
+}
+
+function resetLookup() {
+  lookup.value = null
+  lookupError.value = ''
+}
+
+// A verified result belongs to one name; typing or choosing another makes it stale.
+watch(() => form.value.model, model => {
+  if (lookup.value && lookup.value.model !== model) resetLookup()
+})
+
+const canLookup = computed(() => canFetchModels.value && !lookingUp.value && !!String(form.value.model || '').trim())
+
+async function verifyModel(name = form.value.model) {
+  form.value.model = String(name || '').trim()
+  if (!form.value.model) return
+  lookingUp.value = true
+  resetLookup()
+  try {
+    const { data } = await aiProvidersApi.lookupModel({ ...credentialsPayload(), model: form.value.model })
+    form.value.model = data.model
+    lookup.value = data
+  } catch (e) {
+    lookupError.value = e.response?.data?.error || e.message || 'Model lookup failed.'
+  } finally {
+    lookingUp.value = false
+  }
+}
+
+function formatTokens(value) {
+  if (value == null) return 'not published'
+  if (value >= 1_000_000) return `${+(value / 1_000_000).toFixed(2)}M tokens`
+  if (value >= 1000) return `${+(value / 1000).toFixed(1)}K tokens`
+  return `${value} tokens`
+}
+
+function formatRate(value) {
+  return value == null ? 'not published' : `$${Number(value).toFixed(4).replace(/\.?0+$/, '')} / 1M tokens`
+}
+
+const lookupHasRates = computed(() =>
+  lookup.value?.info?.input_cost_per_million != null && lookup.value?.info?.output_cost_per_million != null)
 
 async function doFetchModels() {
   if (!form.value.provider || !form.value.capability) return
@@ -176,20 +244,16 @@ async function doFetchModels() {
   liveModelSource.value = ''
   fetchModelError.value = ''
   try {
-    const payload = {
-      provider:   form.value.provider,
-      capability: form.value.capability,
-      base_url:   form.value.base_url || '',
-      ...(apiKey ? { api_key: apiKey } : editId ? { config_id: editId } : { api_key: '' }),
-    }
-    const res = await aiProvidersApi.fetchModels(payload)
+    const res = await aiProvidersApi.fetchModels(credentialsPayload())
     liveModels.value      = res.data.models || []
     liveModelMetadata.value = res.data.model_metadata || {}
     liveModelSource.value = res.data.source || ''
     fetchModelError.value = res.data.warning || ''
-    // Keep current model if it's in the list; otherwise default to first
+    // Keep the current model. A name the list doesn't have (typed by hand) stays as typed
+    // in the name box rather than being swapped for the first listed model.
     if (liveModels.value.length && !liveModels.value.includes(form.value.model)) {
-      form.value.model = liveModels.value[0]
+      if (form.value.model) modelEntry.value = 'typed'
+      else form.value.model = liveModels.value[0]
     }
   } catch (e) {
     fetchModelError.value = e.response?.data?.error || e.message || 'Model fetch failed.'
@@ -202,7 +266,7 @@ async function save() {
   saving.value    = true
   saveError.value = ''
   try {
-    const { _editId, _existingExtraConfig, rate_limit_rpm, rate_limit_tpm, ...payload } = form.value
+    const { _editId, _originalModel, _existingExtraConfig, rate_limit_rpm, rate_limit_tpm, ...payload } = form.value
     // Merge into whatever this config's extra_config already held (e.g. agent pricing) —
     // extra_config is a single JSON blob server-side, a plain assignment would otherwise
     // silently wipe out unrelated settings already stored there.
@@ -210,6 +274,19 @@ async function save() {
       ...(_existingExtraConfig || {}),
       rate_limit_rpm: rate_limit_rpm === '' ? null : Number(rate_limit_rpm),
       rate_limit_tpm: rate_limit_tpm === '' ? null : Number(rate_limit_tpm),
+    }
+    const checked = lookup.value?.verified && lookup.value.model === payload.model ? lookup.value : null
+    if (checked?.info) {
+      payload.extra_config.model_info = {
+        ...checked.info, source: checked.info_source, checked_at: checked.checked_at,
+      }
+      if (saveRates.value && lookupHasRates.value) {
+        payload.extra_config.input_price_per_1m = checked.info.input_cost_per_million
+        payload.extra_config.output_price_per_1m = checked.info.output_cost_per_million
+      }
+    } else if (checked || payload.model !== _originalModel) {
+      // Details looked up for another model no longer describe this one.
+      delete payload.extra_config.model_info
     }
     // On edit, only include api_key if the user filled it in
     if (modalMode.value === 'edit' && !payload.api_key) {
@@ -504,13 +581,63 @@ function capabilityBadge(cap) {
               <p v-if="fetchModelError" class="text-xs text-red-600 mb-2">
                 Model fetch warning: {{ fetchModelError }}
               </p>
-              <select v-if="availableModelOptions.length" v-model="form.model" required
+              <select v-if="availableModelOptions.length && modelEntry === 'list'" v-model="form.model" required
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
                 <option v-for="option in availableModelOptions" :key="option.id" :value="option.id">{{ modelOptionLabel(option) }}</option>
               </select>
               <input v-else v-model="form.model" required
                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 placeholder="Enter model name or fetch from provider" />
+              <div class="flex items-center justify-between gap-2 mt-2">
+                <button v-if="availableModelOptions.length" type="button" class="text-xs text-green-700 hover:underline"
+                  @click="modelEntry = modelEntry === 'list' ? 'typed' : 'list'">
+                  {{ modelEntry === 'list' ? 'Type a model name instead' : 'Choose from the list instead' }}
+                </button>
+                <span v-else></span>
+                <button type="button" :disabled="!canLookup" @click="verifyModel()"
+                  title="Check the name with the provider and get its current rates, context window and parameters"
+                  class="text-xs px-2 py-1 border border-green-600 text-green-700 rounded hover:bg-green-50 disabled:opacity-40 transition-colors">
+                  {{ lookingUp ? 'Checking…' : 'Verify & get rates' }}
+                </button>
+              </div>
+              <p v-if="lookupError" class="text-xs text-red-600 mt-2" role="alert">{{ lookupError }}</p>
+              <div v-if="lookup" class="model-lookup mt-2 border rounded-lg p-3 text-xs space-y-2"
+                :class="lookup.verified ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'">
+                <p :class="lookup.verified ? 'text-green-800' : 'text-red-700'">
+                  <strong>{{ lookup.verified ? '✓ Model name is correct.' : '✗ Model name not confirmed.' }}</strong>
+                  {{ lookup.detail }}
+                </p>
+                <div v-if="lookup.suggestions?.length" class="flex flex-wrap items-center gap-1">
+                  <span class="text-gray-600">Did you mean:</span>
+                  <button v-for="name in lookup.suggestions" :key="name" type="button"
+                    class="model-lookup__suggestion px-2 py-0.5 bg-white border border-gray-300 rounded font-mono hover:border-green-500"
+                    @click="verifyModel(name)">{{ name }}</button>
+                </div>
+                <template v-if="lookup.info">
+                  <div class="font-medium text-gray-800">{{ lookup.info.name }}</div>
+                  <dl class="model-lookup__facts grid grid-cols-2 gap-x-3 gap-y-1 text-gray-700">
+                    <dt class="text-gray-500">Input price</dt><dd>{{ formatRate(lookup.info.input_cost_per_million) }}</dd>
+                    <dt class="text-gray-500">Output price</dt><dd>{{ formatRate(lookup.info.output_cost_per_million) }}</dd>
+                    <dt class="text-gray-500">Context window</dt><dd>{{ formatTokens(lookup.info.context_length) }}</dd>
+                    <dt class="text-gray-500">Longest reply</dt><dd>{{ formatTokens(lookup.info.max_output_tokens) }}</dd>
+                    <template v-if="lookup.info.input_modalities?.length">
+                      <dt class="text-gray-500">Accepts</dt><dd>{{ lookup.info.input_modalities.join(', ') }}</dd>
+                    </template>
+                  </dl>
+                  <div v-if="lookup.info.supported_parameters?.length">
+                    <div class="text-gray-500 mb-1">Supported parameters</div>
+                    <div class="flex flex-wrap gap-1">
+                      <span v-for="param in lookup.info.supported_parameters" :key="param"
+                        class="px-1.5 py-0.5 bg-white border border-gray-200 rounded font-mono">{{ param }}</span>
+                    </div>
+                  </div>
+                  <label v-if="lookup.verified && lookupHasRates" class="flex items-center gap-2 text-gray-700 cursor-pointer">
+                    <input v-model="saveRates" type="checkbox" class="rounded" />
+                    Save these rates as this provider's price (used for AI cost figures)
+                  </label>
+                </template>
+                <p class="text-gray-500">{{ lookup.info_detail }}</p>
+              </div>
             </div>
 
             <div>

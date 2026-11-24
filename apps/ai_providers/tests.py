@@ -202,3 +202,104 @@ class CompanyOwnedProviderApiTests(TestCase):
             }],
         }, format='json')
         self.assertEqual(response.status_code, 400)
+
+
+CATALOG = {'data': [
+    {
+        'id': 'openai/gpt-4o-mini', 'name': 'OpenAI: GPT-4o-mini', 'context_length': 128000,
+        'pricing': {'prompt': '0.00000015', 'completion': '0.0000006'},
+        'top_provider': {'context_length': 128000, 'max_completion_tokens': 16384},
+        'supported_parameters': ['tools', 'temperature', 'max_tokens'],
+        'architecture': {'input_modalities': ['text', 'image']},
+    },
+    {
+        'id': 'anthropic/claude-sonnet-4.6', 'name': 'Anthropic: Claude Sonnet 4.6', 'context_length': 200000,
+        'pricing': {'prompt': '0.000003', 'completion': '0.000015'},
+        'top_provider': {'max_completion_tokens': 64000}, 'supported_parameters': ['tools'],
+    },
+    {'id': 'someone/gpt-4o-mini', 'pricing': {'prompt': '1', 'completion': '1'}},
+    {'id': 'openrouter/auto', 'pricing': {'prompt': '-1', 'completion': '-1'}},
+]}
+
+
+def _response(payload):
+    response = Mock()
+    response.json.return_value = payload
+    response.raise_for_status.return_value = None
+    return response
+
+
+class ModelLookupApiTests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(name='Lookup Co', slug='lookup-co')
+        self.user = get_user_model().objects.create_user('lookup-admin', password='pw')
+        create_member(company=self.company, user=self.user, role='admin')
+        self.client = APIClient()
+        self.client.login(username='lookup-admin', password='pw')
+
+    def lookup(self, **data):
+        payload = {'provider': 'openai', 'capability': 'agent', 'api_key': 'sk-test', **data}
+        return self.client.post('/api/ai-providers/lookup-model/', payload, format='json')
+
+    @patch('apps.ai_providers.model_lookup.requests.get', return_value=_response(CATALOG))
+    @patch('apps.ai_providers.providers.openai_provider.OpenAIChatProvider.list_models', return_value=['gpt-4o', 'gpt-4o-mini'])
+    def test_verifies_name_and_reads_rates_from_vendor_listing(self, _list, _get):
+        response = self.lookup(model='GPT-4o-mini')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['verified'])
+        self.assertEqual(data['model'], 'gpt-4o-mini')
+        self.assertEqual(data['info_source'], 'openrouter_catalog')
+        info = data['info']
+        self.assertEqual(info['catalog_id'], 'openai/gpt-4o-mini')
+        self.assertEqual((info['input_cost_per_million'], info['output_cost_per_million']), (0.15, 0.6))
+        self.assertEqual((info['context_length'], info['max_output_tokens']), (128000, 16384))
+        self.assertEqual(info['supported_parameters'], ['max_tokens', 'temperature', 'tools'])
+
+    @patch('apps.ai_providers.model_lookup.requests.get', return_value=_response(CATALOG))
+    @patch('apps.ai_providers.providers.openai_provider.OpenAIChatProvider.list_models', return_value=['gpt-4o', 'gpt-4o-mini'])
+    def test_unknown_name_is_refused_with_close_names(self, _list, _get):
+        data = self.lookup(model='gpt-4o-mni').json()
+        self.assertFalse(data['verified'])
+        self.assertIn('gpt-4o-mini', data['suggestions'])
+        self.assertIn('has no model named "gpt-4o-mni"', data['detail'])
+
+    @patch('apps.ai_providers.model_lookup.requests.get', return_value=_response(CATALOG))
+    @patch('apps.ai_providers.providers.anthropic_provider.AnthropicChatProvider.list_models', return_value=['claude-sonnet-4-6'])
+    def test_matches_catalog_names_written_with_dots(self, _list, _get):
+        data = self.lookup(provider='anthropic', model='claude-sonnet-4-6').json()
+        self.assertTrue(data['verified'])
+        self.assertEqual(data['info']['catalog_id'], 'anthropic/claude-sonnet-4.6')
+        self.assertEqual(data['info']['output_cost_per_million'], 15.0)
+
+    @patch('apps.ai_providers.model_lookup.requests.get', return_value=_response(CATALOG))
+    @patch('apps.ai_providers.providers.openai_provider.OpenAIChatProvider.test_connection', return_value={'ok': True})
+    @patch('apps.ai_providers.providers.openai_provider.OpenAIChatProvider.list_models', return_value=[])
+    def test_provider_without_model_list_is_checked_with_a_test_call(self, _list, test, _get):
+        data = self.lookup(provider='grok', model='gpt-4o-mini').json()
+        self.assertTrue(data['verified'])
+        self.assertEqual(data['method'], 'test_call')
+        test.assert_called_once()
+        # Grok's own model is only x-ai's listing, never another vendor's namesake.
+        self.assertIsNone(data['info'])
+        self.assertIn('no listing', data['info_detail'])
+
+    @patch('apps.ai_providers.model_lookup.requests.get')
+    def test_openrouter_uses_its_own_catalog(self, public_get):
+        with patch('requests.Session.get', return_value=_response(CATALOG)) as session_get:
+            data = self.lookup(provider='openrouter', model='claude-sonnet-4.6').json()
+            ambiguous = self.lookup(provider='openrouter', model='gpt-4o-mini').json()
+        public_get.assert_not_called()
+        self.assertEqual(session_get.call_count, 2)
+        self.assertTrue(data['verified'])
+        self.assertEqual(data['model'], 'anthropic/claude-sonnet-4.6')
+        self.assertEqual(data['info_source'], 'provider')
+        self.assertEqual(data['info']['context_length'], 200000)
+        # Two vendors list that name: not guessed, both offered.
+        self.assertFalse(ambiguous['verified'])
+        self.assertEqual(set(ambiguous['suggestions']), {'openai/gpt-4o-mini', 'someone/gpt-4o-mini'})
+
+    def test_requires_a_name(self):
+        response = self.lookup(model='  ')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'Enter a model name to look up.')

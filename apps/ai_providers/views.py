@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from .models import AIProviderConfig, DefaultAgentTarget, KiwiRouter, KiwiRoutingDecision
 from .serializers import AIProviderConfigSerializer, KiwiRouterSerializer, KiwiRoutingDecisionSerializer, PROVIDER_MODELS
 from .manager import build_provider
+from .model_lookup import lookup_model
 from apps.tenancy.services.access import default_company_for_user
 
 logger = logging.getLogger(__name__)
@@ -130,33 +131,10 @@ class AIProviderConfigViewSet(viewsets.ModelViewSet):
         Returns {models: [...], source: 'api'|'fallback'} where 'fallback' means
         the provider doesn't support model listing and the hardcoded list is returned.
         """
-        config_id  = request.data.get('config_id')
-        provider   = request.data.get('provider', '')
-        capability = request.data.get('capability', '')
-        api_key    = request.data.get('api_key', '')
-        base_url   = request.data.get('base_url', '')
-
-        if config_id:
-            try:
-                saved = self.get_queryset().get(pk=config_id)
-                provider   = provider   or saved.provider
-                capability = capability or saved.capability
-                api_key    = api_key    or saved.api_key
-                base_url   = base_url   or saved.base_url
-            except AIProviderConfig.DoesNotExist:
-                return Response({'error': 'Config not found'}, status=status.HTTP_404_NOT_FOUND)
-
-        api_key_required = provider != AIProviderConfig.PROVIDER_LM_STUDIO
-        if not provider or not capability or (api_key_required and not api_key):
-            return Response(
-                {'error': 'provider, capability, and api_key are required'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        temp = AIProviderConfig(
-            provider=provider, capability=capability,
-            api_key=api_key, model='', base_url=base_url,
-        )
+        temp, problem = self._request_config(request)
+        if problem:
+            return problem
+        provider, capability = temp.provider, temp.capability
         try:
             p = build_provider(temp)
         except ValueError as e:
@@ -186,6 +164,50 @@ class AIProviderConfigViewSet(viewsets.ModelViewSet):
         if list_error:
             payload['warning'] = list_error
         return Response(payload)
+
+
+    @action(detail=False, methods=['post'], url_path='lookup-model')
+    def lookup_model(self, request):
+        """Check a typed model name with the provider and pull its published rates and
+        limits. Same credentials as fetch-models, plus {model}."""
+        temp, problem = self._request_config(request)
+        if problem:
+            return problem
+        temp.model = str(request.data.get('model') or '').strip()
+        try:
+            return Response(lookup_model(temp))
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    def _request_config(self, request):
+        """An unsaved config from {provider, capability, api_key, base_url}, with blanks
+        filled from the saved {config_id}. Returns (config, None) or (None, error response)."""
+        config_id  = request.data.get('config_id')
+        provider   = request.data.get('provider', '')
+        capability = request.data.get('capability', '')
+        api_key    = request.data.get('api_key', '')
+        base_url   = request.data.get('base_url', '')
+
+        if config_id:
+            try:
+                saved = self.get_queryset().get(pk=config_id)
+            except AIProviderConfig.DoesNotExist:
+                return None, Response({'error': 'Config not found'}, status=status.HTTP_404_NOT_FOUND)
+            provider   = provider   or saved.provider
+            capability = capability or saved.capability
+            api_key    = api_key    or saved.api_key
+            base_url   = base_url   or saved.base_url
+
+        api_key_required = provider != AIProviderConfig.PROVIDER_LM_STUDIO
+        if not provider or not capability or (api_key_required and not api_key):
+            return None, Response(
+                {'error': 'provider, capability, and api_key are required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return AIProviderConfig(
+            provider=provider, capability=capability,
+            api_key=api_key, model='', base_url=base_url,
+        ), None
 
 
 class KiwiRouterViewSet(viewsets.ModelViewSet):
