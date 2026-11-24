@@ -95,3 +95,29 @@ describe('Opportunity Search counterpart mode', () => {
     expect(wrapper.text()).toContain('no property details or message to match on')
   })
 })
+
+describe('Opportunity Search progress', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    route.query = { counterparts: '12' }
+    api.getOpportunity.mockResolvedValue({ data: { id: 12, activity_type: 'buying', contact_name: 'Saidou' } })
+  })
+
+  it('shows that the search is running until the results arrive', async () => {
+    let finish
+    api.opportunityCounterparts.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    const { default: View } = await import('@/views/RealEstateOpportunitySearchView.vue')
+    const wrapper = mount(View, { global: { stubs: { TradingConversationDialog: true } } })
+    await flushPromises()
+
+    expect(wrapper.find('.opportunity-search__progress').text()).toContain('Finding sellers...')
+    expect(wrapper.find('.ui-spinner').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('No opportunities match this search.')
+    expect(wrapper.text()).not.toContain('0 opportunities')
+
+    finish({ data: { count: 0, results: [], search_corrections: [] } })
+    await flushPromises()
+    expect(wrapper.find('.opportunity-search__progress').exists()).toBe(false)
+    expect(wrapper.text()).toContain('No opportunities match this search.')
+  })
+})

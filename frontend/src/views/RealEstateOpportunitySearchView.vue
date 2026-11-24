@@ -9,6 +9,7 @@ import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCard from '@/components/ui/UiCard.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
+import UiEmptyState from '@/components/ui/UiEmptyState.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
 import UiPage from '@/components/ui/UiPage.vue'
@@ -50,6 +51,12 @@ const pageSize = ref(20)
 const loading = ref(false)
 const error = ref('')
 const pages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
+// Shown while a search runs; Structured Search waits on an AI call first, so say so.
+const progressText = computed(() => {
+  if (counterpartId.value) return `Finding ${counterpart.value ? counterpart.value.noun.toLowerCase() : 'matches'}...`
+  if (submittedSearchMode.value === 'structured') return 'Searching... the AI is interpreting your phrase first.'
+  return 'Searching opportunities...'
+})
 // Counterpart mode (?counterparts=<id>, from a board card's "Find sellers/buyers/...") ranks
 // the other side of that opportunity with the same hybrid search, using its own details.
 const counterpartId = computed(() => Number(route.query.counterparts) || null)
@@ -205,7 +212,8 @@ onMounted(() => { loadSource(); load() })
         <UiSelect v-model="pageSize" :options="pageSizes" />
         <UiCheckbox v-model="groupDuplicates" label="Group similar" />
         <UiButton variant="primary" type="submit" :disabled="loading">
-          <FontAwesomeIcon :icon="faWandMagicSparkles" /> {{ loading ? 'Searching...' : 'Search' }}
+          <span v-if="loading" class="ui-spinner opportunity-search__spinner" aria-hidden="true"></span>
+          <FontAwesomeIcon v-else :icon="faWandMagicSparkles" /> {{ loading ? 'Searching...' : 'Search' }}
         </UiButton>
       </form>
       <p class="opportunity-search__hint">
@@ -226,13 +234,17 @@ onMounted(() => { loadSource(); load() })
         {{ item.supplied }} &rarr; {{ item.canonical }}
       </span>
     </UiNotice>
-    <div class="opportunity-search__summary">
+    <div v-if="loading" class="opportunity-search__summary opportunity-search__progress" role="status">
+      <span class="ui-spinner opportunity-search__spinner" aria-hidden="true"></span>
+      <strong>{{ progressText }}</strong>
+    </div>
+    <div v-else class="opportunity-search__summary">
       <strong>{{ total.toLocaleString() }} opportunities</strong>
       <span v-if="counterpartId && counterpart">{{ counterpart.noun.toLowerCase() }} ranked for #{{ counterpartId }}</span>
       <span v-else-if="submittedQuery">ranked for "{{ submittedQuery }}"</span>
     </div>
 
-    <section v-if="rows.length" class="opportunity-search__results">
+    <section v-if="rows.length" class="opportunity-search__results" :class="{ 'opportunity-search__results--stale': loading }" :aria-busy="loading">
       <article v-for="row in rows" :key="row.id" class="opportunity-search__result" role="link" tabindex="0" @click="openOpportunity(row.id)" @keydown.enter="openOpportunity(row.id)">
         <header>
           <div><h2>{{ opportunityParty(row) }}</h2><p>#{{ row.id }} - {{ formatDate(row.first_seen_at) }}</p></div>
@@ -271,7 +283,8 @@ onMounted(() => { loadSource(); load() })
         </footer>
       </article>
     </section>
-    <UiNotice v-else-if="!loading && !error" tone="neutral">No opportunities match this search.</UiNotice>
+    <UiEmptyState v-else-if="loading" busy :title="progressText" />
+    <UiNotice v-else-if="!error" tone="neutral">No opportunities match this search.</UiNotice>
     <UiPagination :page="page" :pages="pages" @change="changePage" />
 
     <TradingConversationDialog
@@ -300,6 +313,9 @@ onMounted(() => { loadSource(); load() })
 .opportunity-search__corrections { margin-bottom:1rem; }
 .opportunity-search__adjustments { margin:-.35rem 0 .8rem; color:var(--ui-warning); font-size:.82rem; }
 .opportunity-search__summary { display:flex; gap:.5rem; margin:.75rem 0; }
+.opportunity-search__progress { align-items:center; color:var(--ui-primary); }
+.opportunity-search__spinner { display:inline-block; width:14px; height:14px; margin:0; border-width:2px; vertical-align:-2px; }
+.opportunity-search__results--stale { opacity:.45; pointer-events:none; transition:opacity .15s; }
 .opportunity-search__results { display:grid; gap:.8rem; }
 .opportunity-search__result { background:var(--ui-surface); border:1px solid var(--ui-border); border-left:4px solid var(--ui-primary); border-radius:var(--ui-radius); padding:1rem; cursor:pointer; }
 .opportunity-search__result:hover { box-shadow:var(--ui-shadow); transform:translateY(-1px); }
