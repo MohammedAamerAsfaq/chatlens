@@ -197,6 +197,8 @@ export const realEstateApi = {
   createManualOpportunity: data => http.post('/real-estate/opportunities/manual/', data),
   getOpportunity: (id) => http.get(`/real-estate/opportunities/${id}/`),
   updateOpportunity: (id, data) => http.patch(`/real-estate/opportunities/${id}/`, data),
+  locateOpportunity: id => http.post(`/real-estate/opportunities/${id}/locate/`),
+  setOpportunityLocation: (id, data) => http.post(`/real-estate/opportunities/${id}/location/`, data),
   inquiryMedia: (params = {}) => http.get('/real-estate/inquiry-media/', { params }),
   createInquiryMedium: data => http.post('/real-estate/inquiry-media/', data),
   getCardFieldConfig: () => http.get('/real-estate/prompts/card-field-config/'),

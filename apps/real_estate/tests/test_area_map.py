@@ -248,3 +248,62 @@ class LocationSearchSettingsTests(LocationTestCase):
         AIProviderConfig.objects.filter(company=self.company).update(provider='openrouter')
         self.assertEqual(self.client.put(self.SETTINGS_URL, {'mode': 'web_search'}, format='json').status_code, 200)
         self.assertEqual(RealEstateSettings.objects.get(company=self.company).location_search_mode, 'web_search')
+
+
+class InquiryCardLocationTests(LocationTestCase):
+    def url(self, opportunity, action):
+        return f'/api/real-estate/opportunities/{opportunity.pk}/{action}/'
+
+    def test_set_by_hand_places_the_area_and_is_shown_on_the_inquiry(self):
+        opportunity = self.opportunity('buying', ['Bloom'])
+        item = opportunity.items.get()
+        response = self.client.post(self.url(opportunity, 'location'), {
+            'item': item.pk, 'action': 'set', 'area': ' Jumeirah Village Circle ', 'sub_area': 'Bloom Towers', 'city': 'Dubai',
+        }, format='json')
+        self.assertEqual(response.status_code, 200, response.json())
+        [data] = response.json()['items']
+        self.assertEqual((data['geo_status'], data['geo_source'], data['geo_area'], data['geo_sub_area']), ('located', 'manual', 'Jumeirah Village Circle', 'Bloom Towers'))
+        self.assertEqual(data['geo_position']['latitude'], 25.06)
+        self.assertEqual(data['geo_basis'], 'Set by map-owner.')
+
+    def test_area_is_required_and_the_item_must_belong_to_the_inquiry(self):
+        opportunity = self.opportunity('buying', ['Bloom'])
+        other = self.opportunity('buying', ['JVC'])
+        url = self.url(opportunity, 'location')
+        self.assertEqual(self.client.post(url, {'item': opportunity.items.get().pk, 'action': 'set', 'area': ' '}, format='json').status_code, 400)
+        self.assertEqual(self.client.post(url, {'item': other.items.get().pk, 'action': 'clear'}, format='json').status_code, 400)
+        self.assertEqual(self.client.post(url, {'item': opportunity.items.get().pk, 'action': 'move'}, format='json').status_code, 400)
+
+    def test_clear_removes_the_location_and_the_ai_does_not_put_it_back(self):
+        opportunity = self.opportunity('buying', ['JVC'])
+        with patch(AGENT, return_value=reply((1, 'Jumeirah Village Circle', '', 'Dubai'))):
+            locate_opportunity(opportunity)
+        item = opportunity.items.get()
+        data = self.client.post(self.url(opportunity, 'location'), {'item': item.pk, 'action': 'clear'}, format='json').json()
+        self.assertEqual((data['items'][0]['geo_status'], data['items'][0]['geo_area'], data['items'][0]['geo_position']), ('unknown', '', None))
+
+        with patch(AGENT) as agent:
+            locate_opportunity(opportunity)  # automatic step, e.g. after re-extraction
+        agent.assert_not_called()
+        self.assertEqual(self.client.post(URL + 'locate/', {'scope': 'all'}, format='json').json()['queued'], 0)
+
+    def test_find_with_ai_on_the_card_replaces_a_location_set_by_hand(self):
+        opportunity = self.opportunity('buying', ['Verona'])
+        self.client.post(self.url(opportunity, 'location'), {'item': opportunity.items.get().pk, 'action': 'set', 'area': 'Somewhere'}, format='json')
+        with patch(AGENT, return_value=reply((1, 'Al Barsha', '', 'Dubai'))):
+            data = self.client.post(self.url(opportunity, 'locate')).json()
+        self.assertEqual((data['items'][0]['geo_area'], data['items'][0]['geo_source']), ('Al Barsha', 'ai'))
+
+    def test_find_with_ai_failure_is_reported(self):
+        opportunity = self.opportunity('buying', ['Verona'])
+        with patch(AGENT, side_effect=RuntimeError('provider down')):
+            response = self.client.post(self.url(opportunity, 'locate'))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('provider down', str(response.json()['non_field_errors']))
+
+    def test_location_cannot_be_written_through_the_item_api(self):
+        opportunity = self.opportunity('buying', ['JVC'])
+        item = opportunity.items.get()
+        self.client.patch(f'/api/real-estate/opportunity-items/{item.pk}/', {'geo_area': 'Hacked', 'geo_status': 'located'}, format='json')
+        item.refresh_from_db()
+        self.assertEqual((item.geo_area, item.geo_status), ('', 'pending'))

@@ -34,6 +34,21 @@ class OpportunityItemSerializer(CleanModelSerializer):
     property_type_name = serializers.CharField(source='property_type.name', read_only=True)
     property_title = serializers.CharField(source='property.title', read_only=True)
     linked_by_name = serializers.SerializerMethodField()
+    geo_position = serializers.SerializerMethodField()
+
+    @staticmethod
+    def get_geo_position(obj):
+        """The map position of the item's area (from the Location step), if it has one."""
+        place = obj.geo_area_location
+        if not place:
+            return None
+        return {
+            'status': place.status,
+            'latitude': float(place.latitude) if place.latitude is not None else None,
+            'longitude': float(place.longitude) if place.longitude is not None else None,
+            'matched_label': place.matched_label,
+            'error': place.error,
+        }
 
     @staticmethod
     def get_linked_by_name(obj):
@@ -49,6 +64,9 @@ class OpportunityItemSerializer(CleanModelSerializer):
             'property', 'match_status', 'match_confidence', 'link_method',
             'linked_by', 'linked_at', 'legacy_requirement', 'legacy_candidate',
             'created_at', 'updated_at',
+            # Location changes go through the opportunity's location endpoints.
+            'geo_status', 'geo_source', 'geo_area', 'geo_sub_area', 'geo_city', 'geo_confidence',
+            'geo_basis', 'geo_error', 'geo_located_at', 'geo_area_location',
         )
 
 

@@ -17,7 +17,9 @@ from apps.real_estate.serializers import (
     PropertyCandidateSerializer, PropertyRequirementSerializer,
 )
 from apps.real_estate.services.area_map import area_map_report, place_waiting_areas
-from apps.real_estate.services.location_service import BACKFILL_PRIORITY, enqueue_location
+from apps.real_estate.services.location_service import (
+    BACKFILL_PRIORITY, clear_location, enqueue_location, locate_opportunity, set_manual_location,
+)
 from apps.real_estate.services.candidate_service import merge_candidate, promote_candidate, reject_candidate
 from apps.real_estate.services.opportunity_item_service import (
     create_property_from_item, link_item, unlink_item,
@@ -33,7 +35,7 @@ class OpportunityViewSet(CompanyOwnedViewSet):
     queryset = RealEstateOpportunity.objects.select_related(
         'account', 'contact', 'assigned_to', 'source_chat', 'inquiry_medium',
         'requirement', 'property_candidate', 'property_candidate__property_type',
-    ).prefetch_related('items__property_type', 'items__property', 'items__linked_by')
+    ).prefetch_related('items__property_type', 'items__property', 'items__linked_by', 'items__geo_area_location')
     serializer_class = OpportunitySerializer
     read_permission = 'real_estate.opportunities.view'
     write_permission = 'real_estate.opportunities.update'
@@ -171,6 +173,7 @@ class OpportunityViewSet(CompanyOwnedViewSet):
         items = OpportunityItem.objects.filter(opportunity__in=self._area_map_queryset())
         if scope == 'unlocated':
             items = items.filter(geo_status__in=[OpportunityItem.GEO_PENDING, OpportunityItem.GEO_ERROR])
+        items = items.exclude(geo_source=OpportunityItem.GEO_SOURCE_MANUAL)
         ids = items.values_list('opportunity_id', flat=True).distinct()
         queued = 0
         for opportunity in RealEstateOpportunity.objects.filter(pk__in=ids).select_related('company').iterator():
@@ -182,6 +185,41 @@ class OpportunityViewSet(CompanyOwnedViewSet):
             raise ValidationError({'non_field_errors': str(exc)}) from exc
         report['queued'] = queued
         return Response(report)
+
+    @action(detail=True, methods=['post'], url_path='locate')
+    def locate(self, request, pk=None):
+        """Find this inquiry's location with the Location AI now (replaces locations set by hand)."""
+        opportunity = self.get_object()
+        if not opportunity.items.exists():
+            raise ValidationError({'non_field_errors': 'This inquiry has no property details to locate.'})
+        try:
+            locate_opportunity(opportunity, include_manual=True)
+        except Exception as exc:
+            raise ValidationError({'non_field_errors': f'The location AI failed: {exc}'}) from exc
+        return Response(self.get_serializer(self.get_object()).data)
+
+    @action(detail=True, methods=['post'], url_path='location')
+    def location(self, request, pk=None):
+        """Set (action=set, with area, sub_area, city) or clear (action=clear) one property's
+        location by hand."""
+        opportunity = self.get_object()
+        item = opportunity.items.filter(pk=request.data.get('item')).first()
+        if not item:
+            raise ValidationError({'item': 'Choose a property of this inquiry.'})
+        mode = request.data.get('action')
+        try:
+            if mode == 'set':
+                set_manual_location(
+                    item, area=request.data.get('area'), sub_area=request.data.get('sub_area'),
+                    city=request.data.get('city'), user=request.user,
+                )
+            elif mode == 'clear':
+                clear_location(item, user=request.user)
+            else:
+                raise ValidationError({'action': 'Use set or clear.'})
+        except ValueError as exc:
+            raise ValidationError({'area': str(exc)}) from exc
+        return Response(self.get_serializer(self.get_object()).data)
 
     def _area_map_queryset(self):
         qs = self.get_queryset()

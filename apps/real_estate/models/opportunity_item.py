@@ -107,7 +107,13 @@ class OpportunityItem(models.Model):
         (GEO_UNKNOWN, 'Location unknown'),
         (GEO_ERROR, 'Location step failed'),
     ]
+    GEO_SOURCE_AI = 'ai'
+    GEO_SOURCE_MANUAL = 'manual'
+    GEO_SOURCE_CHOICES = [(GEO_SOURCE_AI, 'Location AI'), (GEO_SOURCE_MANUAL, 'Set by hand')]
     geo_status = models.CharField(max_length=10, choices=GEO_CHOICES, default=GEO_PENDING)
+    # A location set or cleared by hand is never overwritten by the automatic AI step or a
+    # backfill; only an explicit "Find with AI" on the inquiry replaces it.
+    geo_source = models.CharField(max_length=10, choices=GEO_SOURCE_CHOICES, blank=True)
     geo_area = models.CharField(max_length=200, blank=True, help_text='Community or district.')
     geo_sub_area = models.CharField(max_length=200, blank=True, help_text='Building, cluster or project.')
     geo_city = models.CharField(max_length=100, blank=True)

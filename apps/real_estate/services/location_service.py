@@ -94,9 +94,14 @@ def inquiry_context(opportunity, items):
     return '\n'.join(lines)
 
 
-def locate_opportunity(opportunity):
-    """Run the Location AI step for every item of the opportunity and place their areas."""
-    items = list(opportunity.items.select_related('property__address').order_by('sequence'))
+def locate_opportunity(opportunity, *, include_manual=False):
+    """Run the Location AI step for the opportunity's items and place their areas. Items
+    located or cleared by hand are left alone unless include_manual (the inquiry card's
+    explicit "Find with AI")."""
+    items = opportunity.items.select_related('property__address').order_by('sequence')
+    if not include_manual:
+        items = items.exclude(geo_source=OpportunityItem.GEO_SOURCE_MANUAL)
+    items = list(items)
     if not items:
         return []
     company = opportunity.company
@@ -137,12 +142,47 @@ def locate_opportunity(opportunity):
                 item.geo_area_location = area_location_for(company, answer['area'], answer['city'])
             else:
                 item.geo_status, item.geo_area_location = OpportunityItem.GEO_UNKNOWN, None
-        item.geo_located_at = now
-        item.save(update_fields=[
-            'geo_status', 'geo_area', 'geo_sub_area', 'geo_city', 'geo_confidence', 'geo_basis',
-            'geo_error', 'geo_area_location', 'geo_located_at', 'updated_at',
-        ])
+        item.geo_located_at, item.geo_source = now, OpportunityItem.GEO_SOURCE_AI
+        item.save(update_fields=GEO_FIELDS)
     return items
+
+
+GEO_FIELDS = [
+    'geo_status', 'geo_source', 'geo_area', 'geo_sub_area', 'geo_city', 'geo_confidence', 'geo_basis',
+    'geo_error', 'geo_area_location', 'geo_located_at', 'updated_at',
+]
+
+
+def set_manual_location(item, *, area, sub_area='', city='', user=None):
+    """Set an item's location by hand and place its area on the map."""
+    area, sub_area, city = _text(area, 200), _text(sub_area, 200), _text(city, 100)
+    if not area:
+        raise ValueError('Enter the area (community or district).')
+    item.geo_area, item.geo_sub_area, item.geo_city = area, sub_area, city
+    item.geo_area_location = area_location_for(item.company, area, city)
+    item.geo_status, item.geo_source = OpportunityItem.GEO_LOCATED, OpportunityItem.GEO_SOURCE_MANUAL
+    item.geo_confidence, item.geo_error = None, ''
+    item.geo_basis = f'Set by {_user_name(user)}.'
+    item.geo_located_at = timezone.now()
+    item.save(update_fields=GEO_FIELDS)
+    return item
+
+
+def clear_location(item, *, user=None):
+    """Remove an item's location by hand; the AI step will not put one back on its own."""
+    item.geo_area = item.geo_sub_area = item.geo_city = item.geo_error = ''
+    item.geo_area_location, item.geo_confidence = None, None
+    item.geo_status, item.geo_source = OpportunityItem.GEO_UNKNOWN, OpportunityItem.GEO_SOURCE_MANUAL
+    item.geo_basis = f'Cleared by {_user_name(user)}.'
+    item.geo_located_at = timezone.now()
+    item.save(update_fields=GEO_FIELDS)
+    return item
+
+
+def _user_name(user):
+    if not user:
+        return 'a user'
+    return user.get_full_name() or user.get_username()
 
 
 def parse_location_response(raw_response):

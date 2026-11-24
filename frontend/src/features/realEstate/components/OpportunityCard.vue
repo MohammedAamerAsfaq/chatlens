@@ -3,13 +3,14 @@
 import { computed } from 'vue'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faWhatsapp } from '@fortawesome/free-brands-svg-icons'
-import { faInbox, faMessage } from '@fortawesome/free-solid-svg-icons'
+import { faInbox, faLocationDot, faMapLocationDot, faMessage } from '@fortawesome/free-solid-svg-icons'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiDropdown from '@/components/ui/UiDropdown.vue'
 import { counterparts, statusTone } from '@/features/realEstate/boardOptions'
 import { cardFieldsById, defaultCardFieldIds } from '@/features/realEstate/cardFields'
 import { title } from '@/features/realEstate/options'
+import { opportunityPlace } from '@/features/realEstate/location'
 
 const props = defineProps({
   opportunity: { type: Object, required: true },
@@ -18,9 +19,11 @@ const props = defineProps({
   actionConfig: { type: Object, default: () => ({ statuses: [], max_inline: 2 }) },
   focused: { type: Boolean, default: false },
 })
-defineEmits(['open', 'set-status', 'view-source', 'open-inbox', 'message-contact', 'find-counterparts'])
+defineEmits(['open', 'set-status', 'view-source', 'open-inbox', 'message-contact', 'find-counterparts', 'location'])
 
 const counterpart = computed(() => counterparts[props.opportunity.activity_type] || null)
+const place = computed(() => opportunityPlace(props.opportunity))
+const hasItems = computed(() => (props.opportunity.items || []).length > 0)
 
 function fieldValue(id) {
   const field = cardFieldsById[id]
@@ -83,6 +86,20 @@ const overflowStatuses = computed(() => (props.actionConfig.statuses || []).slic
       </div>
       <div class="opportunity-card__footer-actions">
         <UiButton
+          v-if="place"
+          size="small" variant="outline" class="opportunity-card__map" :title="`Location: ${place}`" :aria-label="`Location: ${place}`"
+          @click="$emit('location', opportunity)"
+        >
+          <FontAwesomeIcon :icon="faMapLocationDot" />
+        </UiButton>
+        <UiButton
+          v-else-if="hasItems"
+          size="small" variant="outline" class="opportunity-card__map opportunity-card__map--none" title="No location yet: add one" aria-label="Add location"
+          @click="$emit('location', opportunity)"
+        >
+          <FontAwesomeIcon :icon="faLocationDot" />
+        </UiButton>
+        <UiButton
           v-if="opportunity.source_chat"
           size="small" variant="outline" title="View the original WhatsApp message"
           @click="$emit('view-source', opportunity)"
@@ -124,6 +141,6 @@ const overflowStatuses = computed(() => (props.actionConfig.statuses || []).slic
    action "More" dropdown pops out below the footer and must not be clipped by its own
    parent; the accent bar below gets its own border-radius instead so it still respects the
    card's rounded corners without needing the parent to clip it. */
-.opportunity-card{position:relative;flex-shrink:0;min-height:176px;padding:16px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-md);background:var(--ui-surface);box-shadow:var(--ui-shadow-card)}.opportunity-card::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;border-radius:var(--ui-radius-md) 0 0 var(--ui-radius-md);background:var(--lane-color)}.opportunity-card--buying{--lane-color:#238b75}.opportunity-card--selling{--lane-color:#d4862c}.opportunity-card--lease-inquiry{--lane-color:#3b72c4}.opportunity-card--lease-offer{--lane-color:#a25f83}.opportunity-card__header,.opportunity-card__footer{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.opportunity-card__party{min-width:0}.opportunity-card__party strong{display:block;overflow:hidden;color:var(--ui-text-strong);font-size:calc(.82rem + 2px);text-overflow:ellipsis;white-space:nowrap}.opportunity-card__party span{display:block;margin-top:3px;overflow:hidden;color:var(--ui-text-subtle);font-size:calc(.67rem + 2px);text-overflow:ellipsis;white-space:nowrap}.opportunity-card__summary{display:-webkit-box;min-height:3.4em;margin:14px 0 12px;overflow:hidden;color:var(--ui-text);font-size:calc(.77rem + 2px);line-height:1.45;-webkit-box-orient:vertical;-webkit-line-clamp:3}.opportunity-card__facts{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:14px}.opportunity-card__facts span{max-width:100%;padding:4px 7px;border-radius:var(--ui-radius-pill);background:var(--ui-surface-muted);color:var(--ui-text-muted);font-size:calc(.65rem + 2px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.opportunity-card__footer{align-items:center;flex-wrap:wrap;padding-top:11px;border-top:1px solid var(--ui-border)}.opportunity-card__footer-actions{display:flex;flex-shrink:0;align-items:center;gap:6px;margin-left:auto}.opportunity-card__quick-actions{position:relative;display:flex;flex-wrap:wrap;gap:5px}.opportunity-card__status-btn{padding:5px 9px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-sm);background:var(--ui-surface);color:var(--ui-text-muted);font-size:calc(.68rem + 2px);font-weight:600;cursor:pointer}.opportunity-card__status-btn:hover{border-color:var(--ui-primary);background:var(--ui-primary-soft);color:var(--ui-primary)}.opportunity-card__status-btn--success{border-color:color-mix(in srgb,var(--ui-success) 35%,var(--ui-border));color:var(--ui-success)}.opportunity-card__status-btn--warning{border-color:color-mix(in srgb,var(--ui-warning) 35%,var(--ui-border));color:var(--ui-warning)}.opportunity-card__status-btn--danger{border-color:color-mix(in srgb,var(--ui-danger) 35%,var(--ui-border));color:var(--ui-danger)}.opportunity-card__status-btn--info{border-color:color-mix(in srgb,var(--ui-info) 35%,var(--ui-border));color:var(--ui-info)}.opportunity-card__quick-actions :deep(.ui-dropdown__menu){position:absolute;top:calc(100% + 4px);z-index:5;display:flex;min-width:140px;flex-direction:column;padding:4px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-sm);background:var(--ui-surface);box-shadow:var(--ui-shadow-card)}.opportunity-card__quick-actions :deep(.ui-dropdown__menu--start){left:0}.opportunity-card__menu-item{padding:6px 9px;border:0;border-radius:var(--ui-radius-sm);background:transparent;color:var(--ui-text);font-size:calc(.72rem + 2px);text-align:left;cursor:pointer}.opportunity-card__menu-item:hover{background:var(--ui-surface-muted)}.opportunity-card :deep(.ui-badge){font-size:calc(.68rem + 2px)}.opportunity-card :deep(.ui-button--small){font-size:calc(.75rem + 2px)}
+.opportunity-card{position:relative;flex-shrink:0;min-height:176px;padding:16px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-md);background:var(--ui-surface);box-shadow:var(--ui-shadow-card)}.opportunity-card::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;border-radius:var(--ui-radius-md) 0 0 var(--ui-radius-md);background:var(--lane-color)}.opportunity-card--buying{--lane-color:#238b75}.opportunity-card--selling{--lane-color:#d4862c}.opportunity-card--lease-inquiry{--lane-color:#3b72c4}.opportunity-card--lease-offer{--lane-color:#a25f83}.opportunity-card__header,.opportunity-card__footer{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.opportunity-card__party{min-width:0}.opportunity-card__party strong{display:block;overflow:hidden;color:var(--ui-text-strong);font-size:calc(.82rem + 2px);text-overflow:ellipsis;white-space:nowrap}.opportunity-card__party span{display:block;margin-top:3px;overflow:hidden;color:var(--ui-text-subtle);font-size:calc(.67rem + 2px);text-overflow:ellipsis;white-space:nowrap}.opportunity-card__summary{display:-webkit-box;min-height:3.4em;margin:14px 0 12px;overflow:hidden;color:var(--ui-text);font-size:calc(.77rem + 2px);line-height:1.45;-webkit-box-orient:vertical;-webkit-line-clamp:3}.opportunity-card__facts{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:14px}.opportunity-card__facts span{max-width:100%;padding:4px 7px;border-radius:var(--ui-radius-pill);background:var(--ui-surface-muted);color:var(--ui-text-muted);font-size:calc(.65rem + 2px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.opportunity-card__footer{align-items:center;flex-wrap:wrap;padding-top:11px;border-top:1px solid var(--ui-border)}.opportunity-card__footer-actions{display:flex;flex-shrink:0;align-items:center;gap:6px;margin-left:auto}.opportunity-card__quick-actions{position:relative;display:flex;flex-wrap:wrap;gap:5px}.opportunity-card__status-btn{padding:5px 9px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-sm);background:var(--ui-surface);color:var(--ui-text-muted);font-size:calc(.68rem + 2px);font-weight:600;cursor:pointer}.opportunity-card__status-btn:hover{border-color:var(--ui-primary);background:var(--ui-primary-soft);color:var(--ui-primary)}.opportunity-card__status-btn--success{border-color:color-mix(in srgb,var(--ui-success) 35%,var(--ui-border));color:var(--ui-success)}.opportunity-card__status-btn--warning{border-color:color-mix(in srgb,var(--ui-warning) 35%,var(--ui-border));color:var(--ui-warning)}.opportunity-card__status-btn--danger{border-color:color-mix(in srgb,var(--ui-danger) 35%,var(--ui-border));color:var(--ui-danger)}.opportunity-card__status-btn--info{border-color:color-mix(in srgb,var(--ui-info) 35%,var(--ui-border));color:var(--ui-info)}.opportunity-card__quick-actions :deep(.ui-dropdown__menu){position:absolute;top:calc(100% + 4px);z-index:5;display:flex;min-width:140px;flex-direction:column;padding:4px;border:1px solid var(--ui-border);border-radius:var(--ui-radius-sm);background:var(--ui-surface);box-shadow:var(--ui-shadow-card)}.opportunity-card__quick-actions :deep(.ui-dropdown__menu--start){left:0}.opportunity-card__menu-item{padding:6px 9px;border:0;border-radius:var(--ui-radius-sm);background:transparent;color:var(--ui-text);font-size:calc(.72rem + 2px);text-align:left;cursor:pointer}.opportunity-card__menu-item:hover{background:var(--ui-surface-muted)}.opportunity-card__map{color:#ea4335}.opportunity-card__map--none{color:var(--ui-text-subtle)}.opportunity-card :deep(.ui-badge){font-size:calc(.68rem + 2px)}.opportunity-card :deep(.ui-button--small){font-size:calc(.75rem + 2px)}
 .opportunity-card.is-focused{box-shadow:0 0 0 2px var(--ui-primary),var(--ui-shadow-card);transition:box-shadow .3s}
 </style>

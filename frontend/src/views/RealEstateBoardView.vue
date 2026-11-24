@@ -13,6 +13,7 @@ import UiPage from '@/components/ui/UiPage.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTabs from '@/components/ui/UiTabs.vue'
 import OpportunityLane from '@/features/realEstate/components/OpportunityLane.vue'
+import OpportunityLocationDialog from '@/features/realEstate/components/OpportunityLocationDialog.vue'
 import TradingConversationDialog from '@/features/trading/components/TradingConversationDialog.vue'
 import { useOpportunityWhatsApp } from '@/features/realEstate/composables/useOpportunityWhatsApp'
 import { opportunityLanes, opportunityStatuses, statusFilters } from '@/features/realEstate/boardOptions'
@@ -167,14 +168,25 @@ function goToPage(lane, page) {
   loadLane(lane, { resetPage: false })
 }
 
+const locationFor = ref(null)
+
+function replaceRow(data) {
+  const state = laneStates[data.activity_type]
+  const index = state?.rows.findIndex(row => row.id === data.id) ?? -1
+  if (index >= 0) state.rows[index] = data
+}
+
+function locationUpdated(data) {
+  replaceRow(data)
+  locationFor.value = data
+}
+
 async function setOpportunityStatus(opportunity, nextStatus) {
   saving.value = true
   globalError.value = ''
   try {
     const { data } = await realEstateApi.updateOpportunity(opportunity.id, { status: nextStatus })
-    const state = laneStates[data.activity_type]
-    const index = state?.rows.findIndex(row => row.id === data.id) ?? -1
-    if (index >= 0) state.rows[index] = data
+    replaceRow(data)
   } catch (exc) {
     globalError.value = apiError(exc, 'Unable to update the opportunity status.')
   } finally {
@@ -347,8 +359,16 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); clearTimeout(focusTimer) })
         @open-inbox="openInInbox"
         @message-contact="messageContact"
         @find-counterparts="findCounterparts"
+        @location="opportunity => (locationFor = opportunity)"
       />
     </div>
+
+    <OpportunityLocationDialog
+      :open="!!locationFor"
+      :opportunity="locationFor"
+      @close="locationFor = null"
+      @updated="locationUpdated"
+    />
 
     <TradingConversationDialog
       :open="waDialogOpen"

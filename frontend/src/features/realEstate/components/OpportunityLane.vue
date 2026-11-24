@@ -14,7 +14,7 @@ const props = defineProps({
   actionConfig: { type: Object, default: undefined },
   focusedId: { type: Number, default: null },
 })
-defineEmits(['change-page', 'open', 'set-status', 'view-source', 'open-inbox', 'message-contact', 'find-counterparts'])
+defineEmits(['change-page', 'open', 'set-status', 'view-source', 'open-inbox', 'message-contact', 'find-counterparts', 'location'])
 
 const totalPages = computed(() => Math.max(1, Math.ceil(props.state.total / props.pageSize)))
 </script>
@@ -43,6 +43,7 @@ const totalPages = computed(() => Math.max(1, Math.ceil(props.state.total / prop
         @open-inbox="$emit('open-inbox', $event)"
         @message-contact="$emit('message-contact', $event)"
         @find-counterparts="$emit('find-counterparts', $event)"
+        @location="$emit('location', $event)"
       />
     </div>
 
