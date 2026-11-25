@@ -41,6 +41,7 @@ const notice = ref('')
 const mapError = ref('')
 const mapElement = ref(null)
 const selectedId = ref(null)
+const rankingElement = ref(null)
 const mergingId = ref(null)
 const mergeTarget = ref(null)
 const merging = ref(false)
@@ -225,8 +226,20 @@ async function drawMap() {
   }
 }
 
+// Scroll only the ranking panel (not the page), so the map stays in view.
+async function revealInRanking(areaId) {
+  await nextTick()
+  const panel = rankingElement.value
+  const item = panel?.querySelector(`[data-area-id="${CSS.escape(String(areaId))}"]`)
+  if (!panel || !item) return
+  const offset = item.getBoundingClientRect().top - panel.getBoundingClientRect().top
+  panel.scrollTo({ top: panel.scrollTop + offset - 48, behavior: 'smooth' })
+}
+
 function openArea(area, pan = true) {
   selectedId.value = area.id
+  // Clicked on the map: bring its card into view. Clicked in the list: it is already visible.
+  if (!pan) revealInRanking(area.id)
   const marker = markers.get(area.id)
   if (!marker || !map) return
   if (pan) { map.panTo(marker.getPosition()); if (map.getZoom() < 12) map.setZoom(12) }
@@ -314,11 +327,11 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <aside class="area-map__ranking">
+      <aside ref="rankingElement" class="area-map__ranking">
         <h2>Top areas</h2>
         <p v-if="report && !areas.length" class="area-map__muted">No located inquiries for these filters yet.</p>
         <ol v-else>
-          <li v-for="(area, index) in areas" :key="area.id" :class="{ selected: selectedId === area.id, off: area.status !== 'placed' }">
+          <li v-for="(area, index) in areas" :key="area.id" :data-area-id="area.id" :class="{ selected: selectedId === area.id, off: area.status !== 'placed' }">
             <button type="button" :disabled="area.status !== 'placed'" :title="area.status === 'placed' ? 'Show on the map' : AREA_STATUS_TEXT[area.status]" @click="openArea(area)">
               <span class="area-map__rank">{{ index + 1 }}</span>
               <span class="area-map__name">
