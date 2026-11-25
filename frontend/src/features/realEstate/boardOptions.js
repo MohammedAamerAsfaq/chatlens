@@ -85,6 +85,22 @@ export function formatDate(value) {
   return formatDateTime(value, { empty: '-' })
 }
 
+// How old an inquiry is in whole calendar days (local time): received today is 0.
+export function daysOld(value, now = new Date()) {
+  if (!value) return null
+  const seen = new Date(value)
+  if (Number.isNaN(seen.getTime())) return null
+  const startOfDay = date => new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  return Math.max(0, Math.round((startOfDay(now) - startOfDay(seen)) / 86400000))
+}
+
+export function ageLabel(value, now = new Date()) {
+  const days = daysOld(value, now)
+  if (days === null) return ''
+  if (days === 0) return 'Today'
+  return `${days} day${days === 1 ? '' : 's'} old`
+}
+
 export function money(currency, value) {
   if (value == null || value === '') return ''
   return `${currency || 'AED'} ${Number(value).toLocaleString()}`

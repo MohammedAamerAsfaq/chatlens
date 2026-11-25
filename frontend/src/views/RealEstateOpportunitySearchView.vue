@@ -20,7 +20,7 @@ import UiTabs from '@/components/ui/UiTabs.vue'
 import TradingConversationDialog from '@/features/trading/components/TradingConversationDialog.vue'
 import { useOpportunityWhatsApp } from '@/features/realEstate/composables/useOpportunityWhatsApp'
 import { apiError } from '@/features/realEstate/apiErrors'
-import { counterparts, formatDate, moneyRange, opportunityLanes, opportunityParty, statusFilters } from '@/features/realEstate/boardOptions'
+import { ageLabel, counterparts, formatDate, moneyRange, opportunityLanes, opportunityParty, statusFilters } from '@/features/realEstate/boardOptions'
 
 const route = useRoute()
 const router = useRouter()
@@ -247,7 +247,7 @@ onMounted(() => { loadSource(); load() })
     <section v-if="rows.length" class="opportunity-search__results" :class="{ 'opportunity-search__results--stale': loading }" :aria-busy="loading">
       <article v-for="row in rows" :key="row.id" class="opportunity-search__result" role="link" tabindex="0" @click="openOpportunity(row.id)" @keydown.enter="openOpportunity(row.id)">
         <header>
-          <div><h2>{{ opportunityParty(row) }}</h2><p>#{{ row.id }} - {{ formatDate(row.first_seen_at) }}</p></div>
+          <div><h2>{{ opportunityParty(row) }}</h2><p>#{{ row.id }} - {{ formatDate(row.first_seen_at) }}<span v-if="row.first_seen_at" class="opportunity-search__age" :title="`Received ${formatDate(row.first_seen_at)}`">{{ ageLabel(row.first_seen_at) }}</span></p></div>
           <div class="opportunity-search__badges">
             <UiBadge v-if="activeActivity === 'all'" tone="info">{{ laneLabels[row.activity_type] || row.activity_type }}</UiBadge>
             <UiBadge>{{ row.status }}</UiBadge>
@@ -338,6 +338,7 @@ onMounted(() => { loadSource(); load() })
 .opportunity-search__result h2,.opportunity-search__result header p { margin:0; }
 .opportunity-search__badges { display:flex; gap:.4rem; align-items:flex-start; }
 .opportunity-search__message { margin:.8rem 0; }
+.opportunity-search__age { display:inline-block; margin-left:.5rem; padding:.05rem .5rem; border-radius:999px; background:var(--ui-surface-muted); color:var(--ui-text); font-size:.85em; font-weight:700; white-space:nowrap; }
 .opportunity-search__reasons { margin:-.35rem 0 .8rem; color:var(--ui-text-muted); font-size:calc(.82rem + 2px); }
 .opportunity-search__items { display:grid; grid-template-columns:repeat(auto-fit,minmax(16rem,1fr)); gap:.5rem; }
 .opportunity-search__item { display:flex; flex-direction:column; gap:.15rem; padding:.65rem; background:var(--ui-surface-muted); border-radius:calc(var(--ui-radius) - 2px); }
