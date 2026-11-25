@@ -54,3 +54,6 @@ whatsapp-worker/message-logs/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Private trading model datasets and local adapters
+/training_data/

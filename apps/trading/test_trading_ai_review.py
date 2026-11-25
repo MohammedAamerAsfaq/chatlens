@@ -143,3 +143,34 @@ class TradingReviewTests(TestCase):
         response = self.client.post('/api/trading-ai-review/submit/', {'message_id': self.message.id, 'label': label}, format='json')
         self.assertEqual(response.status_code, 400)
         self.assertFalse(TradingMessageReview.objects.filter(message=self.message).exists())
+    def test_mlx_dataset_excludes_held_out_and_notes(self):
+        import io
+        import json
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from django.core.management import call_command
+        label = {'is_inquiry': True, 'direction': 'buy', 'products': [{'name': 'Phone', 'quantity': '2'}], 'notes': 'private reviewer note'}
+        TradingMessageReview.objects.create(company=self.company, message=self.message, source_text=self.message.message_text, ai_snapshot={}, label=label, reviewed_by=self.user)
+        with tempfile.TemporaryDirectory() as directory:
+            with patch('apps.trading.management.commands.prepare_trading_mlx_dataset.group_split', return_value='train'):
+                call_command('prepare_trading_mlx_dataset', company_id=self.company.pk, output_dir=directory, stdout=io.StringIO())
+            row = json.loads((Path(directory) / 'candidates.jsonl').read_text(encoding='utf-8'))
+            answer = json.loads(row['messages'][-1]['content'])
+            self.assertEqual(answer['products'][0]['name'], 'Phone')
+            self.assertNotIn('notes', answer)
+            self.assertEqual(row['messages'][1]['content'], self.message.message_text)
+            provenance = json.loads((Path(directory) / 'provenance.jsonl').read_text(encoding='utf-8'))
+            self.assertEqual(provenance['origin'], 'human')
+            self.assertEqual(provenance['message_id'], self.message.id)
+
+    def test_mlx_dataset_refuses_held_out_only_and_existing_output(self):
+        import tempfile
+        from unittest.mock import patch
+        from django.core.management import call_command, CommandError
+        label = {'is_inquiry': False, 'direction': '', 'products': []}
+        TradingMessageReview.objects.create(company=self.company, message=self.message, source_text='test', ai_snapshot={}, label=label, reviewed_by=self.user)
+        with tempfile.TemporaryDirectory() as directory:
+            with patch('apps.trading.management.commands.prepare_trading_mlx_dataset.group_split', return_value='test'):
+                with self.assertRaises(CommandError):
+                    call_command('prepare_trading_mlx_dataset', company_id=self.company.pk, output_dir=directory)
