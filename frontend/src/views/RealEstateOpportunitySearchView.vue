@@ -13,7 +13,6 @@ import UiEmptyState from '@/components/ui/UiEmptyState.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
 import UiPage from '@/components/ui/UiPage.vue'
-import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTabs from '@/components/ui/UiTabs.vue'
@@ -182,7 +181,6 @@ onMounted(() => { loadSource(); load() })
 
 <template>
   <UiPage width="wide" class="opportunity-search-page">
-    <UiPageHeader eyebrow="Real Estate Intelligence" title="Opportunity Search" description="Search embedded buyer, seller, tenant, and landlord opportunities by meaning." />
     <UiCard v-if="counterpartId" class="opportunity-search opportunity-search__counterpart">
       <div class="opportunity-search__counterpart-head">
         <div>
@@ -216,11 +214,6 @@ onMounted(() => { loadSource(); load() })
           <FontAwesomeIcon v-else :icon="faWandMagicSparkles" /> {{ loading ? 'Searching...' : 'Search' }}
         </UiButton>
       </form>
-      <p class="opportunity-search__hint">
-        <template v-if="searchMode === 'structured'">Structured Search makes one AI call to normalize your phrase, then runs embedded and constraint-aware ranking.</template>
-        <template v-else>Hybrid Search combines meaning with locally parsed property type, bedrooms, price, and location without a chat-model call.</template>
-        Relevance tiers control recall; grouping only combines matching results on screen.
-      </p>
     </UiCard>
 
     <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
@@ -246,16 +239,31 @@ onMounted(() => { loadSource(); load() })
 
     <section v-if="rows.length" class="opportunity-search__results" :class="{ 'opportunity-search__results--stale': loading }" :aria-busy="loading">
       <article v-for="row in rows" :key="row.id" class="opportunity-search__result" role="link" tabindex="0" @click="openOpportunity(row.id)" @keydown.enter="openOpportunity(row.id)">
+        <!-- One line: who, when and how old, what they want; badges and WhatsApp actions on the right. -->
         <header>
-          <div><h2>{{ opportunityParty(row) }}</h2><p>#{{ row.id }} - {{ formatDate(row.first_seen_at) }}<span v-if="row.first_seen_at" class="opportunity-search__age" :title="`Received ${formatDate(row.first_seen_at)}`">{{ ageLabel(row.first_seen_at) }}</span></p></div>
-          <div class="opportunity-search__badges">
+          <div class="opportunity-search__headline">
+            <h2>{{ opportunityParty(row) }}</h2>
+            <span class="opportunity-search__meta">#{{ row.id }} - {{ formatDate(row.first_seen_at) }}<span v-if="row.first_seen_at" class="opportunity-search__age" :title="`Received ${formatDate(row.first_seen_at)}`">{{ ageLabel(row.first_seen_at) }}</span></span>
+            <p class="opportunity-search__message">{{ row.summary || row.original_message }}</p>
+          </div>
+          <div class="opportunity-search__side">
             <UiBadge v-if="activeActivity === 'all'" tone="info">{{ laneLabels[row.activity_type] || row.activity_type }}</UiBadge>
             <UiBadge>{{ row.status }}</UiBadge>
             <UiBadge v-if="row.search_score != null" :tone="relevanceTone(row.search_relevance)">{{ Math.round(row.search_score * 100) }}% {{ row.search_relevance }}</UiBadge>
             <UiBadge v-if="row.duplicate_count > 1" tone="neutral">{{ row.duplicate_count }} similar</UiBadge>
+            <span v-if="row.source_chat || row.contact" class="opportunity-search__actions" @click.stop @keydown.stop>
+              <UiButton v-if="row.source_chat" size="small" variant="outline" title="View the original WhatsApp message" @click="viewSource(row)">
+                <FontAwesomeIcon :icon="faWhatsapp" />
+              </UiButton>
+              <UiButton v-if="row.source_chat" size="small" variant="outline" title="Open the original message in the WhatsApp Inbox" @click="openInInbox(row)">
+                <FontAwesomeIcon :icon="faInbox" />
+              </UiButton>
+              <UiButton v-if="row.contact" size="small" variant="outline" title="Message this contact directly" @click="messageContact(row)">
+                <FontAwesomeIcon :icon="faMessage" />
+              </UiButton>
+            </span>
           </div>
         </header>
-        <p class="opportunity-search__message">{{ row.summary || row.original_message }}</p>
         <p v-if="row.search_reasons?.length" class="opportunity-search__reasons">Matched on: {{ row.search_reasons.join(', ') }}</p>
         <div v-if="row.search_adjustments?.length" class="opportunity-search__adjustments">
           <span v-for="item in row.search_adjustments" :key="item.reason">
@@ -270,17 +278,6 @@ onMounted(() => { loadSource(); load() })
           </div>
           <span v-if="!row.items?.length" class="opportunity-search__empty">No extracted property items.</span>
         </div>
-        <footer v-if="row.source_chat || row.contact" class="opportunity-search__actions" @click.stop @keydown.stop>
-          <UiButton v-if="row.source_chat" size="small" variant="outline" title="View the original WhatsApp message" @click="viewSource(row)">
-            <FontAwesomeIcon :icon="faWhatsapp" />
-          </UiButton>
-          <UiButton v-if="row.source_chat" size="small" variant="outline" title="Open the original message in the WhatsApp Inbox" @click="openInInbox(row)">
-            <FontAwesomeIcon :icon="faInbox" />
-          </UiButton>
-          <UiButton v-if="row.contact" size="small" variant="outline" title="Message this contact directly" @click="messageContact(row)">
-            <FontAwesomeIcon :icon="faMessage" />
-          </UiButton>
-        </footer>
       </article>
     </section>
     <UiEmptyState v-else-if="loading" busy :title="progressText" />
@@ -302,9 +299,6 @@ onMounted(() => { loadSource(); load() })
 <style scoped>
 /* Every font on this page is 2px larger than the app default (body text is 15px). */
 .opportunity-search-page { font-size:17px; }
-.opportunity-search-page :deep(.ui-eyebrow) { font-size:calc(.67rem + 2px); }
-.opportunity-search-page :deep(.ui-page-header h1) { font-size:calc(1.6rem + 2px); }
-.opportunity-search-page :deep(.ui-page-header__description) { font-size:calc(.88rem + 2px); }
 .opportunity-search-page :deep(.ui-tabs>button) { font-size:calc(.78rem + 2px); }
 .opportunity-search-page :deep(.ui-control) { font-size:calc(.82rem + 2px); }
 .opportunity-search-page :deep(.ui-button) { font-size:calc(.82rem + 2px); }
@@ -320,7 +314,7 @@ onMounted(() => { loadSource(); load() })
 .opportunity-search__counterpart-summary { font-style:italic; }
 .opportunity-search__counterpart-controls { display:grid; grid-template-columns:12rem 13rem 10rem auto; gap:.75rem; align-items:center; margin-top:1rem; }
 .opportunity-search__controls { display:grid; grid-template-columns:minmax(18rem,1fr) 11rem 12rem 13rem 10rem auto auto; gap:.75rem; align-items:center; margin-top:1rem; }
-.opportunity-search__hint,.opportunity-search__summary span,.opportunity-search__result header p,.opportunity-search__item span,.opportunity-search__empty { color:var(--ui-text-muted); }
+.opportunity-search__hint,.opportunity-search__summary span,.opportunity-search__meta,.opportunity-search__item span,.opportunity-search__empty { color:var(--ui-text-muted); }
 .opportunity-search__hint { margin:.65rem 0 0; font-size:calc(.86rem + 2px); }
 .opportunity-search__interpretation { display:flex; gap:.55rem; margin-bottom:1rem; }
 .opportunity-search__corrections,.opportunity-search__adjustments { display:flex; flex-wrap:wrap; gap:.55rem; }
@@ -333,19 +327,16 @@ onMounted(() => { loadSource(); load() })
 .opportunity-search__results { display:grid; gap:.8rem; }
 .opportunity-search__result { background:var(--ui-surface); border:1px solid var(--ui-border); border-left:4px solid var(--ui-primary); border-radius:var(--ui-radius); padding:1rem; cursor:pointer; }
 .opportunity-search__result:hover { box-shadow:var(--ui-shadow); transform:translateY(-1px); }
-.opportunity-search__result header { display:flex; justify-content:space-between; gap:1rem; }
-.opportunity-search__actions { display:flex; justify-content:flex-end; gap:.4rem; margin-top:.8rem; padding-top:.7rem; border-top:1px solid var(--ui-border); cursor:default; }
-.opportunity-search__result h2,.opportunity-search__result header p { margin:0; }
-.opportunity-search__badges { display:flex; gap:.4rem; align-items:flex-start; }
-.opportunity-search__message { margin:.8rem 0; }
+.opportunity-search__result header { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:.7rem; }
+.opportunity-search__headline { display:flex; flex:1; min-width:0; flex-wrap:wrap; align-items:baseline; gap:.3rem 1rem; }
+.opportunity-search__result h2 { margin:0; white-space:nowrap; }
+.opportunity-search__meta { white-space:nowrap; }
+.opportunity-search__message { flex:1 1 18rem; min-width:0; margin:0; }
+.opportunity-search__side { display:flex; flex:none; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:.4rem; }
+.opportunity-search__actions { display:inline-flex; gap:.4rem; margin-left:.3rem; cursor:default; }
 .opportunity-search__age { display:inline-block; margin-left:.5rem; padding:.05rem .5rem; border-radius:999px; background:var(--ui-surface-muted); color:var(--ui-text); font-size:.85em; font-weight:700; white-space:nowrap; }
 .opportunity-search__reasons { margin:-.35rem 0 .8rem; color:var(--ui-text-muted); font-size:calc(.82rem + 2px); }
 .opportunity-search__items { display:grid; grid-template-columns:repeat(auto-fit,minmax(16rem,1fr)); gap:.5rem; }
 .opportunity-search__item { display:flex; flex-direction:column; gap:.15rem; padding:.65rem; background:var(--ui-surface-muted); border-radius:calc(var(--ui-radius) - 2px); }
-@media (max-width:900px) { .opportunity-search__controls,.opportunity-search__counterpart-controls { grid-template-columns:1fr; } .opportunity-search__counterpart-head { flex-direction:column; } .opportunity-search__result header { flex-direction:column; } }
-</style>
-
-<style>
-/* Unscoped: Vue compiles a scoped ":global(.theme-inspinia) ..." to a bare .theme-inspinia rule. */
-.theme-inspinia .opportunity-search-page.ui-page .ui-page-header h1 { font-size:calc(1.35rem + 2px); }
+@media (max-width:900px) { .opportunity-search__controls,.opportunity-search__counterpart-controls { grid-template-columns:1fr; } .opportunity-search__counterpart-head { flex-direction:column; } .opportunity-search__result header { flex-direction:column; align-items:flex-start; } .opportunity-search__side { justify-content:flex-start; } }
 </style>

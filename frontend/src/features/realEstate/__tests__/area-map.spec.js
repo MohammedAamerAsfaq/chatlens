@@ -2,15 +2,26 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const api = vi.hoisted(() => ({
-  areaMap: vi.fn(), placeAreas: vi.fn(), locateAreas: vi.fn(), mergeAreas: vi.fn(), getLocationSearch: vi.fn(), setLocationSearch: vi.fn(),
+  areaMap: vi.fn(), areaMapInquiries: vi.fn(), placeAreas: vi.fn(), locateAreas: vi.fn(), mergeAreas: vi.fn(), getLocationSearch: vi.fn(), setLocationSearch: vi.fn(),
 }))
 const maps = vi.hoisted(() => ({ markers: [], fitBounds: vi.fn() }))
 vi.mock('@/api', () => ({ realEstateApi: api }))
 vi.mock('@/components/ui/UiDatePicker.vue', () => ({ default: { props: ['modelValue'], template: '<input />' } }))
+const whatsapp = vi.hoisted(() => ({ viewSource: vi.fn(), openInInbox: vi.fn() }))
+vi.mock('@/features/realEstate/composables/useOpportunityWhatsApp', async () => {
+  const { ref } = await import('vue')
+  return {
+    useOpportunityWhatsApp: () => ({
+      dialog: { open: ref(false), loading: ref(false), error: ref(''), draft: ref(''), inquiry: ref(null), title: ref(''), close: vi.fn() },
+      viewSource: whatsapp.viewSource, openInInbox: whatsapp.openInInbox,
+    }),
+  }
+})
+vi.mock('@/features/trading/components/TradingConversationDialog.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('@/features/realEstate/googleMapsLoader', () => ({
   loadGoogleMaps: () => Promise.resolve({
     Map: function Map() { return { fitBounds: maps.fitBounds, setCenter: vi.fn(), setZoom: vi.fn(), panTo: vi.fn(), getZoom: () => 9 } },
-    InfoWindow: function InfoWindow() { return { setContent: vi.fn(), open: vi.fn() } },
+    InfoWindow: function InfoWindow() { return { setContent: vi.fn(), open: vi.fn(), close: vi.fn() } },
     LatLngBounds: function LatLngBounds() { return { extend: vi.fn(), getCenter: vi.fn() } },
     Marker: function Marker(options) { const marker = { options, setMap: vi.fn(), addListener: vi.fn(), getPosition: () => options.position }; maps.markers.push(marker); return marker },
     SymbolPath: { CIRCLE: 0 },
@@ -31,9 +42,17 @@ const report = (overrides = {}) => ({
   ...overrides,
 })
 
+const inquiryRow = {
+  id: 7, first_seen_at: '2026-11-20T10:00:00Z', activity_type: 'buying', status: 'new',
+  summary: 'Wants a villa in Verona', original_message: 'Need villa Verona', contact_name: 'Abdul', contact_phone: '+971500000000',
+  account: 3, source_chat: 11, source_chat_name: 'Dubai Brokers', source_message: 99, source_message_time: '2026-11-20T10:00:00Z',
+  source_party_name: '', inquiry_medium_name: '',
+  locations: [{ sequence: 1, status: 'located', area_id: 1, area: 'DAMAC Hills 2', sub_area: 'Verona', city: 'Dubai', location_raw: 'Verona', error: '' }],
+}
+
 async function mountView() {
   const { default: View } = await import('@/views/RealEstateAreaMapView.vue')
-  const wrapper = mount(View)
+  const wrapper = mount(View, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
   await flushPromises()
   return wrapper
 }
@@ -45,6 +64,40 @@ describe('Area Map', () => {
     vi.clearAllMocks()
     maps.markers = []
     api.areaMap.mockResolvedValue({ data: report() })
+    api.areaMapInquiries.mockResolvedValue({ data: { count: 1, results: [inquiryRow] } })
+  })
+
+  it('lists the inquiries below the map and narrows them to a clicked bubble or card', async () => {
+    const wrapper = await mountView()
+    expect(api.areaMapInquiries).toHaveBeenLastCalledWith({ activity_type: 'all', page: 1, page_size: 25, ordering: '-first_seen_at' })
+    expect(wrapper.find('.area-inquiries').text()).toContain('Verona, DAMAC Hills 2, Dubai')
+
+    // Bubble: the click listener the marker registered. It also scrolls the area list to the card.
+    const scrollTo = vi.fn()
+    wrapper.find('.area-map__ranking').element.scrollTo = scrollTo
+    maps.markers[0].addListener.mock.calls.find(([name]) => name === 'click')[1]()
+    await flushPromises()
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }))
+    expect(api.areaMapInquiries).toHaveBeenLastCalledWith(expect.objectContaining({ area: 1, page: 1 }))
+    expect(wrapper.find('.area-inquiries__chip').text()).toContain('DAMAC Hills 2, Dubai')
+
+    // Card of an area that is not on the map still filters the grid.
+    await wrapper.findAll('.area-map__ranking li')[1].find('button').trigger('click')
+    await flushPromises()
+    expect(api.areaMapInquiries).toHaveBeenLastCalledWith(expect.objectContaining({ area: 2 }))
+
+    await wrapper.find('.area-inquiries__chip button').trigger('click')
+    await flushPromises()
+    expect(api.areaMapInquiries.mock.calls.at(-1)[0]).not.toHaveProperty('area')
+    expect(wrapper.find('.area-inquiries__chip').exists()).toBe(false)
+  })
+
+  it('opens the original WhatsApp message of a grid row', async () => {
+    const wrapper = await mountView()
+    await wrapper.find('.area-inquiries [title="View the original WhatsApp message"]').trigger('click')
+    expect(whatsapp.viewSource).toHaveBeenCalledWith(inquiryRow)
+    await wrapper.find('.area-inquiries [title="Open the original message in the WhatsApp Inbox"]').trigger('click')
+    expect(whatsapp.openInInbox).toHaveBeenCalledWith(inquiryRow)
   })
 
   it('ranks areas with their buildings and draws a circle per placed area', async () => {

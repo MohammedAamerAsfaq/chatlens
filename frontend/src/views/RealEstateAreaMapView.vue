@@ -233,7 +233,7 @@ async function drawMap() {
 async function revealInRanking(areaId) {
   await nextTick()
   const panel = rankingElement.value
-  const item = panel?.querySelector(`[data-area-id="${CSS.escape(String(areaId))}"]`)
+  const item = panel && [...panel.querySelectorAll('[data-area-id]')].find(el => el.dataset.areaId === String(areaId))
   if (!panel || !item) return
   const offset = item.getBoundingClientRect().top - panel.getBoundingClientRect().top
   panel.scrollTo({ top: panel.scrollTop + offset - 48, behavior: 'smooth' })
