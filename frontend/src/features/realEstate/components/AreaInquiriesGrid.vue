@@ -2,13 +2,16 @@
 import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { faArrowUpRightFromSquare, faLocationDot, faXmark } from '@fortawesome/free-solid-svg-icons'
+import { faWhatsapp } from '@fortawesome/free-brands-svg-icons'
+import { faArrowUpRightFromSquare, faInbox, faLocationDot, faXmark } from '@fortawesome/free-solid-svg-icons'
 import { realEstateApi } from '@/api'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiDataTable from '@/components/ui/UiDataTable.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
 import { apiError } from '@/features/realEstate/apiErrors'
 import { activityColors, opportunityLanes, opportunityStatuses, statusTone } from '@/features/realEstate/boardOptions'
+import { useOpportunityWhatsApp } from '@/features/realEstate/composables/useOpportunityWhatsApp'
+import TradingConversationDialog from '@/features/trading/components/TradingConversationDialog.vue'
 import { formatDateTime } from '@/utils/dateFormat'
 
 // The inquiries behind the Area Map, loaded page by page from the server with the map's
@@ -22,6 +25,13 @@ const emit = defineEmits(['clear-area'])
 const GEO_STATUS_TEXT = { pending: 'Not located yet', error: 'Location failed', unknown: 'No location to go on' }
 const laneLabels = Object.fromEntries(opportunityLanes.map(lane => [lane.key, lane.label]))
 const statusLabels = Object.fromEntries(opportunityStatuses.map(item => [item.value, item.label]))
+
+// The original WhatsApp message: in a dialog on this page, or in the full Inbox.
+const { dialog: waDialog, viewSource, openInInbox } = useOpportunityWhatsApp()
+const {
+  open: waDialogOpen, loading: waDialogLoading, error: waDialogError, draft: waDialogDraft,
+  inquiry: waDialogInquiry, title: waDialogTitle, close: closeWaDialog,
+} = waDialog
 
 const rows = ref([])
 const total = ref(0)
@@ -46,7 +56,7 @@ const columns = [
   { key: 'contact_name', label: 'Contact', width: '11rem', exportValue: row => [row.contact_name, row.contact_phone].filter(Boolean).join(' ') },
   { key: 'source_chat_name', label: 'Group / chat', width: '11rem', sortable: true, exportValue: row => row.source_chat_name || row.inquiry_medium_name },
   { key: 'status', label: 'Status', width: '7rem', sortable: true, exportValue: row => statusLabels[row.status] || row.status },
-  { key: 'open', label: '', width: '3rem', exportable: false },
+  { key: 'open', label: 'Open', width: '6.5rem', exportable: false },
 ]
 
 const exportFilename = computed(() => `inquiries${props.area ? `-${props.area.name.replace(/[^\w-]+/g, '-').toLowerCase()}` : ''}.csv`)
@@ -136,10 +146,16 @@ defineExpose({ load })
       <template #cell-source_chat_name="{ row }"><span class="area-inquiries__text">{{ row.source_chat_name || row.inquiry_medium_name || '-' }}</span></template>
       <template #cell-status="{ value }"><UiBadge :tone="statusTone(value)">{{ statusLabels[value] || value }}</UiBadge></template>
       <template #cell-open="{ row }">
-        <RouterLink
-          :to="{ name: 'real-estate-opportunity-detail', params: { id: row.id } }" target="_blank"
-          class="area-inquiries__open" title="Open the inquiry in a new tab" aria-label="Open the inquiry in a new tab" @click.stop
-        ><FontAwesomeIcon :icon="faArrowUpRightFromSquare" /></RouterLink>
+        <span class="area-inquiries__actions">
+          <template v-if="row.source_chat">
+            <button type="button" class="area-inquiries__open is-whatsapp" title="View the original WhatsApp message" aria-label="View the original WhatsApp message" @click.stop="viewSource(row)"><FontAwesomeIcon :icon="faWhatsapp" /></button>
+            <button type="button" class="area-inquiries__open" title="Open the original message in the WhatsApp Inbox" aria-label="Open the original message in the WhatsApp Inbox" @click.stop="openInInbox(row)"><FontAwesomeIcon :icon="faInbox" /></button>
+          </template>
+          <RouterLink
+            :to="{ name: 'real-estate-opportunity-detail', params: { id: row.id } }" target="_blank"
+            class="area-inquiries__open" title="Open the inquiry in a new tab" aria-label="Open the inquiry in a new tab" @click.stop
+          ><FontAwesomeIcon :icon="faArrowUpRightFromSquare" /></RouterLink>
+        </span>
       </template>
       <template #expanded="{ row }">
         <div class="area-inquiries__detail">
@@ -156,6 +172,11 @@ defineExpose({ load })
         </div>
       </template>
     </UiDataTable>
+    <TradingConversationDialog
+      :open="waDialogOpen" :title="waDialogTitle" :inquiry="waDialogInquiry"
+      :loading="waDialogLoading" :error="waDialogError" :draft="waDialogDraft"
+      @close="closeWaDialog"
+    />
   </section>
 </template>
 
@@ -175,7 +196,10 @@ defineExpose({ load })
 .area-inquiries__place { display:block; font-size:.85rem; }
 .area-inquiries__place.is-match { color:var(--ui-primary); font-weight:700; }
 .area-inquiries__place.is-off { color:var(--ui-text-muted); font-style:italic; }
-.area-inquiries__open { color:var(--ui-primary); }
+.area-inquiries__actions { display:inline-flex; align-items:center; gap:.2rem; }
+.area-inquiries__open { display:inline-flex; padding:.3rem .35rem; border:0; border-radius:var(--ui-radius-sm); background:none; color:var(--ui-primary); font-size:.95rem; cursor:pointer; }
+.area-inquiries__open:hover { background:var(--ui-surface-muted); }
+.area-inquiries__open.is-whatsapp { color:#25d366; }
 .area-inquiries__detail { display:grid; gap:.75rem; padding:.25rem 0; }
 .area-inquiries__detail p { margin:.25rem 0 0; white-space:pre-wrap; }
 .area-inquiries__detail ul { margin:.25rem 0 0; padding-left:1.1rem; }

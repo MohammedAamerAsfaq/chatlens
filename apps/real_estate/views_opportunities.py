@@ -1,5 +1,5 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.decorators import action
@@ -176,7 +176,9 @@ class OpportunityViewSet(CompanyOwnedViewSet):
         if not field:
             raise ValidationError({'ordering': f'Sort by one of: {", ".join(AREA_INQUIRY_ORDERING)}.'})
         prefix = '-' if ordering.startswith('-') else ''
-        qs = qs.order_by(f'{prefix}{field}', f'{prefix}id')
+        qs = qs.order_by(f'{prefix}{field}', f'{prefix}id').annotate(
+            source_message_time=F('source_message__message_time'),
+        )
         page = self.paginate_queryset(qs)
         return self.get_paginated_response(AreaInquirySerializer(page, many=True).data)
 

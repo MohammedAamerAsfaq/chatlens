@@ -251,6 +251,9 @@ class AreaMapInquiriesGridTests(LocationTestCase):
         self.assertEqual({row['original_message'] for row in data['results']}, {'two in JVC', 'jvc seller'})
         row = next(row for row in data['results'] if row['original_message'] == 'two in JVC')
         self.assertEqual([(loc['area_id'], loc['sub_area']) for loc in row['locations']], [(jvc['id'], 'Bloom Towers'), (jvc['id'], '')])
+        # What the WhatsApp buttons need to jump to the original message (none for these).
+        self.assertEqual({key: row[key] for key in ('account', 'source_chat', 'source_message', 'source_message_time')},
+                         {'account': None, 'source_chat': None, 'source_message': None, 'source_message_time': None})
 
         self.assertEqual(self.client.get(self.GRID, {'area': barsha['id']}).json()['count'], 1)
         self.assertEqual(self.client.get(self.GRID).json()['count'], 4)

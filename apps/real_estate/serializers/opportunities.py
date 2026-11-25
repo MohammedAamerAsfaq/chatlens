@@ -78,6 +78,9 @@ class AreaInquirySerializer(serializers.ModelSerializer):
     source_chat_name = serializers.CharField(source='source_chat.name', read_only=True, default='')
     inquiry_medium_name = serializers.CharField(source='inquiry_medium.name', read_only=True, default='')
     locations = serializers.SerializerMethodField()
+    # Annotated by the view (source_message__message_time), so opening the original WhatsApp
+    # message needs no extra query per row.
+    source_message_time = serializers.DateTimeField(read_only=True)
 
     @staticmethod
     def get_contact_name(obj):
@@ -105,8 +108,8 @@ class AreaInquirySerializer(serializers.ModelSerializer):
         model = RealEstateOpportunity
         fields = (
             'id', 'first_seen_at', 'activity_type', 'status', 'summary', 'original_message',
-            'contact_name', 'contact_phone', 'source_chat', 'source_chat_name', 'source_message',
-            'source_party_name', 'inquiry_medium_name', 'locations',
+            'contact_name', 'contact_phone', 'account', 'source_chat', 'source_chat_name',
+            'source_message', 'source_message_time', 'source_party_name', 'inquiry_medium_name', 'locations',
         )
         read_only_fields = fields
 
