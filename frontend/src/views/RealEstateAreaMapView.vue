@@ -1,7 +1,10 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { faLocationDot, faRotate } from '@fortawesome/free-solid-svg-icons'
+import {
+  faChevronDown, faChevronUp, faDownLeftAndUpRightToCenter, faListOl, faLocationDot, faMap, faRotate,
+  faTableList, faUpRightAndDownLeftFromCenter,
+} from '@fortawesome/free-solid-svg-icons'
 import { realEstateApi } from '@/api'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCard from '@/components/ui/UiCard.vue'
@@ -47,6 +50,22 @@ let map = null
 let infoWindow = null
 let markers = new Map()
 let pollTimer = null
+let lastBounds = null
+let fitPending = false
+
+// Which panels are open is a per-viewer convenience, remembered in this browser only.
+const PANELS_KEY = 'chatlens:area-map:panels'
+function readPanels() {
+  try { return { map: true, areas: true, ...JSON.parse(localStorage.getItem(PANELS_KEY) || '{}') } } catch { return { map: true, areas: true } }
+}
+function savePanels() {
+  try { localStorage.setItem(PANELS_KEY, JSON.stringify({ map: showMap.value, areas: showAreas.value })) } catch { /* storage unavailable: just not remembered */ }
+}
+const savedPanels = readPanels()
+const showMap = ref(savedPanels.map !== false)
+const showAreas = ref(savedPanels.areas !== false)
+const allShown = computed(() => showMap.value && showAreas.value)
+const gridElement = ref(null)
 
 const areas = computed(() => report.value?.areas || [])
 const totals = computed(() => report.value?.totals || null)
@@ -197,14 +216,40 @@ async function drawMap() {
       markers.set(area.id, marker)
       bounds.extend(position)
     }
+    lastBounds = bounds
     // Keep the user's view while the counts refresh during a backfill.
-    if (firstDraw || !report.value.locating) {
-      if (placed.value.length > 1) map.fitBounds(bounds, 48)
-      else if (placed.value.length === 1) { map.setCenter(bounds.getCenter()); map.setZoom(13) }
-    }
+    if (firstDraw || !report.value.locating) fitMap()
   } catch (exc) {
     mapError.value = exc.message || 'The map could not be loaded.'
   }
+}
+
+// A collapsed map has no size, so fitting it then would zoom wrongly: fit once it is shown.
+function fitMap() {
+  if (!map || !lastBounds) return
+  if (!showMap.value) { fitPending = true; return }
+  fitPending = false
+  if (placed.value.length > 1) map.fitBounds(lastBounds, 48)
+  else if (placed.value.length === 1) { map.setCenter(lastBounds.getCenter()); map.setZoom(13) }
+}
+
+watch(showMap, async shown => {
+  savePanels()
+  if (shown && fitPending) { await nextTick(); fitMap() }
+})
+watch(showAreas, savePanels)
+
+function toggleAll() {
+  const expand = !allShown.value
+  showMap.value = expand
+  showAreas.value = expand
+}
+
+// "Go to grid" on a card: list that area's inquiries and bring the grid into view.
+async function goToGrid(area) {
+  openArea(area)
+  await nextTick()
+  gridElement.value?.$el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 // Scroll only the ranking panel (not the page), so the map stays in view.
@@ -253,22 +298,39 @@ onBeforeUnmount(() => {
 <template>
   <UiPage width="wide">
     <UiCard class="area-map__filters">
-      <UiTabs v-model="activity" :tabs="tabs" />
+      <div class="area-map__tabbar">
+        <UiTabs v-model="activity" :tabs="tabs" />
+        <div class="area-map__panels" role="group" aria-label="Show or hide panels">
+          <button
+            type="button" class="area-map__icon" :class="{ 'is-on': showMap }" :aria-pressed="showMap"
+            :title="showMap ? 'Collapse the map' : 'Expand the map'" @click="showMap = !showMap"
+          ><FontAwesomeIcon :icon="faMap" /><FontAwesomeIcon :icon="showMap ? faChevronUp : faChevronDown" class="area-map__chevron" /></button>
+          <button
+            type="button" class="area-map__icon" :class="{ 'is-on': showAreas }" :aria-pressed="showAreas"
+            :title="showAreas ? 'Collapse Top areas' : 'Expand Top areas'" @click="showAreas = !showAreas"
+          ><FontAwesomeIcon :icon="faListOl" /><FontAwesomeIcon :icon="showAreas ? faChevronUp : faChevronDown" class="area-map__chevron" /></button>
+          <button
+            type="button" class="area-map__icon" :title="allShown ? 'Collapse the map and Top areas' : 'Expand the map and Top areas'" @click="toggleAll"
+          ><FontAwesomeIcon :icon="allShown ? faDownLeftAndUpRightToCenter : faUpRightAndDownLeftFromCenter" /></button>
+        </div>
+      </div>
       <div class="area-map__controls">
         <UiSelect v-model="status" :options="statusFilters" />
         <UiDatePicker v-model="dateFrom" placeholder="From date" />
         <UiDatePicker v-model="dateTo" placeholder="To date" />
-        <UiButton variant="outline" :disabled="loading" :aria-busy="loading" @click="load()">
-          <span v-if="loading" class="ui-spinner area-map__spinner" aria-hidden="true"></span><FontAwesomeIcon v-else :icon="faRotate" /> {{ loading ? 'Updating...' : 'Refresh' }}
-        </UiButton>
+        <button
+          type="button" class="area-map__icon area-map__refresh" :disabled="loading" :aria-busy="loading"
+          :title="loading ? 'Updating...' : 'Refresh'" :aria-label="loading ? 'Updating' : 'Refresh'" @click="load()"
+        ><FontAwesomeIcon :icon="faRotate" :spin="loading" /></button>
       </div>
     </UiCard>
 
     <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
     <UiNotice v-if="notice" tone="info">{{ notice }}</UiNotice>
 
-    <div class="area-map__layout">
-      <div class="area-map__map-wrap" :aria-busy="loading">
+    <div v-show="showMap || showAreas" class="area-map__layout" :class="{ 'is-single': !allShown }">
+      <!-- v-show, not v-if: the Google map keeps its markers and view while collapsed. -->
+      <div v-show="showMap" class="area-map__map-wrap" :aria-busy="loading">
         <UiNotice v-if="mapError" tone="warning">{{ mapError }}</UiNotice>
         <div v-show="!mapError" ref="mapElement" class="area-map__map" aria-label="Map of inquiries by area"></div>
         <UiEmptyState v-if="!report && loading" busy title="Loading the area map..." class="area-map__loading" />
@@ -281,7 +343,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <aside ref="rankingElement" class="area-map__ranking">
+      <aside v-show="showAreas" ref="rankingElement" class="area-map__ranking">
         <h2>Top areas</h2>
         <p v-if="report && !areas.length" class="area-map__muted">No located inquiries for these filters yet.</p>
         <ol v-else>
@@ -306,14 +368,17 @@ onBeforeUnmount(() => {
               <button type="button" class="area-map__link" :disabled="!mergeTarget || merging" @click="mergeInto(area)">{{ merging ? 'Merging...' : 'Merge' }}</button>
               <button type="button" class="area-map__link" :disabled="merging" @click="mergingId = null">Cancel</button>
             </div>
-            <button v-else-if="areas.length > 1" type="button" class="area-map__link area-map__merge-start" title="Same place written another way? Merge it into the right area." @click="startMerge(area)">Merge...</button>
+            <div v-else class="area-map__card-actions">
+              <button type="button" class="area-map__link" title="List this area's inquiries in the grid below" @click="goToGrid(area)"><FontAwesomeIcon :icon="faTableList" /> Go to grid</button>
+              <button v-if="areas.length > 1" type="button" class="area-map__link" title="Same place written another way? Merge it into the right area." @click="startMerge(area)">Merge...</button>
+            </div>
             <span class="area-map__bar" :style="{ width: `${(area.count / maxCount) * 100}%`, background: colorFor(area) }"></span>
           </li>
         </ol>
       </aside>
     </div>
 
-    <AreaInquiriesGrid v-if="report" :filters="gridFilters" :area="selectedArea" @clear-area="clearArea" />
+    <AreaInquiriesGrid v-if="report" ref="gridElement" :filters="gridFilters" :area="selectedArea" @clear-area="clearArea" />
 
     <UiCard v-if="google && google.waiting" class="area-map__google">
       <div>
@@ -335,13 +400,26 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .area-map__filters { margin-bottom: 1rem; }
-.area-map__controls { display:grid; grid-template-columns:13rem 11rem 11rem auto; gap:.75rem; align-items:center; margin-top:1rem; }
+.area-map__tabbar { display:flex; align-items:flex-end; gap:1rem; }
+.area-map__tabbar > :first-child { flex:1; min-width:0; }
+.area-map__panels { display:flex; flex:none; gap:.35rem; padding-bottom:.35rem; }
+/* One row, every control the same height. */
+.area-map__controls { display:grid; grid-template-columns:13rem 11rem 11rem auto; gap:.75rem; align-items:center; justify-content:start; margin-top:1rem; }
+.area-map__controls :deep(.ui-control) { box-sizing:border-box; height:var(--ui-control-height); min-height:0; margin:0; padding-top:0; padding-bottom:0; line-height:calc(var(--ui-control-height) - 2px); }
+.area-map__controls :deep(.ui-select-wrap), .area-map__controls :deep(.ui-date-picker) { margin:0; }
+.area-map__icon { display:inline-flex; align-items:center; justify-content:center; gap:.3rem; box-sizing:border-box; min-width:var(--ui-control-height); height:var(--ui-control-height); padding:0 .6rem; border:1px solid var(--ui-border-strong); border-radius:var(--ui-radius-sm); background:var(--ui-surface); color:var(--ui-text-muted); font-size:.95rem; cursor:pointer; }
+.area-map__icon:hover:not(:disabled) { border-color:var(--ui-primary); color:var(--ui-primary); }
+.area-map__icon.is-on { border-color:var(--ui-primary); color:var(--ui-primary); }
+.area-map__icon:disabled { opacity:.6; cursor:default; }
+.area-map__chevron { font-size:.65rem; }
+.area-map__refresh { padding:0; color:var(--ui-primary); }
 .area-map__muted { color:var(--ui-text-muted); }
 .area-map__spinner { display:inline-block; width:14px; height:14px; margin:0; border-width:2px; }
 .area-map__google { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:1rem; }
 .area-map__google { margin:1rem 0 0; }
 .area-map__google p { margin:.3rem 0 0; color:var(--ui-text-muted); font-size:.86rem; }
 .area-map__layout { display:grid; grid-template-columns:minmax(0,1fr) 22rem; gap:1rem; align-items:start; }
+.area-map__layout.is-single { grid-template-columns:minmax(0,1fr); }
 .area-map__map-wrap { position:relative; }
 .area-map__map { height:640px; border:1px solid var(--ui-border); border-radius:var(--ui-radius); background:var(--ui-surface-muted); }
 .area-map__loading { position:absolute; inset:0; }
@@ -369,7 +447,8 @@ onBeforeUnmount(() => {
 .area-map__merge select { flex:1; min-width:0; padding:.25rem .4rem; border:1px solid var(--ui-border-strong); border-radius:var(--ui-radius-sm); background:var(--ui-surface); color:var(--ui-text); font:inherit; font-size:.8rem; }
 .area-map__ranking .area-map__link { width:auto; padding:0; border:0; background:none; color:var(--ui-primary); font-size:.78rem; font-weight:700; cursor:pointer; }
 .area-map__ranking .area-map__link:disabled { opacity:.5; cursor:default; }
-.area-map__ranking .area-map__merge-start { position:relative; z-index:1; display:block; margin:-.35rem .65rem .45rem auto; }
+.area-map__card-actions { position:relative; z-index:1; display:flex; justify-content:space-between; align-items:center; gap:.5rem; margin-top:-.35rem; padding:0 .65rem .45rem 2.85rem; }
+.area-map__card-actions .area-map__link { display:inline-flex; align-items:center; gap:.3rem; }
 :deep(.area-map__info) { display:grid; gap:.2rem; font-size:.86rem; }
-@media (max-width:1000px) { .area-map__layout { grid-template-columns:1fr; } .area-map__map { height:420px; } .area-map__controls { grid-template-columns:1fr 1fr; } .area-map__google { flex-direction:column; align-items:flex-start; } }
+@media (max-width:1000px) { .area-map__layout { grid-template-columns:1fr; } .area-map__map { height:420px; } .area-map__controls { grid-template-columns:1fr 1fr; } .area-map__controls .area-map__refresh { justify-self:start; } .area-map__tabbar { flex-direction:column; align-items:stretch; } .area-map__panels { justify-content:flex-end; } .area-map__google { flex-direction:column; align-items:flex-start; } }
 </style>

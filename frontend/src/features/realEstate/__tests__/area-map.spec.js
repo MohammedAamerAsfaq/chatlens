@@ -92,6 +92,46 @@ describe('Area Map', () => {
     expect(wrapper.find('.area-inquiries__chip').exists()).toBe(false)
   })
 
+  it('collapses and expands the map and Top areas, and remembers it', async () => {
+    localStorage.removeItem('chatlens:area-map:panels')
+    const wrapper = await mountView()
+    const panel = title => wrapper.find(`.area-map__panels [title="${title}"]`)
+    const mapShown = () => wrapper.find('.area-map__map-wrap').element.style.display !== 'none'
+    const areasShown = () => wrapper.find('.area-map__ranking').element.style.display !== 'none'
+
+    await panel('Collapse the map').trigger('click')
+    expect([mapShown(), areasShown()]).toEqual([false, true])
+    expect(JSON.parse(localStorage.getItem('chatlens:area-map:panels'))).toEqual({ map: false, areas: true })
+
+    await panel('Expand the map and Top areas').trigger('click')
+    expect([mapShown(), areasShown()]).toEqual([true, true])
+    await panel('Collapse the map and Top areas').trigger('click')
+    expect([mapShown(), areasShown()]).toEqual([false, false])
+    expect(wrapper.find('.area-map__layout').element.style.display).toBe('none')
+    await panel('Expand Top areas').trigger('click')
+    expect([mapShown(), areasShown()]).toEqual([false, true])
+    localStorage.removeItem('chatlens:area-map:panels')
+  })
+
+  it('goes from an area card to its inquiries in the grid', async () => {
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    const wrapper = await mountView()
+    await button(wrapper, 'Go to grid').trigger('click')
+    await flushPromises()
+    expect(api.areaMapInquiries).toHaveBeenLastCalledWith(expect.objectContaining({ area: 1, page: 1 }))
+    expect(scrollIntoView).toHaveBeenCalled()
+    expect(scrollIntoView.mock.contexts.at(-1).classList.contains('area-inquiries')).toBe(true)
+    delete Element.prototype.scrollIntoView
+  })
+
+  it('refreshes from a small icon button', async () => {
+    const wrapper = await mountView()
+    await wrapper.find('.area-map__refresh').trigger('click')
+    await flushPromises()
+    expect(api.areaMap).toHaveBeenCalledTimes(2)
+  })
+
   it('opens the original WhatsApp message of a grid row', async () => {
     const wrapper = await mountView()
     await wrapper.find('.area-inquiries [title="View the original WhatsApp message"]').trigger('click')
@@ -138,7 +178,7 @@ describe('Area Map', () => {
     api.mergeAreas.mockResolvedValue({ data: { ...report(), merged: 1 } })
     const wrapper = await mountView()
     const second = wrapper.findAll('.area-map__ranking li')[1]
-    await second.find('.area-map__merge-start').trigger('click')
+    await second.findAll('.area-map__card-actions button').find(b => b.text() === 'Merge...').trigger('click')
     await second.find('select').setValue(1)
     await second.findAll('button').find(b => b.text() === 'Merge').trigger('click')
     await flushPromises()
