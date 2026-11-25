@@ -196,7 +196,6 @@ onMounted(() => { loadSource(); load() })
         <UiSelect v-model="pageSize" :options="pageSizes" />
         <UiCheckbox v-model="groupDuplicates" label="Group similar" />
       </div>
-      <p class="opportunity-search__hint">Ranked by the same Hybrid Search: meaning plus this opportunity's property type, bedrooms, price or budget, location and details.</p>
     </UiCard>
     <UiCard v-else class="opportunity-search">
       <UiTabs v-model="activeActivity" :tabs="tabs" />
@@ -314,8 +313,7 @@ onMounted(() => { loadSource(); load() })
 .opportunity-search__counterpart-summary { font-style:italic; }
 .opportunity-search__counterpart-controls { display:grid; grid-template-columns:12rem 13rem 10rem auto; gap:.75rem; align-items:center; margin-top:1rem; }
 .opportunity-search__controls { display:grid; grid-template-columns:minmax(18rem,1fr) 11rem 12rem 13rem 10rem auto auto; gap:.75rem; align-items:center; margin-top:1rem; }
-.opportunity-search__hint,.opportunity-search__summary span,.opportunity-search__meta,.opportunity-search__item span,.opportunity-search__empty { color:var(--ui-text-muted); }
-.opportunity-search__hint { margin:.65rem 0 0; font-size:calc(.86rem + 2px); }
+.opportunity-search__summary span,.opportunity-search__meta,.opportunity-search__item span,.opportunity-search__empty { color:var(--ui-text-muted); }
 .opportunity-search__interpretation { display:flex; gap:.55rem; margin-bottom:1rem; }
 .opportunity-search__corrections,.opportunity-search__adjustments { display:flex; flex-wrap:wrap; gap:.55rem; }
 .opportunity-search__corrections { margin-bottom:1rem; }
