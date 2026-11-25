@@ -298,8 +298,15 @@ onBeforeUnmount(() => {
 <template>
   <UiPage width="wide">
     <UiCard class="area-map__filters">
-      <div class="area-map__tabbar">
-        <UiTabs v-model="activity" :tabs="tabs" />
+      <UiTabs v-model="activity" :tabs="tabs" />
+      <div class="area-map__controls">
+        <UiSelect v-model="status" :options="statusFilters" />
+        <UiDatePicker v-model="dateFrom" placeholder="From date" />
+        <UiDatePicker v-model="dateTo" placeholder="To date" />
+        <button
+          type="button" class="area-map__icon area-map__refresh" :disabled="loading" :aria-busy="loading"
+          :title="loading ? 'Updating...' : 'Refresh'" :aria-label="loading ? 'Updating' : 'Refresh'" @click="load()"
+        ><FontAwesomeIcon :icon="faRotate" :spin="loading" /></button>
         <div class="area-map__panels" role="group" aria-label="Show or hide panels">
           <button
             type="button" class="area-map__icon" :class="{ 'is-on': showMap }" :aria-pressed="showMap"
@@ -313,15 +320,6 @@ onBeforeUnmount(() => {
             type="button" class="area-map__icon" :title="allShown ? 'Collapse the map and Top areas' : 'Expand the map and Top areas'" @click="toggleAll"
           ><FontAwesomeIcon :icon="allShown ? faDownLeftAndUpRightToCenter : faUpRightAndDownLeftFromCenter" /></button>
         </div>
-      </div>
-      <div class="area-map__controls">
-        <UiSelect v-model="status" :options="statusFilters" />
-        <UiDatePicker v-model="dateFrom" placeholder="From date" />
-        <UiDatePicker v-model="dateTo" placeholder="To date" />
-        <button
-          type="button" class="area-map__icon area-map__refresh" :disabled="loading" :aria-busy="loading"
-          :title="loading ? 'Updating...' : 'Refresh'" :aria-label="loading ? 'Updating' : 'Refresh'" @click="load()"
-        ><FontAwesomeIcon :icon="faRotate" :spin="loading" /></button>
       </div>
     </UiCard>
 
@@ -400,13 +398,9 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .area-map__filters { margin-bottom: 1rem; }
-.area-map__tabbar { display:flex; align-items:flex-end; gap:1rem; }
-.area-map__tabbar > :first-child { flex:1; min-width:0; }
-.area-map__panels { display:flex; flex:none; gap:.35rem; padding-bottom:.35rem; }
-/* One row, every control the same height. */
-.area-map__controls { display:grid; grid-template-columns:13rem 11rem 11rem auto; gap:.75rem; align-items:center; justify-content:start; margin-top:1rem; }
-.area-map__controls :deep(.ui-control) { box-sizing:border-box; height:var(--ui-control-height); min-height:0; margin:0; padding-top:0; padding-bottom:0; line-height:calc(var(--ui-control-height) - 2px); }
-.area-map__controls :deep(.ui-select-wrap), .area-map__controls :deep(.ui-date-picker) { margin:0; }
+/* One row: filters and Refresh on the left, the panel buttons on the right. */
+.area-map__controls { display:grid; grid-template-columns:13rem 11rem 11rem auto 1fr; gap:.75rem; align-items:center; margin-top:1rem; }
+.area-map__panels { display:flex; justify-self:end; gap:.35rem; }
 .area-map__icon { display:inline-flex; align-items:center; justify-content:center; gap:.3rem; box-sizing:border-box; min-width:var(--ui-control-height); height:var(--ui-control-height); padding:0 .6rem; border:1px solid var(--ui-border-strong); border-radius:var(--ui-radius-sm); background:var(--ui-surface); color:var(--ui-text-muted); font-size:.95rem; cursor:pointer; }
 .area-map__icon:hover:not(:disabled) { border-color:var(--ui-primary); color:var(--ui-primary); }
 .area-map__icon.is-on { border-color:var(--ui-primary); color:var(--ui-primary); }
@@ -450,5 +444,5 @@ onBeforeUnmount(() => {
 .area-map__card-actions { position:relative; z-index:1; display:flex; justify-content:space-between; align-items:center; gap:.5rem; margin-top:-.35rem; padding:0 .65rem .45rem 2.85rem; }
 .area-map__card-actions .area-map__link { display:inline-flex; align-items:center; gap:.3rem; }
 :deep(.area-map__info) { display:grid; gap:.2rem; font-size:.86rem; }
-@media (max-width:1000px) { .area-map__layout { grid-template-columns:1fr; } .area-map__map { height:420px; } .area-map__controls { grid-template-columns:1fr 1fr; } .area-map__controls .area-map__refresh { justify-self:start; } .area-map__tabbar { flex-direction:column; align-items:stretch; } .area-map__panels { justify-content:flex-end; } .area-map__google { flex-direction:column; align-items:flex-start; } }
+@media (max-width:1000px) { .area-map__layout { grid-template-columns:1fr; } .area-map__map { height:420px; } .area-map__controls { grid-template-columns:1fr 1fr; } .area-map__controls .area-map__refresh { justify-self:start; } .area-map__google { flex-direction:column; align-items:flex-start; } }
 </style>

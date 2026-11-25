@@ -16,6 +16,8 @@ const props = defineProps({
   sortDirection: { type: String, default: 'asc' },
   search: { type: String, default: '' },
   searchPlaceholder: { type: String, default: 'Search records...' },
+  // Off when the page has its own search (the table's box would be a second, different one).
+  searchable: { type: Boolean, default: true },
   emptyTitle: { type: String, default: 'No records found' },
   persistKey: { type: String, default: '' },
   exportFilename: { type: String, default: 'records.csv' },
@@ -116,7 +118,7 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); document.removeEventListener(
     <header class="ui-data-table__toolbar">
       <div class="ui-data-table__filters"><slot name="filters" /></div>
       <div class="ui-data-table__tools">
-        <label class="ui-data-table__search"><span aria-hidden="true">&#128269;</span><input v-model="internalSearch" :placeholder="searchPlaceholder" @input="updateSearch"></label>
+        <label v-if="searchable" class="ui-data-table__search"><span aria-hidden="true">&#128269;</span><input v-model="internalSearch" :placeholder="searchPlaceholder" @input="updateSearch"></label>
         <div class="ui-data-table__columns">
           <button type="button" class="ui-data-table__icon-button" title="Choose columns" aria-label="Choose columns" @click.stop="showColumns = !showColumns"><FontAwesomeIcon :icon="faTableColumns" /></button>
           <div v-if="showColumns" class="ui-data-table__column-menu">

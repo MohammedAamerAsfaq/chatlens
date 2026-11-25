@@ -35,6 +35,12 @@
 .choices__inner { min-height: var(--ui-control-height); padding: 7px 30px 7px 10px; border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-sm); background: var(--ui-surface); font-size: inherit; }
 .is-focused .choices__inner,.is-open .choices__inner { border-color: var(--ui-primary); box-shadow: var(--ui-focus-ring); }
 .choices__list--single { padding: 0; }
+/* choices.min.css is imported later (by UiSelect.vue) with the same specificity, so its 44px
+   min-height and extra bottom padding used to win and made every dropdown taller than the
+   inputs, date pickers and buttons beside it. A single select is exactly one control high.
+   "div" lifts these above the library's own .choices[data-type*=select-one] rules. */
+div.choices[data-type*=select-one] .choices__inner { display: flex; box-sizing: border-box; height: var(--ui-control-height); min-height: var(--ui-control-height); align-items: center; padding: 0 30px 0 10px; }
+div.choices[data-type*=select-one] .choices__list--single { width: 100%; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .choices__list--dropdown,.choices__list[aria-expanded] { z-index: 80; border-color: var(--ui-border); border-radius: var(--ui-radius-sm); background: var(--ui-surface-raised); box-shadow: var(--ui-shadow-popover); }
 .choices__list--dropdown .choices__item--selectable.is-highlighted { background: var(--ui-primary-soft); color: var(--ui-primary); }
 .choices__input { border-color: var(--ui-border) !important; background: var(--ui-surface-muted) !important; color: var(--ui-text) !important; }

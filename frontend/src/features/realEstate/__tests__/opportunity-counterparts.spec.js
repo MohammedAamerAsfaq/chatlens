@@ -87,6 +87,33 @@ describe('Opportunity Search counterpart mode', () => {
     expect(router.push).toHaveBeenCalledWith({ name: 'real-estate-board', query: { lane: 'buying', focus: '12' } })
   })
 
+  it('switches between cards and a grid with row details, and remembers it', async () => {
+    localStorage.removeItem('chatlens:opportunity-search:view')
+    const { default: View } = await import('@/views/RealEstateOpportunitySearchView.vue')
+    const wrapper = mount(View, { global: { stubs: { TradingConversationDialog: true } } })
+    await flushPromises()
+    expect(wrapper.find('.opportunity-search__result').exists()).toBe(true)
+
+    await wrapper.find('[aria-label="Grid view"]').trigger('click')
+    expect(wrapper.find('.opportunity-search__result').exists()).toBe(false)
+    expect(localStorage.getItem('chatlens:opportunity-search:view')).toBe('grid')
+    const row = wrapper.find('.opportunity-grid tbody tr')
+    expect(row.text()).toContain('Marina 2 bed for sale')
+    expect(row.text()).toContain('80% strong')
+    // The page has its own search, so the grid shows no second search box.
+    expect(wrapper.find('.ui-data-table__search').exists()).toBe(false)
+
+    await row.trigger('click')
+    expect(wrapper.find('.ui-data-table__detail').text()).toContain('Matched on: location')
+
+    await wrapper.find('.opportunity-grid [aria-label="Open the opportunity"]').trigger('click')
+    expect(router.push).toHaveBeenCalledWith({ name: 'real-estate-opportunity-detail', params: { id: 30 } })
+
+    await wrapper.find('[aria-label="Card view"]').trigger('click')
+    expect(wrapper.find('.opportunity-search__result').exists()).toBe(true)
+    localStorage.removeItem('chatlens:opportunity-search:view')
+  })
+
   it('shows why a match could not be searched', async () => {
     api.opportunityCounterparts.mockRejectedValue({ response: { status: 400, data: { non_field_errors: 'This opportunity has no property details or message to match on.' } } })
     const { default: View } = await import('@/views/RealEstateOpportunitySearchView.vue')

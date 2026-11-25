@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faWhatsapp } from '@fortawesome/free-brands-svg-icons'
-import { faInbox, faMagnifyingGlass, faMessage, faWandMagicSparkles } from '@fortawesome/free-solid-svg-icons'
+import { faGrip, faInbox, faMagnifyingGlass, faMessage, faTableList, faWandMagicSparkles } from '@fortawesome/free-solid-svg-icons'
 import { realEstateApi } from '@/api'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
@@ -16,6 +16,7 @@ import UiPage from '@/components/ui/UiPage.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTabs from '@/components/ui/UiTabs.vue'
+import OpportunityResultsGrid from '@/features/realEstate/components/OpportunityResultsGrid.vue'
 import TradingConversationDialog from '@/features/trading/components/TradingConversationDialog.vue'
 import { useOpportunityWhatsApp } from '@/features/realEstate/composables/useOpportunityWhatsApp'
 import { apiError } from '@/features/realEstate/apiErrors'
@@ -50,6 +51,14 @@ const pageSize = ref(20)
 const loading = ref(false)
 const error = ref('')
 const pages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
+
+// Cards or a grid: a per-viewer choice, remembered in this browser (search and matches pages).
+const VIEW_KEY = 'chatlens:opportunity-search:view'
+function readView() {
+  try { return localStorage.getItem(VIEW_KEY) === 'grid' ? 'grid' : 'cards' } catch { return 'cards' }
+}
+const view = ref(readView())
+watch(view, value => { try { localStorage.setItem(VIEW_KEY, value) } catch { /* not remembered */ } })
 // Shown while a search runs; Structured Search waits on an AI call first, so say so.
 const progressText = computed(() => {
   if (counterpartId.value) return `Finding ${counterpart.value ? counterpart.value.noun.toLowerCase() : 'matches'}...`
@@ -226,17 +235,32 @@ onMounted(() => { loadSource(); load() })
         {{ item.supplied }} &rarr; {{ item.canonical }}
       </span>
     </UiNotice>
-    <div v-if="loading" class="opportunity-search__summary opportunity-search__progress" role="status">
-      <span class="ui-spinner opportunity-search__spinner" aria-hidden="true"></span>
-      <strong>{{ progressText }}</strong>
-    </div>
-    <div v-else class="opportunity-search__summary">
-      <strong>{{ total.toLocaleString() }} opportunities</strong>
-      <span v-if="counterpartId && counterpart">{{ counterpart.noun.toLowerCase() }} ranked for #{{ counterpartId }}</span>
-      <span v-else-if="submittedQuery">ranked for "{{ submittedQuery }}"</span>
+    <div class="opportunity-search__bar">
+      <div v-if="loading" class="opportunity-search__summary opportunity-search__progress" role="status">
+        <span class="ui-spinner opportunity-search__spinner" aria-hidden="true"></span>
+        <strong>{{ progressText }}</strong>
+      </div>
+      <div v-else class="opportunity-search__summary">
+        <strong>{{ total.toLocaleString() }} opportunities</strong>
+        <span v-if="counterpartId && counterpart">{{ counterpart.noun.toLowerCase() }} ranked for #{{ counterpartId }}</span>
+        <span v-else-if="submittedQuery">ranked for "{{ submittedQuery }}"</span>
+      </div>
+      <div class="opportunity-search__views" role="group" aria-label="Show results as">
+        <button type="button" :class="{ 'is-on': view === 'cards' }" :aria-pressed="view === 'cards'" title="Card view" aria-label="Card view" @click="view = 'cards'"><FontAwesomeIcon :icon="faGrip" /></button>
+        <button type="button" :class="{ 'is-on': view === 'grid' }" :aria-pressed="view === 'grid'" title="Grid view" aria-label="Grid view" @click="view = 'grid'"><FontAwesomeIcon :icon="faTableList" /></button>
+      </div>
     </div>
 
-    <section v-if="rows.length" class="opportunity-search__results" :class="{ 'opportunity-search__results--stale': loading }" :aria-busy="loading">
+    <OpportunityResultsGrid
+      v-if="view === 'grid'"
+      :rows="rows" :total="total" :page="page" :page-size="pageSize" :loading="loading"
+      :show-activity="!counterpartId && activeActivity === 'all'"
+      :empty-title="error ? 'The search failed.' : 'No opportunities match this search.'"
+      @update:page="changePage" @update:page-size="pageSize = $event" @refresh="load"
+      @open="openOpportunity" @view-source="viewSource" @open-inbox="openInInbox" @message-contact="messageContact"
+    />
+
+    <section v-else-if="rows.length" class="opportunity-search__results" :class="{ 'opportunity-search__results--stale': loading }" :aria-busy="loading">
       <article v-for="row in rows" :key="row.id" class="opportunity-search__result" role="link" tabindex="0" @click="openOpportunity(row.id)" @keydown.enter="openOpportunity(row.id)">
         <!-- One line: who, when and how old, what they want; badges and WhatsApp actions on the right. -->
         <header>
@@ -281,7 +305,7 @@ onMounted(() => { loadSource(); load() })
     </section>
     <UiEmptyState v-else-if="loading" busy :title="progressText" />
     <UiNotice v-else-if="!error" tone="neutral">No opportunities match this search.</UiNotice>
-    <UiPagination :page="page" :pages="pages" @change="changePage" />
+    <UiPagination v-if="view === 'cards'" :page="page" :pages="pages" @change="changePage" />
 
     <TradingConversationDialog
       :open="waDialogOpen"
@@ -319,6 +343,11 @@ onMounted(() => { loadSource(); load() })
 .opportunity-search__corrections { margin-bottom:1rem; }
 .opportunity-search__adjustments { margin:-.35rem 0 .8rem; color:var(--ui-warning); font-size:calc(.82rem + 2px); }
 .opportunity-search__summary { display:flex; gap:.5rem; margin:.75rem 0; }
+.opportunity-search__bar { display:flex; justify-content:space-between; align-items:center; gap:1rem; }
+.opportunity-search__views { display:inline-flex; flex:none; overflow:hidden; border:1px solid var(--ui-border-strong); border-radius:var(--ui-radius-sm); background:var(--ui-surface); }
+.opportunity-search__views button { display:inline-flex; align-items:center; justify-content:center; width:2.3rem; height:2.1rem; border:0; background:none; color:var(--ui-text-muted); cursor:pointer; }
+.opportunity-search__views button + button { border-left:1px solid var(--ui-border-strong); }
+.opportunity-search__views button.is-on { background:var(--ui-primary); color:var(--ui-on-primary, #fff); }
 .opportunity-search__progress { align-items:center; color:var(--ui-primary); }
 .opportunity-search__spinner { display:inline-block; width:14px; height:14px; margin:0; border-width:2px; vertical-align:-2px; }
 .opportunity-search__results--stale { opacity:.45; pointer-events:none; transition:opacity .15s; }
