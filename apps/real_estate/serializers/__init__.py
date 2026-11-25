@@ -3,7 +3,7 @@ from .inventory import (
     PropertySerializer, PropertyTypeFieldDefinitionSerializer, PropertyTypeSerializer,
 )
 from .opportunities import (
-    OpportunityItemSerializer, OpportunitySerializer, PropertyCandidateSerializer,
+    AreaInquirySerializer, OpportunityItemSerializer, OpportunitySerializer, PropertyCandidateSerializer,
     PropertyRequirementSerializer,
 )
 from .manual_opportunities import ManualOpportunitySerializer
@@ -16,7 +16,7 @@ from .attributes import (
 )
 
 __all__ = [
-    'ListingSerializer', 'OpportunitySerializer', 'PropertyAddressSerializer',
+    'AreaInquirySerializer', 'ListingSerializer', 'OpportunitySerializer', 'PropertyAddressSerializer',
     'ManualOpportunitySerializer', 'InquiryMediumSerializer',
     'PropertyDevelopmentSerializer',
     'OpportunityItemSerializer', 'PropertyCandidateSerializer', 'PropertyMediaSerializer',

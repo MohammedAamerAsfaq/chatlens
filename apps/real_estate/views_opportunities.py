@@ -12,7 +12,7 @@ from apps.real_estate.models import (
     RealEstateOpportunity,
 )
 from apps.real_estate.serializers import (
-    InquiryMediumSerializer, ListingSerializer, ManualOpportunitySerializer,
+    AreaInquirySerializer, InquiryMediumSerializer, ListingSerializer, ManualOpportunitySerializer,
     OpportunityItemSerializer, OpportunitySerializer,
     PropertyCandidateSerializer, PropertyRequirementSerializer,
 )
@@ -29,6 +29,14 @@ from apps.real_estate.services.manual_opportunities import create_manual_opportu
 from apps.real_estate.services.opportunity_search import ALL_ACTIVITY_TYPES, search_opportunities
 from apps.real_estate.services.opportunity_search_input import prepare_opportunity_search
 from apps.real_estate.services.opportunity_counterparts import counterpart_activity, counterpart_search_plan
+
+# Grid column -> model field the Area Map inquiries grid may sort by.
+AREA_INQUIRY_ORDERING = {
+    'first_seen_at': 'first_seen_at',
+    'activity_type': 'activity_type',
+    'status': 'status',
+    'source_chat_name': 'source_chat__name',
+}
 
 
 class OpportunityViewSet(CompanyOwnedViewSet):
@@ -148,6 +156,29 @@ class OpportunityViewSet(CompanyOwnedViewSet):
             return Response(area_map_report(self.active_company(), self._area_map_queryset()))
         except ValueError as exc:
             raise ValidationError({'non_field_errors': str(exc)}) from exc
+
+    @action(detail=False, methods=['get'], url_path='area-map/inquiries')
+    def area_map_inquiries(self, request):
+        """The inquiries behind the area map, one page at a time, with the map's filters
+        (activity, status, dates) plus search, ordering and area=<AreaLocation id>, which
+        gives exactly the inquiries counted in that area's bubble."""
+        qs = self._area_map_queryset()
+        if area := request.query_params.get('area'):
+            try:
+                area_id = int(area)
+            except ValueError as exc:
+                raise ValidationError({'area': 'Choose an area from the map.'}) from exc
+            qs = qs.filter(pk__in=OpportunityItem.objects.filter(
+                geo_area_location_id=area_id, geo_status=OpportunityItem.GEO_LOCATED,
+            ).values('opportunity_id'))
+        ordering = request.query_params.get('ordering') or '-first_seen_at'
+        field = AREA_INQUIRY_ORDERING.get(ordering.lstrip('-'))
+        if not field:
+            raise ValidationError({'ordering': f'Sort by one of: {", ".join(AREA_INQUIRY_ORDERING)}.'})
+        prefix = '-' if ordering.startswith('-') else ''
+        qs = qs.order_by(f'{prefix}{field}', f'{prefix}id')
+        page = self.paginate_queryset(qs)
+        return self.get_paginated_response(AreaInquirySerializer(page, many=True).data)
 
     @action(detail=False, methods=['post'], url_path='area-map/place')
     def area_map_place(self, request):

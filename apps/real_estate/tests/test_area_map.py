@@ -233,6 +233,51 @@ class AreaMapApiTests(LocationTestCase):
         self.assertEqual(self.client.post(URL + 'locate/', {'scope': 'some'}, format='json').status_code, 400)
 
 
+class AreaMapInquiriesGridTests(LocationTestCase):
+    GRID = URL + 'inquiries/'
+    locate = AreaMapApiTests.locate
+
+    def test_area_filter_lists_exactly_the_inquiries_counted_in_its_bubble(self):
+        # Two properties in the same area: still one inquiry, as on the map.
+        both = self.opportunity('buying', ['Bloom Towers'], ['JVC'], message='two in JVC')
+        self.locate(both, (1, 'Jumeirah Village Circle', 'Bloom Towers', 'Dubai'), (2, 'Jumeirah Village Circle', '', 'Dubai'))
+        self.locate(self.opportunity('selling', ['JVC'], message='jvc seller'), (1, 'Jumeirah Village Circle', '', 'Dubai'))
+        self.locate(self.opportunity('buying', ['Barsha'], message='barsha'), (1, 'Al Barsha', '', 'Dubai'))
+        self.opportunity('buying', ['JLT'], message='not located')
+
+        [jvc, barsha] = self.client.get(URL).json()['areas']
+        data = self.client.get(self.GRID, {'area': jvc['id']}).json()
+        self.assertEqual(data['count'], jvc['count'])
+        self.assertEqual({row['original_message'] for row in data['results']}, {'two in JVC', 'jvc seller'})
+        row = next(row for row in data['results'] if row['original_message'] == 'two in JVC')
+        self.assertEqual([(loc['area_id'], loc['sub_area']) for loc in row['locations']], [(jvc['id'], 'Bloom Towers'), (jvc['id'], '')])
+
+        self.assertEqual(self.client.get(self.GRID, {'area': barsha['id']}).json()['count'], 1)
+        self.assertEqual(self.client.get(self.GRID).json()['count'], 4)
+
+    def test_map_filters_search_sort_and_pages_apply(self):
+        for index in range(3):
+            self.opportunity('buying', ['JLT'], message=f'buyer {index}')
+        self.opportunity('selling', ['JLT'], message='seller')
+
+        data = self.client.get(self.GRID, {'activity_type': 'buying', 'page_size': 2, 'ordering': 'first_seen_at'}).json()
+        self.assertEqual(data['count'], 3)
+        self.assertEqual([row['original_message'] for row in data['results']], ['buyer 0', 'buyer 1'])
+        self.assertIsNotNone(data['next'])
+        self.assertEqual(self.client.get(self.GRID, {'search': 'seller'}).json()['count'], 1)
+
+    def test_bad_input_is_refused_and_other_companies_are_hidden(self):
+        self.assertEqual(self.client.get(self.GRID, {'area': 'jvc'}).status_code, 400)
+        self.assertEqual(self.client.get(self.GRID, {'ordering': 'summary'}).status_code, 400)
+        self.assertEqual(self.client.get(self.GRID, {'date_to': 'soon'}).status_code, 400)
+        other = Company.objects.create(name='Other', slug='other-grid', industry_type='real_estate')
+        RealEstateOpportunity.objects.create(
+            company=other, activity_type='buying', summary='x', original_message='x',
+            classification_status='classified', first_seen_at=timezone.now(),
+        )
+        self.assertEqual(self.client.get(self.GRID).json()['count'], 0)
+
+
 class LocationSearchSettingsTests(LocationTestCase):
     SETTINGS_URL = '/api/real-estate/prompts/location-search/'
 

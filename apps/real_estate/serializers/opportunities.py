@@ -70,6 +70,47 @@ class OpportunityItemSerializer(CleanModelSerializer):
         )
 
 
+class AreaInquirySerializer(serializers.ModelSerializer):
+    """One row of the Area Map inquiries grid: the inquiry and where the Location step put
+    each of its properties. Read-only and much lighter than OpportunitySerializer."""
+    contact_name = serializers.SerializerMethodField()
+    contact_phone = serializers.SerializerMethodField()
+    source_chat_name = serializers.CharField(source='source_chat.name', read_only=True, default='')
+    inquiry_medium_name = serializers.CharField(source='inquiry_medium.name', read_only=True, default='')
+    locations = serializers.SerializerMethodField()
+
+    @staticmethod
+    def get_contact_name(obj):
+        return OpportunitySerializer.get_contact_name(obj)
+
+    @staticmethod
+    def get_contact_phone(obj):
+        return OpportunitySerializer.get_contact_phone(obj)
+
+    @staticmethod
+    def get_locations(obj):
+        # items are prefetched with their area by the viewset queryset.
+        return [{
+            'sequence': item.sequence,
+            'status': item.geo_status,
+            'area_id': item.geo_area_location_id,
+            'area': item.geo_area,
+            'sub_area': item.geo_sub_area,
+            'city': item.geo_city,
+            'location_raw': item.location_raw,
+            'error': item.geo_error,
+        } for item in obj.items.all()]
+
+    class Meta:
+        model = RealEstateOpportunity
+        fields = (
+            'id', 'first_seen_at', 'activity_type', 'status', 'summary', 'original_message',
+            'contact_name', 'contact_phone', 'source_chat', 'source_chat_name', 'source_message',
+            'source_party_name', 'inquiry_medium_name', 'locations',
+        )
+        read_only_fields = fields
+
+
 class OpportunitySerializer(CleanModelSerializer):
     items = OpportunityItemSerializer(many=True, read_only=True)
     requirement = PropertyRequirementSerializer(read_only=True)

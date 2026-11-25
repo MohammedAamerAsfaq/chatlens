@@ -13,11 +13,10 @@ import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTabs from '@/components/ui/UiTabs.vue'
 import { apiError } from '@/features/realEstate/apiErrors'
-import { opportunityLanes, statusFilters } from '@/features/realEstate/boardOptions'
+import { activityColors as ACTIVITY_COLORS, opportunityLanes, statusFilters } from '@/features/realEstate/boardOptions'
+import AreaInquiriesGrid from '@/features/realEstate/components/AreaInquiriesGrid.vue'
 import { loadGoogleMaps } from '@/features/realEstate/googleMapsLoader'
 
-// Same colours as the board lanes.
-const ACTIVITY_COLORS = { buying: '#238b75', selling: '#d4862c', leasing_inquiry: '#3b72c4', leasing_offer: '#a25f83' }
 const ALL_COLOR = '#2563eb'
 const AREA_STATUS_TEXT = {
   pending: 'Waiting for a Google Maps lookup',
@@ -58,6 +57,8 @@ const maxCount = computed(() => Math.max(1, ...areas.value.map(area => area.coun
 const google = computed(() => report.value?.google || null)
 const unlocated = computed(() => (totals.value ? totals.value.pending + totals.value.error : 0))
 const webSearch = computed(() => report.value?.location_search_mode === 'web_search')
+const selectedArea = computed(() => areas.value.find(area => area.id === selectedId.value) || null)
+const gridFilters = computed(() => params())
 
 function params() {
   const value = { activity_type: activity.value }
@@ -69,6 +70,8 @@ function params() {
 
 async function show(data) {
   report.value = data
+  // The chosen area is gone (merged away, or none of its inquiries match the new filters).
+  if (selectedId.value && !areas.value.some(area => area.id === selectedId.value)) clearArea()
   schedulePoll()
   await drawMap()
 }
@@ -236,12 +239,17 @@ async function revealInRanking(areaId) {
   panel.scrollTo({ top: panel.scrollTop + offset - 48, behavior: 'smooth' })
 }
 
+function clearArea() {
+  selectedId.value = null
+  infoWindow?.close()
+}
+
 function openArea(area, pan = true) {
   selectedId.value = area.id
   // Clicked on the map: bring its card into view. Clicked in the list: it is already visible.
   if (!pan) revealInRanking(area.id)
   const marker = markers.get(area.id)
-  if (!marker || !map) return
+  if (!marker || !map) { infoWindow?.close(); return }
   if (pan) { map.panTo(marker.getPosition()); if (map.getZoom() < 12) map.setZoom(12) }
   infoWindow.setContent(
     `<div class="area-map__info"><strong>${escapeHtml(areaLabel(area))}</strong>`
@@ -332,7 +340,7 @@ onBeforeUnmount(() => {
         <p v-if="report && !areas.length" class="area-map__muted">No located inquiries for these filters yet.</p>
         <ol v-else>
           <li v-for="(area, index) in areas" :key="area.id" :data-area-id="area.id" :class="{ selected: selectedId === area.id, off: area.status !== 'placed' }">
-            <button type="button" :disabled="area.status !== 'placed'" :title="area.status === 'placed' ? 'Show on the map' : AREA_STATUS_TEXT[area.status]" @click="openArea(area)">
+            <button type="button" :title="area.status === 'placed' ? 'Show on the map and list its inquiries' : `List its inquiries (not on the map: ${AREA_STATUS_TEXT[area.status]})`" @click="openArea(area)">
               <span class="area-map__rank">{{ index + 1 }}</span>
               <span class="area-map__name">
                 <strong>{{ areaLabel(area) }}</strong>
@@ -358,6 +366,8 @@ onBeforeUnmount(() => {
         </ol>
       </aside>
     </div>
+
+    <AreaInquiriesGrid v-if="report" :filters="gridFilters" :area="selectedArea" @clear-area="clearArea" />
 
     <UiCard v-if="google && google.waiting" class="area-map__google">
       <div>

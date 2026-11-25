@@ -192,6 +192,7 @@ export const realEstateApi = {
   // The other side of an opportunity (sellers for a buyer, tenants for a leasing offer...).
   opportunityCounterparts: (id, params = {}) => http.get(`/real-estate/opportunities/${id}/counterparts/`, { params }),
   areaMap: (params = {}) => http.get('/real-estate/opportunities/area-map/', { params }),
+  areaMapInquiries: (params = {}) => http.get('/real-estate/opportunities/area-map/inquiries/', { params }),
   placeAreas: (params = {}) => http.post('/real-estate/opportunities/area-map/place/', null, { params }),
   locateAreas: (scope, params = {}) => http.post('/real-estate/opportunities/area-map/locate/', { scope }, { params }),
   mergeAreas: (source, target, params = {}) => http.post('/real-estate/opportunities/area-map/merge/', { source, target }, { params }),

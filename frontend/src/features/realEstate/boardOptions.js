@@ -49,6 +49,9 @@ export const opportunityStatuses = [
   'negotiation', 'won', 'lost', 'irrelevant',
 ].map(value => ({ value, label: title(value) }))
 
+// Each lane's colour on the Area Map (bubbles, legend, inquiries grid).
+export const activityColors = { buying: '#238b75', selling: '#d4862c', leasing_inquiry: '#3b72c4', leasing_offer: '#a25f83' }
+
 export const statusFilters = [
   { value: '', label: 'All statuses' },
   ...opportunityStatuses,
