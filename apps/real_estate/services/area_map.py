@@ -121,6 +121,36 @@ def area_map_report(company, opportunities):
     }
 
 
+def location_status(company, opportunities):
+    """For the location backfill in settings: how many inquiries still have no area (not
+    located yet, or the AI step failed), how many are being located now, and why it failed."""
+    from apps.real_estate.services.location_service import TASK_KEY
+    from apps.task_management.models import BackgroundTask
+
+    items = OpportunityItem.objects.filter(opportunity__in=opportunities)
+    # Same precedence as the area map totals: located > error > pending > unknown.
+    located = items.filter(geo_status=OpportunityItem.GEO_LOCATED).values('opportunity_id')
+    failed = items.filter(geo_status=OpportunityItem.GEO_ERROR).values('opportunity_id')
+    pending = items.filter(geo_status=OpportunityItem.GEO_PENDING).values('opportunity_id')
+    with_items = opportunities.filter(pk__in=items.values('opportunity_id'))
+    errors = Counter(
+        (text or 'No reason recorded.')[:500]
+        for text in items.filter(geo_status=OpportunityItem.GEO_ERROR).values_list('geo_error', flat=True).iterator()
+    )
+    settings_row, _ = RealEstateSettings.objects.get_or_create(company=company)
+    return {
+        'opportunities': opportunities.count(),
+        'with_properties': with_items.count(),
+        'error': with_items.filter(pk__in=failed).exclude(pk__in=located).count(),
+        'pending': with_items.filter(pk__in=pending).exclude(pk__in=located).exclude(pk__in=failed).count(),
+        'error_reasons': [{'error': text, 'count': count} for text, count in errors.most_common(TOP_ERRORS)],
+        'locating': BackgroundTask.objects.filter(
+            company=company, task_key=TASK_KEY, status__in=BackgroundTask.ACTIVE_STATUSES,
+        ).count(),
+        'location_search_mode': settings_row.location_search_mode,
+    }
+
+
 def place_waiting_areas(company, opportunities):
     """Place the areas still waiting (most inquiries first, up to GOOGLE_BATCH). Returns a
     notice for the user, or '' when everything went through."""

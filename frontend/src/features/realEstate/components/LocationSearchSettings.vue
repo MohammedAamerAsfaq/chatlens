@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { realEstateApi } from '@/api'
 import { apiError } from '@/features/realEstate/apiErrors'
+import LocationBackfill from './LocationBackfill.vue'
 
 // What the Real Estate Location AI step may use to work out where an inquiry's property is
 // (apps/real_estate/services/location_service.py). Its instructions are the
@@ -32,7 +33,7 @@ async function save() {
   saving.value = true; error.value = ''; notice.value = ''
   try {
     state.value = (await realEstateApi.setLocationSearch(mode.value)).data
-    notice.value = 'Saved. New inquiries and backfills use this.'
+    notice.value = 'Saved. New inquiries and "Find locations" below use this.'
   } catch (exc) {
     error.value = apiError(exc, 'Unable to save the location settings.')
   } finally {
@@ -72,6 +73,7 @@ onMounted(load)
         <button type="button" class="primary" :disabled="!changed || saving" @click="save">{{ saving ? 'Saving...' : 'Save location finding' }}</button>
       </div>
     </template>
+    <LocationBackfill />
   </section>
 </template>
 

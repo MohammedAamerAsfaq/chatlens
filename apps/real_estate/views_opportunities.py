@@ -16,7 +16,7 @@ from apps.real_estate.serializers import (
     OpportunityItemSerializer, OpportunitySerializer,
     PropertyCandidateSerializer, PropertyRequirementSerializer,
 )
-from apps.real_estate.services.area_map import area_map_report, place_waiting_areas
+from apps.real_estate.services.area_map import area_map_report, location_status, place_waiting_areas
 from apps.real_estate.services.location_service import (
     BACKFILL_PRIORITY, clear_location, enqueue_location, locate_opportunity, merge_areas, set_manual_location,
 )
@@ -211,11 +211,14 @@ class OpportunityViewSet(CompanyOwnedViewSet):
         report['merged'] = moved
         return Response(report)
 
-    @action(detail=False, methods=['post'], url_path='area-map/locate')
+    @action(detail=False, methods=['get', 'post'], url_path='area-map/locate')
     def area_map_locate(self, request):
-        """Backfill: queue the Location AI step for these inquiries. scope=unlocated (not
-        located yet or failed) or all (also re-check located ones, e.g. after changing the
-        Real Estate Location instructions)."""
+        """Location backfill (in AI Instructions settings). GET: how many inquiries have no
+        area yet. POST: queue the Location AI step for them - scope=unlocated (not located
+        yet or failed) or all (also re-check located ones, e.g. after changing the Real
+        Estate Location instructions)."""
+        if request.method == 'GET':
+            return Response(location_status(self.active_company(), self._area_map_queryset()))
         scope = request.data.get('scope', 'unlocated')
         if scope not in ('unlocated', 'all'):
             raise ValidationError({'scope': 'Use unlocated or all.'})
@@ -228,12 +231,9 @@ class OpportunityViewSet(CompanyOwnedViewSet):
         for opportunity in RealEstateOpportunity.objects.filter(pk__in=ids).select_related('company').iterator():
             if enqueue_location(opportunity, priority=BACKFILL_PRIORITY):
                 queued += 1
-        try:
-            report = area_map_report(self.active_company(), self._area_map_queryset())
-        except ValueError as exc:
-            raise ValidationError({'non_field_errors': str(exc)}) from exc
-        report['queued'] = queued
-        return Response(report)
+        data = location_status(self.active_company(), self._area_map_queryset())
+        data['queued'] = queued
+        return Response(data)
 
     @action(detail=True, methods=['post'], url_path='locate')
     def locate(self, request, pk=None):

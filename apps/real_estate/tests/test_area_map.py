@@ -206,6 +206,25 @@ class AreaMapApiTests(LocationTestCase):
         self.assertEqual(data['queued'], 2)
         self.assertEqual(BackgroundTask.objects.filter(task_key=TASK_KEY).count(), 2)
 
+    @patch(AGENT, side_effect=RuntimeError('No active agent provider configured.'))
+    def test_backfill_status_counts_inquiries_without_an_area_and_why(self, agent):
+        self.locate(self.opportunity('buying', ['JVC']), (1, 'Jumeirah Village Circle', '', 'Dubai'))
+        self.opportunity('buying', ['JLT'])  # not located yet
+        failed = self.opportunity('selling', ['Marina'])
+        with self.assertRaises(RuntimeError):
+            locate_opportunity(failed)
+        # The AI skipped the second property (an error), but the first is located: the
+        # inquiry counts as located, as on the map.
+        self.locate(self.opportunity('buying', ['JVC'], ['Marina']), (1, 'Jumeirah Village Circle', '', 'Dubai'))
+        OpportunityItem.objects.filter(opportunity=self.opportunity('buying')).delete()  # no properties
+
+        data = self.client.get(URL + 'locate/').json()
+        self.assertEqual((data['opportunities'], data['with_properties']), (5, 4))
+        self.assertEqual((data['pending'], data['error'], data['locating']), (1, 1, 0))
+        reasons = {reason['error']: reason['count'] for reason in data['error_reasons']}
+        self.assertEqual(reasons.pop('No active agent provider configured.'), 1)
+        self.assertEqual(sum(reasons.values()), 1)  # the skipped property, counted per property
+
     def test_google_button_places_waiting_areas_and_reports_the_cap(self):
         IntegrationConnection.objects.update(configuration={'browser_api_key': 'browser-key', 'monthly_request_limit': 1})
         with patch(CLIENT, return_value=FakeClient({'DAMAC Hills 2': GoogleMapsError('API key not valid')})):

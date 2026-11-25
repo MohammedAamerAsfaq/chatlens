@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const api = vi.hoisted(() => ({
-  areaMap: vi.fn(), areaMapInquiries: vi.fn(), placeAreas: vi.fn(), locateAreas: vi.fn(), mergeAreas: vi.fn(), getLocationSearch: vi.fn(), setLocationSearch: vi.fn(),
+  areaMap: vi.fn(), areaMapInquiries: vi.fn(), locationStatus: vi.fn(), placeAreas: vi.fn(), locateAreas: vi.fn(), mergeAreas: vi.fn(), getLocationSearch: vi.fn(), setLocationSearch: vi.fn(),
 }))
 const maps = vi.hoisted(() => ({ markers: [], fitBounds: vi.fn() }))
 vi.mock('@/api', () => ({ realEstateApi: api }))
@@ -111,28 +111,9 @@ describe('Area Map', () => {
     expect(maps.markers).toHaveLength(1)
     expect(maps.markers[0].options.label.text).toBe('4')
     expect(maps.markers[0].options.icon.fillColor).toBe('#238b75')
-    expect(wrapper.text()).toContain('5 located in 2 areas')
-    expect(wrapper.text()).toContain('2 not located yet')
-  })
-
-  it('queues the location AI for inquiries without an area', async () => {
-    api.locateAreas.mockResolvedValue({ data: { ...report({ locating: 3, totals: { opportunities: 10, no_properties: 1, located: 5, unknown: 1, pending: 2, error: 1 } }), queued: 3 } })
-    const wrapper = await mountView()
-    expect(wrapper.text()).toContain('3 inquiries have no area yet')
-    await button(wrapper, 'Find locations for 3').trigger('click')
-    await flushPromises()
-    expect(api.locateAreas).toHaveBeenCalledWith('unlocated', { activity_type: 'all' })
-    expect(wrapper.text()).toContain('3 inquiries queued')
-    expect(wrapper.text()).toContain('Locating 3 inquiries...')
-  })
-
-  it('asks before re-checking every inquiry', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
-    const wrapper = await mountView()
-    await button(wrapper, 'Re-check all').trigger('click')
-    expect(confirm.mock.calls[0][0]).toContain('all 10 inquiries')
-    expect(api.locateAreas).not.toHaveBeenCalled()
-    confirm.mockRestore()
+    // The totals line and the location backfill live elsewhere now (backfill: AI Instructions).
+    expect(wrapper.text()).not.toContain('located in')
+    expect(wrapper.text()).not.toContain('Find locations')
   })
 
   it('looks up waiting areas on Google only when asked', async () => {
@@ -150,13 +131,6 @@ describe('Area Map', () => {
     await wrapper.findAll('[role="tab"]').find(b => b.text() === 'Selling').trigger('click')
     await flushPromises()
     expect(api.areaMap).toHaveBeenLastCalledWith({ activity_type: 'selling' })
-  })
-
-  it('shows why the location step failed', async () => {
-    api.areaMap.mockResolvedValue({ data: report({ error_reasons: [{ error: 'No active agent provider configured.', count: 508 }] }) })
-    const wrapper = await mountView()
-    expect(wrapper.text()).toContain('Why the location step failed')
-    expect(wrapper.text()).toContain('508 × No active agent provider configured.')
   })
 
   it('merges an area written another way into the right one', async () => {
@@ -182,11 +156,60 @@ describe('Area Map', () => {
   })
 })
 
+const status = (overrides = {}) => ({
+  opportunities: 12, with_properties: 10, pending: 2, error: 1, locating: 0, location_search_mode: 'web_search',
+  error_reasons: [{ error: 'No active agent provider configured.', count: 508 }],
+  ...overrides,
+})
+
+describe('Location backfill (AI Instructions)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    api.locationStatus.mockResolvedValue({ data: status() })
+  })
+
+  async function mountBackfill() {
+    const { default: Backfill } = await import('../components/LocationBackfill.vue')
+    const wrapper = mount(Backfill)
+    await flushPromises()
+    return wrapper
+  }
+
+  it('shows what still has no area and why it failed', async () => {
+    const wrapper = await mountBackfill()
+    expect(wrapper.text()).toContain('3 inquiries have no area yet')
+    expect(wrapper.text()).toContain('2 not located yet')
+    expect(wrapper.text()).toContain('1 failed')
+    expect(wrapper.text()).toContain('with live web search')
+    expect(wrapper.text()).toContain('508 × No active agent provider configured.')
+  })
+
+  it('queues the location AI for inquiries without an area', async () => {
+    api.locateAreas.mockResolvedValue({ data: { ...status({ locating: 3 }), queued: 3 } })
+    const wrapper = await mountBackfill()
+    await button(wrapper, 'Find locations for 3').trigger('click')
+    await flushPromises()
+    expect(api.locateAreas).toHaveBeenCalledWith('unlocated')
+    expect(wrapper.text()).toContain('3 inquiries queued')
+    expect(wrapper.text()).toContain('Locating 3 inquiries...')
+  })
+
+  it('asks before re-checking every inquiry', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const wrapper = await mountBackfill()
+    await button(wrapper, 'Re-check all').trigger('click')
+    expect(confirm.mock.calls[0][0]).toContain('all 10 inquiries with property details')
+    expect(api.locateAreas).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+})
+
 describe('Location finding settings', () => {
   it('saves the chosen mode and shows why web search is not available', async () => {
     const choices = [{ value: 'model_knowledge', label: "AI's own market knowledge" }, { value: 'web_search', label: 'AI with live web search (OpenRouter)' }]
     api.getLocationSearch.mockResolvedValue({ data: { mode: 'model_knowledge', choices, web_search_blockers: ['DeepSeek (deepseek)'] } })
     api.setLocationSearch.mockRejectedValue({ response: { status: 400, data: { mode: ['Web search needs OpenRouter models'] } } })
+    api.locationStatus.mockResolvedValue({ data: status() })
     const { default: Settings } = await import('../components/LocationSearchSettings.vue')
     const wrapper = mount(Settings)
     await flushPromises()
@@ -195,6 +218,8 @@ describe('Location finding settings', () => {
     await button(wrapper, 'Save location finding').trigger('click')
     await flushPromises()
     expect(api.setLocationSearch).toHaveBeenCalledWith('web_search')
-    expect(wrapper.find('[role="alert"]').text()).toContain('Web search needs OpenRouter models')
+    expect(wrapper.find('.location-search__error').text()).toContain('Web search needs OpenRouter models')
+    // The backfill is part of the same settings section.
+    expect(wrapper.text()).toContain('Inquiries without an area')
   })
 })

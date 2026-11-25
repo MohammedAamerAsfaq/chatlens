@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { faLocationDot, faRotate, faWandMagicSparkles } from '@fortawesome/free-solid-svg-icons'
+import { faLocationDot, faRotate } from '@fortawesome/free-solid-svg-icons'
 import { realEstateApi } from '@/api'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCard from '@/components/ui/UiCard.vue'
@@ -9,7 +9,6 @@ import UiDatePicker from '@/components/ui/UiDatePicker.vue'
 import UiEmptyState from '@/components/ui/UiEmptyState.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
 import UiPage from '@/components/ui/UiPage.vue'
-import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTabs from '@/components/ui/UiTabs.vue'
 import { apiError } from '@/features/realEstate/apiErrors'
@@ -34,7 +33,6 @@ const dateTo = ref('')
 const report = ref(null)
 const loading = ref(false)
 const placing = ref(false)
-const locating = ref(false)
 const error = ref('')
 const notice = ref('')
 const mapError = ref('')
@@ -55,8 +53,6 @@ const totals = computed(() => report.value?.totals || null)
 const placed = computed(() => areas.value.filter(area => area.status === 'placed'))
 const maxCount = computed(() => Math.max(1, ...areas.value.map(area => area.count)))
 const google = computed(() => report.value?.google || null)
-const unlocated = computed(() => (totals.value ? totals.value.pending + totals.value.error : 0))
-const webSearch = computed(() => report.value?.location_search_mode === 'web_search')
 const selectedArea = computed(() => areas.value.find(area => area.id === selectedId.value) || null)
 const gridFilters = computed(() => params())
 
@@ -96,24 +92,6 @@ async function load({ quiet = false } = {}) {
 function schedulePoll() {
   clearTimeout(pollTimer)
   if (report.value?.locating) pollTimer = setTimeout(() => load({ quiet: true }), POLL_MS)
-}
-
-async function locate(scope) {
-  if (scope === 'all' && !window.confirm(
-    `Run the location AI again for all ${totals.value.opportunities.toLocaleString()} inquiries in these filters, including ones already located? Each inquiry is one AI call.`,
-  )) return
-  locating.value = true; error.value = ''; notice.value = ''
-  try {
-    const { data } = await realEstateApi.locateAreas(scope, params())
-    notice.value = data.queued
-      ? `${data.queued.toLocaleString()} inquir${data.queued === 1 ? 'y' : 'ies'} queued. The map updates as the AI works through them.`
-      : 'Nothing to queue: these inquiries are already being located or have no property details.'
-    await show(data)
-  } catch (exc) {
-    error.value = apiError(exc, 'Unable to queue the location AI.')
-  } finally {
-    locating.value = false
-  }
 }
 
 function startMerge(area) {
@@ -274,52 +252,20 @@ onBeforeUnmount(() => {
 
 <template>
   <UiPage width="wide">
-    <UiPageHeader eyebrow="Real Estate Intelligence" title="Area Map" description="Where inquiries are: the area the AI identified for each inquiry, sized by how many inquiries are in it." />
     <UiCard class="area-map__filters">
       <UiTabs v-model="activity" :tabs="tabs" />
       <div class="area-map__controls">
         <UiSelect v-model="status" :options="statusFilters" />
         <UiDatePicker v-model="dateFrom" placeholder="From date" />
         <UiDatePicker v-model="dateTo" placeholder="To date" />
-        <UiButton variant="outline" :disabled="loading" @click="load()"><FontAwesomeIcon :icon="faRotate" /> Refresh</UiButton>
+        <UiButton variant="outline" :disabled="loading" :aria-busy="loading" @click="load()">
+          <span v-if="loading" class="ui-spinner area-map__spinner" aria-hidden="true"></span><FontAwesomeIcon v-else :icon="faRotate" /> {{ loading ? 'Updating...' : 'Refresh' }}
+        </UiButton>
       </div>
     </UiCard>
 
     <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
     <UiNotice v-if="notice" tone="info">{{ notice }}</UiNotice>
-
-    <div v-if="totals" class="area-map__summary">
-      <strong>{{ totals.opportunities.toLocaleString() }} inquiries</strong>
-      <span>{{ totals.located.toLocaleString() }} located in {{ areas.length }} areas · {{ placed.length }} areas on the map</span>
-      <span v-if="totals.unknown">{{ totals.unknown.toLocaleString() }} with no location to go on</span>
-      <span v-if="totals.pending">{{ totals.pending.toLocaleString() }} not located yet</span>
-      <span v-if="totals.error" class="area-map__failed">{{ totals.error.toLocaleString() }} failed</span>
-      <span v-if="totals.no_properties">{{ totals.no_properties.toLocaleString() }} without property details</span>
-      <span v-if="loading" class="area-map__progress" role="status"><span class="ui-spinner area-map__spinner" aria-hidden="true"></span> Updating...</span>
-    </div>
-    <UiNotice v-if="report?.error_reasons?.length" tone="danger" class="area-map__errors">
-      <strong>Why the location step failed</strong>
-      <span v-for="reason in report.error_reasons" :key="reason.error">{{ reason.count.toLocaleString() }} × {{ reason.error }}</span>
-    </UiNotice>
-
-    <UiCard v-if="report && (unlocated || report.locating)" class="area-map__locate">
-      <div>
-        <strong v-if="report.locating" class="area-map__progress"><span class="ui-spinner area-map__spinner" aria-hidden="true"></span> Locating {{ report.locating.toLocaleString() }} inquir{{ report.locating === 1 ? 'y' : 'ies' }}...</strong>
-        <strong v-else>{{ unlocated.toLocaleString() }} inquir{{ unlocated === 1 ? 'y has' : 'ies have' }} no area yet</strong>
-        <p>
-          The location AI reads each inquiry (message, group name, sender and properties) and finds its area, using the
-          "Real Estate Location" instructions in AI Instructions. One AI call per inquiry{{ webSearch ? ', with live web search' : '' }}.
-          New inquiries are located automatically; this is for inquiries received before, or ones that failed.
-        </p>
-      </div>
-      <div class="area-map__locate-actions">
-        <UiButton variant="primary" :disabled="locating || !unlocated" @click="locate('unlocated')">
-          <span v-if="locating" class="ui-spinner area-map__spinner" aria-hidden="true"></span>
-          <FontAwesomeIcon v-else :icon="faWandMagicSparkles" /> Find locations for {{ unlocated.toLocaleString() }}
-        </UiButton>
-        <UiButton variant="outline" :disabled="locating" @click="locate('all')">Re-check all</UiButton>
-      </div>
-    </UiCard>
 
     <div class="area-map__layout">
       <div class="area-map__map-wrap" :aria-busy="loading">
@@ -390,15 +336,11 @@ onBeforeUnmount(() => {
 <style scoped>
 .area-map__filters { margin-bottom: 1rem; }
 .area-map__controls { display:grid; grid-template-columns:13rem 11rem 11rem auto; gap:.75rem; align-items:center; margin-top:1rem; }
-.area-map__summary { display:flex; flex-wrap:wrap; align-items:center; gap:.4rem 1rem; margin:.75rem 0; }
-.area-map__summary span, .area-map__muted { color:var(--ui-text-muted); }
-.area-map__summary .area-map__failed { color:var(--ui-danger); }
-.area-map__progress { display:inline-flex; align-items:center; gap:.4rem; color:var(--ui-primary) !important; }
+.area-map__muted { color:var(--ui-text-muted); }
 .area-map__spinner { display:inline-block; width:14px; height:14px; margin:0; border-width:2px; }
-.area-map__locate, .area-map__google { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:1rem; }
+.area-map__google { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:1rem; }
 .area-map__google { margin:1rem 0 0; }
-.area-map__locate p, .area-map__google p { margin:.3rem 0 0; color:var(--ui-text-muted); font-size:.86rem; }
-.area-map__locate-actions { display:flex; flex:none; gap:.5rem; }
+.area-map__google p { margin:.3rem 0 0; color:var(--ui-text-muted); font-size:.86rem; }
 .area-map__layout { display:grid; grid-template-columns:minmax(0,1fr) 22rem; gap:1rem; align-items:start; }
 .area-map__map-wrap { position:relative; }
 .area-map__map { height:640px; border:1px solid var(--ui-border); border-radius:var(--ui-radius); background:var(--ui-surface-muted); }
@@ -423,12 +365,11 @@ onBeforeUnmount(() => {
 .area-map__off { color:var(--ui-warning) !important; }
 .area-map__count { display:flex; flex-direction:column; align-items:flex-end; font-weight:800; font-size:1.05rem; }
 .area-map__count small { color:var(--ui-text-muted); font-size:.72rem; font-weight:600; }
-.area-map__errors { display:flex; flex-direction:column; gap:.2rem; }
 .area-map__merge { position:relative; z-index:1; display:flex; align-items:center; gap:.4rem; padding:0 .65rem .55rem 2.85rem; }
 .area-map__merge select { flex:1; min-width:0; padding:.25rem .4rem; border:1px solid var(--ui-border-strong); border-radius:var(--ui-radius-sm); background:var(--ui-surface); color:var(--ui-text); font:inherit; font-size:.8rem; }
 .area-map__ranking .area-map__link { width:auto; padding:0; border:0; background:none; color:var(--ui-primary); font-size:.78rem; font-weight:700; cursor:pointer; }
 .area-map__ranking .area-map__link:disabled { opacity:.5; cursor:default; }
 .area-map__ranking .area-map__merge-start { position:relative; z-index:1; display:block; margin:-.35rem .65rem .45rem auto; }
 :deep(.area-map__info) { display:grid; gap:.2rem; font-size:.86rem; }
-@media (max-width:1000px) { .area-map__layout { grid-template-columns:1fr; } .area-map__map { height:420px; } .area-map__controls { grid-template-columns:1fr 1fr; } .area-map__locate, .area-map__google { flex-direction:column; align-items:flex-start; } }
+@media (max-width:1000px) { .area-map__layout { grid-template-columns:1fr; } .area-map__map { height:420px; } .area-map__controls { grid-template-columns:1fr 1fr; } .area-map__google { flex-direction:column; align-items:flex-start; } }
 </style>

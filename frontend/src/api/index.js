@@ -194,6 +194,7 @@ export const realEstateApi = {
   areaMap: (params = {}) => http.get('/real-estate/opportunities/area-map/', { params }),
   areaMapInquiries: (params = {}) => http.get('/real-estate/opportunities/area-map/inquiries/', { params }),
   placeAreas: (params = {}) => http.post('/real-estate/opportunities/area-map/place/', null, { params }),
+  locationStatus: (params = {}) => http.get('/real-estate/opportunities/area-map/locate/', { params }),
   locateAreas: (scope, params = {}) => http.post('/real-estate/opportunities/area-map/locate/', { scope }, { params }),
   mergeAreas: (source, target, params = {}) => http.post('/real-estate/opportunities/area-map/merge/', { source, target }, { params }),
   createManualOpportunity: data => http.post('/real-estate/opportunities/manual/', data),
