@@ -9,6 +9,7 @@ import ActivityView         from '../views/ActivityView.vue'
 import StorageView          from '../views/StorageView.vue'
 import MessageLogsView      from '../views/MessageLogsView.vue'
 import AIProvidersView      from '../views/AIProvidersView.vue'
+import AIProviderFormView   from '../views/AIProviderFormView.vue'
 import DroppedMessagesView  from '../views/DroppedMessagesView.vue'
 import WorkerAlertsView     from '../views/WorkerAlertsView.vue'
 import BaileysEventsView    from '../views/BaileysEventsView.vue'
@@ -87,6 +88,8 @@ const router = createRouter({
     { path: '/api-consumer-settings', name: 'api-consumer-settings', component: ApiConsumerSettingsView, meta: { title: 'API Consumer', permission: 'settings.company.manage' } },
     { path: '/message-logs', name: 'message-logs', component: MessageLogsView, meta: { title: 'Message Logs' } },
     { path: '/ai-providers', name: 'ai-providers', component: AIProvidersView, meta: { title: 'AI Providers', permission: 'settings.company.manage' } },
+    { path: '/ai-providers/new', name: 'ai-provider-new', component: AIProviderFormView, meta: { title: 'Add AI Provider', permission: 'settings.company.manage', navRoute: 'ai-providers' } },
+    { path: '/ai-providers/:id(\d+)/edit', name: 'ai-provider-edit', component: AIProviderFormView, meta: { title: 'Edit AI Provider', permission: 'settings.company.manage', navRoute: 'ai-providers' } },
     { path: '/dropped-messages', name: 'dropped-messages', component: DroppedMessagesView, meta: { title: 'Dropped Messages' } },
     { path: '/worker-alerts', name: 'worker-alerts', component: WorkerAlertsView, meta: { title: 'Worker Alerts' } },
     { path: '/baileys-events', name: 'baileys-events', component: BaileysEventsView, meta: { title: 'Baileys Events' } },

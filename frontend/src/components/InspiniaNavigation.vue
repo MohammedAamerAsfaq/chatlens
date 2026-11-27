@@ -29,7 +29,8 @@ const switching = ref(false)
 const alerts = ref({ worker: 0, receipts: 0, messages: 0 })
 let pollTimer = null
 
-const routeName = computed(() => String(route.name || ''))
+// A sub-page (e.g. a provider's edit form) can name the menu entry it belongs under.
+const routeName = computed(() => String(route.meta?.navRoute || route.name || ''))
 const navigationContext = () => ({
   industry: auth.currentCompany?.industry_type,
   canManageTenants: auth.canManageTenants,
@@ -124,14 +125,14 @@ onUnmounted(() => {
       </template>
       <p>Workspace</p>
       <button class="inspinia-menu-link" :class="{ active: isUtilityOpen('directory', moreNavigation) }" @click="openSection('directory')"><NavigationIcon name="directory"/><span>Directory</span><NavigationChevron :open="isUtilityOpen('directory', moreNavigation)" /></button>
-      <div v-if="isUtilityOpen('directory', moreNavigation) && !collapsed" class="inspinia-submenu"><RouterLink v-for="item in moreNavigation" :key="item.route" :to="item.to">{{ item.label }}</RouterLink></div>
+      <div v-if="isUtilityOpen('directory', moreNavigation) && !collapsed" class="inspinia-submenu"><RouterLink v-for="item in moreNavigation" :key="item.route" :to="item.to" :class="{ active: item.route === routeName }">{{ item.label }}</RouterLink></div>
       <template v-if="canShowSettings">
         <button class="inspinia-menu-link" :class="{ active: isUtilityOpen('settings', settings) }" @click="openSection('settings')"><NavigationIcon name="settings"/><span>Settings</span><NavigationChevron :open="isUtilityOpen('settings', settings)" /></button>
-        <div v-if="isUtilityOpen('settings', settings) && !collapsed" class="inspinia-submenu"><RouterLink v-for="item in settings" :key="item.route" :to="item.to">{{ item.label }}</RouterLink></div>
+        <div v-if="isUtilityOpen('settings', settings) && !collapsed" class="inspinia-submenu"><RouterLink v-for="item in settings" :key="item.route" :to="item.to" :class="{ active: item.route === routeName }">{{ item.label }}</RouterLink></div>
       </template>
       <template v-if="canShowOperations">
         <button class="inspinia-menu-link" :class="{ active: isUtilityOpen('operations', logs) }" @click="openSection('operations')"><NavigationIcon name="operations"/><span>Operations</span><b v-if="alertTotal">{{ alertTotal > 99 ? '99+' : alertTotal }}</b><NavigationChevron :open="isUtilityOpen('operations', logs)" /></button>
-        <div v-if="isUtilityOpen('operations', logs) && !collapsed" class="inspinia-submenu"><RouterLink v-for="item in logs" :key="item.route" :to="item.to">{{ item.label }}</RouterLink></div>
+        <div v-if="isUtilityOpen('operations', logs) && !collapsed" class="inspinia-submenu"><RouterLink v-for="item in logs" :key="item.route" :to="item.to" :class="{ active: item.route === routeName }">{{ item.label }}</RouterLink></div>
       </template>
     </nav>
   </aside>

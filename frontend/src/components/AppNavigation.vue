@@ -32,7 +32,8 @@ const canShowSettings = computed(() => visibleSettings.value.length > 0)
 const canShowOperations = computed(() => auth.hasPermission('tasks.company.view'))
 const visibleLogs = computed(() => canShowOperations.value ? logsNavigation.filter(canShow) : [])
 const totalAlerts = computed(() => alerts.value.worker + alerts.value.receipts + alerts.value.messages)
-const routeName = computed(() => String(route.name || ''))
+// A sub-page (e.g. a provider's edit form) can name the menu entry it belongs under.
+const routeName = computed(() => String(route.meta?.navRoute || route.name || ''))
 const activePrimary = computed(() => visiblePrimary.value.find((item) => item.routes.includes(routeName.value)))
 const activeUtility = computed(() => {
   if (settingsNavigation.some((item) => item.route === routeName.value)) return { id: 'settings', label: 'Settings', children: visibleSettings.value }

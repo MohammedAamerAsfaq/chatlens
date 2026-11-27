@@ -1,64 +1,260 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import { faArrowDown, faArrowUp, faCloudArrowDown, faPlus, faTrashCan } from '@fortawesome/free-solid-svg-icons'
 import { aiProvidersApi, kiwiRoutersApi } from '@/api'
+import UiBadge from '@/components/ui/UiBadge.vue'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiCard from '@/components/ui/UiCard.vue'
+import UiEmptyState from '@/components/ui/UiEmptyState.vue'
+import UiFormField from '@/components/ui/UiFormField.vue'
+import UiInput from '@/components/ui/UiInput.vue'
+import UiMetric from '@/components/ui/UiMetric.vue'
+import UiNotice from '@/components/ui/UiNotice.vue'
+import UiPage from '@/components/ui/UiPage.vue'
+import UiPageHeader from '@/components/ui/UiPageHeader.vue'
+import UiSelect from '@/components/ui/UiSelect.vue'
+import UiToggle from '@/components/ui/UiToggle.vue'
 
 const routers = ref([]), providers = ref([]), selectedId = ref(null), saving = ref(false), error = ref(''), notice = ref('')
-const creating = ref(false), newName = ref(''), editingName = ref(false)
+const creating = ref(false), newName = ref('')
 const selected = computed(() => routers.value.find(router => router.id === selectedId.value))
+
 const capabilityLabel = value => ({ agent: 'General AI Agent', chat: 'Chat / Completion', embedding: 'Embeddings' }[value] || value)
-const strategyLabel = value => ({ ordered_capacity_fill: 'Ordered capacity fill' }[value] || value)
+const strategyOptions = [{ value: 'ordered_capacity_fill', label: 'Ordered capacity fill' }]
+const strategyLabel = value => strategyOptions.find(option => option.value === value)?.label || value
+const metadataOptions = [
+  { value: 'incomplete', label: 'Incomplete' },
+  { value: 'provider_published', label: 'Provider published' },
+  { value: 'operator_supplied', label: 'Operator supplied' },
+]
+const providerOptions = computed(() => providers.value.map(provider => ({ value: provider.id, label: `${provider.display_name} · ${provider.model}` })))
+const totalRpm = computed(() => (selected.value?.members || []).reduce((sum, item) => sum + (item.rpm_limit || 0), 0))
+const verifiedCount = computed(() => (selected.value?.members || []).filter(item => item.metadata_source === 'provider_published').length)
+
+// Numeric limits are optional: an emptied box means "no value", not 0.
+const toNumber = value => (value === '' || value == null ? null : Number(value))
+
 function formatApiError(value, path = '') {
   if (Array.isArray(value)) return value.map(item => formatApiError(item, path)).filter(Boolean).join(' ')
   if (value && typeof value === 'object') return Object.entries(value).map(([key, item]) => formatApiError(item, path ? `${path}.${key}` : key)).filter(Boolean).join(' ')
   return value == null ? '' : `${path ? `${path}: ` : ''}${value}`
 }
-async function load() { try { const [r, p] = await Promise.all([kiwiRoutersApi.list(), aiProvidersApi.list()]); routers.value = r.data; providers.value = p.data.filter(item => item.capability === 'agent'); selectedId.value = routers.value[0]?.id ?? null } catch { error.value = 'Unable to load KiwiRouter configuration.' } }
-async function create() { if (!newName.value.trim()) return; try { const { data } = await kiwiRoutersApi.create({ name: newName.value.trim(), capability: 'agent', strategy: 'ordered_capacity_fill', members: [] }); routers.value.push(data); selectedId.value = data.id; newName.value = ''; creating.value = false } catch { error.value = 'Unable to create router.' } }
-async function save() { if (!selected.value?.name.trim()) { error.value = 'Router name is required.'; return }; saving.value = true; error.value = ''; try { const { data } = await kiwiRoutersApi.update(selected.value.id, selected.value); routers.value[routers.value.findIndex(item => item.id === data.id)] = data; editingName.value = false; notice.value = 'Router saved.' } catch (requestError) { error.value = formatApiError(requestError.response?.data) || 'Unable to save router.' } finally { saving.value = false } }
-async function removeRouter() { if (!selected.value || !confirm(`Delete router "${selected.value.name}"?`)) return; try { await kiwiRoutersApi.delete(selected.value.id); routers.value = routers.value.filter(item => item.id !== selected.value.id); selectedId.value = routers.value[0]?.id ?? null } catch { error.value = 'Unable to delete router. Remove any active reservations first.' } }
-function addMember() { const p = providers.value[0]; if (!p) { error.value = 'Create a General AI Agent in AI Providers first.'; return }; selected.value.members ??= []; selected.value.members.push({ provider_config: p.id, priority: selected.value.members.length + 1, is_enabled: true, rpm_limit: null, tpm_limit: null, max_concurrency: null, input_cost_per_million: null, output_cost_per_million: null, request_timeout_seconds: 60, metadata_source: 'incomplete' }) }
-function removeMember(index) { selected.value.members.splice(index, 1); selected.value.members.forEach((member, i) => { member.priority = i + 1 }) }
-function move(index, delta) { const target = index + delta; if (target < 0 || target >= selected.value.members.length) return; const rows = selected.value.members; [rows[index], rows[target]] = [rows[target], rows[index]]; rows.forEach((member, i) => { member.priority = i + 1 }) }
-async function fetchMetadata(member) { try { const { data } = await aiProvidersApi.fetchMetadata(member.provider_config); if (!data.available) { notice.value = data.detail; return }; const metadata = data.metadata || {}; for (const field of ['input_cost_per_million', 'output_cost_per_million']) if (metadata[field] != null) metadata[field] = Number(Number(metadata[field]).toFixed(4)); if (Object.keys(metadata).length) Object.assign(member, metadata, { metadata_source: 'provider_published' }); const account = data.account_metadata || {}; const feedback = []; if (account.limit_remaining != null) feedback.push(`credit remaining: $${account.limit_remaining}`); if (account.limit_reset) feedback.push(`reset: ${account.limit_reset}`); if (account.usage_daily != null) feedback.push(`daily usage: $${account.usage_daily}`); if (account.usage_monthly != null) feedback.push(`monthly usage: $${account.usage_monthly}`); notice.value = [data.detail, feedback.length ? `Key ${feedback.join(', ')}.` : ''].filter(Boolean).join(' ') } catch (requestError) { error.value = formatApiError(requestError.response?.data) || 'Provider metadata request failed. Enter verified values manually.' } }
+function clearMessages() { error.value = ''; notice.value = '' }
+
+async function load() {
+  try {
+    const [r, p] = await Promise.all([kiwiRoutersApi.list(), aiProvidersApi.list()])
+    routers.value = r.data
+    providers.value = p.data.filter(item => item.capability === 'agent')
+    selectedId.value = routers.value[0]?.id ?? null
+  } catch {
+    error.value = 'Unable to load KiwiRouter configuration.'
+  }
+}
+function selectRouter(id) { selectedId.value = id; clearMessages() }
+async function create() {
+  if (!newName.value.trim()) return
+  clearMessages()
+  try {
+    const { data } = await kiwiRoutersApi.create({ name: newName.value.trim(), capability: 'agent', strategy: 'ordered_capacity_fill', members: [] })
+    routers.value.push(data)
+    selectedId.value = data.id
+    newName.value = ''
+    creating.value = false
+  } catch (requestError) {
+    error.value = formatApiError(requestError.response?.data) || 'Unable to create router.'
+  }
+}
+async function save() {
+  clearMessages()
+  if (!selected.value?.name.trim()) { error.value = 'Router name is required.'; return }
+  saving.value = true
+  try {
+    const { data } = await kiwiRoutersApi.update(selected.value.id, selected.value)
+    routers.value[routers.value.findIndex(item => item.id === data.id)] = data
+    notice.value = 'Router saved.'
+  } catch (requestError) {
+    error.value = formatApiError(requestError.response?.data) || 'Unable to save router.'
+  } finally {
+    saving.value = false
+  }
+}
+async function removeRouter() {
+  if (!selected.value || !confirm(`Delete router "${selected.value.name}"?`)) return
+  clearMessages()
+  try {
+    const id = selected.value.id
+    await kiwiRoutersApi.delete(id)
+    routers.value = routers.value.filter(item => item.id !== id)
+    selectedId.value = routers.value[0]?.id ?? null
+  } catch {
+    error.value = 'Unable to delete router. Remove any active reservations first.'
+  }
+}
+function addMember() {
+  const p = providers.value[0]
+  if (!p) { error.value = 'Create a General AI Agent in AI Providers first.'; return }
+  selected.value.members ??= []
+  selected.value.members.push({ provider_config: p.id, priority: selected.value.members.length + 1, is_enabled: true, rpm_limit: null, tpm_limit: null, max_concurrency: null, input_cost_per_million: null, output_cost_per_million: null, request_timeout_seconds: 60, metadata_source: 'incomplete' })
+}
+function renumber() { selected.value.members.forEach((member, i) => { member.priority = i + 1 }) }
+function removeMember(index) { selected.value.members.splice(index, 1); renumber() }
+function move(index, delta) {
+  const rows = selected.value.members, target = index + delta
+  if (target < 0 || target >= rows.length) return
+  ;[rows[index], rows[target]] = [rows[target], rows[index]]
+  renumber()
+}
+async function fetchMetadata(member) {
+  clearMessages()
+  try {
+    const { data } = await aiProvidersApi.fetchMetadata(member.provider_config)
+    if (!data.available) { notice.value = data.detail; return }
+    const metadata = data.metadata || {}
+    for (const field of ['input_cost_per_million', 'output_cost_per_million']) if (metadata[field] != null) metadata[field] = Number(Number(metadata[field]).toFixed(4))
+    if (Object.keys(metadata).length) Object.assign(member, metadata, { metadata_source: 'provider_published' })
+    const account = data.account_metadata || {}
+    const feedback = []
+    if (account.limit_remaining != null) feedback.push(`credit remaining: $${account.limit_remaining}`)
+    if (account.limit_reset) feedback.push(`reset: ${account.limit_reset}`)
+    if (account.usage_daily != null) feedback.push(`daily usage: $${account.usage_daily}`)
+    if (account.usage_monthly != null) feedback.push(`monthly usage: $${account.usage_monthly}`)
+    notice.value = [data.detail, feedback.length ? `Key ${feedback.join(', ')}.` : ''].filter(Boolean).join(' ')
+  } catch (requestError) {
+    error.value = formatApiError(requestError.response?.data) || 'Provider metadata request failed. Enter verified values manually.'
+  }
+}
 onMounted(load)
+
+const numberFields = [
+  { key: 'rpm_limit', label: 'RPM', placeholder: 'Required', min: 1 },
+  { key: 'tpm_limit', label: 'TPM', placeholder: 'Optional', min: 1 },
+  { key: 'max_concurrency', label: 'Concurrent', placeholder: 'Optional', min: 1 },
+  { key: 'request_timeout_seconds', label: 'Timeout (s)', placeholder: '60', min: 1 },
+  { key: 'input_cost_per_million', label: 'Input $ / 1M', placeholder: 'Optional', min: 0, step: '0.0001' },
+  { key: 'output_cost_per_million', label: 'Output $ / 1M', placeholder: 'Optional', min: 0, step: '0.0001' },
+]
 </script>
 
 <template>
-  <main class="page"><header><div><p class="eyebrow">AI Routing Control Plane</p><h1>KiwiRouter</h1><p>Reusable provider capacity and policy routing. Workflow assignment is configured separately.</p></div></header><p v-if="error" class="message error">{{ error }}</p><p v-if="notice" class="message">{{ notice }}</p>
-    <section class="layout"><aside><div class="aside-head"><strong>Routers</strong><button @click="creating = !creating">+ New</button></div><form v-if="creating" class="new-form" @submit.prevent="create"><label>Router name<input v-model.trim="newName" autofocus placeholder="e.g. Inquiry Economy Router"></label><button>Create router</button></form><button v-for="router in routers" :key="router.id" class="router" :class="{ selected: router.id === selectedId }" @click="selectedId = router.id"><strong>{{ router.name }}</strong><small>{{ router.members.length }} agents · {{ strategyLabel(router.strategy) }}</small><i :class="{ on: router.is_active }"></i></button><p class="muted">{{ routers.length ? 'Each router has its own ordered members and capacity policy.' : 'Create a router, then add configured AI Provider Agents.' }}</p></aside>
-      <section v-if="selected" class="workspace"><div class="top"><div><div class="name-row"><input v-if="editingName" v-model.trim="selected.name" class="name-input" @keyup.enter="editingName = false"><h2 v-else>{{ selected.name }}</h2><button class="link" @click="editingName = !editingName">{{ editingName ? 'Done' : 'Rename' }}</button><span :class="selected.is_active ? 'badge active' : 'badge'">{{ selected.is_active ? 'Active' : 'Inactive' }}</span><button class="toggle" @click="selected.is_active = !selected.is_active">{{ selected.is_active ? 'Disable' : 'Enable' }}</button></div><p>{{ capabilityLabel(selected.capability) }} · {{ strategyLabel(selected.strategy) }}</p></div><div class="actions"><button class="danger" @click="removeRouter">Delete router</button><button class="save" :disabled="saving" @click="save">{{ saving ? 'Saving...' : 'Save changes' }}</button></div></div>
-        <div class="metrics"><div><span>Strategy</span><b>Priority capacity fill</b></div><div><span>Configured capacity</span><b>{{ selected.members.reduce((sum, item) => sum + (item.rpm_limit || 0), 0) }} RPM</b></div><div><span>Verified metadata</span><b>{{ selected.members.filter(item => item.metadata_source === 'provider_published').length }} / {{ selected.members.length }}</b></div></div>
-        <section class="card"><div class="card-head"><div><h3>Provider Agent Order</h3><p>Requests reserve capacity from the first eligible member, then continue down the order.</p></div><button @click="addMember">+ Add agent</button></div><div v-if="!selected.members.length" class="empty">No agents assigned. Add a configured General AI Agent to begin.</div><div v-for="(member, index) in selected.members" :key="member.id || `${member.provider_config}-${index}`" class="member"><div class="number">{{ member.priority }}</div><label>Provider agent<select v-model.number="member.provider_config"><option v-for="provider in providers" :key="provider.id" :value="provider.id">{{ provider.display_name }} · {{ provider.model }}</option></select></label><label>RPM<input v-model.number="member.rpm_limit" type="number" min="1" placeholder="Required"></label><label>TPM<input v-model.number="member.tpm_limit" type="number" min="1" placeholder="Optional"></label><label>Concurrent<input v-model.number="member.max_concurrency" type="number" min="1" placeholder="Optional"></label><label>Timeout seconds<input v-model.number="member.request_timeout_seconds" type="number" min="1"></label><label>Input $ / 1M<input v-model.number="member.input_cost_per_million" type="number" min="0" step="0.0001" placeholder="Optional"></label><label>Output $ / 1M<input v-model.number="member.output_cost_per_million" type="number" min="0" step="0.0001" placeholder="Optional"></label><label>Metadata source<select v-model="member.metadata_source"><option value="incomplete">Incomplete</option><option value="provider_published">Provider published</option><option value="operator_supplied">Operator supplied</option></select></label><div class="member-actions"><button @click="fetchMetadata(member)">Fetch</button><button :disabled="index === 0" @click="move(index, -1)">Up</button><button :disabled="index === selected.members.length - 1" @click="move(index, 1)">Down</button><button class="remove" @click="removeMember(index)">Remove</button></div></div></section>
-        <section class="bottom"><article class="card"><h3>Routing Policy</h3><label>Strategy<select v-model="selected.strategy"><option value="ordered_capacity_fill">Ordered capacity fill</option></select></label><p class="muted">Cost and latency strategies remain unavailable until every required provider value is verified.</p></article><article class="card"><h3>Metadata Help</h3><p><b>Provider published</b>: fetched from a provider API. <b>Operator supplied</b>: manually entered from an official provider plan. <b>Incomplete</b>: unknown values; suitable only for ordered routing.</p></article></section>
-      </section><section v-else class="empty-workspace"><h2>No router selected</h2><p>Create a KiwiRouter to configure provider capacity and routing order.</p></section>
-    </section>
-  </main>
+  <UiPage width="full">
+    <UiPageHeader eyebrow="AI routing" title="KiwiRouter" description="Reusable provider capacity and policy routing. Workflow assignment is configured separately." />
+    <UiNotice v-if="error" tone="danger">{{ error }}</UiNotice>
+    <UiNotice v-else-if="notice" tone="success">{{ notice }}</UiNotice>
+
+    <div class="kiwi">
+      <UiCard class="kiwi__routers" title="Routers">
+        <template #actions>
+          <UiButton size="small" variant="soft" :aria-expanded="creating" @click="creating = !creating"><FontAwesomeIcon :icon="faPlus" /> New</UiButton>
+        </template>
+        <form v-if="creating" class="kiwi__new" @submit.prevent="create">
+          <UiFormField label="Router name"><UiInput v-model.trim="newName" autofocus placeholder="e.g. Inquiry Economy Router" /></UiFormField>
+          <UiButton type="submit" variant="primary" size="small" :disabled="!newName.trim()">Create router</UiButton>
+        </form>
+        <nav class="kiwi__list" aria-label="Routers">
+          <button v-for="router in routers" :key="router.id" type="button" class="kiwi__router" :class="{ 'is-selected': router.id === selectedId }" @click="selectRouter(router.id)">
+            <span class="kiwi__router-name"><strong>{{ router.name }}</strong><UiBadge :tone="router.is_active ? 'success' : 'neutral'" dot>{{ router.is_active ? 'Active' : 'Off' }}</UiBadge></span>
+            <small>{{ router.members.length }} agents · {{ strategyLabel(router.strategy) }}</small>
+          </button>
+        </nav>
+        <p class="kiwi__muted">{{ routers.length ? 'Each router has its own ordered members and capacity policy.' : 'Create a router, then add configured AI Provider Agents.' }}</p>
+      </UiCard>
+
+      <div v-if="selected" class="kiwi__workspace">
+        <UiCard :title="selected.name || 'Untitled router'" :subtitle="`${capabilityLabel(selected.capability)} · ${strategyLabel(selected.strategy)}`">
+          <template #actions>
+            <UiButton variant="danger" @click="removeRouter"><FontAwesomeIcon :icon="faTrashCan" /> Delete</UiButton>
+            <UiButton variant="primary" :disabled="saving" @click="save">{{ saving ? 'Saving...' : 'Save changes' }}</UiButton>
+          </template>
+          <div class="kiwi__settings">
+            <UiFormField label="Router name"><UiInput v-model="selected.name" /></UiFormField>
+            <UiFormField label="Strategy" hint="Cost and latency strategies stay unavailable until every provider value is verified.">
+              <UiSelect v-model="selected.strategy" :options="strategyOptions" />
+            </UiFormField>
+            <div class="kiwi__toggle"><UiToggle v-model="selected.is_active" label="Router enabled" :description="selected.is_active ? 'Can be selected as the agent target.' : 'Not used for routing.'" /></div>
+          </div>
+          <div class="kiwi__metrics">
+            <UiMetric label="Agents" :value="selected.members.length" />
+            <UiMetric label="Configured capacity" :value="`${totalRpm} RPM`" />
+            <UiMetric label="Verified metadata" :value="`${verifiedCount} / ${selected.members.length}`" :tone="selected.members.length && verifiedCount === selected.members.length ? 'success' : 'neutral'" />
+          </div>
+        </UiCard>
+
+        <UiCard title="Provider agent order" subtitle="Requests reserve capacity from the first eligible agent, then continue down the order.">
+          <template #actions>
+            <UiButton variant="soft" @click="addMember"><FontAwesomeIcon :icon="faPlus" /> Add agent</UiButton>
+          </template>
+          <UiEmptyState v-if="!selected.members.length" title="No agents assigned" description="Add a configured General AI Agent to begin." />
+          <ol v-else class="kiwi__members">
+            <li v-for="(member, index) in selected.members" :key="member.id || `${member.provider_config}-${index}`" class="kiwi__member">
+              <div class="kiwi__member-head">
+                <span class="kiwi__number" aria-hidden="true">{{ member.priority }}</span>
+                <UiFormField class="kiwi__agent" label="Provider agent">
+                  <UiSelect v-model="member.provider_config" :options="providerOptions" searchable />
+                </UiFormField>
+                <UiFormField class="kiwi__source" label="Metadata source">
+                  <UiSelect v-model="member.metadata_source" :options="metadataOptions" />
+                </UiFormField>
+                <div class="kiwi__member-actions">
+                  <UiButton size="icon" title="Fetch published limits and prices" aria-label="Fetch published limits and prices" @click="fetchMetadata(member)"><FontAwesomeIcon :icon="faCloudArrowDown" /></UiButton>
+                  <UiButton size="icon" title="Move up" aria-label="Move up" :disabled="index === 0" @click="move(index, -1)"><FontAwesomeIcon :icon="faArrowUp" /></UiButton>
+                  <UiButton size="icon" title="Move down" aria-label="Move down" :disabled="index === selected.members.length - 1" @click="move(index, 1)"><FontAwesomeIcon :icon="faArrowDown" /></UiButton>
+                  <UiButton size="icon" variant="danger" title="Remove from router" aria-label="Remove from router" @click="removeMember(index)"><FontAwesomeIcon :icon="faTrashCan" /></UiButton>
+                </div>
+              </div>
+              <div class="kiwi__limits">
+                <UiFormField v-for="field in numberFields" :key="field.key" :label="field.label">
+                  <UiInput type="number" :min="field.min" :step="field.step" :placeholder="field.placeholder" :model-value="member[field.key] ?? ''" @update:model-value="member[field.key] = toNumber($event)" />
+                </UiFormField>
+              </div>
+            </li>
+          </ol>
+          <p class="kiwi__muted kiwi__help">
+            <strong>Provider published</strong>: fetched from the provider's API. <strong>Operator supplied</strong>: entered by hand from an official provider plan.
+            <strong>Incomplete</strong>: unknown values; suitable only for ordered routing.
+          </p>
+        </UiCard>
+      </div>
+      <UiCard v-else class="kiwi__workspace">
+        <UiEmptyState title="No router selected" description="Create a KiwiRouter to configure provider capacity and routing order." />
+      </UiCard>
+    </div>
+  </UiPage>
 </template>
 
 <style scoped>
-.page{height:100%;box-sizing:border-box;overflow:auto;padding:28px;background:#f6f8f6;color:#17231b}.eyebrow{margin:0 0 5px;color:#568568;text-transform:uppercase;font-size:.68rem;letter-spacing:.12em;font-weight:800}h1{margin:0 0 5px;font:700 2rem Georgia,serif}h2,h3,p{margin-top:0}.page>header p,.top p,.card-head p,.muted{color:#68776d}.message{padding:10px 12px;background:#edf8f0;border:1px solid #badcc7;border-radius:8px}.message.error{background:#fff0ee;border-color:#efc1bc;color:#9d3029}.layout{display:grid;grid-template-columns:280px 1fr;gap:16px}aside,.card{background:#fff;border:1px solid #e0e6df;border-radius:12px;box-shadow:0 6px 18px #233a2b0c}aside{height:max-content;padding:12px}.aside-head,.top,.card-head,.name-row,.actions{display:flex;align-items:center;justify-content:space-between;gap:10px}.aside-head button,.card-head button,.member-actions button{border:1px solid #96b6a1;background:#f3faf4;color:#256042;border-radius:7px;padding:7px 9px;font-weight:700}.new-form{padding:10px;margin:8px 0;background:#f1f8f2;border-radius:8px}.new-form label,label{display:flex;flex-direction:column;gap:5px;font-size:.74rem;font-weight:700}.new-form input,input,select{border:1px solid #cbd9ce;border-radius:7px;padding:8px;background:#fff}.new-form button{margin-top:8px;border:0;background:#175c3b;color:#fff;padding:7px;border-radius:6px}.router{position:relative;width:100%;text-align:left;border:0;background:transparent;padding:12px 10px;border-radius:8px;cursor:pointer}.router.selected{background:#eaf7ed}.router strong,.router small{display:block}.router small{color:#718077;margin-top:4px}.router i{position:absolute;right:10px;top:16px;width:9px;height:9px;border-radius:50%;background:#aaa}.router i.on{background:#289161}.workspace{min-width:0}.top{margin:6px 0 15px}.top h2{margin:0}.name-input{font-size:1.2rem;font-weight:700}.link{border:0;background:none;color:#256042;text-decoration:underline;cursor:pointer}.badge{padding:4px 8px;border-radius:99px;background:#e9ece9;color:#657167;font-size:.7rem;font-weight:800;text-transform:uppercase}.badge.active{background:#ddf3e4;color:#18703d}.save{border:0;background:#175c3b;color:#fff;border-radius:8px;padding:10px 13px;font-weight:800}.danger{border:1px solid #efbbb6;background:#fff;color:#a2312a;border-radius:8px;padding:9px 12px;font-weight:700}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}.metrics div{padding:13px;background:#edf6ef;border-radius:9px}.metrics span,.metrics b{display:block}.metrics span{font-size:.72rem;color:#66806f}.card{padding:18px}.member{display:grid;grid-template-columns:30px repeat(8,minmax(100px,1fr)) 170px;gap:8px;align-items:end;padding:12px 0;border-top:1px solid #e8eee9}.number{display:grid;place-items:center;width:25px;height:25px;border-radius:50%;background:#175c3b;color:#fff;font-weight:800}.member-actions{display:flex;flex-wrap:wrap;gap:5px}.member-actions button:disabled{opacity:.4}.member-actions .remove{border-color:#efbbb6;color:#a2312a;background:#fff}.empty{padding:26px 0;color:#718077}.bottom{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.empty-workspace{padding:50px;background:#fff;border:1px dashed #c7d4c9;border-radius:12px;text-align:center}@media(max-width:1050px){.member{grid-template-columns:repeat(4,1fr)}.number{display:none}}@media(max-width:760px){.page{padding:18px}.layout,.bottom,.metrics{grid-template-columns:1fr}.top{align-items:flex-start;flex-direction:column}.actions{width:100%}.actions button{flex:1}}
-.toggle{border:1px solid #cbd9ce;background:#fff;border-radius:7px;padding:4px 7px;color:#385346;font-size:.72rem;font-weight:700}
-@media(max-width:1050px){.member{grid-template-columns:repeat(4,minmax(120px,1fr))}}
-@media(max-width:760px){.name-row{flex-wrap:wrap}}
-
-/* Semantic theme bridge. */
-.page{background:var(--ui-bg);color:var(--ui-text);font-family:var(--ui-font-sans)}
-.eyebrow,.link{color:var(--ui-primary)}
-.page>header p,.top p,.card-head p,.muted,.router small,.empty{color:var(--ui-text-muted)}
-.message{background:var(--ui-success-soft);border-color:var(--ui-success);color:var(--ui-success)}
-.message.error{background:var(--ui-danger-soft);border-color:var(--ui-danger);color:var(--ui-danger)}
-aside,.card,.empty-workspace{background:var(--ui-surface);border-color:var(--ui-border);border-radius:var(--ui-radius-md);box-shadow:var(--ui-shadow-sm)}
-.aside-head button,.card-head button,.member-actions button,.toggle{border-color:var(--ui-border-strong);background:var(--ui-surface-muted);color:var(--ui-primary)}
-.aside-head button:hover,.card-head button:hover,.member-actions button:hover:not(:disabled),.toggle:hover{border-color:var(--ui-primary);background:var(--ui-primary-soft)}
-.new-form,.router.selected,.metrics div{background:var(--ui-primary-soft)}
-.new-form input,input,select,.name-input{border-color:var(--ui-border-strong);background:var(--ui-surface);color:var(--ui-text)}
-.new-form input:focus,input:focus,select:focus,.name-input:focus{border-color:var(--ui-primary);box-shadow:var(--ui-focus-ring);outline:0}
-.new-form button,.save,.number{background:var(--ui-primary);color:var(--ui-on-primary)}
-.new-form button:hover,.save:hover{background:var(--ui-primary-hover)}
-.router{color:var(--ui-text)}.router:hover{background:var(--ui-surface-muted)}.router i{background:var(--ui-border-strong)}.router i.on{background:var(--ui-success)}
-.badge{background:var(--ui-surface-muted);color:var(--ui-text-muted)}.badge.active{background:var(--ui-success-soft);color:var(--ui-success)}
-.danger,.member-actions .remove{border-color:var(--ui-danger);background:var(--ui-surface);color:var(--ui-danger)}
-.danger:hover,.member-actions .remove:hover{background:var(--ui-danger-soft)}
-.metrics span{color:var(--ui-text-muted)}.metrics b{color:var(--ui-text-strong)}
-.member{border-color:var(--ui-border)}.empty-workspace{border-style:dashed}
+.kiwi { display:grid; grid-template-columns:minmax(15rem,18rem) minmax(0,1fr); gap:1rem; align-items:start; }
+.kiwi__workspace { display:grid; gap:1rem; min-width:0; }
+.kiwi :deep(.ui-card__header > div:last-child) { display:flex; flex-wrap:wrap; gap:.5rem; }
+.kiwi__muted { margin:.75rem 0 0; color:var(--ui-text-muted); font-size:.85rem; }
+.kiwi__new { display:grid; gap:.6rem; margin-bottom:.75rem; padding:.75rem; border-radius:var(--ui-radius-sm); background:var(--ui-surface-muted); }
+.kiwi__new .ui-button { justify-self:start; }
+.kiwi__list { display:grid; gap:.25rem; }
+.kiwi__router { display:grid; gap:.2rem; width:100%; padding:.65rem .75rem; border:1px solid transparent; border-radius:var(--ui-radius-sm); background:transparent; color:var(--ui-text); text-align:left; cursor:pointer; }
+.kiwi__router:hover { background:var(--ui-surface-muted); }
+.kiwi__router.is-selected { border-color:color-mix(in srgb, var(--ui-primary) 30%, transparent); background:var(--ui-primary-soft); }
+.kiwi__router-name { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+.kiwi__router small { color:var(--ui-text-muted); }
+.kiwi__settings { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:1rem; align-items:start; }
+.kiwi__toggle { padding-top:1.4rem; }
+.kiwi__metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; margin-top:1rem; }
+.kiwi__members { display:grid; gap:.75rem; margin:0; padding:0; list-style:none; }
+.kiwi__member { display:grid; gap:.75rem; padding:.9rem; border:1px solid var(--ui-border); border-radius:var(--ui-radius-md); background:var(--ui-surface); }
+.kiwi__member-head { display:grid; grid-template-columns:auto minmax(0,2fr) minmax(10rem,1fr) auto; gap:.75rem; align-items:end; }
+.kiwi__number { display:grid; place-items:center; width:1.9rem; height:1.9rem; margin-bottom:.2rem; border-radius:50%; background:var(--ui-primary); color:var(--ui-on-primary); font-weight:800; }
+.kiwi__member-actions { display:flex; gap:.35rem; }
+.kiwi__limits { display:grid; grid-template-columns:repeat(auto-fit,minmax(8.5rem,1fr)); gap:.75rem; padding-left:2.65rem; }
+.kiwi__help { line-height:1.5; }
+@media (max-width: 1100px) {
+  .kiwi { grid-template-columns:1fr; }
+  .kiwi__settings { grid-template-columns:1fr 1fr; }
+  .kiwi__toggle { grid-column:1 / -1; padding-top:0; }
+}
+@media (max-width: 760px) {
+  .kiwi__settings, .kiwi__metrics { grid-template-columns:1fr; }
+  .kiwi__member-head { grid-template-columns:auto minmax(0,1fr); }
+  .kiwi__source, .kiwi__member-actions { grid-column:2; }
+  .kiwi__limits { padding-left:0; grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
 </style>

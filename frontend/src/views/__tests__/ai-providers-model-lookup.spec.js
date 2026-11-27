@@ -1,13 +1,17 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import AIProviderFormView from '../AIProviderFormView.vue'
 import AIProvidersView from '../AIProvidersView.vue'
 
 const api = vi.hoisted(() => ({
   providers: {
-    list: vi.fn(), meta: vi.fn(), agentTarget: vi.fn(), fetchModels: vi.fn(), lookupModel: vi.fn(), update: vi.fn(),
+    list: vi.fn(), get: vi.fn(), meta: vi.fn(), agentTarget: vi.fn(), fetchModels: vi.fn(), lookupModel: vi.fn(), update: vi.fn(),
   },
   routers: { list: vi.fn() },
 }))
+const route = vi.hoisted(() => ({ params: {} }))
+const router = vi.hoisted(() => ({ push: vi.fn(), back: vi.fn() }))
+vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => router }))
 vi.mock('@/api/index.js', () => ({ aiProvidersApi: api.providers, kiwiRoutersApi: api.routers }))
 
 const saved = {
@@ -21,9 +25,8 @@ const info = {
 }
 
 async function openEdit() {
-  const wrapper = mount(AIProvidersView, { global: { stubs: { teleport: true } } })
-  await flushPromises()
-  await wrapper.findAll('button').find(b => b.text() === 'Edit').trigger('click')
+  route.params = { id: '7' }
+  const wrapper = mount(AIProviderFormView)
   await flushPromises()
   return wrapper
 }
@@ -35,11 +38,39 @@ describe('AI Providers model lookup', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     api.providers.list.mockResolvedValue({ data: [saved] })
+    api.providers.get.mockResolvedValue({ data: saved })
     api.providers.meta.mockResolvedValue({ data: { providers: { openai: 'OpenAI' }, capabilities: {}, models: {} } })
     api.providers.agentTarget.mockResolvedValue({ data: { mode: 'direct' } })
     api.routers.list.mockResolvedValue({ data: [] })
     api.providers.fetchModels.mockResolvedValue({ data: { models: ['gpt-4o', 'gpt-4o-mini'], source: 'api' } })
     api.providers.update.mockResolvedValue({ data: {} })
+  })
+
+  it('opens Add and Edit on their own page instead of a popup', async () => {
+    const wrapper = mount(AIProvidersView, { global: { stubs: { RouterLink: true } } })
+    await flushPromises()
+    await wrapper.findAll('button').find(b => b.text() === 'Edit').trigger('click')
+    expect(router.push).toHaveBeenCalledWith({ name: 'ai-provider-edit', params: { id: 7 } })
+    await wrapper.findAll('button').find(b => b.text().includes('Add Provider')).trigger('click')
+    expect(router.push).toHaveBeenLastCalledWith({ name: 'ai-provider-new' })
+    expect(wrapper.find('form').exists()).toBe(false)
+  })
+
+  it('shows the saved model name as text when editing, even when the list has it', async () => {
+    api.providers.get.mockResolvedValue({ data: { ...saved, model: 'gpt-4o-mini' } })
+    const wrapper = await openEdit()
+    expect(api.providers.get).toHaveBeenCalledWith(7)
+    expect(modelInput(wrapper).element.value).toBe('gpt-4o-mini')
+    await button(wrapper, 'Choose from the list instead').trigger('click')
+    expect(wrapper.findAll('select[required]').at(-1).element.value).toBe('gpt-4o-mini')
+  })
+
+  it('returns to the list after saving', async () => {
+    const wrapper = await openEdit()
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(api.providers.update).toHaveBeenCalledWith(7, expect.objectContaining({ model: 'my-fine-tune' }))
+    expect(router.push).toHaveBeenCalledWith({ name: 'ai-providers' })
   })
 
   it('keeps a typed model name that the list does not have', async () => {
