@@ -67,6 +67,41 @@ class ConversationConversionTests(TestCase):
         self.assertFalse(unchanged.data['changed'])
         self.assertEqual(ClientActivity.objects.count(), 2)
 
+    def test_assigns_the_converting_user_as_owner(self):
+        response = self._convert('lead')
+        self.assertEqual(response.status_code, 201, response.data)
+        membership = CompanyMembership.objects.get(user=self.user, company=self.company)
+        self.assertEqual(ClientProfile.objects.get().owner_id, membership.pk)
+        self.assertEqual(response.data['profile']['owner']['id'], membership.pk)
+
+    def test_converting_an_unassigned_client_claims_it_but_keeps_an_existing_owner(self):
+        self._convert('lead')
+        profile = ClientProfile.objects.get()
+        profile.owner = None
+        profile.save()
+
+        claimed = self._convert('lead')
+        self.assertEqual(claimed.status_code, 200, claimed.data)
+        self.assertTrue(claimed.data['changed'])
+        profile.refresh_from_db()
+        mine = CompanyMembership.objects.get(user=self.user, company=self.company)
+        self.assertEqual(profile.owner_id, mine.pk)
+        self.assertEqual(profile.lifecycle_stage, 'lead')
+        self.assertTrue(ClientActivity.objects.filter(title='Owner assigned from conversation').exists())
+
+        colleague = get_user_model().objects.create_user('conversation-colleague')
+        create_member(company=self.company, user=colleague, role='super_user')
+        other = APIClient()
+        other.force_authenticate(colleague)
+        kept = other.post(
+            f'/api/clientpulse/conversation-contacts/{self.whatsapp_contact.pk}/convert/',
+            {'lifecycle_stage': 'prospect'}, format='json',
+        )
+        self.assertEqual(kept.status_code, 200, kept.data)
+        profile.refresh_from_db()
+        self.assertEqual(profile.owner_id, mine.pk)
+        self.assertEqual(profile.lifecycle_stage, 'prospect')
+
     def test_reuses_an_exact_company_contact(self):
         contact = CompanyContact.objects.create(company=self.company, display_name='Existing Buyer')
         CompanyContactIdentity.objects.create(

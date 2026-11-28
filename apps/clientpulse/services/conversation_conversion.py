@@ -5,7 +5,7 @@ from django.db import transaction
 from apps.clientpulse.models import ClientProfile, ClientPulseSettings
 from apps.clientpulse.services.contact_linking import find_exact_contact_ids
 from apps.clientpulse.services.profile_service import record_activity
-from apps.tenancy.models import CompanyContact, CompanyContactIdentity
+from apps.tenancy.models import CompanyContact, CompanyContactIdentity, CompanyMembership
 from apps.tenancy.services.identity_normalization import normalize_identity
 
 
@@ -65,6 +65,10 @@ def _sync_identities(contact, whatsapp_contact):
         )
 
 
+def _actor_membership(actor, company):
+    return CompanyMembership.objects.filter(user=actor, company=company, is_active=True).first()
+
+
 @transaction.atomic
 def convert_conversation_contact(
     whatsapp_contact, company, actor, lifecycle_stage, *, expected_profile_id=None,
@@ -90,10 +94,14 @@ def convert_conversation_contact(
         whatsapp_contact.save(update_fields=['company_contact', 'updated_at'])
 
     settings, _ = ClientPulseSettings.objects.get_or_create(company=company)
+    # The person who converts a contact owns it. Someone outside the company (no membership)
+    # leaves it unassigned rather than guessing an owner.
+    membership = _actor_membership(actor, company)
     profile, created = ClientProfile.objects.get_or_create(
         company=company,
         contact=contact,
         defaults={
+            'owner': membership,
             'lifecycle_stage': lifecycle_stage,
             'source': 'whatsapp',
             'preferred_channel': 'whatsapp',
@@ -114,16 +122,27 @@ def convert_conversation_contact(
     if profile.status == 'archived':
         raise ConversationConversionError('archived_profile', 'This ClientPulse profile is archived.')
 
-    changed = not created and profile.lifecycle_stage != lifecycle_stage
+    stage_changed = not created and profile.lifecycle_stage != lifecycle_stage
+    # Converting an existing but unassigned client claims it; an existing owner is never replaced.
+    claimed = not created and profile.owner_id is None and membership is not None
+    changed = stage_changed or claimed
     if changed:
         previous_stage = profile.lifecycle_stage
         profile.lifecycle_stage = lifecycle_stage
+        if claimed:
+            profile.owner = membership
         profile.updated_by = actor
-        profile.save(update_fields=['lifecycle_stage', 'updated_by', 'updated_at'])
-        record_activity(
-            profile, actor, 'Lifecycle updated from conversation',
-            metadata={'before': previous_stage, 'after': lifecycle_stage},
-        )
+        profile.save(update_fields=['lifecycle_stage', 'owner', 'updated_by', 'updated_at'])
+        if stage_changed:
+            record_activity(
+                profile, actor, 'Lifecycle updated from conversation',
+                metadata={'before': previous_stage, 'after': lifecycle_stage},
+            )
+        if claimed:
+            record_activity(
+                profile, actor, 'Owner assigned from conversation',
+                metadata={'before': None, 'after': membership.pk},
+            )
     elif created:
         record_activity(profile, actor, 'Client created from conversation')
 
